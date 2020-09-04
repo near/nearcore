@@ -275,10 +275,10 @@ impl BorshDeserialize for HandshakeV2 {
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                Box::new(HandshakeFailureReason::ProtocolVersionMismatch {
+                HandshakeFailureReason::ProtocolVersionMismatch {
                     version,
                     oldest_supported_version,
-                }),
+                },
             ))
         }
     }

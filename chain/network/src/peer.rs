@@ -615,11 +615,22 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
         let mut peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
             Err(err) => {
-                if let Some(HandshakeFailureReason::ProtocolVersionMismatch { .. }) = err
+                if let Some(version) = err
                     .get_ref()
-                    .map(|inner| inner.downcast_ref::<HandshakeFailureReason>())
+                    .map(|err| err.downcast_ref::<HandshakeFailureReason>())
+                    .flatten()
+                    .map(|inner| {
+                        if let HandshakeFailureReason::ProtocolVersionMismatch { version, .. } =
+                            *inner
+                        {
+                            Some(version)
+                        } else {
+                            None
+                        }
+                    })
                     .flatten()
                 {
+                    debug!(target: "network", "Received connection from node with unsupported version: {}", version);
                     self.send_message(PeerMessage::HandshakeFailure(
                         self.node_info.clone(),
                         HandshakeFailureReason::ProtocolVersionMismatch {
@@ -627,8 +638,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
                         },
                     ));
+                } else {
+                    info!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
                 }
-                info!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
                 return;
             }
         };
@@ -683,6 +695,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                             // Use target_version as protocol_version to talk with this peer
                             self.protocol_version = target_version;
                             self.send_handshake(ctx);
+                            return;
                         } else {
                             warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION), (version, oldest_supported_version));
                         }

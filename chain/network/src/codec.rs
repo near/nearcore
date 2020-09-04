@@ -87,8 +87,8 @@ mod test {
 
     use crate::routing::EdgeInfo;
     use crate::types::{
-        Handshake, HandshakeV2, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage,
-        RoutedMessageBody, SyncData,
+        Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerIdOrHash, PeerInfo,
+        RoutedMessage, RoutedMessageBody, SyncData,
     };
 
     use super::*;
@@ -156,7 +156,24 @@ mod test {
             edge_info: EdgeInfo::default(),
         };
         let msg = PeerMessage::HandshakeV2(fake_handshake);
-        test_codec(msg);
+
+        let mut codec = Codec::new();
+        let mut buffer = BytesMut::new();
+        codec.encode(peer_message_to_bytes(msg.clone()).unwrap(), &mut buffer).unwrap();
+        let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
+
+        let err = bytes_to_peer_message(&decoded).unwrap_err();
+
+        assert_eq!(
+            *err.get_ref()
+                .map(|inner| inner.downcast_ref::<HandshakeFailureReason>())
+                .unwrap()
+                .unwrap(),
+            HandshakeFailureReason::ProtocolVersionMismatch {
+                version: 0,
+                oldest_supported_version: 0,
+            }
+        );
     }
 
     #[test]
