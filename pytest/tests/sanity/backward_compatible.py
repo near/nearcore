@@ -41,9 +41,6 @@ def main(near_root, stable_branch, new_branch):
                          '../../../neard/res/genesis_config.json')) as f:
         current_genesis = json.load(f)
         current_protocol_version = current_genesis['protocol_version']
-    if current_protocol_version > stable_protocol_version:
-        print('Protcol upgrade, does not need backward compatible')
-        exit(0)
 
     # Run both binaries at the same time.
     config = {
