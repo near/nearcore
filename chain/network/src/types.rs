@@ -30,7 +30,8 @@ use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransac
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::version::{
-    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
+    ProtocolVersion, NETWORK_PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+    PROTOCOL_VERSION,
 };
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
@@ -195,7 +196,7 @@ impl Handshake {
         edge_info: EdgeInfo,
     ) -> Self {
         Handshake {
-            version: PROTOCOL_VERSION,
+            version: NETWORK_PROTOCOL_VERSION,
             peer_id,
             target_peer_id,
             listen_port,
@@ -289,7 +290,10 @@ impl From<Handshake> for HandshakeV2 {
         Self {
             // In previous version of handshake, nodes usually sent the oldest supported version instead of their current version.
             // Computing the current version of the other as the oldest version plus 1, but keeping it smaller than current version.
-            version: std::cmp::min(PROTOCOL_VERSION - 1, handshake_old.version.saturating_add(1)),
+            version: std::cmp::min(
+                NETWORK_PROTOCOL_VERSION,
+                handshake_old.version.saturating_add(1),
+            ),
             oldest_supported_version: handshake_old.version,
             peer_id: handshake_old.peer_id,
             target_peer_id: handshake_old.target_peer_id,

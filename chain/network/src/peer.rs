@@ -17,7 +17,7 @@ use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
-    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
+    ProtocolVersion, NETWORK_PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
 };
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
@@ -188,7 +188,7 @@ impl Peer {
             peer_info: peer_info.into(),
             peer_type,
             peer_status: PeerStatus::Connecting,
-            protocol_version: PROTOCOL_VERSION,
+            protocol_version: NETWORK_PROTOCOL_VERSION,
             framed,
             handshake_timeout,
             peer_manager_addr,
@@ -634,7 +634,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     self.send_message(PeerMessage::HandshakeFailure(
                         self.node_info.clone(),
                         HandshakeFailureReason::ProtocolVersionMismatch {
-                            version: PROTOCOL_VERSION,
+                            version: NETWORK_PROTOCOL_VERSION,
                             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
                         },
                     ));
@@ -684,7 +684,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         version,
                         oldest_supported_version,
                     } => {
-                        let target_version = std::cmp::min(version, PROTOCOL_VERSION);
+                        let target_version = std::cmp::min(version, NETWORK_PROTOCOL_VERSION);
 
                         if target_version
                             >= std::cmp::max(
@@ -697,7 +697,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                             self.send_handshake(ctx);
                             return;
                         } else {
-                            warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION), (version, oldest_supported_version));
+                            warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (NETWORK_PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION), (version, oldest_supported_version));
                         }
                     }
                     HandshakeFailureReason::InvalidTarget => {
@@ -712,7 +712,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
 
                 debug_assert!(
                     OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= handshake.version
-                        && handshake.version <= PROTOCOL_VERSION
+                        && handshake.version <= NETWORK_PROTOCOL_VERSION
                 );
 
                 if handshake.chain_info.genesis_id != self.genesis_id {
