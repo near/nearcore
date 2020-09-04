@@ -43,6 +43,7 @@ use serde::export::fmt::Error;
 use serde::export::Formatter;
 use std::{fmt::Debug, io};
 
+const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.
@@ -171,8 +172,26 @@ impl fmt::Display for HandshakeFailureReason {
 
 impl std::error::Error for HandshakeFailureReason {}
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
+    /// Protocol version.
+    pub version: u32,
+    /// Sender's peer id.
+    pub peer_id: PeerId,
+    /// Receiver's peer id.
+    pub target_peer_id: PeerId,
+    /// Sender's listening addr.
+    pub listen_port: Option<u16>,
+    /// Peer's chain information.
+    pub chain_info: PeerChainInfo,
+    /// Info for new edge.
+    pub edge_info: EdgeInfo,
+}
+
+/// Struct describing the layout for Handshake.
+/// It is used to automatically derive BorshDeserialize.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+pub struct HandshakeAutoDes {
     /// Protocol version.
     pub version: u32,
     /// Sender's peer id.
@@ -202,6 +221,50 @@ impl Handshake {
             listen_port,
             chain_info,
             edge_info,
+        }
+    }
+}
+
+// Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
+// If the version is supported then fallback to standard deserializer.
+impl BorshDeserialize for Handshake {
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        // Detect the current and oldest supported version from the header
+        if buf.len() < 4 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                ERROR_UNEXPECTED_LENGTH_OF_INPUT,
+            ));
+        }
+
+        let version = u32::from_le_bytes(buf[..4].try_into().unwrap());
+
+        if OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
+            // If we support this version, then try to deserialize with custom deserializer
+            match version {
+                _ => HandshakeAutoDes::deserialize(buf).map(Into::into),
+            }
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                HandshakeFailureReason::ProtocolVersionMismatch {
+                    version,
+                    oldest_supported_version: version,
+                },
+            ))
+        }
+    }
+}
+
+impl From<HandshakeAutoDes> for Handshake {
+    fn from(handshake: HandshakeAutoDes) -> Self {
+        Self {
+            version: handshake.version,
+            peer_id: handshake.peer_id,
+            target_peer_id: handshake.target_peer_id,
+            listen_port: handshake.listen_port,
+            chain_info: handshake.chain_info,
+            edge_info: handshake.edge_info,
         }
     }
 }
@@ -250,8 +313,6 @@ pub struct HandshakeV2AutoDes {
     pub chain_info: PeerChainInfo,
     pub edge_info: EdgeInfo,
 }
-
-const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 
 // Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
 // If the version is supported then fallback to standard deserializer.
