@@ -17,7 +17,7 @@ use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
-    ProtocolVersion, NETWORK_PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
@@ -26,12 +26,12 @@ use crate::rate_counter::RateCounter;
 use crate::recorder::{PeerMessageMetadata, Status};
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
-    Ban, Consolidate, ConsolidateResponse, HandshakeFailureReason, HandshakeV2,
+    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
-    PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
-    QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
+    PeerMessage, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
+    PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage,
+    Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
@@ -187,7 +187,7 @@ impl Peer {
             peer_info: peer_info.into(),
             peer_type,
             peer_status: PeerStatus::Connecting,
-            protocol_version: NETWORK_PROTOCOL_VERSION,
+            protocol_version: PROTOCOL_VERSION,
             framed,
             handshake_timeout,
             peer_manager_addr,
@@ -274,15 +274,33 @@ impl Peer {
                     height,
                     tracked_shards,
                 }) => {
-                    let handshake = HandshakeV2::new(
-                        act.protocol_version,
-                        act.node_id(),
-                        act.peer_id().unwrap(),
-                        act.node_info.addr_port(),
-                        PeerChainInfo { genesis_id, height, tracked_shards },
-                        act.edge_info.as_ref().unwrap().clone(),
-                    );
-                    act.send_message(PeerMessage::HandshakeV2(handshake));
+                    // TODO(MOO): Fill this here
+                    let archival = false;
+
+                    let handshake = match act.protocol_version {
+                        36 => PeerMessage::Handshake(Handshake::new(
+                            act.protocol_version,
+                            act.node_id(),
+                            act.peer_id().unwrap(),
+                            act.node_info.addr_port(),
+                            PeerChainInfoV2 { genesis_id, height, tracked_shards, archival },
+                            act.edge_info.as_ref().unwrap().clone(),
+                        )),
+                        34..=35 => PeerMessage::HandshakeV2(HandshakeV2::new(
+                            act.protocol_version,
+                            act.node_id(),
+                            act.peer_id().unwrap(),
+                            act.node_info.addr_port(),
+                            PeerChainInfo { genesis_id, height, tracked_shards },
+                            act.edge_info.as_ref().unwrap().clone(),
+                        )),
+                        _ => {
+                            error!(target: "network", "Trying to talk with peer with no supported version: {}", act.protocol_version);
+                            return actix::fut::ready(());
+                        }
+                    };
+
+                    act.send_message(handshake);
                     actix::fut::ready(())
                 }
                 Err(err) => {
@@ -631,7 +649,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     self.send_message(PeerMessage::HandshakeFailure(
                         self.node_info.clone(),
                         HandshakeFailureReason::ProtocolVersionMismatch {
-                            version: NETWORK_PROTOCOL_VERSION,
+                            version: PROTOCOL_VERSION,
                             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
                         },
                     ));
@@ -681,7 +699,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         version,
                         oldest_supported_version,
                     } => {
-                        let target_version = std::cmp::min(version, NETWORK_PROTOCOL_VERSION);
+                        let target_version = std::cmp::min(version, PROTOCOL_VERSION);
 
                         if target_version
                             >= std::cmp::max(
@@ -694,7 +712,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                             self.send_handshake(ctx);
                             return;
                         } else {
-                            warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (NETWORK_PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION), (version, oldest_supported_version));
+                            warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION), (version, oldest_supported_version));
                         }
                     }
                     HandshakeFailureReason::InvalidTarget => {
@@ -709,7 +727,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
 
                 debug_assert!(
                     OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= handshake.version
-                        && handshake.version <= NETWORK_PROTOCOL_VERSION
+                        && handshake.version <= PROTOCOL_VERSION
                 );
 
                 if handshake.chain_info.genesis_id != self.genesis_id {
