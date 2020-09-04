@@ -3,11 +3,11 @@ use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
 
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
-use near_vm_logic::types::{AccountId, Balance, ReturnData};
+use near_vm_logic::types::{AccountId, Balance, ReturnData, StorageUsage};
 use near_vm_logic::{External, VMLogicError, VMOutcome};
 
 use crate::evm_state::{EvmAccount, EvmState, StateStore};
-use crate::types::{GetCodeArgs, GetStorageAtArgs, Result, TransferArgs, WithdrawArgs};
+use crate::types::{AddressArg, GetStorageAtArgs, Result, TransferArgs, WithdrawArgs};
 
 mod builtins;
 mod evm_state;
@@ -20,6 +20,7 @@ pub struct EvmContext<'a> {
     ext: &'a mut dyn External,
     predecessor_id: AccountId,
     attached_deposit: Balance,
+    storage_usage: StorageUsage,
     logs: Vec<String>,
 }
 
@@ -99,8 +100,9 @@ impl<'a> EvmContext<'a> {
         ext: &'a mut dyn External,
         predecessor_id: AccountId,
         attached_deposit: Balance,
+        storage_usage: StorageUsage,
     ) -> Self {
-        Self { ext, predecessor_id, attached_deposit, logs: Vec::default() }
+        Self { ext, predecessor_id, attached_deposit, storage_usage, logs: Vec::default() }
     }
 
     pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
@@ -119,6 +121,9 @@ impl<'a> EvmContext<'a> {
     }
 
     pub fn call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
+        if args.len() <= 20 {
+            return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
+        }
         let contract_address = Address::from_slice(&args[..20]);
         let input = &args[20..];
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
@@ -135,6 +140,9 @@ impl<'a> EvmContext<'a> {
     ///
     /// This function serves the eth_call functionality, and will NOT apply state changes.
     pub fn view_call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
+        if args.len() <= 20 {
+            return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
+        }
         let contract_address = Address::from_slice(&args[..20]);
         let input = &args[20..];
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
@@ -143,7 +151,7 @@ impl<'a> EvmContext<'a> {
     }
 
     pub fn get_code(&self, args: Vec<u8>) -> Result<Vec<u8>> {
-        let args = GetCodeArgs::try_from_slice(&args)
+        let args = AddressArg::try_from_slice(&args)
             .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
         Ok(self.code_at(&Address::from_slice(&args.address)).unwrap_or(None).unwrap_or(vec![]))
     }
@@ -158,11 +166,15 @@ impl<'a> EvmContext<'a> {
     }
 
     pub fn get_balance(&self, args: Vec<u8>) -> Result<U256> {
-        self.balance_of(&Address::from_slice(&args))
+        let args = AddressArg::try_from_slice(&args)
+            .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
+        self.balance_of(&Address::from_slice(&args.address))
     }
 
     pub fn get_nonce(&self, args: Vec<u8>) -> Result<U256> {
-        self.nonce_of(&Address::from_slice(&args))
+        let args = AddressArg::try_from_slice(&args)
+            .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
+        self.nonce_of(&Address::from_slice(&args.address))
     }
 
     pub fn deposit(&mut self, args: Vec<u8>) -> Result<U256> {
@@ -205,28 +217,36 @@ pub fn run_evm(
     predecessor_id: &AccountId,
     amount: Balance,
     attached_deposit: Balance,
+    storage_usage: StorageUsage,
     method_name: String,
     args: Vec<u8>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let mut context = EvmContext::new(ext, predecessor_id.clone(), attached_deposit);
+    let mut context = EvmContext::new(ext, predecessor_id.clone(), attached_deposit, storage_usage);
     let result = match method_name.as_str() {
+        // Change the state methods.
         "deploy_code" => context.deploy_code(args).map(|address| utils::address_to_vec(&address)),
-        "get_code" => context.get_code(args),
         "call_function" => context.call_function(args),
-        "view_call_contract" => context.view_call_function(args),
-        "get_storage_at" => context.get_storage_at(args),
-        "get_balance" => context.get_balance(args).map(|balance| utils::u256_to_vec(&balance)),
         "deposit" => context.deposit(args).map(|balance| utils::u256_to_vec(&balance)),
         "withdraw" => context.withdraw(args).map(|_| vec![]),
         "transfer" => context.transfer(args).map(|_| vec![]),
+        // View methods.
+        "view_call_contract" => context.view_call_function(args),
+        "get_code" => context.get_code(args),
+        "get_storage_at" => context.get_storage_at(args),
+        "get_nonce" => context.get_nonce(args).map(|nonce| utils::u256_to_vec(&nonce)),
+        "get_balance" => context.get_balance(args).map(|balance| utils::u256_to_vec(&balance)),
         _ => Err(VMLogicError::EvmError(EvmError::MethodNotFound)),
     };
     match result {
         Ok(value) => {
             let outcome = VMOutcome {
-                balance: amount,
-                storage_usage: 0,
+                // This is total amount of all $NEAR inside this EVM.
+                // Outcome balance is equal to amount with attached deposit, because all the accounting happens internally.
+                // Should already validate that will not overflow external to this call.
+                balance: amount.checked_add(attached_deposit).unwrap_or(amount),
+                storage_usage: context.storage_usage,
                 return_data: ReturnData::Value(value),
+                // TODO: calculate how much gas was used.
                 burnt_gas: 0,
                 used_gas: 0,
                 logs: context.logs,

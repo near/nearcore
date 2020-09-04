@@ -199,6 +199,6 @@ mod test {
 
     #[test]
     fn test_evm_deploy_call_testnet() {
-        run_testnet_test!(test_evm_deploy_call(node));
+        run_testnet_test!(test_evm_deploy_call);
     }
 }

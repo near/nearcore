@@ -11,7 +11,7 @@ use serde;
 
 use lazy_static::lazy_static;
 
-use crate::hash::{hash, CryptoHash};
+use crate::hash::{hash, CryptoHash, Digest};
 use crate::types::{AccountId, NumSeats, NumShards, ShardId};
 
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -19,6 +19,17 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
+
+lazy_static! {
+    /// Predetermined code hash used for EVM precompile.
+    pub static ref EVM_CODE_HASH: CryptoHash = code_hash(1);
+}
+
+fn code_hash(num: u8) -> CryptoHash {
+    let mut buf = [0; 32];
+    buf[0] = num;
+    return CryptoHash(Digest(buf));
+}
 
 pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);

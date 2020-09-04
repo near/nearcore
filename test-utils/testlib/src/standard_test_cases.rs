@@ -1285,7 +1285,7 @@ pub fn test_evm_deploy_call(node: impl Node) {
     )
     .unwrap();
     let contract_id = node_user
-        .function_call(alice_account(), evm_account(), "deploy_code", bytes, 10u64.pow(14), 0)
+        .function_call(alice_account(), evm_account(), "deploy_code", bytes, 10u64.pow(14), 10)
         .unwrap()
         .status
         .as_success_decoded()
@@ -1306,7 +1306,7 @@ pub fn test_evm_deploy_call(node: impl Node) {
     let (input, _decoder) = cryptozombies::functions::get_zombies_by_owner::call(
         near_evm_runner::utils::near_account_id_to_evm_address(&alice_account()),
     );
-    let args = vec![contract_id, input].concat();
+    let args = vec![contract_id.clone(), input].concat();
     let bytes = node_user
         .function_call(
             alice_account(),
@@ -1327,4 +1327,7 @@ pub fn test_evm_deploy_call(node: impl Node) {
     let res =
         cryptozombies::functions::get_zombies_by_owner::decode_output(&result.result).unwrap();
     assert_eq!(res, vec![U256::from(0)]);
+
+    let result = node_user.view_call(&evm_account(), "get_balance", &contract_id).unwrap();
+    assert_eq!(U256::from_big_endian(&result.result), U256::from(10));
 }

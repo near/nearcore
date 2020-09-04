@@ -9,7 +9,7 @@ pub type RawHash = [u8; 32];
 pub type Result<T> = std::result::Result<T, VMLogicError>;
 
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct GetCodeArgs {
+pub struct AddressArg {
     pub address: RawAddress,
 }
 
