@@ -26,8 +26,9 @@ def main():
         shutil.rmtree(node_root)
     subprocess.check_output('mkdir -p /tmp/near', shell=True)
 
+    # TODO(#3285): use proper branch
     near_root, (stable_branch,
-                current_branch) = branches.prepare_ab_test("beta")
+                current_branch) = branches.prepare_ab_test("1.13.0")
 
     # Setup local network.
     print([
@@ -113,11 +114,6 @@ def main():
     latest_protocol_version = status3["latest_protocol_version"]
     assert protocol_version == latest_protocol_version, \
         "Latest protocol version %d should match active protocol version %d" % (latest_protocol_version, protocol_version)
-
-    gas_price = nodes[0].json_rpc('gas_price', [None])
-    gas_price = int(gas_price['result']['gas_price'])
-    assert gas_price < 1000000000, gas_price
-    assert gas_price > 100000000, gas_price
 
     hash = status0['sync_info']['latest_block_hash']
 

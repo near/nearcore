@@ -38,7 +38,10 @@ def compile_current():
         subprocess.check_output(['cargo', 'build', '-p', 'near'])
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
     branch = escaped(branch)
-    os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
+    if os.path.exists('../target/debug/near'):
+        os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
+    else:
+        os.rename('../target/debug/neard', '../target/debug/near-%s' % branch)
     os.rename('../target/debug/state-viewer',
               '../target/debug/state-viewer-%s' % branch)
     subprocess.check_output(['git', 'checkout', '../Cargo.lock'])
@@ -64,11 +67,17 @@ def download_binary(uname, branch):
 
 def prepare_ab_test(other_branch):
     # Use NEAR_AB_BINARY_EXISTS to avoid rebuild / re-download when testing locally.
-    if not os.environ.get('NEAR_AB_BINARY_EXISTS'):
-        compile_current()
-        uname = os.uname()[0]
-        if other_branch in ['master', 'beta', 'stable'] and uname in ['Linux', 'Darwin']:
-            download_binary(uname, other_branch)
-        else:
-            compile_binary(other_branch)
+    #if not os.environ.get('NEAR_AB_BINARY_EXISTS'):
+    #    compile_current()
+    #    uname = os.uname()[0]
+    #    if other_branch in ['master', 'beta', 'stable'] and uname in ['Linux', 'Darwin']:
+    #        download_binary(uname, other_branch)
+    #    else:
+    # TODO: re-enable caching
+    compile_current()
+    uname = os.uname()[0]
+    try:
+        download_binary(uname, other_branch)
+    except Exception:
+        compile_binary(other_branch)
     return '../target/debug/', [other_branch, escaped(current_branch())]
