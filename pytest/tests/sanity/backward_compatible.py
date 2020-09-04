@@ -78,7 +78,9 @@ def main(near_root, stable_branch, new_branch):
 
 
 if __name__ == "__main__":
+    other = 'beta' if len(sys.argv) == 1 else sys.argv[1]
+
     near_root, (stable_branch,
-                new_branch) = branches.prepare_ab_test("beta")
+                new_branch) = branches.prepare_ab_test(other)
 
     main(near_root, stable_branch, new_branch)
