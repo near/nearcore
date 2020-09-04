@@ -32,16 +32,6 @@ def main(near_root, stable_branch, new_branch):
         "--home=%s" % node_root, "testnet", "--v", "2", "--prefix", "test"
     ])
 
-    with open('/tmp/near/backward/test0/genesis.json') as f:
-        stable_genesis = json.load(f)
-        stable_protocol_version = stable_genesis['protocol_version']
-
-    with open(
-            os.path.join(os.path.dirname(__file__),
-                         '../../../neard/res/genesis_config.json')) as f:
-        current_genesis = json.load(f)
-        current_protocol_version = current_genesis['protocol_version']
-
     # Run both binaries at the same time.
     config = {
         "local": True,
