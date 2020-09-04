@@ -87,8 +87,8 @@ mod test {
 
     use crate::routing::EdgeInfo;
     use crate::types::{
-        Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerIdOrHash, PeerInfo,
-        RoutedMessage, RoutedMessageBody, SyncData,
+        Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerChainInfoV2,
+        PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody, SyncData,
     };
 
     use super::*;
@@ -106,13 +106,15 @@ mod test {
         let peer_info = PeerInfo::random();
         let fake_handshake = Handshake {
             version: PROTOCOL_VERSION,
+            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
             peer_id: peer_info.id.clone(),
             target_peer_id: peer_info.id,
             listen_port: None,
-            chain_info: PeerChainInfo {
+            chain_info: PeerChainInfoV2 {
                 genesis_id: Default::default(),
                 height: 0,
                 tracked_shards: vec![],
+                archival: false,
             },
             edge_info: EdgeInfo::default(),
         };

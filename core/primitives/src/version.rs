@@ -18,12 +18,9 @@ pub const DB_VERSION: DbVersion = 8;
 pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 35;
-/// TODO: Remove in next release. This is to allow nodes with initial version 34
-/// to be compatible with nodes at version 35
-pub const NETWORK_PROTOCOL_VERSION: ProtocolVersion = 34;
+pub const PROTOCOL_VERSION: ProtocolVersion = 36;
 /// Oldest supported version by this client.
-pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 33;
+pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
 
 /// Minimum gas price proposed in NEP 92 and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;

@@ -30,8 +30,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransac
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::version::{
-    ProtocolVersion, NETWORK_PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-    PROTOCOL_VERSION,
+    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
@@ -133,8 +132,43 @@ pub struct PeerChainInfo {
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockHeight,
-    /// Shards that the peer is tracking
+    /// Shards that the peer is tracking.
     pub tracked_shards: Vec<ShardId>,
+}
+
+/// Peer chain information.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
+pub struct PeerChainInfoV2 {
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Last known chain height of the peer.
+    pub height: BlockHeight,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
+}
+
+impl From<PeerChainInfoV2> for PeerChainInfo {
+    fn from(peer_chain_info: PeerChainInfoV2) -> Self {
+        Self {
+            genesis_id: peer_chain_info.genesis_id,
+            height: peer_chain_info.height,
+            tracked_shards: peer_chain_info.tracked_shards,
+        }
+    }
+}
+
+impl From<PeerChainInfo> for PeerChainInfoV2 {
+    fn from(peer_chain_info: PeerChainInfo) -> Self {
+        Self {
+            genesis_id: peer_chain_info.genesis_id,
+            height: peer_chain_info.height,
+            tracked_shards: peer_chain_info.tracked_shards,
+            // TODO(MOO): Select default value for archival node
+            archival: false,
+        }
+    }
 }
 
 /// Peer type.
@@ -176,6 +210,8 @@ impl std::error::Error for HandshakeFailureReason {}
 pub struct Handshake {
     /// Protocol version.
     pub version: u32,
+    /// Oldest supported protocol version.
+    pub oldest_supported_version: u32,
     /// Sender's peer id.
     pub peer_id: PeerId,
     /// Receiver's peer id.
@@ -183,7 +219,7 @@ pub struct Handshake {
     /// Sender's listening addr.
     pub listen_port: Option<u16>,
     /// Peer's chain information.
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     /// Info for new edge.
     pub edge_info: EdgeInfo,
 }
@@ -194,6 +230,8 @@ pub struct Handshake {
 pub struct HandshakeAutoDes {
     /// Protocol version.
     pub version: u32,
+    /// Oldest supported protocol version.
+    pub oldest_supported_version: u32,
     /// Sender's peer id.
     pub peer_id: PeerId,
     /// Receiver's peer id.
@@ -201,21 +239,23 @@ pub struct HandshakeAutoDes {
     /// Sender's listening addr.
     pub listen_port: Option<u16>,
     /// Peer's chain information.
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     /// Info for new edge.
     pub edge_info: EdgeInfo,
 }
 
 impl Handshake {
     pub fn new(
+        version: ProtocolVersion,
         peer_id: PeerId,
         target_peer_id: PeerId,
         listen_port: Option<u16>,
-        chain_info: PeerChainInfo,
+        chain_info: PeerChainInfoV2,
         edge_info: EdgeInfo,
     ) -> Self {
         Handshake {
-            version: NETWORK_PROTOCOL_VERSION,
+            version,
+            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
             peer_id,
             target_peer_id,
             listen_port,
@@ -258,6 +298,7 @@ impl From<HandshakeAutoDes> for Handshake {
     fn from(handshake: HandshakeAutoDes) -> Self {
         Self {
             version: handshake.version,
+            oldest_supported_version: handshake.oldest_supported_version,
             peer_id: handshake.peer_id,
             target_peer_id: handshake.target_peer_id,
             listen_port: handshake.listen_port,
@@ -267,6 +308,7 @@ impl From<HandshakeAutoDes> for Handshake {
     }
 }
 
+// TODO: Remove Handshake V2 in next iteration
 #[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct HandshakeV2 {
     pub version: u32,
@@ -349,15 +391,12 @@ impl From<Handshake> for HandshakeV2 {
         Self {
             // In previous version of handshake, nodes usually sent the oldest supported version instead of their current version.
             // Computing the current version of the other as the oldest version plus 1, but keeping it smaller than current version.
-            version: std::cmp::min(
-                NETWORK_PROTOCOL_VERSION,
-                handshake_old.version.saturating_add(1),
-            ),
+            version: std::cmp::min(PROTOCOL_VERSION - 1, handshake_old.version.saturating_add(1)),
             oldest_supported_version: handshake_old.version,
             peer_id: handshake_old.peer_id,
             target_peer_id: handshake_old.target_peer_id,
             listen_port: handshake_old.listen_port,
-            chain_info: handshake_old.chain_info,
+            chain_info: handshake_old.chain_info.into(),
             edge_info: handshake_old.edge_info,
         }
     }
