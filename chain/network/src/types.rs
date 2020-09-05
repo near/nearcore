@@ -126,6 +126,7 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 /// Peer chain information.
+/// TODO: Remove in next version
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
@@ -149,23 +150,12 @@ pub struct PeerChainInfoV2 {
     pub archival: bool,
 }
 
-impl From<PeerChainInfoV2> for PeerChainInfo {
-    fn from(peer_chain_info: PeerChainInfoV2) -> Self {
-        Self {
-            genesis_id: peer_chain_info.genesis_id,
-            height: peer_chain_info.height,
-            tracked_shards: peer_chain_info.tracked_shards,
-        }
-    }
-}
-
 impl From<PeerChainInfo> for PeerChainInfoV2 {
     fn from(peer_chain_info: PeerChainInfo) -> Self {
         Self {
             genesis_id: peer_chain_info.genesis_id,
             height: peer_chain_info.height,
             tracked_shards: peer_chain_info.tracked_shards,
-            // TODO(MOO): Select default value for archival node
             archival: false,
         }
     }
@@ -386,22 +376,6 @@ impl BorshDeserialize for HandshakeV2 {
     }
 }
 
-impl From<Handshake> for HandshakeV2 {
-    fn from(handshake_old: Handshake) -> Self {
-        Self {
-            // In previous version of handshake, nodes usually sent the oldest supported version instead of their current version.
-            // Computing the current version of the other as the oldest version plus 1, but keeping it smaller than current version.
-            version: std::cmp::min(PROTOCOL_VERSION - 1, handshake_old.version.saturating_add(1)),
-            oldest_supported_version: handshake_old.version,
-            peer_id: handshake_old.peer_id,
-            target_peer_id: handshake_old.target_peer_id,
-            listen_port: handshake_old.listen_port,
-            chain_info: handshake_old.chain_info.into(),
-            edge_info: handshake_old.edge_info,
-        }
-    }
-}
-
 impl From<HandshakeV2AutoDes> for HandshakeV2 {
     fn from(handshake: HandshakeV2AutoDes) -> Self {
         Self {
@@ -411,6 +385,20 @@ impl From<HandshakeV2AutoDes> for HandshakeV2 {
             target_peer_id: handshake.target_peer_id,
             listen_port: handshake.listen_port,
             chain_info: handshake.chain_info,
+            edge_info: handshake.edge_info,
+        }
+    }
+}
+
+impl From<HandshakeV2> for Handshake {
+    fn from(handshake: HandshakeV2) -> Self {
+        Self {
+            version: handshake.version,
+            oldest_supported_version: handshake.oldest_supported_version,
+            peer_id: handshake.peer_id,
+            target_peer_id: handshake.target_peer_id,
+            listen_port: handshake.listen_port,
+            chain_info: handshake.chain_info.into(),
             edge_info: handshake.edge_info,
         }
     }
@@ -985,7 +973,7 @@ pub struct Consolidate {
     pub actor: Addr<Peer>,
     pub peer_info: PeerInfo,
     pub peer_type: PeerType,
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     // Edge information from this node.
     // If this is None it implies we are outbound connection, so we need to create our
     // EdgeInfo part and send it to the other peer.
@@ -1204,7 +1192,7 @@ impl Message for EdgeList {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     pub edge_info: EdgeInfo,
 }
 
@@ -1440,7 +1428,7 @@ pub struct QueryPeerStats {}
 #[derive(Debug)]
 pub struct PeerStatsResult {
     /// Chain info.
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     /// Number of bytes we've received from the peer.
     pub received_bytes_per_sec: u64,
     /// Number of bytes we've sent to the peer.
@@ -1574,7 +1562,7 @@ mod tests {
     #[test]
     fn test_struct_size() {
         assert_size!(PeerInfo);
-        assert_size!(PeerChainInfo);
+        assert_size!(PeerChainInfoV2);
         assert_size!(Handshake);
         assert_size!(AnnounceAccountRoute);
         assert_size!(AnnounceAccount);
