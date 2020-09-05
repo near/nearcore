@@ -22,7 +22,7 @@ use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfo,
+    PeerChainInfoV2,
 };
 use near_network::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
@@ -433,13 +433,14 @@ pub fn setup_mock_all_validators(
                             .enumerate()
                             .map(|(i, peer_info)| FullPeerInfo {
                                 peer_info: peer_info.clone(),
-                                chain_info: PeerChainInfo {
+                                chain_info: PeerChainInfoV2 {
                                     genesis_id: GenesisId {
                                         chain_id: "unittest".to_string(),
                                         hash: Default::default(),
                                     },
                                     height: last_height2[i],
                                     tracked_shards: vec![],
+                                    archival: false,
                                 },
                                 edge_info: EdgeInfo::default(),
                             })
