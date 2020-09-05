@@ -59,10 +59,10 @@ pub fn u256_to_balance(val: &U256) -> Balance {
     Balance::from_be_bytes(bin)
 }
 
-pub fn u256_to_vec(val: &U256) -> Vec<u8> {
+pub fn u256_to_arr(val: &U256) -> [u8; 32] {
     let mut result = [0u8; 32];
     val.to_big_endian(&mut result);
-    result.to_vec()
+    result
 }
 
 pub fn address_to_vec(val: &Address) -> Vec<u8> {

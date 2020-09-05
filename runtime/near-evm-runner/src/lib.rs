@@ -2,9 +2,11 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
 
+use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
-use near_vm_logic::types::{AccountId, Balance, ReturnData, StorageUsage};
-use near_vm_logic::{External, VMLogicError, VMOutcome};
+use near_vm_logic::gas_counter::GasCounter;
+use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
+use near_vm_logic::{ActionCosts, External, VMConfig, VMLogicError, VMOutcome};
 
 use crate::evm_state::{EvmAccount, EvmState, StateStore};
 use crate::types::{AddressArg, GetStorageAtArgs, Result, TransferArgs, WithdrawArgs};
@@ -19,9 +21,12 @@ pub mod utils;
 pub struct EvmContext<'a> {
     ext: &'a mut dyn External,
     predecessor_id: AccountId,
+    current_amount: Balance,
     attached_deposit: Balance,
     storage_usage: StorageUsage,
     logs: Vec<String>,
+    gas_counter: GasCounter,
+    fees_config: &'a RuntimeFeesConfig,
 }
 
 enum KeyPrefix {
@@ -98,11 +103,36 @@ impl<'a> EvmState for EvmContext<'a> {
 impl<'a> EvmContext<'a> {
     pub fn new(
         ext: &'a mut dyn External,
+        config: &'a VMConfig,
+        fees_config: &'a RuntimeFeesConfig,
+        current_amount: Balance,
         predecessor_id: AccountId,
         attached_deposit: Balance,
         storage_usage: StorageUsage,
+        prepaid_gas: Gas,
+        is_view: bool,
     ) -> Self {
-        Self { ext, predecessor_id, attached_deposit, storage_usage, logs: Vec::default() }
+        let max_gas_burnt = if is_view {
+            config.limit_config.max_gas_burnt_view
+        } else {
+            config.limit_config.max_gas_burnt
+        };
+        Self {
+            ext,
+            predecessor_id,
+            current_amount,
+            attached_deposit,
+            storage_usage,
+            logs: Vec::default(),
+            gas_counter: GasCounter::new(
+                config.ext_costs.clone(),
+                max_gas_burnt,
+                prepaid_gas,
+                is_view,
+                None,
+            ),
+            fees_config,
+        }
     }
 
     pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
@@ -178,10 +208,12 @@ impl<'a> EvmContext<'a> {
     }
 
     pub fn deposit(&mut self, args: Vec<u8>) -> Result<U256> {
+        let args = AddressArg::try_from_slice(&args)
+            .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
         if self.attached_deposit == 0 {
             return Err(VMLogicError::EvmError(EvmError::MissingDeposit));
         }
-        let address = Address::from_slice(&args);
+        let address = Address::from_slice(&args.address);
         self.add_balance(&address, U256::from(self.attached_deposit))?;
         self.balance_of(&address)
     }
@@ -196,7 +228,20 @@ impl<'a> EvmContext<'a> {
         }
         self.sub_balance(&sender, amount)?;
         let receipt_index = self.ext.create_receipt(vec![], args.account_id)?;
-        self.ext.append_action_transfer(receipt_index, args.amount).map_err(|err| err.into())
+        // We use low_u128, because NEAR native currency fits into u128.
+        let amount = amount.low_u128();
+        self.current_amount = self
+            .current_amount
+            .checked_sub(amount)
+            .ok_or_else(|| VMLogicError::EvmError(EvmError::InsufficientFunds))?;
+        self.pay_gas_for_new_receipt(false, &[])?;
+        self.gas_counter.pay_action_base(
+            &self.fees_config.action_creation_config.transfer_cost,
+            // TOOD: Hm, what if they withdraw to itself? We should probably close circuit that here.
+            false,
+            ActionCosts::transfer,
+        )?;
+        self.ext.append_action_transfer(receipt_index, amount).map_err(|err| err.into())
     }
 
     /// Transfer tokens from sender to given EVM address.
@@ -208,47 +253,93 @@ impl<'a> EvmContext<'a> {
         if amount > self.balance_of(&sender)? {
             return Err(VMLogicError::EvmError(EvmError::InsufficientFunds));
         }
-        self.transfer_balance(&sender, &Address::from(args.account_id), amount)
+        self.transfer_balance(&sender, &Address::from(args.address), amount)
+    }
+
+    /// A helper function to pay gas fee for creating a new receipt without actions.
+    /// # Args:
+    /// * `sir`: whether contract call is addressed to itself;
+    /// * `data_dependencies`: other contracts that this execution will be waiting on (or rather
+    ///   their data receipts), where bool indicates whether this is sender=receiver communication.
+    ///
+    /// # Cost
+    ///
+    /// This is a convenience function that encapsulates several costs:
+    /// `burnt_gas := dispatch cost of the receipt + base dispatch cost  cost of the data receipt`
+    /// `used_gas := burnt_gas + exec cost of the receipt + base exec cost  cost of the data receipt`
+    /// Notice that we prepay all base cost upon the creation of the data dependency, we are going to
+    /// pay for the content transmitted through the dependency upon the actual creation of the
+    /// DataReceipt.
+    fn pay_gas_for_new_receipt(&mut self, sir: bool, data_dependencies: &[bool]) -> Result<()> {
+        let fees_config_cfg = &self.fees_config;
+        let mut burn_gas = fees_config_cfg.action_receipt_creation_config.send_fee(sir);
+        let mut use_gas = fees_config_cfg.action_receipt_creation_config.exec_fee();
+        for dep in data_dependencies {
+            // Both creation and execution for data receipts are considered burnt gas.
+            burn_gas = burn_gas
+                .checked_add(fees_config_cfg.data_receipt_creation_config.base_cost.send_fee(*dep))
+                .ok_or(VMLogicError::EvmError(EvmError::IntegerOverflow))?
+                .checked_add(fees_config_cfg.data_receipt_creation_config.base_cost.exec_fee())
+                .ok_or(VMLogicError::EvmError(EvmError::IntegerOverflow))?;
+        }
+        use_gas = use_gas
+            .checked_add(burn_gas)
+            .ok_or(VMLogicError::EvmError(EvmError::IntegerOverflow))?;
+        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_receipt)
     }
 }
 
 pub fn run_evm(
     ext: &mut dyn External,
+    config: &VMConfig,
+    fees_config: &RuntimeFeesConfig,
     predecessor_id: &AccountId,
     amount: Balance,
     attached_deposit: Balance,
     storage_usage: StorageUsage,
     method_name: String,
     args: Vec<u8>,
+    prepaid_gas: Gas,
+    is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let mut context = EvmContext::new(ext, predecessor_id.clone(), attached_deposit, storage_usage);
+    let mut context = EvmContext::new(
+        ext,
+        config,
+        fees_config,
+        // This is total amount of all $NEAR inside this EVM.
+        // Should already validate that will not overflow external to this call.
+        amount.checked_add(attached_deposit).unwrap_or(amount),
+        predecessor_id.clone(),
+        attached_deposit,
+        storage_usage,
+        prepaid_gas,
+        is_view,
+    );
     let result = match method_name.as_str() {
         // Change the state methods.
         "deploy_code" => context.deploy_code(args).map(|address| utils::address_to_vec(&address)),
         "call_function" => context.call_function(args),
-        "deposit" => context.deposit(args).map(|balance| utils::u256_to_vec(&balance)),
+        "deposit" => context.deposit(args).map(|balance| utils::u256_to_arr(&balance).to_vec()),
         "withdraw" => context.withdraw(args).map(|_| vec![]),
         "transfer" => context.transfer(args).map(|_| vec![]),
         // View methods.
-        "view_call_contract" => context.view_call_function(args),
+        "view_call_function" => context.view_call_function(args),
         "get_code" => context.get_code(args),
         "get_storage_at" => context.get_storage_at(args),
-        "get_nonce" => context.get_nonce(args).map(|nonce| utils::u256_to_vec(&nonce)),
-        "get_balance" => context.get_balance(args).map(|balance| utils::u256_to_vec(&balance)),
+        "get_nonce" => context.get_nonce(args).map(|nonce| utils::u256_to_arr(&nonce).to_vec()),
+        "get_balance" => {
+            context.get_balance(args).map(|balance| utils::u256_to_arr(&balance).to_vec())
+        }
         _ => Err(VMLogicError::EvmError(EvmError::MethodNotFound)),
     };
     match result {
         Ok(value) => {
             let outcome = VMOutcome {
-                // This is total amount of all $NEAR inside this EVM.
-                // Outcome balance is equal to amount with attached deposit, because all the accounting happens internally.
-                // Should already validate that will not overflow external to this call.
-                balance: amount.checked_add(attached_deposit).unwrap_or(amount),
+                balance: context.current_amount,
                 storage_usage: context.storage_usage,
                 return_data: ReturnData::Value(value),
-                // TODO: calculate how much gas was used.
-                burnt_gas: 0,
-                used_gas: 0,
+                burnt_gas: context.gas_counter.burnt_gas(),
+                used_gas: context.gas_counter.used_gas(),
                 logs: context.logs,
             };
             (Some(outcome), None)
@@ -268,10 +359,26 @@ mod tests {
 
     use super::*;
 
+    fn setup() -> (MockedExternal, VMConfig, RuntimeFeesConfig) {
+        let vm_config = VMConfig::default();
+        let fees_config = RuntimeFeesConfig::default();
+        let fake_external = MockedExternal::new();
+        (fake_external, vm_config, fees_config)
+    }
+
+    fn create_context<'a>(
+        external: &'a mut MockedExternal,
+        vm_config: &'a VMConfig,
+        fees_config: &'a RuntimeFeesConfig,
+        account_id: &str,
+    ) -> EvmContext<'a> {
+        EvmContext::new(external, vm_config, fees_config, 0, account_id.to_string(), 0, 0, 0, false)
+    }
+
     #[test]
     fn state_management() {
-        let mut fake_external = MockedExternal::new();
-        let mut context = EvmContext::new(&mut fake_external, "alice".to_string(), 0);
+        let (mut fake_external, vm_config, fees_config) = setup();
+        let mut context = create_context(&mut fake_external, &vm_config, &fees_config, "alice");
         let addr_0 = Address::repeat_byte(0);
         let addr_1 = Address::repeat_byte(1);
         let addr_2 = Address::repeat_byte(2);

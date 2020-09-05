@@ -1,15 +1,12 @@
-use near_evm_runner::EvmContext;
-use near_vm_logic::mocks::mock_external::MockedExternal;
+use crate::utils::{accounts, create_context, setup};
 
-fn accounts(num: usize) -> String {
-    ["evm", "alice"][num].to_string()
-}
+mod utils;
 
 /// Test various invalid inputs to function calls.
 #[test]
 fn test_invalid_input() {
-    let mut fake_external = MockedExternal::new();
-    let mut context = EvmContext::new(&mut fake_external, accounts(1), 0, 0);
+    let (mut fake_external, vm_config, fees_config) = setup();
+    let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 10);
     assert!(context.get_nonce(vec![]).is_err());
     assert!(context.get_balance(vec![]).is_err());
     assert!(context.get_code(vec![]).is_err());

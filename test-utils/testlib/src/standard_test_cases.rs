@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
+use ethereum_types::U256;
 
 use assert_matches::assert_matches;
-use ethereum_types::U256;
 use near_crypto::{InMemorySigner, KeyType};
+use near_evm_runner::types::WithdrawArgs;
 use near_jsonrpc::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{
@@ -22,6 +24,7 @@ use crate::fees_utils::FeeHelper;
 use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use crate::user::User;
+use near_evm_runner::utils::near_account_id_to_evm_address;
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
@@ -1311,7 +1314,7 @@ pub fn test_evm_deploy_call(node: impl Node) {
         .function_call(
             alice_account(),
             evm_account(),
-            "view_call_contract",
+            "view_call_function",
             args.clone(),
             10u64.pow(14),
             0,
@@ -1323,11 +1326,46 @@ pub fn test_evm_deploy_call(node: impl Node) {
     let res = cryptozombies::functions::get_zombies_by_owner::decode_output(&bytes).unwrap();
     assert_eq!(res, vec![U256::from(0)]);
 
-    let result = node_user.view_call(&evm_account(), "view_call_contract", &args).unwrap();
+    let result = node_user.view_call(&evm_account(), "view_call_function", &args).unwrap();
     let res =
         cryptozombies::functions::get_zombies_by_owner::decode_output(&result.result).unwrap();
     assert_eq!(res, vec![U256::from(0)]);
 
     let result = node_user.view_call(&evm_account(), "get_balance", &contract_id).unwrap();
     assert_eq!(U256::from_big_endian(&result.result), U256::from(10));
+
+    let alice_address = near_account_id_to_evm_address(&alice_account()).0;
+    assert!(node_user
+        .function_call(
+            alice_account(),
+            evm_account(),
+            "deposit",
+            alice_address.to_vec(),
+            10u64.pow(14),
+            1000,
+        )
+        .unwrap()
+        .status
+        .as_success()
+        .is_some());
+
+    let result = node_user.view_call(&evm_account(), "get_balance", &alice_address).unwrap();
+    assert_eq!(U256::from_big_endian(&result.result), U256::from(1000));
+
+    let result = node_user
+        .function_call(
+            alice_account(),
+            evm_account(),
+            "withdraw",
+            WithdrawArgs { account_id: alice_account(), amount: U256::from(10).into() }
+                .try_to_vec()
+                .unwrap(),
+            10u64.pow(14),
+            0,
+        )
+        .unwrap()
+        .status
+        .as_success_decoded()
+        .unwrap();
+    assert_eq!(result.len(), 0);
 }

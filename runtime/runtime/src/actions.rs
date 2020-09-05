@@ -54,12 +54,16 @@ pub(crate) fn execute_function_call(
     if account.code_hash == *EVM_CODE_HASH {
         near_evm_runner::run_evm(
             runtime_ext,
+            &config.wasm_config,
+            &config.transaction_costs,
             predecessor_id,
             account.amount,
             function_call.deposit,
             account.storage_usage,
             function_call.method_name.clone(),
             function_call.args.clone(),
+            function_call.gas,
+            is_view,
         )
     } else {
         let code = match runtime_ext.get_code(account.code_hash) {
@@ -204,7 +208,7 @@ pub(crate) fn action_function_call(
             account.amount = outcome.balance;
             account.storage_usage = outcome.storage_usage;
             result.result = Ok(outcome.return_data);
-            result.new_receipts.extend(runtime_ext.into_receipts(&receipt.predecessor_id));
+            result.new_receipts.extend(runtime_ext.into_receipts(account_id));
         }
     } else {
         assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")

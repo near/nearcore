@@ -163,17 +163,7 @@ impl TrieViewer {
             true,
             true,
         );
-        //            near_vm_runner::run(
-        //                code.hash.as_ref().to_vec(),
-        //                &code.code,
-        //                method_name.as_bytes(),
-        //                &mut runtime_ext,
-        //                context,
-        //                &VMConfig::default(),
-        //                &RuntimeFeesConfig::default(),
-        //                &[],
-        //            )
-        //        };
+
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;

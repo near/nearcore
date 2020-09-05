@@ -2857,6 +2857,7 @@ dependencies = [
  "lazy-static-include",
  "lazy_static",
  "libsecp256k1",
+ "near-runtime-fees",
  "near-vm-errors",
  "near-vm-logic",
  "num-bigint 0.3.0",
