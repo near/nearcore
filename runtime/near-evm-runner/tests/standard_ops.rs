@@ -7,8 +7,8 @@ use ethereum_types::{Address, H256, U256};
 
 use near_evm_runner::types::{TransferArgs, WithdrawArgs};
 use near_evm_runner::utils::{
-    address_from_arr, address_to_vec, encode_call_function_args, near_account_id_to_evm_address,
-    u256_to_arr,
+    address_from_arr, address_to_vec, encode_call_function_args, encode_view_call_function_args,
+    near_account_id_to_evm_address, u256_to_arr,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{EvmError, VMLogicError};
@@ -147,6 +147,7 @@ fn test_deploy_and_transfer() {
     let mut context =
         create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
     let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
+    assert!(context.logs.len() > 0);
 
     // The sub_addr should have been transferred 100 yoctoN.
     let sub_addr = raw[12..32].to_vec();
@@ -202,7 +203,14 @@ fn test_view_call() {
     // And NO CODE should be deployed
     let (input, _) = soltest::functions::deploy_new_guy::call(8);
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
-    let raw = context.view_call_function(encode_call_function_args(test_addr, input)).unwrap();
+    let raw = context
+        .view_call_function(encode_view_call_function_args(
+            test_addr,
+            test_addr,
+            U256::from(0),
+            input,
+        ))
+        .unwrap();
     assert_eq!(context.get_nonce(test_addr.0.to_vec()).unwrap(), U256::from(0));
 
     let sub_addr = raw[12..32].to_vec();

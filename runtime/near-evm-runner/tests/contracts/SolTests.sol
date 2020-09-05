@@ -17,11 +17,17 @@ contract SolTests is ExposesBalance {
 
     event SomeEvent(uint256 _number);
 
+    event DeployEvent(
+        address indexed _contract,
+        uint256 _amount
+    );
+
     function () external payable {}
 
     function deployNewGuy(uint256 _aNumber) public payable returns (address, uint256) {
         SubContract _newGuy = new SubContract(_aNumber);
         address(_newGuy).transfer(msg.value);
+        emit DeployEvent(address(_newGuy), msg.value);
         return (address(_newGuy), msg.value);
     }
 

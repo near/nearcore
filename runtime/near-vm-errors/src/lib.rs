@@ -1,9 +1,11 @@
+use std::fmt;
+
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_rpc_error_macro::RpcError;
 use serde::export::fmt::Error;
 use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+
+use near_rpc_error_macro::RpcError;
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum VMError {
@@ -176,12 +178,12 @@ pub enum HostError {
 pub enum EvmError {
     /// Unknown error, catch all for unexpected things.
     UnknownError,
-    /// Fatal failure due conflicting addresses on contract deployment.  
-    DuplicateContract([u8; 20]),
+    /// Fatal failure due conflicting addresses on contract deployment.
+    DuplicateContract(String),
     /// Contract deployment failure.
-    DeployFail(Vec<u8>),
+    DeployFail(String),
     /// Contract execution failed, revert the state.
-    Revert(Vec<u8>),
+    Revert(String),
     /// Failed to parse arguments.
     ArgumentParseError,
     /// No deposit when expected.

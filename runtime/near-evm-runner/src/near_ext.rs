@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ethereum_types::{Address, H160, H256, U256};
+use evm::ActionParams;
 use keccak_hash::keccak;
 use parity_bytes::Bytes;
 use vm::{
@@ -8,9 +9,11 @@ use vm::{
     MessageCallResult, Result as EvmResult, ReturnData, Schedule, TrapKind,
 };
 
+use near_vm_errors::{EvmError, VMLogicError};
+
 use crate::evm_state::{EvmState, SubState};
 use crate::interpreter;
-use evm::ActionParams;
+use crate::utils::format_log;
 
 // https://github.com/paritytech/parity-ethereum/blob/77643c13e80ca09d9a6b10631034f5a1568ba6d3/ethcore/machine/src/externalities.rs
 // #[derive(Debug)]
@@ -213,7 +216,12 @@ impl<'a> vm::Ext for NearExt<'a> {
         let msg_call_result = match result {
             Ok(data) => MessageCallResult::Success(1_000_000_000.into(), data),
             Err(err) => {
-                let message = format!("{:?}", err).as_bytes().to_vec();
+                let message = match err {
+                    VMLogicError::EvmError(EvmError::Revert(encoded_message)) => {
+                        hex::decode(encoded_message).unwrap_or(vec![])
+                    }
+                    _ => format!("{:?}", err).as_bytes().to_vec(),
+                };
                 let message_len = message.len();
                 MessageCallResult::Reverted(
                     1_000_000_000.into(),
@@ -250,18 +258,17 @@ impl<'a> vm::Ext for NearExt<'a> {
     }
 
     /// Creates log entry with given topics and data
-    fn log(&mut self, _topics: Vec<H256>, data: &[u8]) -> EvmResult<()> {
+    fn log(&mut self, topics: Vec<H256>, data: &[u8]) -> EvmResult<()> {
         if self.is_static() {
             return Err(VmError::MutableCallInStaticContext);
         }
-
-        // TODO: Develop a NearCall logspec
-        //       hijack NearCall logs here
-        //       make a Vec<log> that accumulates committed logs
-        //       return them after execution completes
-        //       dispatch promises
-
-        self.sub_state.state.logs.push(hex::encode(data));
+        if topics.len() > 256 {
+            return Err(VmError::Internal("Too many topics".to_string()));
+        }
+        self.sub_state.state.logs.push(hex::encode(
+            format_log(topics, data)
+                .map_err(|err| VmError::Internal(format!("Failed to format event: {}", err)))?,
+        ));
         Ok(())
     }
 

@@ -9,7 +9,9 @@ use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
 use near_vm_logic::{ActionCosts, External, VMConfig, VMLogicError, VMOutcome};
 
 use crate::evm_state::{EvmAccount, EvmState, StateStore};
-use crate::types::{AddressArg, GetStorageAtArgs, Result, TransferArgs, WithdrawArgs};
+use crate::types::{
+    AddressArg, GetStorageAtArgs, Result, TransferArgs, ViewCallArgs, WithdrawArgs,
+};
 
 mod builtins;
 mod evm_state;
@@ -24,7 +26,7 @@ pub struct EvmContext<'a> {
     current_amount: Balance,
     attached_deposit: Balance,
     storage_usage: StorageUsage,
-    logs: Vec<String>,
+    pub logs: Vec<String>,
     gas_counter: GasCounter,
     fees_config: &'a RuntimeFeesConfig,
 }
@@ -170,14 +172,20 @@ impl<'a> EvmContext<'a> {
     ///
     /// This function serves the eth_call functionality, and will NOT apply state changes.
     pub fn view_call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
-        if args.len() <= 20 {
-            return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
-        }
-        let contract_address = Address::from_slice(&args[..20]);
-        let input = &args[20..];
-        let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
-        interpreter::call(self, &sender, &sender, None, 0, &contract_address, &input, false)
-            .map(|rd| rd.to_vec())
+        let args = ViewCallArgs::try_from_slice(&args)
+            .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
+        let sender = Address::from(&args.sender);
+        interpreter::call(
+            self,
+            &sender,
+            &sender,
+            Some(U256::from(args.amount)),
+            0,
+            &Address::from(&args.address),
+            &args.args,
+            false,
+        )
+        .map(|rd| rd.to_vec())
     }
 
     pub fn get_code(&self, args: Vec<u8>) -> Result<Vec<u8>> {

@@ -30,7 +30,7 @@ pub fn deploy_code<T: EvmState>(
     if recreate {
         state.recreate(address.0);
     } else if state.code_at(&address)?.is_some() {
-        return Err(VMLogicError::EvmError(EvmError::DuplicateContract(address.0)));
+        return Err(VMLogicError::EvmError(EvmError::DuplicateContract(hex::encode(address.0))));
     }
 
     let (result, state_updates) =
@@ -49,7 +49,9 @@ pub fn deploy_code<T: EvmState>(
         state.commit_changes(&state_updates.unwrap())?;
         state.set_code(&address, &return_data.to_vec())?;
     } else {
-        return Err(VMLogicError::EvmError(EvmError::DeployFail(return_data.to_vec())));
+        return Err(VMLogicError::EvmError(EvmError::DeployFail(hex::encode(
+            return_data.to_vec(),
+        ))));
     }
     Ok(address)
 }
@@ -203,7 +205,7 @@ fn run_and_commit_if_success<T: EvmState>(
         Some(GasLeft::Known(_)) => Ok(ReturnData::empty()),
         Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state: true }) => Ok(data),
         Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state: false }) => {
-            Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
+            Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
         }
         _ => Err(VMLogicError::EvmError(EvmError::UnknownError)),
     };

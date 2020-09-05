@@ -1,3 +1,6 @@
+use std::io::Write;
+
+use byteorder::WriteBytesExt;
 use ethereum_types::{Address, H256, U256};
 use keccak_hash::keccak;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -34,6 +37,20 @@ pub fn hex_to_evm_address(address: &str) -> Address {
 pub fn encode_call_function_args(address: Address, input: Vec<u8>) -> Vec<u8> {
     let mut result = Vec::with_capacity(20 + input.len());
     result.extend_from_slice(&address.0);
+    result.extend_from_slice(&input);
+    result
+}
+
+pub fn encode_view_call_function_args(
+    sender: Address,
+    address: Address,
+    amount: U256,
+    input: Vec<u8>,
+) -> Vec<u8> {
+    let mut result = Vec::with_capacity(72 + input.len());
+    result.extend_from_slice(&sender.0);
+    result.extend_from_slice(&address.0);
+    result.extend_from_slice(&u256_to_arr(&amount));
     result.extend_from_slice(&input);
     result
 }
@@ -148,4 +165,14 @@ impl From<Balance> for u128 {
     fn from(balance: Balance) -> Self {
         balance.0
     }
+}
+
+pub fn format_log(topics: Vec<H256>, data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+    let mut result = Vec::with_capacity(1 + topics.len() * 32 + data.len());
+    result.write_u8(topics.len() as u8)?;
+    for topic in topics.iter() {
+        result.write(&topic.0)?;
+    }
+    result.write(data)?;
+    Ok(result)
 }
