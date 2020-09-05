@@ -25,7 +25,7 @@ use near_logger_utils::init_test_logger;
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
-use near_network::types::{NetworkInfo, PeerChainInfo, ReasonForBan};
+use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
@@ -761,10 +761,11 @@ fn client_sync_headers() {
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
             active_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
-                chain_info: PeerChainInfo {
+                chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
                     height: 5,
                     tracked_shards: vec![],
+                    archival: false,
                 },
                 edge_info: EdgeInfo::default(),
             }],
@@ -772,10 +773,11 @@ fn client_sync_headers() {
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
-                chain_info: PeerChainInfo {
+                chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
                     height: 5,
                     tracked_shards: vec![],
+                    archival: false,
                 },
                 edge_info: EdgeInfo::default(),
             }],

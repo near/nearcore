@@ -1174,7 +1174,7 @@ mod test {
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
     use near_network::test_utils::MockNetworkAdapter;
-    use near_network::types::PeerChainInfo;
+    use near_network::types::PeerChainInfoV2;
     use near_network::PeerInfo;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
@@ -1239,13 +1239,14 @@ mod test {
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: PeerChainInfo {
+            chain_info: PeerChainInfoV2 {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
                     hash: *chain.genesis().hash(),
                 },
                 height: chain2.head().unwrap().height,
                 tracked_shards: vec![],
+                archival: false,
             },
             edge_info: EdgeInfo::default(),
         };
