@@ -30,6 +30,7 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
         arc_genesis.clone(),
         vec![],
         vec![],
+        false,
     ))];
     let env = TestEnv::new_with_runtime(ChainGenesis::from(&arc_genesis), 1, 1, runtimes);
     (env, fee_helper)

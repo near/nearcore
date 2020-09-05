@@ -299,6 +299,10 @@ fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
 }
 
+fn default_use_next_protocol_version() -> bool {
+    false
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -347,6 +351,9 @@ pub struct Consensus {
     /// Time between running doomslug timer.
     #[serde(default = "default_doomslug_step_period")]
     pub doomslug_step_period: Duration,
+    /// Whether to use next protocol version without going through upgrade process.
+    #[serde(default = "default_use_next_protocol_version")]
+    pub use_next_protocol_version: bool,
 }
 
 impl Default for Consensus {
@@ -372,6 +379,7 @@ impl Default for Consensus {
             sync_check_period: default_sync_check_period(),
             sync_step_period: default_sync_step_period(),
             doomslug_step_period: default_doomslug_step_period(),
+            use_next_protocol_version: default_use_next_protocol_version(),
         }
     }
 }
@@ -584,6 +592,7 @@ impl NearConfig {
                 archive: config.archive,
                 gc_blocks_limit: config.gc_blocks_limit,
                 view_client_threads: config.view_client_threads,
+                use_next_protocol_version: config.consensus.use_next_protocol_version,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,

@@ -77,6 +77,9 @@ pub struct ClientConfig {
     pub archive: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
+    /// Whether we should use next protocol version without going through upgrade process.
+    /// Useful for testing latest protocol change.
+    pub use_next_protocol_version: bool,
 }
 
 impl ClientConfig {
@@ -128,6 +131,7 @@ impl ClientConfig {
             tracked_shards: vec![],
             archive,
             view_client_threads: 1,
+            use_next_protocol_version: false,
         }
     }
 }

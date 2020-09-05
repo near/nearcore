@@ -37,6 +37,7 @@ fn main() {
         Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
+        false,
     ));
 
     let mut store_validator = StoreValidator::new(

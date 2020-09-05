@@ -54,6 +54,7 @@ fn load_trie_stop_at_height(
         Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
+        false,
     );
     let head = chain_store.head().unwrap();
     let last_block = match mode {
@@ -110,6 +111,7 @@ fn print_chain(
         Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
+        false,
     );
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
@@ -179,6 +181,7 @@ fn replay_chain(
         Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
+        false,
     );
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
@@ -207,6 +210,7 @@ fn apply_block_at_height(
         Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
+        false,
     );
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();

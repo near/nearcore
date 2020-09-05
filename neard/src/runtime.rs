@@ -32,7 +32,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
     MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -121,6 +121,7 @@ pub struct NightshadeRuntime {
     epoch_manager: SafeEpochManager,
     shard_tracker: ShardTracker,
     genesis_state_roots: Vec<StateRoot>,
+    use_next_protocol_version: bool,
 }
 
 impl NightshadeRuntime {
@@ -130,6 +131,7 @@ impl NightshadeRuntime {
         genesis: Arc<Genesis>,
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
+        use_next_protocol_version: bool,
     ) -> Self {
         let runtime = Runtime::new(genesis.config.runtime_config.clone());
         let trie_viewer = TrieViewer::new();
@@ -204,6 +206,7 @@ impl NightshadeRuntime {
             epoch_manager: SafeEpochManager(epoch_manager),
             shard_tracker,
             genesis_state_roots: state_roots,
+            use_next_protocol_version,
         }
     }
 
@@ -933,8 +936,12 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version)
+        if self.use_next_protocol_version {
+            Ok(PROTOCOL_VERSION + 1)
+        } else {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version)
+        }
     }
 
     fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error> {
@@ -1510,6 +1517,7 @@ mod test {
                 Arc::new(genesis),
                 initial_tracked_accounts,
                 initial_tracked_shards,
+                false,
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);

@@ -1022,6 +1022,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
         Arc::new(genesis),
         vec![],
         vec![],
+        false,
     ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1089,6 +1090,7 @@ fn test_gc_long_epoch() {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         )),
         Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
@@ -1096,6 +1098,7 @@ fn test_gc_long_epoch() {
             Arc::new(genesis),
             vec![],
             vec![],
+            false,
         )),
     ];
     let mut chain_genesis = ChainGenesis::test();
@@ -1178,6 +1181,7 @@ fn test_gc_execution_outcome() {
         Arc::new(genesis.clone()),
         vec![],
         vec![],
+        false,
     ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1219,6 +1223,7 @@ fn test_gc_after_state_sync() {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         )),
         Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
@@ -1226,6 +1231,7 @@ fn test_gc_after_state_sync() {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         )),
     ];
     let mut chain_genesis = ChainGenesis::test();
@@ -1264,6 +1270,7 @@ fn test_process_block_after_state_sync() {
         Arc::new(genesis.clone()),
         vec![],
         vec![],
+        false,
     ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1304,6 +1311,7 @@ fn test_gc_fork_tail() {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         )),
         Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
@@ -1311,6 +1319,7 @@ fn test_gc_fork_tail() {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         )),
     ];
     let mut chain_genesis = ChainGenesis::test();
@@ -1375,6 +1384,7 @@ fn test_tx_forward_around_epoch_boundary() {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         )
     };
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
@@ -1441,6 +1451,7 @@ fn test_not_resync_old_blocks() {
         Arc::new(genesis),
         vec![],
         vec![],
+        false,
     ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1472,6 +1483,7 @@ fn test_gc_tail_update() {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         )),
         Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
@@ -1479,6 +1491,7 @@ fn test_gc_tail_update() {
             Arc::new(genesis),
             vec![],
             vec![],
+            false,
         )),
     ];
     let mut chain_genesis = ChainGenesis::test();
@@ -1552,6 +1565,7 @@ fn test_gas_price_change() {
         genesis,
         vec![],
         vec![],
+        false,
     ))];
     let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -1604,6 +1618,7 @@ fn test_gas_price_overflow() {
         genesis,
         vec![],
         vec![],
+        false,
     ))];
     let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -1653,6 +1668,7 @@ fn test_incorrect_validator_key_produce_block() {
         genesis,
         vec![],
         vec![],
+        false,
     ));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "seed"));
     let mut config = ClientConfig::test(true, 10, 20, 2, false);
@@ -1714,6 +1730,7 @@ fn test_data_reset_before_state_sync() {
         Arc::new(genesis.clone()),
         vec![],
         vec![],
+        false,
     ))];
     let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
@@ -1773,6 +1790,7 @@ fn test_sync_hash_validity() {
         Arc::new(genesis.clone()),
         vec![],
         vec![],
+        false,
     ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1832,6 +1850,7 @@ fn test_validate_chunk_extra() {
         Arc::new(genesis.clone()),
         vec![],
         vec![],
+        false,
     ))];
     let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
@@ -1959,6 +1978,7 @@ fn test_gas_price_change_no_chunk() {
         Arc::new(genesis.clone()),
         vec![],
         vec![],
+        false,
     ))];
     let chain_genesis = ChainGenesis::from(Arc::new(genesis));
     let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
@@ -1993,6 +2013,7 @@ fn test_catchup_gas_price_change() {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         )),
         Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
@@ -2000,6 +2021,7 @@ fn test_catchup_gas_price_change() {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         )),
     ];
     let chain_genesis = ChainGenesis::from(Arc::new(genesis));

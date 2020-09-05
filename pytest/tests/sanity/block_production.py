@@ -9,7 +9,7 @@
 
 # Same for all tests that call start_cluster with a None config
 
-import sys, time
+import sys, time, json
 
 sys.path.append('lib')
 
@@ -18,11 +18,27 @@ from cluster import start_cluster
 TIMEOUT = 150
 BLOCKS = 50
 
+use_next_version = len(sys.argv) == 2 and sys.argv[1] == "use_next_protocol_version"
+
+client_config = {"consensus": {"use_next_protocol_version": use_next_version}}
+
 nodes = start_cluster(
     4, 0, 4, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 60], ["chunk_producer_kickout_threshold", 60]], {})
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 60], ["chunk_producer_kickout_threshold", 60]], {0: client_config, 1: client_config, 2: client_config, 3: client_config})
 
 started = time.time()
+
+time.sleep(2)
+
+# check that protocol version is immediately changed when `use_next_protocol_version` is set to true.
+if use_next_version:
+    import os
+    with open(os.path.expanduser('~/.near/test0/genesis.json')) as f:
+        test_genesis = json.load(f)
+        test_protocol_version = test_genesis['protocol_version']
+    status = nodes[0].get_status()
+    assert status['latest_protocol_version'] == status['protocol_version']
+    assert status['latest_protocol_version'] == test_protocol_version + 1
 
 max_height = 0
 last_heights = [0 for _ in nodes]

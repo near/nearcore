@@ -96,6 +96,7 @@ mod test {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
@@ -144,6 +145,7 @@ mod test {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
@@ -180,6 +182,7 @@ mod test {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
@@ -208,7 +211,14 @@ mod test {
         let store1 = create_test_store();
         let store2 = create_test_store();
         let create_runtime = |store| -> NightshadeRuntime {
-            NightshadeRuntime::new(Path::new("."), store, Arc::new(genesis.clone()), vec![], vec![])
+            NightshadeRuntime::new(
+                Path::new("."),
+                store,
+                Arc::new(genesis.clone()),
+                vec![],
+                vec![],
+                false,
+            )
         };
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
             Arc::new(create_runtime(store1.clone())),
@@ -262,6 +272,7 @@ mod test {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
@@ -301,6 +312,7 @@ mod test {
             Arc::new(genesis.clone()),
             vec![],
             vec![],
+            false,
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);

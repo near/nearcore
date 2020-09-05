@@ -154,6 +154,7 @@ pub fn start_with_config(
         Arc::clone(&config.genesis),
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),
+        config.client_config.use_next_protocol_version,
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();

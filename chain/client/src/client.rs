@@ -1461,6 +1461,7 @@ mod test {
             Arc::new(genesis),
             vec![],
             vec![],
+            false,
         ))]
     }
 

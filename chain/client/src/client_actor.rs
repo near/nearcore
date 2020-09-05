@@ -555,7 +555,11 @@ impl Handler<Status> for ClientActor {
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
             protocol_version,
-            latest_protocol_version: PROTOCOL_VERSION,
+            latest_protocol_version: if self.client.config.use_next_protocol_version {
+                PROTOCOL_VERSION + 1
+            } else {
+                PROTOCOL_VERSION
+            },
             chain_id: self.client.config.chain_id.clone(),
             rpc_addr: self.client.config.rpc_addr.clone(),
             validators,

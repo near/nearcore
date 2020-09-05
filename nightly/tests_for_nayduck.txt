@@ -1,5 +1,6 @@
 # python sanity tests
 pytest sanity/block_production.py
+pytest sanity/block_production.py use_next_protocol_version
 pytest sanity/transactions.py
 pytest sanity/staking1.py
 pytest --timeout=800 sanity/staking2.py
