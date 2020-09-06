@@ -54,7 +54,7 @@ def send_some_tx(node):
 
 def main():
     near_root, (stable_branch,
-                current_branch) = branches.prepare_ab_test("beta")
+                current_branch) = branches.prepare_ab_test("1.13.0")
     node_root = os.path.join(os.path.expanduser("~"), "./near")
 
     logging.info(f"The near root is {near_root}...")
