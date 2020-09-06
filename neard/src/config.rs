@@ -694,7 +694,7 @@ fn state_records_account_with_key(
     ]
 }
 
-/// Generate validator key if account is not `None`.
+/// Generate a validator key and save it to the file path.
 fn generate_validator_key(account_id: &str, path: &Path) {
     let signer = InMemoryValidatorSigner::from_random(account_id.to_string(), KeyType::ED25519);
     info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
