@@ -933,8 +933,16 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
+        let protocol_upgrade_num_epoch = self.genesis_config.protocol_upgrade_num_epochs;
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version)
+        let mut cur_epoch_id = epoch_id.clone();
+        for _ in 0..protocol_upgrade_num_epoch {
+            if cur_epoch_id == EpochId::default() {
+                break;
+            }
+            cur_epoch_id = epoch_manager.get_prev_epoch_id_from_epoch_id(&cur_epoch_id)?.clone();
+        }
+        Ok(epoch_manager.get_epoch_info(&cur_epoch_id)?.protocol_version)
     }
 
     fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error> {

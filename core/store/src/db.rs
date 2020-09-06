@@ -109,10 +109,12 @@ pub enum DBCol {
     _ColTransactionRefCount = 43,
     /// Heights of blocks that have been processed
     ColProcessedBlockHeights = 44,
+    /// Epoch id to prev epoch id
+    ColEpochId = 45,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 45;
+pub const NUM_COLS: usize = 46;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -162,6 +164,7 @@ impl std::fmt::Display for DBCol {
             Self::ColOutcomesByBlockHash => "outcomes by block hash",
             Self::_ColTransactionRefCount => "refcount per transaction (deprecated)",
             Self::ColProcessedBlockHeights => "processed block heights",
+            Self::ColEpochId => "epoch id to prev epoch id",
         };
         write!(formatter, "{}", desc)
     }

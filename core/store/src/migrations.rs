@@ -9,12 +9,14 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
-use crate::db::DBCol::ColStateParts;
+use crate::db::DBCol::{ColEpochId, ColEpochInfo, ColStateParts};
 use crate::db::{DBCol, RocksDB, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
 use crate::{create_store, Store, StoreUpdate};
+use near_primitives::epoch_manager::EpochInfo;
+use near_primitives::types::EpochId;
 
 pub mod v6_to_v7;
 
@@ -114,4 +116,44 @@ pub fn migrate_7_to_8(path: &String) {
     }
     set_store_version_inner(&mut store_update, 8);
     store_update.commit().expect("Fail to migrate from DB version 7 to DB version 8");
+}
+
+pub fn migrate_8_to_9(path: &String) {
+    let store = create_store(path);
+    let mut epoch_height_to_id = HashMap::new();
+    // since epoch id is only 32 bytes, populating `epoch_height_to_id` should not cause memory issues.
+    for (key, value) in store.iter_without_rc_logic(ColEpochInfo) {
+        if key.len() == 32 {
+            let epoch_id = EpochId::try_from_slice(key.as_ref()).unwrap();
+            let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+            if epoch_height_to_id.contains_key(&epoch_info.epoch_height)
+                && epoch_info.epoch_height > 1
+            {
+                panic!(
+                    "fork longer than one epoch happened at epoch height {}",
+                    epoch_info.epoch_height
+                );
+            }
+            epoch_height_to_id.insert(epoch_info.epoch_height, epoch_id);
+        }
+    }
+    let mut store_update = store.store_update();
+    for (key, value) in store.iter_without_rc_logic(ColEpochInfo) {
+        if key.len() == 32 {
+            let epoch_id = EpochId::try_from_slice(key.as_ref()).unwrap();
+            let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+            if epoch_info.epoch_height == 1 {
+                store_update.set_ser(ColEpochId, epoch_id.as_ref(), &EpochId::default()).unwrap();
+            } else {
+                let prev_epoch_height = epoch_info.epoch_height - 1;
+                let prev_epoch_id = epoch_height_to_id
+                    .get(&prev_epoch_height)
+                    .expect(&format!("no epoch at height {}", prev_epoch_height))
+                    .clone();
+                store_update.set_ser(ColEpochId, epoch_id.as_ref(), &prev_epoch_id).unwrap();
+            }
+        }
+    }
+    set_store_version_inner(&mut store_update, 9);
+    store_update.commit().expect("Fail to migrate from DB version 8 to DB version 9");
 }

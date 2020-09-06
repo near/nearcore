@@ -2080,6 +2080,14 @@ fn test_epoch_protocol_version_change() {
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     for i in 1..=15 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+        // upgrade takes `protocol_upgrade_num_epoch` epoch to take effect
+        if i == 6 || i == 11 {
+            let protocol_version = env.clients[0]
+                .runtime_adapter
+                .get_epoch_protocol_version(block.header().epoch_id())
+                .unwrap();
+            assert_eq!(protocol_version, PROTOCOL_VERSION - 1);
+        }
         if i == 7 || i == 8 {
             block.get_mut().header.get_mut().inner_rest.latest_protocol_version =
                 PROTOCOL_VERSION - 1;
@@ -2087,11 +2095,20 @@ fn test_epoch_protocol_version_change() {
         }
         env.process_block(0, block, Provenance::NONE);
     }
-    env.produce_block(0, 16);
-    let last_block = env.clients[0].chain.get_block_by_height(16).unwrap().clone();
-    let protocol_version = env.clients[0]
-        .runtime_adapter
-        .get_epoch_protocol_version(last_block.header().epoch_id())
-        .unwrap();
-    assert_eq!(protocol_version, PROTOCOL_VERSION);
+    // check that protocol_upgrade_num_epoch is 2.
+    for i in 16..=30 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        if i == 16 || i == 21 || i == 26 {
+            let protocol_version = env.clients[0]
+                .runtime_adapter
+                .get_epoch_protocol_version(block.header().epoch_id())
+                .unwrap();
+            if i == 16 {
+                assert_eq!(protocol_version, PROTOCOL_VERSION - 1);
+            } else {
+                assert_eq!(protocol_version, PROTOCOL_VERSION);
+            }
+        }
+        env.process_block(0, block, Provenance::NONE);
+    }
 }

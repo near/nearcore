@@ -21,7 +21,7 @@ use near_primitives::version::{
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
-use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
+use near_store::{ColBlockInfo, ColEpochId, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
@@ -52,6 +52,8 @@ pub struct EpochManager {
     blocks_info: SizedCache<CryptoHash, BlockInfo>,
     /// Cache of epoch id to epoch start height
     epoch_id_to_start: SizedCache<EpochId, BlockHeight>,
+    /// Cache of epoch id to prev epoch id.
+    epoch_id_to_prev: SizedCache<EpochId, EpochId>,
     /// Aggregator that crunches data when we process block info
     epoch_info_aggregator: Option<EpochInfoAggregator>,
 }
@@ -74,6 +76,7 @@ impl EpochManager {
             epochs_info: SizedCache::with_size(EPOCH_CACHE_SIZE),
             blocks_info: SizedCache::with_size(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SizedCache::with_size(EPOCH_CACHE_SIZE),
+            epoch_id_to_prev: SizedCache::with_size(EPOCH_CACHE_SIZE),
             epoch_info_aggregator: None,
         };
         let genesis_epoch_id = EpochId::default();
@@ -96,7 +99,12 @@ impl EpochManager {
             // EpochId formula using T-2 for T=1, and height field is unused.
             let block_info = BlockInfo::default();
             let mut store_update = epoch_manager.store.store_update();
-            epoch_manager.save_epoch_info(&mut store_update, &genesis_epoch_id, epoch_info)?;
+            epoch_manager.save_epoch_info(
+                &mut store_update,
+                &genesis_epoch_id,
+                &genesis_epoch_id,
+                epoch_info,
+            )?;
             epoch_manager.save_block_info(&mut store_update, &CryptoHash::default(), block_info)?;
             store_update.commit()?;
         }
@@ -353,7 +361,12 @@ impl EpochManager {
         };
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
-        self.save_epoch_info(store_update, &EpochId(*last_block_hash), next_next_epoch_info)?;
+        self.save_epoch_info(
+            store_update,
+            &next_epoch_id,
+            &EpochId(*last_block_hash),
+            next_next_epoch_info,
+        )?;
         // Return next epoch (T+1) id as hash of last block in previous epoch (T-1).
         Ok(EpochId(prev_epoch_last_block_hash))
     }
@@ -375,6 +388,7 @@ impl EpochManager {
                 self.save_block_info(&mut store_update, current_hash, block_info)?;
                 self.save_epoch_info(
                     &mut store_update,
+                    &pre_genesis_epoch_id,
                     &EpochId(*current_hash),
                     genesis_epoch_info,
                 )?;
@@ -1035,6 +1049,21 @@ impl EpochManager {
         self.epochs_info.cache_get(epoch_id).ok_or(EpochError::EpochOutOfBounds)
     }
 
+    pub fn get_prev_epoch_id_from_epoch_id(
+        &mut self,
+        epoch_id: &EpochId,
+    ) -> Result<&EpochId, EpochError> {
+        if !self.epoch_id_to_prev.cache_get(epoch_id).is_some() {
+            let prev_epoch_id = self
+                .store
+                .get_ser(ColEpochId, epoch_id.as_ref())
+                .map_err(|err| err.into())
+                .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
+            self.epoch_id_to_prev.cache_set(epoch_id.clone(), prev_epoch_id);
+        }
+        self.epoch_id_to_prev.cache_get(epoch_id).ok_or(EpochError::EpochOutOfBounds)
+    }
+
     fn has_epoch_info(&mut self, epoch_id: &EpochId) -> Result<bool, EpochError> {
         match self.get_epoch_info(epoch_id) {
             Ok(_) => Ok(true),
@@ -1046,13 +1075,14 @@ impl EpochManager {
     fn save_epoch_info(
         &mut self,
         store_update: &mut StoreUpdate,
+        prev_epoch_id: &EpochId,
         epoch_id: &EpochId,
         epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
-        store_update
-            .set_ser(ColEpochInfo, epoch_id.as_ref(), &epoch_info)
-            .map_err(EpochError::from)?;
+        store_update.set_ser(ColEpochInfo, epoch_id.as_ref(), &epoch_info)?;
+        store_update.set_ser(ColEpochId, epoch_id.as_ref(), prev_epoch_id)?;
         self.epochs_info.cache_set(epoch_id.clone(), epoch_info);
+        self.epoch_id_to_prev.cache_set(epoch_id.clone(), prev_epoch_id.clone());
         Ok(())
     }
 
@@ -3041,6 +3071,33 @@ mod tests {
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[6])).unwrap().protocol_version,
             PROTOCOL_VERSION
+        );
+    }
+
+    #[test]
+    fn test_prev_epoch_id_from_epoch_id() {
+        let stake_amount = 1_000;
+        let validators = vec![("test1", stake_amount), ("test2", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
+        let h = hash_range(10);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        for i in 1..4 {
+            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+        }
+        assert_eq!(
+            epoch_manager.get_prev_epoch_id_from_epoch_id(&EpochId(h[0])).unwrap(),
+            &EpochId::default()
+        );
+        assert_eq!(
+            epoch_manager.get_prev_epoch_id_from_epoch_id(&EpochId(h[2])).unwrap(),
+            &EpochId(h[0])
+        );
+        // create a fork
+        record_block(&mut epoch_manager, h[1], h[4], 4, vec![]);
+        record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
+        assert_eq!(
+            epoch_manager.get_prev_epoch_id_from_epoch_id(&EpochId(h[4])).unwrap(),
+            &EpochId(h[0])
         );
     }
 }

@@ -107,7 +107,7 @@ def main():
         nodes[i].binary_name = config['binary_name']
         nodes[i].start(nodes[0].node_key.pk, nodes[0].addr())
 
-    wait_for_blocks_or_timeout(nodes[3], 60, 120)
+    wait_for_blocks_or_timeout(nodes[3], 100, 240)
     status0 = nodes[0].get_status()
     status3 = nodes[3].get_status()
     protocol_version = status0['protocol_version']

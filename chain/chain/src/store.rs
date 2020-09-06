@@ -2335,7 +2335,8 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColEpochInfo
             | DBCol::ColEpochStart
             | DBCol::ColBlockOrdinal
-            | DBCol::_ColTransactionRefCount => {
+            | DBCol::_ColTransactionRefCount
+            | DBCol::ColEpochId => {
                 unreachable!();
             }
         }
