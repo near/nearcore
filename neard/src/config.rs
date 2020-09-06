@@ -695,14 +695,10 @@ fn state_records_account_with_key(
 }
 
 /// Generate validator key if account is not `None`.
-fn generate_validator_key(account_id: Option<&str>, path: &Path) {
-    if let Some(account_id) =
-        account_id.and_then(|x| if x.is_empty() { None } else { Some(x.to_string()) })
-    {
-        let signer = InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519);
-        info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
-        signer.write_to_file(path);
-    }
+fn generate_validator_key(account_id: &str, path: &Path) {
+    let signer = InMemoryValidatorSigner::from_random(account_id.to_string(), KeyType::ED25519);
+    info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
+    signer.write_to_file(path);
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -742,7 +738,9 @@ pub fn init_configs(
                     .expect("Failed to convert genesis file into string"),
             )
             .expect("Failed to deserialize MainNet genesis");
-            generate_validator_key(account_id, &dir.join(config.validator_key_file));
+            if let Some(account_id) = account_id {
+                generate_validator_key(account_id, &dir.join(config.validator_key_file));
+            }
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
@@ -758,7 +756,9 @@ pub fn init_configs(
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            generate_validator_key(account_id, &dir.join(config.validator_key_file));
+            if let Some(account_id) = account_id {
+                generate_validator_key(account_id, &dir.join(config.validator_key_file));
+            }
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
