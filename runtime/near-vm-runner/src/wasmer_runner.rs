@@ -160,7 +160,9 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                         VMLogicError::InconsistentStateError(e) => {
                             VMError::InconsistentStateError(e.clone())
                         }
-                        VMLogicError::EvmError(e) => VMError::FunctionCallError(FunctionCallError::EvmError(e.clone())),
+                        VMLogicError::EvmError(e) => {
+                            VMError::FunctionCallError(FunctionCallError::EvmError(e.clone()))
+                        }
                     }
                 } else {
                     panic!(

@@ -22,7 +22,7 @@ use neard::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use crate::fees_utils::FeeHelper;
 use crate::node::Node;
-use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
+use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account, evm_account};
 use crate::user::User;
 use near_evm_runner::utils::near_account_id_to_evm_address;
 

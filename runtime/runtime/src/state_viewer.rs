@@ -6,23 +6,22 @@ use log::debug;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ActionReceipt;
 use near_primitives::serialize::to_base64;
+use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, EpochInfoProvider};
 use near_primitives::utils::is_valid_account_id;
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{StateItem, ViewStateResult};
+use near_runtime_configs::RuntimeConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_logic::ReturnData;
 
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
 use crate::ApplyState;
-use near_primitives::receipt::ActionReceipt;
-use near_primitives::transaction::FunctionCallAction;
-use near_primitives::version::ProtocolVersion;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_runtime_configs::RuntimeConfig;
 
 pub struct TrieViewer {}
 
@@ -134,7 +133,7 @@ impl TrieViewer {
             block_timestamp,
             gas_limit: None,
             random_seed: root,
-            current_protocol_version: PROTOCOL_VERSION,
+            current_protocol_version,
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
@@ -191,16 +190,16 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::StateChangeCause;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_primitives::views::StateItem;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
 
     use super::*;
-    use near_primitives::test_utils::MockEpochInfoProvider;
-    use near_primitives::version::PROTOCOL_VERSION;
 
     #[test]
     fn test_view_call() {

@@ -11,6 +11,7 @@ use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_jsonrpc::ServerError;
+use near_jsonrpc_client::ChunkId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
@@ -19,12 +20,11 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
 };
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CallResult, EpochValidatorInfo, ExecutionOutcomeView,
-    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, EpochValidatorInfo,
+    ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
-use near_jsonrpc_client::ChunkId;
 
 pub struct RpcUser {
     account_id: AccountId,

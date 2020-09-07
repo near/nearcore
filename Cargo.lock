@@ -3328,6 +3328,7 @@ dependencies = [
  "lazy_static",
  "log",
  "near-crypto",
+ "near-evm-runner",
  "near-metrics",
  "near-primitives",
  "near-runtime-configs",

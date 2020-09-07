@@ -7,21 +7,21 @@ use near_jsonrpc::ServerError;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CallResult, ExecutionOutcomeView,
-    ExecutionOutcomeWithIdView, ExecutionStatusView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ExecutionOutcomeView,
+    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    FinalExecutionStatus, ViewStateResult,
 };
-use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_store::{ShardTries, TrieUpdate};
+use neard::config::MIN_GAS_PRICE;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
-use near_primitives::test_utils::MockEpochInfoProvider;
-use neard::config::MIN_GAS_PRICE;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -231,6 +231,7 @@ impl User for RuntimeUser {
                 args,
                 &mut result.logs,
                 &self.epoch_info_provider,
+                PROTOCOL_VERSION,
             )
             .map_err(|err| err.to_string())?;
         Ok(result)

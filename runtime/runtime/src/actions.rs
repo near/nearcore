@@ -1,7 +1,9 @@
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
+use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::transaction::{
@@ -12,6 +14,11 @@ use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::{
     is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id, EVM_CODE_HASH,
 };
+use near_primitives::version::{
+    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION,
+    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+};
+use near_runtime_configs::AccountCreationConfig;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::is_account_id_64_len_hex;
 use near_store::{
@@ -20,20 +27,12 @@ use near_store::{
 };
 use near_vm_errors::{CompilationError, FunctionCallError, InconsistentStateError};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::VMContext;
+use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_runner::VMError;
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
-use near_crypto::PublicKey;
-use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
-use near_primitives::version::{
-    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
-};
-use near_runtime_configs::AccountCreationConfig;
-use near_vm_errors::{CompilationError, FunctionCallError};
-use near_vm_runner::VMError;
 
 /// Runs given function call with given context / apply state.
 /// Precompiles:
@@ -127,6 +126,7 @@ pub(crate) fn execute_function_call(
             &config.wasm_config,
             &config.transaction_costs,
             promise_results,
+            apply_state.current_protocol_version,
         )
     }
 }

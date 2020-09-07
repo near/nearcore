@@ -12,9 +12,11 @@ use near_primitives::transaction::{
     DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
     TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash};
-use near_primitives::views::{AccessKeyView, AccountView, BlockView, CallResult, ViewStateResult};
-use near_primitives::views::{ExecutionOutcomeView, FinalExecutionOutcomeView};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId};
+use near_primitives::views::{
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ExecutionOutcomeView,
+    FinalExecutionOutcomeView, ViewStateResult,
+};
 
 pub use crate::user::runtime_user::RuntimeUser;
 
