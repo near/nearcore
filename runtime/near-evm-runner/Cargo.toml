@@ -15,6 +15,7 @@ hex = "0.4"
 byteorder = "1.0"
 num-bigint = { version = "0.3", default-features = false }
 num-traits = "0.2.12"
+enum-primitive-derive = "0.2"
 
 sha2 = "0.8"
 sha3 = "0.8"

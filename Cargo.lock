@@ -1345,6 +1345,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "enum-primitive-derive"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f52288f9a7ebb08959188872b58e7eaa12af9cb47da8e94158e16da7e143340"
+dependencies = [
+ "num-traits",
+ "quote 1.0.3",
+ "syn 1.0.38",
+]
+
+[[package]]
 name = "env_logger"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2847,6 +2858,7 @@ dependencies = [
  "bn",
  "borsh",
  "byteorder",
+ "enum-primitive-derive",
  "ethabi",
  "ethabi-contract",
  "ethabi-derive",

@@ -228,15 +228,14 @@ fn test_solidity_accurate_storage_on_selfdestruct() {
         U256::from(100)
     );
 
-    let salt = H256([0u8; 32]);
-    let destruct_code = hex::decode(&DESTRUCT_TEST).unwrap();
-
     // Deploy CREATE2 Factory
+    let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     let factory_addr = context.deploy_code(hex::decode(&FACTORY_TEST).unwrap()).unwrap();
 
     // Deploy + SelfDestruct in one transaction
+    let salt = H256([0u8; 32]);
+    let destruct_code = hex::decode(&DESTRUCT_TEST).unwrap();
     let input = create2factory::functions::test_double_deploy::call(salt, destruct_code.clone()).0;
     let raw = context.call_function(encode_call_function_args(factory_addr, input)).unwrap();
-    println!("{:?}", raw);
-    // assert_eq!(1, raw.parse::<i32>().unwrap());
+    assert!(create2factory::functions::test_double_deploy::decode_output(&raw).unwrap());
 }

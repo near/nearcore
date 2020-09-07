@@ -7,11 +7,12 @@ use std::{
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 use ethereum_types::{Address, H256, U256};
 use num_bigint::BigUint;
-use num_traits::{One, Zero};
+use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
 use parity_bytes::BytesRef;
 use ripemd160::Digest;
 use vm::{MessageCallResult, ReturnData};
 
+#[derive(Primitive)]
 enum Precompile {
     EcRecover = 1,
     Sha256 = 2,
@@ -26,32 +27,37 @@ enum Precompile {
 }
 
 pub fn is_precompile(addr: &Address) -> bool {
-    *addr < Address::from_low_u64_be(Precompile::LastPrecompile as u64)
+    *addr < Address::from_low_u64_be(Precompile::LastPrecompile.to_u64().unwrap())
 }
 
 pub fn precompile(id: u64) -> Result<Box<dyn Impl>, String> {
-    Ok(match id as Precompile {
-        Precompile::EcRecover => Box::new(EcRecover) as Box<dyn Impl>,
-        Precompile::Sha256 => Box::new(Sha256) as Box<dyn Impl>,
-        Precompile::Ripemd160 => Box::new(Ripemd160) as Box<dyn Impl>,
-        Precompile::Identity => Box::new(Identity) as Box<dyn Impl>,
-        Precompile::ModexpImpl => Box::new(ModexpImpl) as Box<dyn Impl>,
-        Precompile::Bn128AddImpl => Box::new(Bn128AddImpl) as Box<dyn Impl>,
-        Precompile::Bn128MulImpl => Box::new(Bn128MulImpl) as Box<dyn Impl>,
-        Precompile::Bn128PairingImpl => Box::new(Bn128PairingImpl) as Box<dyn Impl>,
-        Precompile::Blake2FImpl => Box::new(Blake2FImpl) as Box<dyn Impl>,
+    Ok(match Precompile::from_u64(id) {
+        Some(Precompile::EcRecover) => Box::new(EcRecover) as Box<dyn Impl>,
+        Some(Precompile::Sha256) => Box::new(Sha256) as Box<dyn Impl>,
+        Some(Precompile::Ripemd160) => Box::new(Ripemd160) as Box<dyn Impl>,
+        Some(Precompile::Identity) => Box::new(Identity) as Box<dyn Impl>,
+        Some(Precompile::ModexpImpl) => Box::new(ModexpImpl) as Box<dyn Impl>,
+        Some(Precompile::Bn128AddImpl) => Box::new(Bn128AddImpl) as Box<dyn Impl>,
+        Some(Precompile::Bn128MulImpl) => Box::new(Bn128MulImpl) as Box<dyn Impl>,
+        Some(Precompile::Bn128PairingImpl) => Box::new(Bn128PairingImpl) as Box<dyn Impl>,
+        Some(Precompile::Blake2FImpl) => Box::new(Blake2FImpl) as Box<dyn Impl>,
         _ => return Err(format!("Invalid builtin ID: {}", id)),
     })
 }
 
 pub fn process_precompile(addr: &Address, input: &[u8]) -> MessageCallResult {
-    let f = precompile(addr.to_low_u64_be()).map_err(|_| MessageCallResult::Failed)?;
+    let f = match precompile(addr.to_low_u64_be()) {
+        Ok(f) => f,
+        Err(_) => return MessageCallResult::Failed,
+    };
     let mut bytes = vec![];
     let mut output = parity_bytes::BytesRef::Flexible(&mut bytes);
 
     // mutates bytes
-    f.execute(input, &mut output).map_err(|_| MessageCallResult::Failed)?;
-
+    match f.execute(input, &mut output) {
+        Ok(()) => {}
+        Err(_) => return MessageCallResult::Failed,
+    };
     let size = bytes.len();
 
     // TODO: add gas usage here.

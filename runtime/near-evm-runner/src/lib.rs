@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate enum_primitive_derive;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
