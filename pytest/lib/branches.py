@@ -1,11 +1,44 @@
 import os
 import subprocess
 
+import semver
+from github import Github
+
 
 def current_branch():
     return os.environ.get('BUILDKITE_BRANCH') or subprocess.check_output([
         "git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"
     ]).strip().decode()
+
+
+def get_releases():
+    git = Github(None)
+    repo = git.get_repo("nearprotocol/nearcore")
+    releases = []
+
+    for release in repo.get_releases():
+        try:
+            # make sure that the version provided is a valid semver version
+            version = semver.VersionInfo.parse(release.title)
+            releases.append(release)
+        except Exception as e:
+            pass
+
+    return sorted(releases,
+                  key=lambda release: semver.VersionInfo.parse(release.title),
+                  reverse=True)
+
+
+def latest_beta_branch():
+    releases = list(
+        filter(
+            lambda release: (semver.VersionInfo.parse(release.title).prerelease
+                             or "").startswith("beta"), get_releases()))
+
+    if not releases:
+        return None
+
+    return semver.VersionInfo.parse(releases[0].title).finalize_version()
 
 
 def compile_binary(branch):
