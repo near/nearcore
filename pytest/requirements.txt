@@ -13,3 +13,5 @@ deepdiff
 pynacl
 numpy
 sklearn
+PyGithub
+semver
