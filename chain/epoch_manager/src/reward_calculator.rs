@@ -27,19 +27,16 @@ impl RewardCalculator {
         validator_stake: &HashMap<AccountId, Balance>,
         total_supply: Balance,
         protocol_version: ProtocolVersion,
+        genesis_protocol_version: ProtocolVersion,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        let max_inflation_rate = if protocol_version >= ENABLE_INFLATION_PROTOCOL_VERSION {
-            Rational::new_raw(1, 20)
-        } else {
-            self.max_inflation_rate
-        };
-        let protocol_reward_rate = if protocol_version >= ENABLE_INFLATION_PROTOCOL_VERSION {
-            Rational::new_raw(1, 10)
-        } else {
-            self.protocol_reward_rate
-        };
+        let use_hardcoded_value = genesis_protocol_version < protocol_version
+            && protocol_version >= ENABLE_INFLATION_PROTOCOL_VERSION;
+        let max_inflation_rate =
+            if use_hardcoded_value { Rational::new_raw(1, 20) } else { self.max_inflation_rate };
+        let protocol_reward_rate =
+            if use_hardcoded_value { Rational::new_raw(1, 10) } else { self.protocol_reward_rate };
         let epoch_total_reward = (U256::from(*max_inflation_rate.numer() as u64)
             * U256::from(total_supply)
             * U256::from(self.epoch_length)
@@ -148,6 +145,7 @@ mod tests {
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         );
         assert_eq!(
             result.0,
@@ -211,6 +209,7 @@ mod tests {
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         );
         // Total reward is 10_000_000. Divided by 3 equal stake validators - each gets 3_333_333.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -261,6 +260,7 @@ mod tests {
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         );
     }
 
@@ -293,6 +293,7 @@ mod tests {
             &validator_stake,
             total_supply,
             ENABLE_INFLATION_PROTOCOL_VERSION,
+            ENABLE_INFLATION_PROTOCOL_VERSION - 1,
         );
         assert_eq!(
             account_rewards,

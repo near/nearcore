@@ -43,6 +43,8 @@ pub struct EpochManager {
     /// TODO: must be dynamically changing over time, so there should be a way to change it.
     config: EpochConfig,
     reward_calculator: RewardCalculator,
+    /// Genesis protocol version. Useful when there are protocol upgrades.
+    genesis_protocol_version: ProtocolVersion,
 
     /// Cache of epoch information.
     epochs_info: SizedCache<EpochId, EpochInfo>,
@@ -69,6 +71,7 @@ impl EpochManager {
             store,
             config,
             reward_calculator,
+            genesis_protocol_version,
             epochs_info: SizedCache::with_size(EPOCH_CACHE_SIZE),
             blocks_info: SizedCache::with_size(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SizedCache::with_size(EPOCH_CACHE_SIZE),
@@ -325,6 +328,7 @@ impl EpochManager {
             &validator_stake,
             block_info.total_supply,
             epoch_protocol_version,
+            self.genesis_protocol_version,
         );
         let next_next_epoch_info = match proposals_to_epoch_info(
             &self.config,
@@ -1913,6 +1917,7 @@ mod tests {
             &validator_stakes,
             total_supply,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
@@ -2014,6 +2019,7 @@ mod tests {
             validator_online_ratio,
             &validators_stakes,
             total_supply,
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         );
         let test1_reward = *validator_reward.get("test1").unwrap();
@@ -2120,6 +2126,7 @@ mod tests {
             validator_online_ratio,
             &validators_stakes,
             total_supply,
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
