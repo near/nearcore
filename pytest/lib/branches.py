@@ -33,7 +33,7 @@ def latest_beta_branch():
     releases = list(
         filter(
             lambda release: (semver.VersionInfo.parse(release.title).prerelease
-                             or "").startswith("beta"), get_releases()))
+                             or "").startswith("rc"), get_releases()))
 
     if not releases:
         return None
