@@ -171,7 +171,6 @@ impl<'a> vm::Ext for NearExt<'a> {
 
         // hijack builtins
         if crate::builtins::is_precompile(receive_address) {
-            println!("{:?}", receive_address);
             return Ok(crate::builtins::process_precompile(receive_address, data));
         }
 
