@@ -97,6 +97,7 @@ pub fn run_vm<'a>(
             fees_config,
             promise_results,
             None,
+            current_protocol_version,
         ),
         #[cfg(not(feature = "combined_vm"))]
         VMKind::Combined => {
@@ -164,6 +165,7 @@ pub fn run_vm_profiled<'a>(
             fees_config,
             promise_results,
             Some(profile),
+            current_protocol_version,
         ),
         #[cfg(not(feature = "combined_vm"))]
         VMKind::Combined => {

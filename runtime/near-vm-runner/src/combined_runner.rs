@@ -4,7 +4,9 @@ pub mod combined_runner {
     use near_runtime_fees::RuntimeFeesConfig;
     use near_vm_errors::HostError;
     use near_vm_errors::{InconsistentStateError, VMError};
-    use near_vm_logic::types::{AccountId, Balance, Gas, ProfileData, PromiseResult, PublicKey};
+    use near_vm_logic::types::{
+        AccountId, Balance, Gas, ProfileData, PromiseResult, ProtocolVersion, PublicKey,
+    };
     use near_vm_logic::{External, VMConfig, VMContext, VMLogicError, VMOutcome, ValuePtr};
     use std::collections::HashMap;
 
@@ -424,7 +426,9 @@ pub mod combined_runner {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         profile: Option<ProfileData>,
+        current_protocol_version: ProtocolVersion,
     ) -> (Option<VMOutcome>, Option<VMError>) {
+        println!("COMBINED");
         // We operate in the following manner. We create a special purpose External implementation, which
         // doesn't commit DB changes, while make them visible for further invocation.
         // Then we compare side effects produced in Externals by different VMs, and if they coincide -
@@ -445,6 +449,7 @@ pub mod combined_runner {
                 promise_results,
                 // By convention, we profile using Wasmer.
                 profile,
+                current_protocol_version,
             );
             log1 = proxy.commit_log();
         }
@@ -463,6 +468,7 @@ pub mod combined_runner {
                 fees_config,
                 promise_results,
                 None,
+                current_protocol_version,
             );
             log2 = proxy.commit_log();
         }

@@ -162,6 +162,9 @@ pub fn cost_to_compile(
                     } else {
                         "wasmtime"
                     },
+                VMKind::Combined => {
+                    panic!("Combined VM is for execution only")
+                }
             }
         );
     };
