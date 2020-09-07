@@ -1,48 +1,60 @@
-use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
-use ethereum_types::{Address, H256, U256};
-use num_bigint::BigUint;
-use num_traits::{One, Zero};
-
-use parity_bytes::BytesRef;
-use ripemd160::Digest;
 use std::{
     cmp::{max, min},
     io::{self, Cursor, Read},
     mem::size_of,
 };
+
+use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
+use ethereum_types::{Address, H256, U256};
+use num_bigint::BigUint;
+use num_traits::{One, Zero};
+use parity_bytes::BytesRef;
+use ripemd160::Digest;
 use vm::{MessageCallResult, ReturnData};
 
-pub static COUNT: u64 = 9;
-
-pub fn is_precompile(addr: &Address) -> bool {
-    *addr <= Address::from_low_u64_be(COUNT)
+enum Precompile {
+    EcRecover = 1,
+    Sha256 = 2,
+    Ripemd160 = 3,
+    Identity = 4,
+    ModexpImpl = 5,
+    Bn128AddImpl = 6,
+    Bn128MulImpl = 7,
+    Bn128PairingImpl = 8,
+    Blake2FImpl = 9,
+    LastPrecompile = 10,
 }
 
-pub fn precompile(id: u64) -> Box<dyn Impl> {
-    match id {
-        1 => Box::new(EcRecover) as Box<dyn Impl>,
-        2 => Box::new(Sha256) as Box<dyn Impl>,
-        3 => Box::new(Ripemd160) as Box<dyn Impl>,
-        4 => Box::new(Identity) as Box<dyn Impl>,
-        5 => Box::new(ModexpImpl) as Box<dyn Impl>,
-        6 => Box::new(Bn128AddImpl) as Box<dyn Impl>,
-        7 => Box::new(Bn128MulImpl) as Box<dyn Impl>,
-        8 => Box::new(Bn128PairingImpl) as Box<dyn Impl>,
-        9 => Box::new(Blake2FImpl) as Box<dyn Impl>,
-        _ => panic!("Invalid builtin ID: {}", id),
-    }
+pub fn is_precompile(addr: &Address) -> bool {
+    *addr < Address::from_low_u64_be(Precompile::LastPrecompile as u64)
+}
+
+pub fn precompile(id: u64) -> Result<Box<dyn Impl>, String> {
+    Ok(match id as Precompile {
+        Precompile::EcRecover => Box::new(EcRecover) as Box<dyn Impl>,
+        Precompile::Sha256 => Box::new(Sha256) as Box<dyn Impl>,
+        Precompile::Ripemd160 => Box::new(Ripemd160) as Box<dyn Impl>,
+        Precompile::Identity => Box::new(Identity) as Box<dyn Impl>,
+        Precompile::ModexpImpl => Box::new(ModexpImpl) as Box<dyn Impl>,
+        Precompile::Bn128AddImpl => Box::new(Bn128AddImpl) as Box<dyn Impl>,
+        Precompile::Bn128MulImpl => Box::new(Bn128MulImpl) as Box<dyn Impl>,
+        Precompile::Bn128PairingImpl => Box::new(Bn128PairingImpl) as Box<dyn Impl>,
+        Precompile::Blake2FImpl => Box::new(Blake2FImpl) as Box<dyn Impl>,
+        _ => return Err(format!("Invalid builtin ID: {}", id)),
+    })
 }
 
 pub fn process_precompile(addr: &Address, input: &[u8]) -> MessageCallResult {
-    let f = precompile(addr.to_low_u64_be());
+    let f = precompile(addr.to_low_u64_be()).map_err(|_| MessageCallResult::Failed)?;
     let mut bytes = vec![];
     let mut output = parity_bytes::BytesRef::Flexible(&mut bytes);
 
     // mutates bytes
-    f.execute(input, &mut output).expect("No errors in precompiles");
+    f.execute(input, &mut output).map_err(|_| MessageCallResult::Failed)?;
 
     let size = bytes.len();
 
+    // TODO: add gas usage here.
     MessageCallResult::Success(1_000_000_000.into(), ReturnData::new(bytes, 0, size))
 }
 
@@ -367,10 +379,7 @@ impl Impl for Bn128PairingImpl {
             return Err("Invalid input length, must be multiple of 192 (3 * (32*2))".into());
         }
 
-        if let Err(err) = self.execute_with_error(input, output) {
-            panic!("Pairining error: {:?}", err);
-        }
-        Ok(())
+        self.execute_with_error(input, output)
     }
 }
 
@@ -527,11 +536,7 @@ impl Impl for Blake2FImpl {
         const PROOF: &str = "Checked the length of the input above; qed";
 
         if input.len() != BLAKE2_F_ARG_LEN {
-            panic!(
-                "input length for Blake2 F precompile should be exactly 213 bytes, was {}",
-                input.len()
-            );
-            // return Err("input length for Blake2 F precompile should be exactly 213 bytes")
+            return Err(Error("input length for Blake2 F precompile should be exactly 213 bytes"));
         }
 
         let mut cursor = Cursor::new(input);
@@ -560,7 +565,7 @@ impl Impl for Blake2FImpl {
             Some(1) => true,
             Some(0) => false,
             _ => {
-                panic!("incorrect final block indicator flag, was: {:?}", input.last());
+                return Err(Error("incorrect final block indicator flag"));
             }
         };
 
