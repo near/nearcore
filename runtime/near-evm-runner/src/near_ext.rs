@@ -145,6 +145,7 @@ impl<'a> vm::Ext for NearExt<'a> {
             true,
             &code.to_vec(),
         )
+        // TODO: gas usage.
         .map(|result| ContractCreateResult::Created(result, 1_000_000_000.into()))
         .map_err(|_| TrapKind::Call(ActionParams::default()))
     }
@@ -213,6 +214,7 @@ impl<'a> vm::Ext for NearExt<'a> {
         };
 
         let msg_call_result = match result {
+            // TODO: gas usage.
             Ok(data) => MessageCallResult::Success(1_000_000_000.into(), data),
             Err(err) => {
                 let message = match err {
@@ -222,6 +224,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                     _ => format!("{:?}", err).as_bytes().to_vec(),
                 };
                 let message_len = message.len();
+                // TODO: gas usage.
                 MessageCallResult::Reverted(
                     1_000_000_000.into(),
                     ReturnData::new(message, 0, message_len),

@@ -73,6 +73,7 @@ pub fn _create<T: EvmState>(
         address: *address,
         sender: *sender,
         origin: *origin,
+        // TODO: gas usage.
         gas: 1_000_000_000.into(),
         gas_price: 1.into(),
         value: ActionValue::Transfer(value),
@@ -86,6 +87,7 @@ pub fn _create<T: EvmState>(
     sub_state.transfer_balance(sender, address, value)?;
 
     let mut ext = NearExt::new(*address, *origin, &mut sub_state, call_stack_depth + 1, false);
+    // TODO: gas usage.
     ext.info.gas_limit = U256::from(1_000_000_000);
     ext.schedule = Schedule::new_constantinople();
 
@@ -243,6 +245,7 @@ fn run_against_state<T: EvmState>(
         address: *state_address,
         sender: *sender,
         origin: *origin,
+        // TODO: gas usage.
         gas: 1_000_000_000.into(),
         gas_price: 1.into(),
         value: ActionValue::Apparent(0.into()),
@@ -260,6 +263,7 @@ fn run_against_state<T: EvmState>(
 
     let mut ext =
         NearExt::new(*state_address, *origin, &mut sub_state, call_stack_depth + 1, is_static);
+    // TODO: gas usage.
     ext.info.gas_limit = U256::from(1_000_000_000);
     ext.schedule = Schedule::new_constantinople();
 

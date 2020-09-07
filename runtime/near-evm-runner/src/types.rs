@@ -90,6 +90,6 @@ mod tests {
     #[test]
     fn test_view_call_fail() {
         let bytes = [0; 71];
-        let res = ViewCallArgs::try_from_slice(&bytes).unwrap_err();
+        let _ = ViewCallArgs::try_from_slice(&bytes).unwrap_err();
     }
 }

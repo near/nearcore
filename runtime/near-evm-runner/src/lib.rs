@@ -83,6 +83,7 @@ impl<'a> EvmState for EvmContext<'a> {
     }
 
     fn commit_changes(&mut self, other: &StateStore) -> Result<()> {
+        // TODO: figure out how to handle this on the top level.
         //        self.commit_self_destructs(&other.self_destructs);
         //        self.commit_self_destructs(&other.recreated);
         for (address, code) in other.code.iter() {
