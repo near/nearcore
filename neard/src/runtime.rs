@@ -160,7 +160,7 @@ impl NightshadeRuntime {
             max_inflation_rate: genesis.config.max_inflation_rate,
             num_blocks_per_year: genesis.config.num_blocks_per_year,
             epoch_length: genesis.config.epoch_length,
-            protocol_reward_percentage: genesis.config.protocol_reward_rate,
+            protocol_reward_rate: genesis.config.protocol_reward_rate,
             protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
             online_max_threshold: genesis.config.online_max_threshold,
             online_min_threshold: genesis.config.online_min_threshold,

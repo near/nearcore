@@ -25,10 +25,8 @@ use near_network::{
 };
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
-use num_rational::Rational;
 
 pub type SharedRunningInfo = Arc<RwLock<RunningInfo>>;
 
@@ -59,19 +57,8 @@ pub fn setup_network_node(
         account_id.as_str(),
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let chain_genesis = ChainGenesis {
-        time: genesis_time,
-        height: 0,
-        gas_limit: 1_000_000,
-        min_gas_price: 100,
-        max_gas_price: 1_000_000_000,
-        total_supply: 1_000_000_000,
-        max_inflation_rate: Rational::from_integer(0),
-        gas_price_adjustment_rate: Rational::from_integer(0),
-        transaction_validity_period: 1000,
-        epoch_length: 5,
-        protocol_version: PROTOCOL_VERSION,
-    };
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.time = genesis_time;
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false);
