@@ -230,7 +230,7 @@
     1,
     20
   ],
-  "total_supply": "2050000000000000000000000000000000",
+  "total_supply": "3050000000000000000000000000000000",
   "num_blocks_per_year": 31536000,
   "protocol_treasury_account": "test.near",
   "fishermen_threshold": "10000000000000000000000000",
