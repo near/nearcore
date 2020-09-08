@@ -1199,6 +1199,18 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         None => {
                             if let Some(fallback_account_id) = fallback_account_id {
                                 warn!("Chunk request for shard {} cannot be properly sent, because no known peer runs {} node tracking the shard. Falling back to sending to the block producer from the corresponding epoch.", shard_id, if only_archival { "an archival" } else { "a" });
+                                // MOO
+                                warn!(
+                                    "{:?}",
+                                    self.active_peers
+                                        .iter()
+                                        .map(|x| (
+                                            x.1.full_peer_info.peer_info.account_id.clone(),
+                                            x.1.full_peer_info.chain_info.tracked_shards.clone(),
+                                            x.1.full_peer_info.chain_info.archival
+                                        ))
+                                        .collect::<Vec<_>>()
+                                );
                                 if self.send_message_to_account(
                                     ctx,
                                     &fallback_account_id,
