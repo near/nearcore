@@ -127,7 +127,8 @@ fn main() {
         ("init", Some(args)) => {
             // TODO: Check if `home` exists. If exists check what networks we already have there.
             let chain_id = args.value_of("chain-id");
-            let account_id = args.value_of("account-id");
+            let account_id =
+                args.value_of("account-id").and_then(|x| if x.is_empty() { None } else { Some(x) });
             let test_seed = args.value_of("test-seed");
             let genesis = args.value_of("genesis");
             let download = args.is_present("download-genesis");
