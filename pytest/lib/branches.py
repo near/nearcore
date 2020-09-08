@@ -49,7 +49,7 @@ def compile_binary(branch):
     # TODO: download pre-compiled binary from github for beta/stable?
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
-    subprocess.check_output(['git', 'checkout', branch])
+    subprocess.check_output(['git', 'checkout', str(branch)])
     subprocess.check_output(['git', 'pull'])
     compile_current()
     subprocess.check_output(['git', 'checkout', prev_branch])
