@@ -633,11 +633,14 @@ impl ShardsManager {
                     added: Instant::now(),
                 },
             );
+
+            debug!(target: "chunks", "MOO4 about to check archival for height {}, header_head: {:?}", height, header_head);
             let fetch_from_archival = self.runtime_adapter
                 .chunk_needs_to_be_fetched_from_archival(&parent_hash, header_head).unwrap_or_else(|err| {
                 error!(target: "chunks", "Error during requesting partial encoded chunk. Cannot determine whether to request from an archival node, defaulting to not: {}", err);
                 false
             });
+            debug!(target: "chunks", "MOO6 the verdict: {}", fetch_from_archival);
 
             let request_result = self.request_partial_encoded_chunk(
                 height,

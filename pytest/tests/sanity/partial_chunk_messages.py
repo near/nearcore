@@ -15,8 +15,8 @@ MESSAGE = 0
 REQUEST = 1
 RESPONSE = 2
 
-MIN_HEIGHT = 6
-MAX_HEIGHT = 10
+MIN_HEIGHT = 8
+MAX_HEIGHT = 16
 
 TIMEOUT = 30
 success = multiprocessing.Value('i', 0)
@@ -65,7 +65,7 @@ class Handler(ProxyHandler):
         return True
 
 
-start_cluster(
+nodes = start_cluster(
     4, 0, 2, None,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
      ["block_producer_kickout_threshold", 80]], {}, Handler)
@@ -113,4 +113,6 @@ for height in range(MIN_HEIGHT, MAX_HEIGHT - 1):
         assert message_receivers == set([0, 1, 2, 3]) - set([producer]), (height, shard_id, message_receivers)
         assert request_receivers == set([0, 1, 2, 3]) - set([follower]), (height, shard_id, request_receivers)
 
+for node in nodes:
+    node.kill()
 
