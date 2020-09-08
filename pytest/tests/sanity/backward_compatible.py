@@ -17,14 +17,17 @@ import branches
 import cluster
 
 
-def main(near_root, stable_branch, new_branch):
-    print("Stable binary:", "%snear-%s" % (near_root, stable_branch))
-    print("New binary:", "%snear-%s" % (near_root, new_branch))
-
+def main():
     node_root = "/tmp/near/backward"
     if os.path.exists(node_root):
         shutil.rmtree(node_root)
     subprocess.check_output('mkdir -p /tmp/near', shell=True)
+
+    # branch = branches.latest_beta_branch()
+    branch = 'd25f8c0700ae8eec09ecd6faef2ddfcef93734cf'
+    print(f"Latest beta release branch is {branch}")
+    near_root, (stable_branch,
+                current_branch) = branches.prepare_ab_test(branch)
 
     # Setup local network.
     subprocess.call([
@@ -41,7 +44,7 @@ def main(near_root, stable_branch, new_branch):
     stable_node = cluster.spin_up_node(config, near_root,
                                        os.path.join(node_root, "test0"), 0,
                                        None, None)
-    config["binary_name"] = "near-%s" % new_branch
+    config["binary_name"] = "near-%s" % current_branch
     current_node = cluster.spin_up_node(config, near_root,
                                         os.path.join(node_root, "test1"), 1,
                                         stable_node.node_key.pk,
@@ -65,8 +68,4 @@ def main(near_root, stable_branch, new_branch):
 
 
 if __name__ == "__main__":
-    # TODO(#3285): use proper branch
-    near_root, (stable_branch,
-                new_branch) = branches.prepare_ab_test('1.13.0')
-
-    main(near_root, stable_branch, new_branch)
+    main()
