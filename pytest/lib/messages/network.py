@@ -15,6 +15,10 @@ class Handshake:
     pass
 
 
+class HandshakeV2:
+    pass
+
+
 class HandshakeFailureReason:
     pass
 
@@ -108,7 +112,9 @@ network_schema = [
                        ['Transaction', SignedTransaction],
                        ['Routed', RoutedMessage],
                        ['Disconnect', ()],
-                       ['Challenge', None]] # TODO
+                       ['Challenge', None], # TODO
+                       ['HandshakeV2', HandshakeV2],
+                       ]
         }
     ],
     [
@@ -117,6 +123,24 @@ network_schema = [
                 'struct',
             'fields': [
                 ['version', 'u32'],
+                ['peer_id', PublicKey],
+                ['target_peer_id', PublicKey],
+                ['listen_port', {
+                    'kind': 'option',
+                    'type': 'u16'
+                }],
+                ['chain_info', PeerChainInfo],
+                ['edge_info', EdgeInfo],
+            ]
+        }
+    ],
+    [
+        HandshakeV2, {
+            'kind':
+                'struct',
+            'fields': [
+                ['version', 'u32'],
+                ['oldest_supported_version', 'u32'],
                 ['peer_id', PublicKey],
                 ['target_peer_id', PublicKey],
                 ['listen_port', {
