@@ -831,9 +831,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         if total_parts <= 3 {
             1
         } else {
-            let signatures_on_block = total_parts * 2 / 3 + 1;
-            let max_malicious = (total_parts - 1) / 3;
-            signatures_on_block - max_malicious
+            (total_parts - 1) / 3
         }
     }
 
@@ -1295,9 +1293,20 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let head_epoch_id = epoch_manager.get_epoch_id(header_head)?;
-        Ok(epoch_manager.get_epoch_id_from_prev_block(chunk_prev_block_hash)? != head_epoch_id
-            && epoch_manager.get_next_epoch_id_from_prev_block(chunk_prev_block_hash)?
-                != head_epoch_id)
+        let head_next_epoch_id = epoch_manager.get_next_epoch_id(header_head)?;
+        let chunk_epoch_id = epoch_manager.get_epoch_id_from_prev_block(chunk_prev_block_hash)?;
+        let chunk_next_epoch_id =
+            epoch_manager.get_next_epoch_id_from_prev_block(chunk_prev_block_hash)?;
+
+        // `chunk_epoch_id != head_epoch_id && chunk_next_epoch_id != head_epoch_id` covers the
+        // common case: the chunk is in the current epoch, or in the previous epoch, relative to the
+        // header head. The third condition (`chunk_epoch_id != head_next_epoch_id`) covers a
+        // corner case, in which the `header_head` is the last block of an epoch, and the chunk is
+        // for the next block. In this case the `chunk_epoch_id` will be one epoch ahead of the
+        // `header_head`.
+        Ok(chunk_epoch_id != head_epoch_id
+            && chunk_next_epoch_id != head_epoch_id
+            && chunk_epoch_id != head_next_epoch_id)
     }
 }
 

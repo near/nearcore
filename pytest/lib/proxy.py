@@ -87,10 +87,10 @@ class ProxyHandler:
                 raw_message, PeerMessage)
             assert BinarySerializer(schema).serialize(message) == raw_message
 
-            if message.enum == 'HandshakeV2':
-                message.HandshakeV2.listen_port += 100
+            if message.enum == 'Handshake':
+                message.Handshake.listen_port += 100
                 if sender_port_holder[0] is None:
-                    sender_port_holder[0] = message.HandshakeV2.listen_port
+                    sender_port_holder[0] = message.Handshake.listen_port
 
             other_ordinal = self.other(sender_ordinal, receiver_ordinal)
 
@@ -99,7 +99,7 @@ class ProxyHandler:
 
             decision = await self.handle(message, sender_ordinal, receiver_ordinal)
 
-            if decision is True and message.enum == 'HandshakeV2':
+            if decision is True and message.enum == 'Handshake':
                 decision = message
 
             if not isinstance(decision, bool):

@@ -632,6 +632,7 @@ impl ShardsManager {
                     added: Instant::now(),
                 },
             );
+
             let fetch_from_archival = self.runtime_adapter
                 .chunk_needs_to_be_fetched_from_archival(&parent_hash, header_head).unwrap_or_else(|err| {
                 error!(target: "chunks", "Error during requesting partial encoded chunk. Cannot determine whether to request from an archival node, defaulting to not: {}", err);

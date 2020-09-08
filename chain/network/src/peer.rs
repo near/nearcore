@@ -289,7 +289,7 @@ impl Peer {
                     archival,
                 }) => {
                     let handshake = match act.protocol_version {
-                        36 => PeerMessage::Handshake(Handshake::new(
+                        37..=PROTOCOL_VERSION => PeerMessage::Handshake(Handshake::new(
                             act.protocol_version,
                             act.node_id(),
                             act.peer_id().unwrap(),
@@ -297,7 +297,7 @@ impl Peer {
                             PeerChainInfoV2 { genesis_id, height, tracked_shards, archival },
                             act.edge_info.as_ref().unwrap().clone(),
                         )),
-                        34..=35 => PeerMessage::HandshakeV2(HandshakeV2::new(
+                        34..=36 => PeerMessage::HandshakeV2(HandshakeV2::new(
                             act.protocol_version,
                             act.node_id(),
                             act.peer_id().unwrap(),

@@ -216,6 +216,8 @@ pub struct Handshake {
 
 /// Struct describing the layout for Handshake.
 /// It is used to automatically derive BorshDeserialize.
+/// Struct describing the layout for Handshake.
+/// It is used to automatically derive BorshDeserialize.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct HandshakeAutoDes {
     /// Protocol version.

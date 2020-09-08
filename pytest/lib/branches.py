@@ -29,7 +29,7 @@ def get_releases():
                   reverse=True)
 
 
-def latest_beta_branch():
+def latest_rc_branch():
     releases = list(
         filter(
             lambda release: (semver.VersionInfo.parse(release.title).prerelease

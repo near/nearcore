@@ -23,9 +23,8 @@ def main():
         shutil.rmtree(node_root)
     subprocess.check_output('mkdir -p /tmp/near', shell=True)
 
-    # branch = branches.latest_beta_branch()
-    branch = 'd25f8c0700ae8eec09ecd6faef2ddfcef93734cf'
-    print(f"Latest beta release branch is {branch}")
+    branch = branches.latest_rc_branch()
+    print(f"Latest rc release branch is {branch}")
     near_root, (stable_branch,
                 current_branch) = branches.prepare_ab_test(branch)
 
