@@ -46,9 +46,9 @@ use near_store::{
     LATEST_KNOWN_KEY, SHOULD_COL_GC, TAIL_KEY,
 };
 
-use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown};
+use crate::{byzantine_assert, ReceiptResult};
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -1767,6 +1767,9 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
+        for transaction in &chunk.transactions {
+            self.chain_store_cache_update.transactions.insert(transaction.clone());
+        }
         self.chain_store_cache_update.chunks.insert(chunk.chunk_hash.clone(), chunk);
     }
 
@@ -1823,9 +1826,20 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
-        receipt: Vec<Receipt>,
+        receipt_result: ReceiptResult,
     ) {
-        self.chain_store_cache_update.outgoing_receipts.insert((*hash, shard_id), receipt);
+        let mut outgoing_receipts = Vec::new();
+        for (receipt_shard_id, receipts) in receipt_result {
+            for receipt in receipts {
+                self.chain_store_cache_update
+                    .receipt_id_to_shard_id
+                    .insert(receipt.receipt_id, receipt_shard_id);
+                outgoing_receipts.push(receipt);
+            }
+        }
+        self.chain_store_cache_update
+            .outgoing_receipts
+            .insert((*hash, shard_id), outgoing_receipts);
     }
 
     pub fn save_incoming_receipt(
@@ -1848,12 +1862,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 outcome_with_id.id,
                 ExecutionOutcomeWithIdAndProof { outcome_with_id, proof, block_hash: *block_hash },
             );
-        }
-    }
-
-    pub fn save_transactions(&mut self, transactions: Vec<SignedTransaction>) {
-        for transaction in transactions {
-            self.chain_store_cache_update.transactions.insert(transaction);
         }
     }
 
@@ -1895,10 +1903,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_invalid_chunk(&mut self, chunk: EncodedShardChunk) {
         self.chain_store_cache_update.invalid_chunks.insert(chunk.chunk_hash(), chunk);
-    }
-
-    pub fn save_receipt_shard_id(&mut self, receipt_id: CryptoHash, shard_id: ShardId) {
-        self.chain_store_cache_update.receipt_id_to_shard_id.insert(receipt_id, shard_id);
     }
 
     pub fn save_block_hash_with_new_chunk(&mut self, block_hash: CryptoHash, shard_id: ShardId) {
@@ -1985,9 +1989,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 1. Delete chunk-related data
                 let chunk = self.get_chunk(&chunk_hash)?.clone();
                 debug_assert_eq!(chunk.header.inner.height_created, height);
-                for receipt in chunk.receipts {
-                    self.gc_col(ColReceiptIdToShardId, &receipt.receipt_id.into());
-                }
                 for transaction in chunk.transactions {
                     self.gc_col(ColTransactions, &transaction.get_hash().into());
                 }
@@ -2076,7 +2077,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
-            self.gc_col(ColOutgoingReceipts, &block_shard_id);
+            self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(ColIncomingReceipts, &block_shard_id);
             self.gc_col(ColChunkPerHeightShard, &block_shard_id);
             self.gc_col(ColNextBlockWithNewChunk, &block_shard_id);
@@ -2211,13 +2212,45 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
+    pub fn gc_outgoing_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
+        let mut store_update = self.store().store_update();
+        match self.get_outgoing_receipts(block_hash, shard_id).map(|receipts| {
+            receipts.iter().map(|receipt| receipt.receipt_id.clone()).collect::<Vec<_>>()
+        }) {
+            Ok(receipt_ids) => {
+                for receipt_id in receipt_ids {
+                    let key: Vec<u8> = receipt_id.into();
+                    store_update.update_refcount(ColReceiptIdToShardId, &key, &[], -1);
+                    self.chain_store.receipt_id_to_shard_id.cache_remove(&key);
+                    self.inc_gc(ColReceiptIdToShardId);
+                }
+            }
+            Err(error) => {
+                match error.kind() {
+                    ErrorKind::DBNotFoundErr(_) => {
+                        // Sometimes we don't save outgoing receipts. See the usages of save_outgoing_receipt.
+                        // The invariant is that ColOutgoingReceipts has same receipts as ColReceiptIdToShardId.
+                    }
+                    _ => {
+                        log::error!(target: "chain", "Error getting outgoing receipts for block {}, shard {}: {:?}", block_hash, shard_id, error);
+                    }
+                }
+            }
+        }
+
+        let key = get_block_shard_id(block_hash, shard_id);
+        store_update.delete(ColOutgoingReceipts, &key);
+        self.chain_store.outgoing_receipts.cache_remove(&key);
+        self.inc_gc(ColOutgoingReceipts);
+        self.merge(store_update);
+    }
+
     fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
         assert!(SHOULD_COL_GC[col as usize]);
         let mut store_update = self.store().store_update();
         match col {
             DBCol::ColOutgoingReceipts => {
-                store_update.delete(col, key);
-                self.chain_store.outgoing_receipts.cache_remove(key);
+                panic!("Must use gc_outgoing_receipts");
             }
             DBCol::ColIncomingReceipts => {
                 store_update.delete(col, key);
@@ -2260,8 +2293,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store.block_refcounts.cache_remove(key);
             }
             DBCol::ColReceiptIdToShardId => {
-                store_update.update_refcount(col, key, &[], -1);
-                self.chain_store.receipt_id_to_shard_id.cache_remove(key);
+                panic!("Must use gc_outgoing_receipts");
             }
             DBCol::ColTransactions => {
                 store_update.update_refcount(col, key, &[], -1);
@@ -2782,22 +2814,21 @@ mod tests {
 
     use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
+    #[cfg(feature = "expensive_tests")]
+    use near_primitives::epoch_manager::BlockInfo;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
     use near_primitives::types::{BlockHeight, EpochId, GCCount, NumBlocks};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
+    use near_store::DBCol;
+    #[cfg(feature = "expensive_tests")]
+    use {crate::store_validator::StoreValidator, near_chain_configs::GenesisConfig};
 
     use crate::store::{ChainStoreAccess, GCMode};
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
-
-    #[cfg(feature = "expensive_tests")]
-    use near_primitives::epoch_manager::BlockInfo;
-    use near_store::DBCol;
-    #[cfg(feature = "expensive_tests")]
-    use {crate::store_validator::StoreValidator, near_chain_configs::GenesisConfig};
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)

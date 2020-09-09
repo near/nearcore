@@ -63,18 +63,18 @@ pub(crate) fn migrate_col_transaction_refcount(store: &Store, store_update: &mut
     }
 }
 
-fn get_num_shards(store: &Store) -> NumShards {
+pub(crate) fn get_num_shards(store: &Store) -> NumShards {
     store
         .iter(DBCol::ColBlock)
         .map(|(_key, value)| {
             Block::try_from_slice(value.as_ref()).expect("BorshDeserialize should not fail")
         })
-        .map(|block| block.chunks().len())
+        .map(|block| block.chunks().len() as u64)
         .next()
-        .expect("No blocks found") as u64
+        .unwrap_or(1)
 }
 
-fn account_id_to_shard_id_v6(account_id: &AccountId, num_shards: NumShards) -> ShardId {
+pub(crate) fn account_id_to_shard_id_v6(account_id: &AccountId, num_shards: NumShards) -> ShardId {
     let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
     cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }

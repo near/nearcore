@@ -18,6 +18,7 @@ use near_primitives::version::DbVersion;
 
 use crate::db::refcount::merge_refcounted_records;
 
+pub(crate) mod migration_utils;
 pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
 
@@ -297,6 +298,9 @@ pub trait Database: Sync + Send {
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
+    fn as_rocksdb(&self) -> Option<&RocksDB> {
+        None
+    }
 }
 
 impl Database for RocksDB {
@@ -369,6 +373,10 @@ impl Database for RocksDB {
             }
         }
         Ok(self.db.write(batch)?)
+    }
+
+    fn as_rocksdb(&self) -> Option<&RocksDB> {
+        Some(self)
     }
 }
 

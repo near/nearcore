@@ -141,6 +141,10 @@ impl Store {
         }
         self.storage.write(transaction).map_err(|e| e.into())
     }
+
+    pub(crate) fn get_rocksdb(&self) -> Option<&RocksDB> {
+        self.storage.as_rocksdb()
+    }
 }
 
 /// Keeps track of current changes to the database and can commit all of them to the database.

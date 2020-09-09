@@ -2693,7 +2693,7 @@ impl<'a> ChainUpdate<'a> {
                     let gas_limit = chunk.header.inner.gas_limit;
 
                     // Apply transactions and receipts.
-                    let mut apply_result = self
+                    let apply_result = self
                         .runtime_adapter
                         .apply_transactions(
                             shard_id,
@@ -2729,22 +2729,10 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.total_balance_burnt,
                         ),
                     );
-                    // Save resulting receipts.
-                    let mut outgoing_receipts = vec![];
-                    for (receipt_shard_id, receipts) in apply_result.receipt_result.drain() {
-                        // The receipts in store are indexed by the SOURCE shard_id, not destination,
-                        //    since they are later retrieved by the chunk producer of the source
-                        //    shard to be distributed to the recipients.
-                        for receipt in receipts {
-                            self.chain_store_update
-                                .save_receipt_shard_id(receipt.receipt_id, receipt_shard_id);
-                            outgoing_receipts.push(receipt);
-                        }
-                    }
                     self.chain_store_update.save_outgoing_receipt(
                         &block.hash(),
                         shard_id,
-                        outgoing_receipts,
+                        apply_result.receipt_result,
                     );
                     // Save receipt and transaction results.
                     self.chain_store_update.save_outcomes_with_proofs(
@@ -2752,7 +2740,6 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.outcomes,
                         outcome_paths,
                     );
-                    self.chain_store_update.save_transactions(chunk.transactions);
                 } else {
                     let mut new_extra = self
                         .chain_store_update
@@ -3363,7 +3350,7 @@ impl<'a> ChainUpdate<'a> {
         };
 
         let gas_limit = chunk.header.inner.gas_limit;
-        let mut apply_result = self.runtime_adapter.apply_transactions(
+        let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
             &chunk.header.inner.prev_state_root,
             chunk.header.height_included,
@@ -3395,15 +3382,10 @@ impl<'a> ChainUpdate<'a> {
         );
         self.chain_store_update.save_chunk_extra(block_header.hash(), shard_id, chunk_extra);
 
-        // Saving outgoing receipts.
-        let mut outgoing_receipts = vec![];
-        for (_receipt_shard_id, receipts) in apply_result.receipt_result.drain() {
-            outgoing_receipts.extend(receipts);
-        }
         self.chain_store_update.save_outgoing_receipt(
             &block_header.hash(),
             shard_id,
-            outgoing_receipts,
+            apply_result.receipt_result,
         );
         // Saving transaction results.
         self.chain_store_update.save_outcomes_with_proofs(
