@@ -59,6 +59,17 @@ const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
 const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
 /// Maximum number an edge can increase between oldest known edge and new proposed edge.
 const EDGE_NONCE_BUMP_ALLOWED: u64 = 1_000;
+/// Ratio between consecutive attempts to establish connection with another peer.
+/// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
+const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
+/// The maximum waiting time between consecutive attempts to establish connection
+/// with another peer is 60 seconds. This is the minimum exponent after such threshold
+/// is less than the exponential backoff.
+///
+/// 10 * EXPONENTIAL_BACKOFF_RATIO**EXPONENTIAL_BACKOFF_LIMIT > 60000
+///
+/// EXPONENTIAL_BACKOFF_LIMIT = math.log(60000 / 10, EXPONENTIAL_BACKOFF_RATIO)
+const EXPONENTIAL_BACKOFF_LIMIT: u64 = 91;
 /// Time to wait before sending ping to all reachable peers.
 #[cfg(feature = "metric_recorder")]
 const WAIT_BEFORE_PING: u64 = 20_000;
@@ -121,6 +132,8 @@ pub struct PeerManagerActor {
     active_peers: HashMap<PeerId, ActivePeer>,
     /// Routing table to keep track of account id
     routing_table: RoutingTable,
+    /// Flag that track whether we started attempts to establish outbound connections.
+    started_connect_attempts: bool,
     /// Monitor peers attempts, used for fast checking in the beginning with exponential backoff.
     monitor_peers_attempts: u64,
     /// Active peers we have sent new edge update, but we haven't received response so far.
@@ -162,6 +175,7 @@ impl PeerManagerActor {
             outgoing_peers: HashSet::default(),
             routing_table,
             monitor_peers_attempts: 0,
+            started_connect_attempts: false,
             pending_update_nonce_request: HashMap::new(),
             network_metrics: NetworkMetrics::new(),
             edge_verifier_pool,
@@ -725,6 +739,12 @@ impl PeerManagerActor {
                     // Or to peers we are currently trying to connect to
                     || self.outgoing_peers.contains(&peer_state.peer_info.id)
             }) {
+                // Start monitor_peers_attempts from start after we discover the first healthy peer
+                if !self.started_connect_attempts {
+                    self.started_connect_attempts = true;
+                    self.monitor_peers_attempts = 0;
+                }
+
                 self.outgoing_peers.insert(peer_info.id.clone());
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
@@ -743,12 +763,15 @@ impl PeerManagerActor {
         );
 
         // Reschedule the bootstrap peer task, starting of as quick as possible with exponential backoff.
-        let wait = Duration::from_millis(cmp::min(
-            self.config.bootstrap_peers_period.as_millis() as u64,
-            10 << self.monitor_peers_attempts,
-        ));
+        let wait = if self.monitor_peers_attempts >= EXPONENTIAL_BACKOFF_LIMIT {
+            // This is expected to be 60 seconds
+            self.config.bootstrap_peers_period.as_millis() as u64
+        } else {
+            (10f64 * EXPONENTIAL_BACKOFF_RATIO.powf(self.monitor_peers_attempts as f64)) as u64
+        };
+
         self.monitor_peers_attempts = cmp::min(13, self.monitor_peers_attempts + 1);
-        ctx.run_later(wait, move |act, ctx| {
+        ctx.run_later(Duration::from_millis(wait), move |act, ctx| {
             act.monitor_peers(ctx);
         });
     }
@@ -1491,6 +1514,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
     fn handle(&mut self, msg: OutboundTcpConnect, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("outbound tcp connect".into());
+        debug!(target: "network", "Trying to connect to {}", msg.peer_info);
         if let Some(addr) = msg.peer_info.addr {
             Resolver::from_registry()
                 .send(ConnectAddr(addr))
