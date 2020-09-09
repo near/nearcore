@@ -4,7 +4,10 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use futures::stream::StreamExt;
-use rocksdb::DB;
+use near_primitives::borsh;
+use near_primitives::borsh::de::BorshDeserialize;
+use near_primitives::borsh::ser::BorshSerialize;
+use rocksdb::{WriteBatch, DB};
 use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info};
@@ -31,11 +34,6 @@ impl From<MailboxError> for FailedToFetchData {
     }
 }
 
-struct FetchBlockResponse {
-    block_response: StreamerMessage,
-    new_outcomes_to_get: Vec<types::TransactionOrReceiptId>,
-}
-
 /// Resulting struct represents block with chunks
 #[derive(Debug)]
 pub struct StreamerMessage {
@@ -49,6 +47,57 @@ pub struct StreamerMessage {
 pub enum Outcome {
     Receipt(views::ExecutionOutcomeWithIdView),
     Transaction(views::ExecutionOutcomeWithIdView),
+}
+
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug)]
+pub struct IndexerReceiptMetaData {
+    pub parent_receipt_id: CryptoHash,
+    pub transaction_hash: CryptoHash,
+    pub receipt_id: CryptoHash,
+    pub receiver_id: types::AccountId,
+}
+
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug)]
+pub enum TransactionOrReceiptId {
+    Transaction { transaction_hash: CryptoHash, sender_id: types::AccountId },
+    Receipt { receipt_id: CryptoHash, receiver_id: types::AccountId },
+}
+
+impl TransactionOrReceiptId {
+    fn id(&self) -> &CryptoHash {
+        match self {
+            TransactionOrReceiptId::Transaction { transaction_hash, sender_id: _ } => {
+                transaction_hash
+            }
+            TransactionOrReceiptId::Receipt { receipt_id, receiver_id: _ } => receipt_id,
+        }
+    }
+}
+
+impl From<types::TransactionOrReceiptId> for TransactionOrReceiptId {
+    fn from(near_enum: types::TransactionOrReceiptId) -> Self {
+        match near_enum {
+            types::TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
+                Self::Receipt { receipt_id, receiver_id }
+            }
+            types::TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
+                Self::Transaction { transaction_hash, sender_id }
+            }
+        }
+    }
+}
+
+impl From<TransactionOrReceiptId> for types::TransactionOrReceiptId {
+    fn from(indexer_enum: TransactionOrReceiptId) -> Self {
+        match indexer_enum {
+            TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
+                Self::Receipt { receipt_id, receiver_id }
+            }
+            TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
+                Self::Transaction { transaction_hash, sender_id }
+            }
+        }
+    }
 }
 
 async fn fetch_status(
@@ -84,39 +133,53 @@ async fn fetch_block_by_height(
         .map_err(|err| FailedToFetchData::String(err))
 }
 
-/// This function supposed to return the entire `BlockResponse`.
-/// It fetches the block and fetches all the chunks for the block
+/// This function supposed to return the entire `StreamerMessage`.
+/// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
 /// and returns everything together in one struct
-async fn fetch_block_response(
+async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
-    outcomes_to_get: impl Iterator<Item = types::TransactionOrReceiptId>,
-) -> Result<FetchBlockResponse, FailedToFetchData> {
+    db: &DB,
+) -> Result<StreamerMessage, FailedToFetchData> {
     let chunks = fetch_chunks(&client, &block.chunks).await?;
-    let (outcomes, mut outcomes_to_retry) = fetch_outcomes(&client, outcomes_to_get).await;
+
+    // TODO read from rocks and save there
+    // let (outcomes, mut outcomes_to_retry) = fetch_outcomes(&client, outcomes_to_get).await;
+    let mut outcomes_to_fetch: Vec<TransactionOrReceiptId> = vec![];
 
     for chunk in &chunks {
-        outcomes_to_retry.extend(chunk.transactions.iter().map(|transaction| {
-            types::TransactionOrReceiptId::Transaction {
+        outcomes_to_fetch.extend(chunk.transactions.iter().map(|transaction| {
+            TransactionOrReceiptId::Transaction {
                 transaction_hash: transaction.hash.clone(),
                 sender_id: transaction.signer_id.to_string(),
             }
         }));
 
-        outcomes_to_retry.extend(chunk.receipts.iter().map(|receipt| {
-            types::TransactionOrReceiptId::Receipt {
+        outcomes_to_fetch.extend(chunk.receipts.iter().map(|receipt| {
+            TransactionOrReceiptId::Receipt {
                 receipt_id: receipt.receipt_id,
                 receiver_id: receipt.receiver_id.to_string(),
             }
         }));
     }
 
+    put_outcomes_to_fetch(outcomes_to_fetch, &db).await;
+
+    let outcomes = fetch_outcomes(&client, &db).await;
+
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
-    Ok(FetchBlockResponse {
-        block_response: StreamerMessage { block, chunks, outcomes, state_changes },
-        new_outcomes_to_get: outcomes_to_retry,
-    })
+    Ok(StreamerMessage { block, chunks, outcomes, state_changes })
+}
+
+async fn put_outcomes_to_fetch(transaction_or_receipt_ids: Vec<TransactionOrReceiptId>, db: &DB) {
+    let mut batch = WriteBatch::default();
+    for transaction_or_receipt_id in transaction_or_receipt_ids {
+        // Generate key with prefix "outcome_to_get_" and CryptoHash tail of particular Transaction or Receipt
+        let key = format!("outcome_to_get_{}", transaction_or_receipt_id.id().to_string());
+        batch.put(key.into_bytes(), transaction_or_receipt_id.try_to_vec().unwrap())
+    }
+    db.write(batch);
 }
 
 async fn fetch_state_changes(
@@ -140,32 +203,30 @@ async fn fetch_single_chunk(
 /// Fetch ExecutionOutcomeWithId for receipts and transactions from previous block
 /// Returns fetched Outcomes and Vec of failed to fetch outcome which should be retried to fetch
 /// in the next block
-async fn fetch_outcomes(
-    client: &Addr<near_client::ViewClientActor>,
-    mut outcomes_drain: impl Iterator<Item = types::TransactionOrReceiptId>,
-) -> (Vec<Outcome>, Vec<types::TransactionOrReceiptId>) {
+async fn fetch_outcomes(client: &Addr<near_client::ViewClientActor>, db: &DB) -> Vec<Outcome> {
     let mut outcomes: Vec<Outcome> = vec![];
-    let mut outcomes_to_retry: Vec<types::TransactionOrReceiptId> = vec![];
-    while let Some(transaction_or_receipt_id) = outcomes_drain.next() {
+    for (db_key, v) in db.prefix_iterator("outcome_to_get_") {
+        let transaction_or_receipt_id = TransactionOrReceiptId::try_from_slice(&v).unwrap();
         match client
-            .send(near_client::GetExecutionOutcome { id: transaction_or_receipt_id.clone() })
+            .send(near_client::GetExecutionOutcome { id: transaction_or_receipt_id.clone().into() })
             .await
             .map_err(|err| FailedToFetchData::MailboxError(err))
         {
-            Ok(Ok(outcome)) => match &transaction_or_receipt_id {
-                types::TransactionOrReceiptId::Transaction { .. } => {
-                    outcomes.push(Outcome::Transaction(outcome.outcome_proof));
-                }
-                types::TransactionOrReceiptId::Receipt { .. } => {
-                    outcomes.push(Outcome::Receipt(outcome.outcome_proof));
-                }
-            },
-            _ => {
-                outcomes_to_retry.push(transaction_or_receipt_id);
+            Ok(Ok(outcome)) => {
+                match &transaction_or_receipt_id {
+                    TransactionOrReceiptId::Transaction { .. } => {
+                        outcomes.push(Outcome::Transaction(outcome.outcome_proof));
+                    }
+                    TransactionOrReceiptId::Receipt { .. } => {
+                        outcomes.push(Outcome::Receipt(outcome.outcome_proof));
+                    }
+                };
+                db.delete(db_key);
             }
+            _ => {}
         }
     }
-    (outcomes, outcomes_to_retry)
+    outcomes
 }
 
 /// Fetches all the chunks by their hashes.
@@ -206,22 +267,17 @@ pub(crate) async fn start(
 
     // TODO: implement proper error handling
     let db = DB::open_default(indexer_db_path).unwrap();
-    let mut outcomes_to_get = Vec::<types::TransactionOrReceiptId>::new();
+    // let mut outcomes_to_get = Vec::<types::TransactionOrReceiptId>::new();
     let mut last_synced_block_height: Option<types::BlockHeight> = None;
 
-    info!(
-        target: INDEXER,
-        "Last synced block height in db is {}",
-        last_synced_block_height.unwrap_or(0)
-    );
     'main: loop {
         time::delay_for(INTERVAL).await;
         let status = fetch_status(&client).await;
-        if let Ok(status) = status {
-            if status.sync_info.syncing {
-                continue;
-            }
-        }
+        // if let Ok(status) = status {
+        //     if status.sync_info.syncing {
+        //         continue;
+        //     }
+        // }
 
         let block = if let Ok(block) = fetch_latest_block(&view_client).await {
             block
@@ -255,18 +311,15 @@ pub(crate) async fn start(
         );
         for block_height in start_syncing_block_height..=latest_block_height {
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response =
-                    fetch_block_response(&view_client, block, outcomes_to_get.drain(..)).await;
+                let response = build_streamer_message(&view_client, block, &db).await;
 
                 match response {
-                    Ok(fetch_block_response) => {
-                        outcomes_to_get = fetch_block_response.new_outcomes_to_get;
-                        debug!(target: INDEXER, "{:#?}", &fetch_block_response.block_response);
-                        if let Err(_) = blocks_sink.send(fetch_block_response.block_response).await
-                        {
+                    Ok(streamer_message) => {
+                        debug!(target: INDEXER, "{:#?}", &streamer_message);
+                        if let Err(_) = blocks_sink.send(streamer_message).await {
                             info!(
                                         target: INDEXER,
-                                        "Unable to send BlockResponse to listener, listener doesn't listen. terminating..."
+                                        "Unable to send StreamerMessage to listener, listener doesn't listen. terminating..."
                                     );
                             break 'main;
                         }
