@@ -59,7 +59,7 @@ else:
 config = load_config()
 near_root, node_dirs = init_cluster(
     1, 2, 1, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 100],
+    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 300],
      ["block_producer_kickout_threshold", 80]], {1: {
          "tracked_shards": [0]
      }, 2: {
@@ -82,9 +82,9 @@ for node_dir in node_dirs:
     for line in result.split('\n'):
         logging.info(line)
 
-SMALL_HEIGHT = 201
-LARGE_HEIGHT = 301
-TIMEOUT = 1740
+SMALL_HEIGHT = 600
+LARGE_HEIGHT = 660
+TIMEOUT = 1450
 start = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)

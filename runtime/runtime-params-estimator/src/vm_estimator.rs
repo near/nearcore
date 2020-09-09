@@ -2,6 +2,7 @@ use crate::testbed_runners::end_count;
 use crate::testbed_runners::start_count;
 use crate::testbed_runners::GasMetric;
 use glob::glob;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
@@ -62,6 +63,7 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
         &config,
         &fees,
         &promise_results,
+        PROTOCOL_VERSION,
     )
 }
 

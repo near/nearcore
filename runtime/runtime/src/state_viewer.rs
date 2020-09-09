@@ -19,6 +19,7 @@ use near_vm_logic::{ReturnData, VMConfig, VMContext};
 
 use crate::actions::get_code_with_cache;
 use crate::ext::RuntimeExt;
+use near_primitives::version::ProtocolVersion;
 
 pub struct TrieViewer {}
 
@@ -96,6 +97,7 @@ impl TrieViewer {
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
@@ -152,6 +154,7 @@ impl TrieViewer {
                 &VMConfig::default(),
                 &RuntimeFeesConfig::default(),
                 &[],
+                current_protocol_version,
             )
         };
         let elapsed = now.elapsed();
@@ -190,6 +193,7 @@ mod tests {
 
     use super::*;
     use near_primitives::test_utils::MockEpochInfoProvider;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     #[test]
     fn test_view_call() {
@@ -208,6 +212,7 @@ mod tests {
             &[],
             &mut logs,
             &MockEpochInfoProvider::default(),
+            PROTOCOL_VERSION,
         );
 
         assert_eq!(result.unwrap(), encode_int(10));
@@ -230,6 +235,7 @@ mod tests {
             &[],
             &mut logs,
             &MockEpochInfoProvider::default(),
+            PROTOCOL_VERSION,
         );
 
         let err = result.unwrap_err();
@@ -256,6 +262,7 @@ mod tests {
             &[],
             &mut logs,
             &MockEpochInfoProvider::default(),
+            PROTOCOL_VERSION,
         );
         let err = result.unwrap_err();
         assert!(
@@ -281,6 +288,7 @@ mod tests {
             &args,
             &mut logs,
             &MockEpochInfoProvider::default(),
+            PROTOCOL_VERSION,
         );
         assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
@@ -360,6 +368,7 @@ mod tests {
                 &[],
                 &mut logs,
                 &MockEpochInfoProvider::default(),
+                PROTOCOL_VERSION,
             )
             .unwrap_err();
 

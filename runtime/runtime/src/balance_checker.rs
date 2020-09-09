@@ -13,12 +13,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::system_account;
+use near_primitives::version::ProtocolVersion;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
 
-// TODO: Check for balance overflows
-// TODO: Fix StorageError for partial states when looking up something that doesn't exist.
 pub(crate) fn check_balance(
     transaction_costs: &RuntimeFeesConfig,
     initial_state: &TrieUpdate,
@@ -28,6 +27,7 @@ pub(crate) fn check_balance(
     transactions: &[SignedTransaction],
     outgoing_receipts: &[Receipt],
     stats: &ApplyStats,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
     // Delayed receipts
     let initial_delayed_receipt_indices: DelayedReceiptIndices =
@@ -105,7 +105,12 @@ pub(crate) fn check_balance(
                 if receipt.predecessor_id != system_account() {
                     let mut total_gas = safe_add_gas(
                         transaction_costs.action_receipt_creation_config.exec_fee(),
-                        total_exec_fees(transaction_costs, &action_receipt.actions)?,
+                        total_exec_fees(
+                            transaction_costs,
+                            &action_receipt.actions,
+                            &receipt.receiver_id,
+                            current_protocol_version,
+                        )?,
                     )?;
                     total_gas =
                         safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
@@ -230,6 +235,7 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use assert_matches::assert_matches;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     /// Initial balance used in tests.
     pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -253,6 +259,7 @@ mod tests {
             &[],
             &[],
             &ApplyStats::default(),
+            PROTOCOL_VERSION,
         )
         .unwrap();
     }
@@ -273,6 +280,7 @@ mod tests {
             &[],
             &[],
             &ApplyStats::default(),
+            PROTOCOL_VERSION,
         )
         .unwrap_err();
         assert_matches!(err, RuntimeError::BalanceMismatchError(_));
@@ -307,6 +315,7 @@ mod tests {
             &[],
             &[],
             &ApplyStats::default(),
+            PROTOCOL_VERSION,
         )
         .unwrap();
     }
@@ -379,6 +388,7 @@ mod tests {
                 other_burnt_amount: 0,
                 slashed_burnt_amount: 0,
             },
+            PROTOCOL_VERSION,
         )
         .unwrap();
     }
@@ -436,6 +446,7 @@ mod tests {
                 &[tx],
                 &[],
                 &ApplyStats::default(),
+                PROTOCOL_VERSION,
             ),
             Err(RuntimeError::UnexpectedIntegerOverflow)
         );

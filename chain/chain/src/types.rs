@@ -255,6 +255,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
         verify_signature: bool,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
@@ -272,6 +273,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;
 
     /// Verify validator signature for the given epoch.
@@ -557,19 +559,32 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<Ordering, Error>;
 
     /// Build receipts hashes.
-    fn build_receipts_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
-        let mut receipts_hashes = vec![];
-        for shard_id in 0..self.num_shards() {
-            // importance to save the same order while filtering
-            let shard_receipts: Vec<Receipt> = receipts
-                .iter()
-                .filter(|&receipt| self.account_id_to_shard_id(&receipt.receiver_id) == shard_id)
-                .cloned()
-                .collect();
-            receipts_hashes
-                .push(hash(&ReceiptList(shard_id, &shard_receipts).try_to_vec().unwrap()));
+    // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
+    // here.
+    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Vec<CryptoHash> {
+        if self.num_shards() == 1 {
+            return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
         }
-        receipts_hashes
+        let mut account_id_to_shard_id = HashMap::new();
+        let mut shard_receipts: Vec<_> = (0..self.num_shards()).map(|i| (i, Vec::new())).collect();
+        for receipt in receipts.iter() {
+            let shard_id = match account_id_to_shard_id.get(&receipt.receiver_id) {
+                Some(id) => *id,
+                None => {
+                    let id = self.account_id_to_shard_id(&receipt.receiver_id);
+                    account_id_to_shard_id.insert(receipt.receiver_id.clone(), id);
+                    id
+                }
+            };
+            shard_receipts[shard_id as usize].1.push(receipt);
+        }
+        shard_receipts
+            .into_iter()
+            .map(|(i, rs)| {
+                let bytes = (i, rs).try_to_vec().unwrap();
+                hash(&bytes)
+            })
+            .collect()
     }
 }
 

@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use log::debug;
 
-use near_primitives::account::{AccessKeyPermission, Account};
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
@@ -11,11 +11,12 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, EpochInfoProvider, ValidatorStake};
+use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::{
     is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
 };
 use near_runtime_fees::RuntimeFeesConfig;
+use near_runtime_utils::is_account_id_64_len_hex;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
@@ -28,41 +29,13 @@ use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
-use near_primitives::version::CORRECT_RANDOM_VALUE_PROTOCOL_VERSION;
+use near_primitives::version::{
+    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION,
+    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+};
 use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
-
-/// Checks if given account has enough balance for state stake, and returns:
-///  - None if account has enough balance,
-///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
-///  - Err(StorageError::StorageInconsistentState) if account has invalid storage usage or amount/locked.
-///
-/// Read details of state staking https://nomicon.io/Economics/README.html#state-stake
-pub(crate) fn get_insufficient_storage_stake(
-    account: &Account,
-    runtime_config: &RuntimeConfig,
-) -> Result<Option<Balance>, StorageError> {
-    let required_amount = Balance::from(account.storage_usage)
-        .checked_mul(runtime_config.storage_amount_per_byte)
-        .ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Account's storage_usage {} overflows multiplication",
-                account.storage_usage
-            ))
-        })?;
-    let available_amount = account.amount.checked_add(account.locked).ok_or_else(|| {
-        StorageError::StorageInconsistentState(format!(
-            "Account's amount {} and locked {} overflow addition",
-            account.amount, account.locked
-        ))
-    })?;
-    if available_amount >= required_amount {
-        Ok(None)
-    } else {
-        Ok(Some(required_amount - available_amount))
-    }
-}
 
 pub(crate) fn get_code_with_cache(
     state_update: &TrieUpdate,
@@ -164,6 +137,7 @@ pub(crate) fn action_function_call(
         &config.wasm_config,
         &config.transaction_costs,
         promise_results,
+        apply_state.current_protocol_version,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {
@@ -343,6 +317,44 @@ pub(crate) fn action_create_account(
     });
 }
 
+pub(crate) fn action_implicit_account_creation_transfer(
+    state_update: &mut TrieUpdate,
+    fee_config: &RuntimeFeesConfig,
+    account: &mut Option<Account>,
+    actor_id: &mut AccountId,
+    account_id: &AccountId,
+    transfer: &TransferAction,
+) {
+    // NOTE: The account_id is hex like, because we've checked the permissions before.
+    debug_assert!(is_account_id_64_len_hex(account_id));
+
+    *actor_id = account_id.clone();
+
+    let access_key = AccessKey::full_access();
+    // 0 for ED25519
+    let mut public_key_data = Vec::with_capacity(33);
+    public_key_data.push(0u8);
+    public_key_data.extend(
+        hex::decode(account_id.as_bytes())
+            .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
+    );
+    debug_assert_eq!(public_key_data.len(), 33);
+    let public_key = PublicKey::try_from_slice(&public_key_data)
+        .expect("we should be able to deserialize ED25519 public key");
+
+    *account = Some(Account {
+        amount: transfer.deposit,
+        locked: 0,
+        code_hash: CryptoHash::default(),
+        storage_usage: fee_config.storage_usage_config.num_bytes_account
+            + public_key.len() as u64
+            + access_key.try_to_vec().unwrap().len() as u64
+            + fee_config.storage_usage_config.num_extra_bytes_record,
+    });
+
+    set_access_key(state_update, account_id.clone(), public_key, &access_key);
+}
+
 pub(crate) fn action_deploy_contract(
     state_update: &mut TrieUpdate,
     account: &mut Account,
@@ -509,19 +521,63 @@ pub(crate) fn check_account_existence(
     action: &Action,
     account: &mut Option<Account>,
     account_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
+    is_the_only_action: bool,
+    is_refund: bool,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
             if account.is_some() {
                 return Err(ActionErrorKind::AccountAlreadyExists {
-                    account_id: account_id.clone().into(),
+                    account_id: account_id.clone(),
                 }
                 .into());
+            } else {
+                if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    && is_account_id_64_len_hex(&account_id)
+                {
+                    // If the account doesn't exist and it's 64-length hex account ID, then you
+                    // should only be able to create it using single transfer action.
+                    // Because you should not be able to add another access key to the account in
+                    // the same transaction.
+                    // Otherwise you can hijack an account without having the private key for the
+                    // public key. We've decided to make it an invalid transaction to have any other
+                    // actions on the 64-length hex accounts.
+                    // The easiest way is to reject the `CreateAccount` action.
+                    // See https://github.com/nearprotocol/NEPs/pull/71
+                    return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
+                        account_id: account_id.clone(),
+                    }
+                    .into());
+                }
+            }
+        }
+        Action::Transfer(_) => {
+            if account.is_none() {
+                if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    && is_the_only_action
+                    && is_account_id_64_len_hex(&account_id)
+                    && !is_refund
+                {
+                    // OK. It's implicit account creation.
+                    // Notes:
+                    // - The transfer action has to be the only action in the transaction to avoid
+                    // abuse by hijacking this account with other public keys or contracts.
+                    // - Refunds don't automatically create accounts, because refunds are free and
+                    // we don't want some type of abuse.
+                    // - Account deletion with beneficiary creates a refund, so it'll not create a
+                    // new account.
+                    return Ok(());
+                } else {
+                    return Err(ActionErrorKind::AccountDoesNotExist {
+                        account_id: account_id.clone(),
+                    }
+                    .into());
+                };
             }
         }
         Action::DeployContract(_)
         | Action::FunctionCall(_)
-        | Action::Transfer(_)
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)

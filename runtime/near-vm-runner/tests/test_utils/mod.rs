@@ -5,6 +5,7 @@ use wabt::Wat2Wasm;
 
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::types::ProtocolVersion;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, VMError};
 
@@ -12,6 +13,8 @@ pub const CURRENT_ACCOUNT_ID: &str = "alice";
 pub const SIGNER_ACCOUNT_ID: &str = "bob";
 pub const SIGNER_ACCOUNT_PK: [u8; 3] = [0, 1, 2];
 pub const PREDECESSOR_ACCOUNT_ID: &str = "carol";
+
+pub const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
 pub fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
@@ -61,6 +64,7 @@ pub fn make_simple_contract_call_with_gas_vm(
         &fees,
         &promise_results,
         vm_kind,
+        LATEST_PROTOCOL_VERSION,
     )
 }
 

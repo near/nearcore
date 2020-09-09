@@ -1,6 +1,3 @@
-use crate::actions::get_insufficient_storage_stake;
-use crate::config::{total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost};
-use crate::VerificationResult;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::{
@@ -13,9 +10,16 @@ use near_primitives::transaction::{
     SignedTransaction, StakeAction,
 };
 use near_primitives::utils::is_valid_account_id;
-use near_store::{get_access_key, get_account, set_access_key, set_account, TrieUpdate};
+use near_primitives::version::ProtocolVersion;
+use near_runtime_configs::get_insufficient_storage_stake;
+use near_store::{
+    get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
+};
 use near_vm_logic::types::Balance;
 use near_vm_logic::VMLimitConfig;
+
+use crate::config::{total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost};
+use crate::VerificationResult;
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
@@ -24,6 +28,7 @@ pub fn validate_transaction(
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
     verify_signature: bool,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, RuntimeError> {
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
@@ -50,8 +55,14 @@ pub fn validate_transaction(
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
-    tx_cost(&config.transaction_costs, &transaction, gas_price, sender_is_receiver)
-        .map_err(|_| InvalidTxError::CostOverflow.into())
+    tx_cost(
+        &config.transaction_costs,
+        &transaction,
+        gas_price,
+        sender_is_receiver,
+        current_protocol_version,
+    )
+    .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 
 /// Verifies the signed transaction on top of given state, charges transaction fees
@@ -62,9 +73,16 @@ pub fn verify_and_charge_transaction(
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
     verify_signature: bool,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
-        validate_transaction(config, gas_price, signed_transaction, verify_signature)?;
+        validate_transaction(
+            config,
+            gas_price,
+            signed_transaction,
+            verify_signature,
+            current_protocol_version,
+        )?;
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
 
@@ -128,7 +146,9 @@ pub fn verify_and_charge_transaction(
             }
             .into())
         }
-        Err(err) => return Err(RuntimeError::StorageError(err)),
+        Err(err) => {
+            return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(err)))
+        }
     };
 
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
@@ -417,6 +437,7 @@ mod tests {
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use std::convert::TryInto;
     use std::sync::Arc;
@@ -476,7 +497,7 @@ mod tests {
         expected_err: RuntimeError,
     ) {
         assert_eq!(
-            validate_transaction(&config, gas_price, &signed_transaction, true)
+            validate_transaction(&config, gas_price, &signed_transaction, true, PROTOCOL_VERSION)
                 .expect_err("expected an error"),
             expected_err,
         );
@@ -486,7 +507,8 @@ mod tests {
                 state_update,
                 gas_price,
                 &signed_transaction,
-                true
+                true,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             expected_err,
@@ -510,13 +532,15 @@ mod tests {
             deposit,
             CryptoHash::default(),
         );
-        validate_transaction(&config, gas_price, &transaction, true).expect("valid transaction");
+        validate_transaction(&config, gas_price, &transaction, true, PROTOCOL_VERSION)
+            .expect("valid transaction");
         let verification_result = verify_and_charge_transaction(
             &config,
             &mut state_update,
             gas_price,
             &transaction,
             true,
+            PROTOCOL_VERSION,
         )
         .expect("valid transaction");
         // Should not be free. Burning for sending
@@ -636,7 +660,8 @@ mod tests {
                     100,
                     CryptoHash::default(),
                 ),
-                false
+                false,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -701,7 +726,8 @@ mod tests {
                     100,
                     CryptoHash::default(),
                 ),
-                true
+                true,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::SignerDoesNotExist {
@@ -732,7 +758,8 @@ mod tests {
                     100,
                     CryptoHash::default(),
                 ),
-                true
+                true,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidNonce { tx_nonce: 1, ak_nonce: 2 }),
@@ -780,6 +807,7 @@ mod tests {
                 CryptoHash::default(),
             ),
             true,
+            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         if let RuntimeError::InvalidTxError(InvalidTxError::NotEnoughBalance {
@@ -830,6 +858,7 @@ mod tests {
                 CryptoHash::default(),
             ),
             true,
+            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         if let RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -869,7 +898,8 @@ mod tests {
                     transfer_amount,
                     CryptoHash::default(),
                 ),
-                true
+                true,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
@@ -918,7 +948,8 @@ mod tests {
                     ],
                     CryptoHash::default(),
                 ),
-                true
+                true,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -939,7 +970,8 @@ mod tests {
                     vec![],
                     CryptoHash::default(),
                 ),
-                true
+                true,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -960,7 +992,8 @@ mod tests {
                     vec![Action::CreateAccount(CreateAccountAction {})],
                     CryptoHash::default(),
                 ),
-                true
+                true,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -1003,7 +1036,8 @@ mod tests {
                     }),],
                     CryptoHash::default(),
                 ),
-                true
+                true,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -1049,7 +1083,8 @@ mod tests {
                     }),],
                     CryptoHash::default(),
                 ),
-                true
+                true,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -1092,7 +1127,8 @@ mod tests {
                     }),],
                     CryptoHash::default(),
                 ),
-                true
+                true,
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
