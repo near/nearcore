@@ -69,6 +69,31 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), Box<dyn std::erro
 #[derive(Copy, Clone)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
+impl From<[u8; 64]> for Secp256K1PublicKey {
+    fn from(data: [u8; 64]) -> Self {
+        Self(data)
+    }
+}
+
+impl TryFrom<&[u8]> for Secp256K1PublicKey {
+    type Error = crate::TryFromSliceError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        // It is suboptimal, but optimized implementation in Rust standard
+        // library only implements TryFrom for arrays up to 32 elements at
+        // the moment. Once https://github.com/rust-lang/rust/pull/74254
+        // lands, we can use the following impl:
+        //
+        // Ok(Self(data.try_into().map_err(|_| TryFromSliceError(()))?))
+        if data.len() != 64 {
+            return Err(crate::TryFromSliceError(()));
+        }
+        let mut public_key = Self([0; 64]);
+        public_key.0.copy_from_slice(data);
+        Ok(public_key)
+    }
+}
+
 impl std::fmt::Debug for Secp256K1PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
@@ -97,6 +122,20 @@ impl Ord for Secp256K1PublicKey {
 
 #[derive(Copy, Clone)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
+
+impl From<[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]> for ED25519PublicKey {
+    fn from(data: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]) -> Self {
+        Self(data)
+    }
+}
+
+impl TryFrom<&[u8]> for ED25519PublicKey {
+    type Error = crate::TryFromSliceError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self(data.try_into().map_err(|_| crate::TryFromSliceError(()))?))
+    }
+}
 
 impl std::fmt::Debug for ED25519PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -465,6 +504,31 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
 #[derive(Clone)]
 pub struct Secp256K1Signature([u8; 65]);
 
+impl From<[u8; 65]> for Secp256K1Signature {
+    fn from(data: [u8; 65]) -> Self {
+        Self(data)
+    }
+}
+
+impl TryFrom<&[u8]> for Secp256K1Signature {
+    type Error = crate::TryFromSliceError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        // It is suboptimal, but optimized implementation in Rust standard
+        // library only implements TryFrom for arrays up to 32 elements at
+        // the moment. Once https://github.com/rust-lang/rust/pull/74254
+        // lands, we can use the following impl:
+        //
+        // Ok(Self(data.try_into().map_err(|_| crate::TryFromSliceError(()))?))
+        if data.len() != 65 {
+            return Err(crate::TryFromSliceError(()));
+        }
+        let mut signature = Self([0; 65]);
+        signature.0.copy_from_slice(data);
+        Ok(signature)
+    }
+}
+
 impl Eq for Secp256K1Signature {}
 
 impl PartialEq for Secp256K1Signature {
@@ -487,6 +551,26 @@ pub enum Signature {
 }
 
 impl Signature {
+    /// Construct Signature from key type and raw signature blob
+    pub fn from_parts(
+        signature_type: KeyType,
+        signature_data: &[u8],
+    ) -> Result<Self, crate::ParseSignatureError> {
+        match signature_type {
+            KeyType::ED25519 => Ok(Signature::ED25519(
+                ed25519_dalek::Signature::from_bytes(signature_data)
+                    .map_err(|err| crate::ParseSignatureError::InvalidData(err.to_string()))?,
+            )),
+            _ => Ok(Signature::SECP256K1(Secp256K1Signature::try_from(signature_data).map_err(
+                |_| {
+                    crate::ParseSignatureError::InvalidData(
+                        "invalid Secp256k1 signature length".to_string(),
+                    )
+                },
+            )?)),
+        }
+    }
+
     /// Verifies that this signature is indeed signs the data with given public key.
     /// Also if public key doesn't match on the curve returns `false`.
     pub fn verify(&self, data: &[u8], public_key: &PublicKey) -> bool {

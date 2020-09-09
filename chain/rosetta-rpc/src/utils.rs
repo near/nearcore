@@ -2,19 +2,149 @@ use actix::Addr;
 use futures::StreamExt;
 
 use near_client::ViewClientActor;
+use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
+pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);
+
+impl<T> BorshInHexString<T>
+where
+    T: BorshSerialize + BorshDeserialize,
+{
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T> paperclip::v2::schema::TypedData for BorshInHexString<T>
+where
+    T: BorshSerialize + BorshDeserialize,
+{
+    fn data_type() -> paperclip::v2::models::DataType {
+        paperclip::v2::models::DataType::String
+    }
+}
+
+impl<T> serde::Serialize for BorshInHexString<T>
+where
+    T: BorshSerialize + BorshDeserialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&hex::encode(
+            self.0.try_to_vec().expect("borsh serialization should never fail"),
+        ))
+    }
+}
+
+impl<'de, T> serde::Deserialize<'de> for BorshInHexString<T>
+where
+    T: BorshSerialize + BorshDeserialize,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let blob = hex::decode(&<String as serde::Deserialize>::deserialize(deserializer)?)
+            .map_err(|err| {
+                serde::de::Error::invalid_value(
+                    serde::de::Unexpected::Other(&format!(
+                        "signed transaction could not be decoded due to: {:?}",
+                        err
+                    )),
+                    &"base64-encoded transaction was expected",
+                )
+            })?;
+        Ok(Self(T::try_from_slice(&blob).map_err(|err| {
+            serde::de::Error::invalid_value(
+                serde::de::Unexpected::Other(&format!(
+                    "signed transaction could not be deserialized due to: {:?}",
+                    err
+                )),
+                &"a valid Borsh-serialized transaction was expected",
+            )
+        })?))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
+#[as_ref(forward)]
+pub(crate) struct BlobInHexString<T: AsRef<[u8]> + From<Vec<u8>>>(T);
+
+impl<T> paperclip::v2::schema::TypedData for BlobInHexString<T>
+where
+    T: AsRef<[u8]> + From<Vec<u8>>,
+{
+    fn data_type() -> paperclip::v2::models::DataType {
+        paperclip::v2::models::DataType::String
+    }
+}
+
+impl<T> serde::Serialize for BlobInHexString<T>
+where
+    T: AsRef<[u8]> + From<Vec<u8>>,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&hex::encode(self.as_ref()))
+    }
+}
+
+impl<'de, T> serde::Deserialize<'de> for BlobInHexString<T>
+where
+    T: AsRef<[u8]> + From<Vec<u8>>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self(T::from(
+            hex::decode(&<String as serde::Deserialize>::deserialize(deserializer)?).map_err(
+                |err| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Other(&format!(
+                            "the value could not be decoded due to: {:?}",
+                            err
+                        )),
+                        &"hex-encoded value was expected",
+                    )
+                },
+            )?,
+        )))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) struct SignedDiff<T>
 where
-    T: std::ops::Sub<Output = T> + std::cmp::PartialOrd + std::fmt::Display,
+    T: Copy + PartialEq,
 {
     is_positive: bool,
     absolute_difference: T,
 }
 
+impl<T> paperclip::v2::schema::TypedData for SignedDiff<T>
+where
+    T: Copy + PartialEq,
+{
+    fn data_type() -> paperclip::v2::models::DataType {
+        paperclip::v2::models::DataType::String
+    }
+}
+
+impl From<u128> for SignedDiff<u128> {
+    fn from(value: u128) -> Self {
+        Self { is_positive: true, absolute_difference: value }
+    }
+}
+
 impl<T> SignedDiff<T>
 where
-    T: std::ops::Sub<Output = T> + std::cmp::Ord + std::fmt::Display,
+    T: Copy + PartialEq + std::ops::Sub<Output = T> + std::cmp::Ord,
 {
     pub fn cmp(lhs: T, rhs: T) -> Self {
         if lhs <= rhs {
@@ -23,26 +153,85 @@ where
             Self { is_positive: false, absolute_difference: lhs - rhs }
         }
     }
+
+    pub fn is_positive(&self) -> bool {
+        self.is_positive
+    }
 }
 
 impl<T> std::fmt::Display for SignedDiff<T>
 where
-    T: std::ops::Sub<Output = T> + std::cmp::Ord + std::fmt::Display,
+    T: Copy + PartialEq + std::string::ToString,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", if self.is_positive { "" } else { "-" }, self.absolute_difference)
+        write!(
+            f,
+            "{}{}",
+            if self.is_positive { "" } else { "-" },
+            self.absolute_difference.to_string()
+        )
     }
 }
 
 impl<T> std::ops::Neg for SignedDiff<T>
 where
-    T: std::ops::Sub<Output = T> + std::cmp::Ord + std::fmt::Display,
+    T: Copy + PartialEq,
 {
     type Output = Self;
 
     fn neg(mut self) -> Self::Output {
         self.is_positive = !self.is_positive;
         self
+    }
+}
+
+impl<T> serde::Serialize for SignedDiff<T>
+where
+    T: Copy + PartialEq + std::string::ToString,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de, T> serde::Deserialize<'de> for SignedDiff<T>
+where
+    T: Copy + PartialEq + std::str::FromStr,
+    T::Err: std::fmt::Debug,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let string_value = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let mut chars_value = string_value.chars();
+        if let Some(first_char) = chars_value.next() {
+            let (is_positive, absolute_difference) = if first_char == '-' {
+                (false, chars_value.as_str())
+            } else {
+                (true, string_value.as_str())
+            };
+            Ok(Self {
+                is_positive,
+                absolute_difference: absolute_difference.parse().map_err(|err| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Other(&format!(
+                            "the value could not be decoded due to: {:?}",
+                            err
+                        )),
+                        &"an integer value was expected in range of [-u128::MAX; +u128::MAX]",
+                    )
+                })?,
+            })
+        } else {
+            Err(serde::de::Error::invalid_value(
+                serde::de::Unexpected::Other("empty value is not a valid number"),
+                &"a non-empty value was expected",
+            ))
+        }
     }
 }
 

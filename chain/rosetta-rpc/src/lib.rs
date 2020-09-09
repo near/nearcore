@@ -1,4 +1,4 @@
-use std::convert::TryInto;
+use std::convert::{AsRef, TryInto};
 use std::sync::Arc;
 
 use actix::Addr;
@@ -19,13 +19,12 @@ pub use config::RosettaRpcConfig;
 
 mod adapters;
 mod config;
-mod consts;
 mod errors;
 mod models;
 mod utils;
 
 pub const BASE_PATH: &str = "";
-pub const API_VERSION: &str = "1.4.2";
+pub const API_VERSION: &str = "1.4.3";
 
 /// Get List of Available Networks
 ///
@@ -70,7 +69,6 @@ async fn network_status(
             code: 2,
             message: "Wrong network (chain id)".to_string(),
             retriable: true,
-            details: None,
         });
     }
 
@@ -115,7 +113,7 @@ async fn network_status(
         peers: network_info
             .active_peers
             .into_iter()
-            .map(|peer| models::Peer { peer_id: peer.id.to_string(), metadata: None })
+            .map(|peer| models::Peer { peer_id: peer.id.to_string() })
             .collect(),
     }))
 }
@@ -142,7 +140,6 @@ async fn network_options(
             code: 2,
             message: "Wrong network (chain id)".to_string(),
             retriable: true,
-            details: None,
         });
     }
 
@@ -151,7 +148,6 @@ async fn network_options(
             rosetta_version: API_VERSION.to_string(),
             node_version: status.version.version,
             middleware_version: None,
-            metadata: None,
         },
         allow: models::Allow {
             operation_statuses: models::OperationStatusKind::iter()
@@ -201,7 +197,6 @@ async fn block_details(
             code: 2,
             message: "Wrong network (chain id)".to_string(),
             retriable: true,
-            details: None,
         });
     }
 
@@ -211,7 +206,6 @@ async fn block_details(
             code: 4,
             message: "Invalid input".to_string(),
             retriable: true,
-            details: None,
         })?;
 
     let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
@@ -252,7 +246,6 @@ async fn block_details(
             parent_block_identifier,
             timestamp: (block.header.timestamp / 1_000_000).try_into().unwrap(),
             transactions,
-            metadata: None,
         }),
         other_transactions: None,
     }))
@@ -301,7 +294,6 @@ async fn block_transaction_details(
             code: 2,
             message: "Wrong network (chain id)".to_string(),
             retriable: true,
-            details: None,
         });
     }
 
@@ -311,7 +303,6 @@ async fn block_transaction_details(
             code: 4,
             message: "Invalid input".to_string(),
             retriable: true,
-            details: None,
         })?;
 
     let block = view_client_addr
@@ -371,7 +362,6 @@ async fn account_balance(
             code: 2,
             message: "Wrong network (chain id)".to_string(),
             retriable: true,
-            details: None,
         });
     }
 
@@ -385,7 +375,6 @@ async fn account_balance(
             code: 4,
             message: "Invalid input".to_string(),
             retriable: true,
-            details: None,
         })?;
 
     // TODO: update error handling once we return structured errors from the
@@ -468,12 +457,7 @@ async fn account_balance(
             hash: block_hash.to_base(),
             index: block_height.try_into().unwrap(),
         },
-        balances: vec![models::Amount {
-            value: balance.to_string(),
-            currency: consts::YOCTO_NEAR_CURRENCY.clone(),
-            metadata: None,
-        }],
-        metadata: None,
+        balances: vec![models::Amount::from_yoctonear(balance)],
     }))
 }
 
@@ -523,7 +507,7 @@ async fn construction_derive() -> Result<Json<()>, models::Error> {
 }
 
 #[api_v2_operation]
-/// Create a Request to Fetch Metadata (not implemented yet)
+/// Create a Request to Fetch Metadata (offline API)
 ///
 /// Preprocess is called prior to /construction/payloads to construct a request
 /// for any metadata that is needed for transaction construction given (i.e.
@@ -531,15 +515,98 @@ async fn construction_derive() -> Result<Json<()>, models::Error> {
 /// caller (in a different execution environment) to call the
 /// /construction/metadata endpoint.
 async fn construction_preprocess(
-    _client_addr: web::Data<Addr<ClientActor>>,
-    _body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    // TODO
-    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    client_addr: web::Data<Addr<ClientActor>>,
+    body: Json<models::ConstructionPreprocessRequest>,
+) -> Result<Json<models::ConstructionPreprocessResponse>, models::Error> {
+    let Json(models::ConstructionPreprocessRequest { network_identifier, operations }) = body;
+
+    // TODO: reduce copy-paste
+    let status = client_addr
+        .send(near_client::Status { is_health_check: false })
+        .await?
+        .map_err(errors::ErrorKind::InternalError)?;
+    if status.chain_id != network_identifier.network {
+        return Err(models::Error {
+            code: 2,
+            message: "Wrong network (chain id)".to_string(),
+            retriable: true,
+        });
+    }
+
+    let mut sender_account_id: Option<String> = None;
+    let mut receiver_account_id: Option<String> = None;
+    let mut operations = operations.iter().rev();
+    while let Some(receiver_operation) = operations.next() {
+        match receiver_operation.type_ {
+            models::OperationType::Transfer => {
+                let receiver_amount = receiver_operation.amount.as_ref().ok_or_else(|| {
+                    errors::ErrorKind::InvalidInput(
+                        "TRANSFER operations must specify `amount`".to_string(),
+                    )
+                })?;
+                if !receiver_amount.value.is_positive() {
+                    return Err(errors::ErrorKind::InvalidInput(
+                        "Receiver TRANSFER operations must have positive `amount`".to_string(),
+                    )
+                    .into());
+                }
+                if let Some(ref receiver_account_id) = receiver_account_id {
+                    if &receiver_operation.account.address != receiver_account_id {
+                        return Err(errors::ErrorKind::InvalidInput(
+                            format!("A single transaction cannot be send to multiple receipients ('{}' and '{}')", receiver_operation.account.address, receiver_account_id)
+                        ).into());
+                    }
+                } else {
+                    receiver_account_id = Some(receiver_operation.account.address.clone());
+                }
+                let sender_operation = operations.next().ok_or_else(|| {
+                    errors::ErrorKind::InvalidInput(
+                        "Source TRANSFER operation is missing".to_string(),
+                    )
+                })?;
+
+                let sender_amount = sender_operation.amount.as_ref().ok_or_else(|| {
+                    errors::ErrorKind::InvalidInput(
+                        "TRANSFER operations must specify `amount`".to_string(),
+                    )
+                })?;
+                if -sender_amount.value != receiver_amount.value {
+                    return Err(errors::ErrorKind::InvalidInput(
+                        "The sum of amounts of Sender and Receiver TRANSFER operations must be zero"
+                            .to_string(),
+                    )
+                    .into());
+                }
+                if let Some(sender_account_id) = sender_account_id.as_ref() {
+                    if &sender_operation.account.address != sender_account_id {
+                        return Err(errors::ErrorKind::InvalidInput(
+                            format!("A single transaction cannot be send from multiple senders ('{}' and '{}')", sender_operation.account.address, sender_account_id)
+                        ).into());
+                    }
+                } else {
+                    sender_account_id = Some(sender_operation.account.address.clone());
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    let signer_account_id = sender_account_id.ok_or_else(|| {
+        errors::ErrorKind::InvalidInput(
+            "There are no operations specifying signer [sender] account".to_string(),
+        )
+    })?;
+    Ok(Json(models::ConstructionPreprocessResponse {
+        required_public_keys: vec![models::AccountIdentifier {
+            address: signer_account_id.clone(),
+            sub_account: None,
+        }],
+        options: models::ConstructionMetadataOptions { signer_account_id },
+    }))
 }
 
 #[api_v2_operation]
-/// Get Metadata for Transaction Construction (not implemented yet)
+/// Get Metadata for Transaction Construction (online API)
 ///
 /// Get any information required to construct a transaction for a specific
 /// network. Metadata returned here could be a recent hash to use, an account
@@ -550,15 +617,84 @@ async fn construction_preprocess(
 /// in /construction/payloads). This endpoint is left purposely unstructured
 /// because of the wide scope of metadata that could be required.
 async fn construction_metadata(
-    _client_addr: web::Data<Addr<ClientActor>>,
-    _body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    // TODO
-    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    client_addr: web::Data<Addr<ClientActor>>,
+    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    body: Json<models::ConstructionMetadataRequest>,
+) -> Result<Json<models::ConstructionMetadataResponse>, models::Error> {
+    let Json(models::ConstructionMetadataRequest { network_identifier, options, public_keys }) =
+        body;
+
+    let signer_public_access_key = public_keys.into_iter().next().ok_or_else(|| {
+        errors::ErrorKind::InvalidInput("exactly one public key is expected".to_string())
+    })?;
+
+    // TODO: reduce copy-paste
+    let status = client_addr
+        .send(near_client::Status { is_health_check: false })
+        .await?
+        .map_err(errors::ErrorKind::InternalError)?;
+    if status.chain_id != network_identifier.network {
+        return Err(models::Error {
+            code: 2,
+            message: "Wrong network (chain id)".to_string(),
+            retriable: true,
+        });
+    }
+
+    let access_key_query = near_client::Query::new(
+        near_primitives::types::BlockReference::latest(),
+        near_primitives::views::QueryRequest::ViewAccessKey {
+            account_id: options.signer_account_id.clone(),
+            public_key: (&signer_public_access_key).try_into().map_err(|err| {
+                errors::ErrorKind::InvalidInput(format!(
+                    "public key could not be parsed due to: {:?}",
+                    err
+                ))
+            })?,
+        },
+    );
+
+    let access_key_query_response =
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                match view_client_addr.send(access_key_query.clone()).await? {
+                    Ok(Some(query_response)) => return Ok(query_response),
+                    Ok(None) => {}
+                    // TODO: update this once we return structured errors in the
+                    // view_client handlers
+                    Err(err) => {
+                        if err.contains("does not exist") {
+                            return Err(crate::errors::ErrorKind::NotFound(err));
+                        }
+                        return Err(crate::errors::ErrorKind::InternalError(err));
+                    }
+                }
+                tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await??;
+
+    let access_key = if let near_primitives::views::QueryResponseKind::AccessKey(access_key) =
+        access_key_query_response.kind
+    {
+        access_key
+    } else {
+        return Err(crate::errors::ErrorKind::InternalInvariantError(
+            "queried ViewAccessKey, but received something else.".to_string(),
+        )
+        .into());
+    };
+    Ok(Json(models::ConstructionMetadataResponse {
+        metadata: models::ConstructionMetadata {
+            recent_block_hash: access_key_query_response.block_hash.to_base(),
+            signer_account_id: options.signer_account_id,
+            signer_public_access_key_nonce: access_key.nonce,
+        },
+    }))
 }
 
 #[api_v2_operation]
-/// Generate an Unsigned Transaction and Signing Payloads (not implemented yet)
+/// Generate an Unsigned Transaction and Signing Payloads (offline API)
 ///
 /// Payloads is called with an array of operations and the response from
 /// `/construction/metadata`. It returns an unsigned transaction blob and a
@@ -571,40 +707,151 @@ async fn construction_metadata(
 /// transaction in the Data API (when it lands on chain) will contain a superset
 /// of whatever operations were provided during construction.
 async fn construction_payloads(
-    _client_addr: web::Data<Addr<ClientActor>>,
-    _body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    // TODO
-    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    client_addr: web::Data<Addr<ClientActor>>,
+    body: Json<models::ConstructionPayloadsRequest>,
+) -> Result<Json<models::ConstructionPayloadsResponse>, models::Error> {
+    let Json(models::ConstructionPayloadsRequest {
+        network_identifier,
+        operations,
+        public_keys,
+        metadata,
+    }) = body;
+
+    let signer_public_access_key = public_keys.into_iter().next().ok_or_else(|| {
+        errors::ErrorKind::InvalidInput("exactly one public key is expected".to_string())
+    })?;
+
+    // TODO: reduce copy-paste
+    let status = client_addr
+        .send(near_client::Status { is_health_check: false })
+        .await?
+        .map_err(errors::ErrorKind::InternalError)?;
+    if status.chain_id != network_identifier.network {
+        return Err(models::Error {
+            code: 2,
+            message: "Wrong network (chain id)".to_string(),
+            retriable: true,
+        });
+    }
+
+    let models::ConstructionMetadata {
+        recent_block_hash,
+        signer_account_id,
+        signer_public_access_key_nonce,
+    } = metadata;
+    let unsigned_transaction = near_primitives::transaction::Transaction {
+        block_hash: recent_block_hash.try_into().map_err(|err| {
+            errors::ErrorKind::InvalidInput(format!(
+                "block hash could not be parsed due to: {:?}",
+                err
+            ))
+        })?,
+        signer_id: signer_account_id.clone(),
+        public_key: (&signer_public_access_key).try_into().map_err(|err| {
+            errors::ErrorKind::InvalidInput(format!(
+                "public key could not be parsed due to: {:?}",
+                err
+            ))
+        })?,
+        nonce: signer_public_access_key_nonce,
+        // TODO
+        receiver_id: "near.test".to_string(),
+        actions: vec![near_primitives::transaction::Action::Transfer(
+            near_primitives::transaction::TransferAction {
+                deposit: 1_000_000_000_000_000_000_000_000,
+            },
+        )],
+    };
+
+    let unsigned_transaction_blob: crate::utils::BorshInHexString<
+        near_primitives::transaction::Transaction,
+    > = unsigned_transaction.into();
+    Ok(Json(models::ConstructionPayloadsResponse {
+        unsigned_transaction: unsigned_transaction_blob.clone(),
+        payloads: vec![models::SigningPayload {
+            address: signer_account_id,
+            signature_type: None,
+            hex_bytes: unsigned_transaction_blob,
+        }],
+    }))
 }
 
 #[api_v2_operation]
-/// Create Network Transaction from Signatures (not implemented yet)
+/// Create Network Transaction from Signatures (offline API)
 ///
 /// Combine creates a network-specific transaction from an unsigned transaction
 /// and an array of provided signatures. The signed transaction returned from
 /// this method will be sent to the /construction/submit endpoint by the caller.
 async fn construction_combine(
-    _client_addr: web::Data<Addr<ClientActor>>,
-    _body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    // TODO
-    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    client_addr: web::Data<Addr<ClientActor>>,
+    body: Json<models::ConstructionCombineRequest>,
+) -> Result<Json<models::ConstructionCombineResponse>, models::Error> {
+    let Json(models::ConstructionCombineRequest {
+        network_identifier,
+        unsigned_transaction,
+        signatures,
+    }) = body;
+
+    let signature = signatures
+        .iter()
+        .next()
+        .ok_or_else(|| {
+            errors::ErrorKind::InvalidInput("exactly one signature is expected".to_string())
+        })?
+        .try_into()
+        .map_err(|err: near_crypto::ParseSignatureError| {
+            errors::ErrorKind::InvalidInput(err.to_string())
+        })?;
+
+    // TODO: reduce copy-paste
+    let status = client_addr
+        .send(near_client::Status { is_health_check: false })
+        .await?
+        .map_err(errors::ErrorKind::InternalError)?;
+    if status.chain_id != network_identifier.network {
+        return Err(models::Error {
+            code: 2,
+            message: "Wrong network (chain id)".to_string(),
+            retriable: true,
+        });
+    }
+
+    let signed_transction = near_primitives::transaction::SignedTransaction::new(
+        signature,
+        unsigned_transaction.into_inner(),
+    );
+
+    Ok(Json(models::ConstructionCombineResponse { signed_transaction: signed_transction.into() }))
 }
 
 #[api_v2_operation]
-/// Parse a Transaction (not implemented yet)
+/// Parse a Transaction (offline API)
 ///
 /// Parse is called on both unsigned and signed transactions to understand the
 /// intent of the formulated transaction. This is run as a sanity check before
 /// signing (after /construction/payloads) and before broadcast (after
 /// /construction/combine).
 async fn construction_parse(
-    _client_addr: web::Data<Addr<ClientActor>>,
-    _body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    // TODO
-    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    client_addr: web::Data<Addr<ClientActor>>,
+    body: Json<models::ConstructionParseRequest>,
+) -> Result<Json<models::ConstructionParseResponse>, models::Error> {
+    let Json(models::ConstructionParseRequest { network_identifier, transaction, signed }) = body;
+
+    // TODO: reduce copy-paste
+    let status = client_addr
+        .send(near_client::Status { is_health_check: false })
+        .await?
+        .map_err(errors::ErrorKind::InternalError)?;
+    if status.chain_id != network_identifier.network {
+        return Err(models::Error {
+            code: 2,
+            message: "Wrong network (chain id)".to_string(),
+            retriable: true,
+        });
+    }
+
+    unimplemented!()
+    //Ok(Json(models::ConstructionParseResponse { signers, operations }))
 }
 
 #[api_v2_operation]
@@ -613,15 +860,28 @@ async fn construction_parse(
 /// TransactionHash returns the network-specific transaction hash for a signed
 /// transaction.
 async fn construction_hash(
+    client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::ConstructionHashRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    let Json(models::ConstructionHashRequest { network_identifier: _, signed_transaction }) = body;
+    let Json(models::ConstructionHashRequest { network_identifier, signed_transaction }) = body;
+
+    // TODO: reduce copy-paste
+    let status = client_addr
+        .send(near_client::Status { is_health_check: false })
+        .await?
+        .map_err(errors::ErrorKind::InternalError)?;
+    if status.chain_id != network_identifier.network {
+        return Err(models::Error {
+            code: 2,
+            message: "Wrong network (chain id)".to_string(),
+            retriable: true,
+        });
+    }
 
     Ok(Json(models::TransactionIdentifierResponse {
         transaction_identifier: models::TransactionIdentifier {
-            hash: signed_transaction.0.get_hash().to_base(),
+            hash: signed_transaction.as_ref().get_hash().to_base(),
         },
-        metadata: None,
     }))
 }
 
@@ -650,14 +910,13 @@ async fn construction_submit(
             code: 2,
             message: "Wrong network (chain id)".to_string(),
             retriable: true,
-            details: None,
         });
     }
 
-    let transaction_hash = signed_transaction.0.get_hash().to_base();
+    let transaction_hash = signed_transaction.as_ref().get_hash().to_base();
     let transaction_submittion = client_addr
         .send(near_network::NetworkClientMessages::Transaction {
-            transaction: signed_transaction.0,
+            transaction: signed_transaction.into_inner(),
             is_forwarded: false,
             check_only: false,
         })
@@ -667,7 +926,6 @@ async fn construction_submit(
         | near_network::NetworkClientResponses::RequestRouted => {
             Ok(Json(models::TransactionIdentifierResponse {
                 transaction_identifier: models::TransactionIdentifier { hash: transaction_hash },
-                metadata: None,
             }))
         }
         near_network::NetworkClientResponses::InvalidTx(error) => {
