@@ -216,19 +216,17 @@ fn run_and_commit_if_success<T: EvmState>(
     let gas_used: U256;
     let return_data = match result {
         Some(GasLeft::Known(gas_left)) => {
-            println!("-=-=-= {} {}", PREPAID_GAS, gas_left);
+            println!("Known {} {}", PREPAID_GAS, gas_left);
             gas_used = U256::from(PREPAID_GAS) - gas_left;
             Ok(ReturnData::empty())
         },
         Some(GasLeft::NeedsReturn { gas_left, data, apply_state: true }) => {
-            println!("-=-=-= {} {}", PREPAID_GAS, gas_left);
-
+            println!("NeedsReturn, apply_state: true {} {}", PREPAID_GAS, gas_left);
             gas_used = U256::from(PREPAID_GAS) - gas_left;
             Ok(data)
         },
         Some(GasLeft::NeedsReturn { gas_left, data, apply_state: false }) => {
-            println!("-=-=-= {} {}", PREPAID_GAS, gas_left);
-
+            println!("NeedsReturn, apply_state: false {} {}", PREPAID_GAS, gas_left);
             gas_used = U256::from(PREPAID_GAS) - gas_left;
             Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
         },
