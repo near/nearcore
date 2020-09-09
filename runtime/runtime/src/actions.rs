@@ -13,7 +13,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::{
-    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
+    create_hash_upgradable, is_valid_account_id, is_valid_sub_account_id,
+    is_valid_top_level_account_id,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::is_account_id_64_len_hex;
@@ -30,7 +31,7 @@ use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::version::{
-    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION,
+    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
     IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
 };
 use near_runtime_configs::AccountCreationConfig;
@@ -94,6 +95,7 @@ pub(crate) fn action_function_call(
         &apply_state.epoch_id,
         &apply_state.last_block_hash,
         epoch_info_provider,
+        apply_state.current_protocol_version,
     );
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
@@ -101,6 +103,24 @@ pub(crate) fn action_function_call(
     } else {
         vec![]
     };
+    let random_seed =
+        if apply_state.current_protocol_version < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION {
+            action_hash.as_ref().to_vec()
+        } else if apply_state.current_protocol_version < CREATE_HASH_PROTOCOL_VERSION {
+            apply_state.random_seed.as_ref().to_vec()
+        } else {
+            // Generates random seed from random seed, action_hash.
+            // Since every action hash is unique, the seed will be unique per receipt and even
+            // per action within a receipt.
+            create_hash_upgradable(
+                apply_state.current_protocol_version,
+                &apply_state.random_seed,
+                &action_hash,
+                0,
+            )
+            .as_ref()
+            .to_vec()
+        };
     let context = VMContext {
         current_account_id: account_id.clone(),
         signer_account_id: action_receipt.signer_id.clone(),
@@ -118,12 +138,7 @@ pub(crate) fn action_function_call(
         storage_usage: account.storage_usage,
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
-        random_seed: if apply_state.current_protocol_version < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
-        {
-            action_hash.as_ref().to_vec()
-        } else {
-            apply_state.random_seed.as_ref().to_vec()
-        },
+        random_seed,
         is_view: false,
         output_data_receivers,
     };

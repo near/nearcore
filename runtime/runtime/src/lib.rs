@@ -19,7 +19,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     Nonce, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot, ValidatorStake,
 };
-use near_primitives::utils::{create_nonce_with_nonce, system_account};
+use near_primitives::utils::{create_hash_upgradable, system_account};
 use near_runtime_configs::get_insufficient_storage_stake;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
@@ -246,10 +246,16 @@ impl Runtime {
                     tx_hash: signed_transaction.get_hash(),
                 });
                 let transaction = &signed_transaction.transaction;
+                let receipt_id = create_hash_upgradable(
+                    apply_state.current_protocol_version,
+                    &signed_transaction.get_hash(),
+                    &apply_state.last_block_hash,
+                    0,
+                );
                 let receipt = Receipt {
                     predecessor_id: transaction.signer_id.clone(),
                     receiver_id: transaction.receiver_id.clone(),
-                    receipt_id: create_nonce_with_nonce(&signed_transaction.get_hash(), 0),
+                    receipt_id,
                     receipt: ReceiptEnum::Action(ActionReceipt {
                         signer_id: transaction.signer_id.clone(),
                         signer_public_key: transaction.public_key.clone(),
@@ -497,6 +503,12 @@ impl Runtime {
         result.gas_burnt = exec_fee;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
+            let action_hash = create_hash_upgradable(
+                apply_state.current_protocol_version,
+                &receipt.receipt_id,
+                &apply_state.last_block_hash,
+                u64::max_value() - action_index as u64,
+            );
             let mut new_result = self.apply_action(
                 action,
                 state_update,
@@ -506,10 +518,7 @@ impl Runtime {
                 receipt,
                 action_receipt,
                 &promise_results,
-                &create_nonce_with_nonce(
-                    &receipt.receipt_id,
-                    u64::max_value() - action_index as u64,
-                ),
+                &action_hash,
                 action_index,
                 &action_receipt.actions,
                 epoch_info_provider,
@@ -668,8 +677,13 @@ impl Runtime {
             .into_iter()
             .enumerate()
             .filter_map(|(receipt_index, mut new_receipt)| {
-                let receipt_id =
-                    create_nonce_with_nonce(&receipt.receipt_id, receipt_index as Nonce);
+                let receipt_id = create_hash_upgradable(
+                    apply_state.current_protocol_version,
+                    &receipt.receipt_id,
+                    &apply_state.last_block_hash,
+                    receipt_index as Nonce,
+                );
+
                 new_receipt.receipt_id = receipt_id;
                 let is_action = match &new_receipt.receipt {
                     ReceiptEnum::Action(_) => true,
@@ -685,9 +699,14 @@ impl Runtime {
             .collect();
 
         let status = match result.result {
-            Ok(ReturnData::ReceiptIndex(receipt_index)) => ExecutionStatus::SuccessReceiptId(
-                create_nonce_with_nonce(&receipt.receipt_id, receipt_index as Nonce),
-            ),
+            Ok(ReturnData::ReceiptIndex(receipt_index)) => {
+                ExecutionStatus::SuccessReceiptId(create_hash_upgradable(
+                    apply_state.current_protocol_version,
+                    &receipt.receipt_id,
+                    &apply_state.last_block_hash,
+                    receipt_index as Nonce,
+                ))
+            }
             Ok(ReturnData::Value(data)) => ExecutionStatus::SuccessValue(data),
             Ok(ReturnData::None) => ExecutionStatus::SuccessValue(vec![]),
             Err(e) => ExecutionStatus::Failure(TxExecutionError::ActionError(e)),
@@ -1702,7 +1721,12 @@ mod tests {
             .map(|i| Receipt {
                 predecessor_id: bob_account(),
                 receiver_id: alice_account(),
-                receipt_id: create_nonce_with_nonce(&CryptoHash::default(), i),
+                receipt_id: create_hash_upgradable(
+                    PROTOCOL_VERSION,
+                    &CryptoHash::default(),
+                    &CryptoHash::default(),
+                    i,
+                ),
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: bob_account(),
                     signer_public_key: PublicKey::empty(KeyType::ED25519),
@@ -1774,9 +1798,24 @@ mod tests {
                 local_transactions[1].get_hash(), // tx 1
                 local_transactions[2].get_hash(), // tx 2
                 local_transactions[3].get_hash(), // tx 3 - the TX is processed, but the receipt is delayed
-                create_nonce_with_nonce(&local_transactions[0].get_hash(), 0), // receipt for tx 0
-                create_nonce_with_nonce(&local_transactions[1].get_hash(), 0), // receipt for tx 1
-                create_nonce_with_nonce(&local_transactions[2].get_hash(), 0), // receipt for tx 2
+                create_hash_upgradable(
+                    PROTOCOL_VERSION,
+                    &local_transactions[0].get_hash(),
+                    &CryptoHash::default(),
+                    0,
+                ), // receipt for tx 0
+                create_hash_upgradable(
+                    PROTOCOL_VERSION,
+                    &local_transactions[1].get_hash(),
+                    &CryptoHash::default(),
+                    0,
+                ), // receipt for tx 1
+                create_hash_upgradable(
+                    PROTOCOL_VERSION,
+                    &local_transactions[2].get_hash(),
+                    &CryptoHash::default(),
+                    0,
+                ), // receipt for tx 2
             ],
             "STEP #1 failed",
         );
@@ -1803,8 +1842,18 @@ mod tests {
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
             vec![
                 local_transactions[4].get_hash(), // tx 4
-                create_nonce_with_nonce(&local_transactions[4].get_hash(), 0), // receipt for tx 4
-                create_nonce_with_nonce(&local_transactions[3].get_hash(), 0), // receipt for tx 3
+                create_hash_upgradable(
+                    PROTOCOL_VERSION,
+                    &local_transactions[4].get_hash(),
+                    &CryptoHash::default(),
+                    0,
+                ), // receipt for tx 4
+                create_hash_upgradable(
+                    PROTOCOL_VERSION,
+                    &local_transactions[3].get_hash(),
+                    &CryptoHash::default(),
+                    0,
+                ), // receipt for tx 3
                 receipts[0].receipt_id,           // receipt #0
             ],
             "STEP #2 failed",
@@ -1835,9 +1884,24 @@ mod tests {
                 local_transactions[6].get_hash(), // tx 6
                 local_transactions[7].get_hash(), // tx 7
                 local_transactions[8].get_hash(), // tx 8
-                create_nonce_with_nonce(&local_transactions[5].get_hash(), 0), // receipt for tx 5
-                create_nonce_with_nonce(&local_transactions[6].get_hash(), 0), // receipt for tx 6
-                create_nonce_with_nonce(&local_transactions[7].get_hash(), 0), // receipt for tx 7
+                create_hash_upgradable(
+                    PROTOCOL_VERSION,
+                    &local_transactions[5].get_hash(),
+                    &CryptoHash::default(),
+                    0,
+                ), // receipt for tx 5
+                create_hash_upgradable(
+                    PROTOCOL_VERSION,
+                    &local_transactions[6].get_hash(),
+                    &CryptoHash::default(),
+                    0,
+                ), // receipt for tx 6
+                create_hash_upgradable(
+                    PROTOCOL_VERSION,
+                    &local_transactions[7].get_hash(),
+                    &CryptoHash::default(),
+                    0,
+                ), // receipt for tx 7
             ],
             "STEP #3 failed",
         );
@@ -1863,9 +1927,14 @@ mod tests {
         assert_eq!(
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
             vec![
-                receipts[1].receipt_id,                                        // receipt #1
-                receipts[2].receipt_id,                                        // receipt #2
-                create_nonce_with_nonce(&local_transactions[8].get_hash(), 0), // receipt for tx 8
+                receipts[1].receipt_id, // receipt #1
+                receipts[2].receipt_id, // receipt #2
+                create_hash_upgradable(
+                    PROTOCOL_VERSION,
+                    &local_transactions[8].get_hash(),
+                    &CryptoHash::default(),
+                    0,
+                ), // receipt for tx 8
             ],
             "STEP #4 failed",
         );
@@ -2036,7 +2105,12 @@ mod tests {
         let receipts = vec![Receipt {
             predecessor_id: bob_account(),
             receiver_id: alice_account(),
-            receipt_id: create_nonce_with_nonce(&CryptoHash::default(), 0),
+            receipt_id: create_hash_upgradable(
+                PROTOCOL_VERSION,
+                &CryptoHash::default(),
+                &CryptoHash::default(),
+                0,
+            ),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: bob_account(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
@@ -2105,7 +2179,12 @@ mod tests {
         let receipts = vec![Receipt {
             predecessor_id: bob_account(),
             receiver_id: alice_account(),
-            receipt_id: create_nonce_with_nonce(&CryptoHash::default(), 0),
+            receipt_id: create_hash_upgradable(
+                PROTOCOL_VERSION,
+                &CryptoHash::default(),
+                &CryptoHash::default(),
+                0,
+            ),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: bob_account(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),

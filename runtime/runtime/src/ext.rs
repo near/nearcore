@@ -10,7 +10,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
-use near_primitives::utils::create_nonce_with_nonce;
+use near_primitives::utils::create_hash_upgradable;
+use near_primitives::version::ProtocolVersion;
 use near_store::{TrieUpdate, TrieUpdateValuePtr};
 use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
 
@@ -26,6 +27,7 @@ pub struct RuntimeExt<'a> {
     epoch_id: &'a EpochId,
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
+    current_protocol_version: ProtocolVersion,
 }
 
 pub struct RuntimeExtValuePtr<'a>(TrieUpdateValuePtr<'a>);
@@ -51,6 +53,7 @@ impl<'a> RuntimeExt<'a> {
         epoch_id: &'a EpochId,
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
+        current_protocol_version: ProtocolVersion,
     ) -> Self {
         RuntimeExt {
             trie_update,
@@ -64,6 +67,7 @@ impl<'a> RuntimeExt<'a> {
             epoch_id,
             last_block_hash,
             epoch_info_provider,
+            current_protocol_version,
         }
     }
 
@@ -72,7 +76,12 @@ impl<'a> RuntimeExt<'a> {
     }
 
     fn new_data_id(&mut self) -> CryptoHash {
-        let data_id = create_nonce_with_nonce(&self.base_data_id, self.data_count);
+        let data_id = create_hash_upgradable(
+            self.current_protocol_version,
+            &self.base_data_id,
+            &self.last_block_hash,
+            self.data_count,
+        );
         self.data_count += 1;
         data_id
     }

@@ -15,7 +15,8 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
-use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id};
+use near_primitives::utils::{create_hash_upgradable, is_valid_account_id};
+use near_primitives::version::PROTOCOL_VERSION;
 
 /// Methods that can be called by a non-privileged access key.
 const REGULAR_METHOD_NAMES: &[&str] = &["stake", "transfer"];
@@ -263,7 +264,12 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
             predecessor_id: row.account_id.clone(),
             receiver_id: row.account_id.clone(),
             // `receipt_id` can be anything as long as it is unique.
-            receipt_id: create_nonce_with_nonce(&hash(row.account_id.as_bytes()), 0),
+            receipt_id: create_hash_upgradable(
+                PROTOCOL_VERSION,
+                &hash(row.account_id.as_bytes()),
+                &CryptoHash::default(),
+                0,
+            ),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: row.account_id.clone(),
                 // `signer_public_key` can be anything because the key checks are not applied when

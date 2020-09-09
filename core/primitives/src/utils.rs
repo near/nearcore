@@ -13,6 +13,8 @@ use lazy_static::lazy_static;
 
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, NumSeats, NumShards, ShardId};
+use crate::version::{ProtocolVersion, CREATE_HASH_PROTOCOL_VERSION};
+use std::mem::size_of;
 
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
 pub const MAX_ACCOUNT_ID_LEN: usize = 64;
@@ -43,6 +45,31 @@ pub fn get_block_shard_id_rev(
     Ok((block_hash, shard_id))
 }
 
+/// Creates a new CryptoHash ID based on the protocol version.
+/// Pre `RECEIPT_ID_AND_RANDOM_SEED_FIX_PROTOCOL_VERSION` it uses `create_nonce_with_nonce` with
+/// just `base` and `salt`. But after `RECEIPT_ID_AND_RANDOM_SEED_FIX_PROTOCOL_VERSION` it uses
+/// `extra_hash` in addition to the `base` and `salt`.
+/// E.g. this `extra_hash` can be a block hash to distinguish receipts between forks.
+pub fn create_hash_upgradable(
+    protocol_version: ProtocolVersion,
+    base: &CryptoHash,
+    extra_hash: &CryptoHash,
+    salt: u64,
+) -> CryptoHash {
+    if protocol_version < CREATE_HASH_PROTOCOL_VERSION {
+        create_nonce_with_nonce(base, salt)
+    } else {
+        let mut bytes: Vec<u8> = Vec::with_capacity(
+            size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>(),
+        );
+        bytes.extend_from_slice(base.as_ref());
+        bytes.extend_from_slice(extra_hash.as_ref());
+        bytes.extend(index_to_bytes(salt));
+        hash(&bytes)
+    }
+}
+
+/// Deprecated. Please use `create_hash_upgradable`
 pub fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
     let mut nonce: Vec<u8> = base.as_ref().to_owned();
     nonce.extend(index_to_bytes(salt));
@@ -468,5 +495,25 @@ mod tests {
                 assert_eq!(assignment.iter().sum::<u64>(), max(num_seats, num_shards));
             }
         }
+    }
+
+    #[test]
+    fn test_create_hash_upgradable() {
+        let base = hash(b"atata");
+        let extra_base = hash(b"hohoho");
+        let other_extra_base = hash(b"banana");
+        let salt = 3;
+        assert_eq!(
+            create_nonce_with_nonce(&base, salt),
+            create_hash_upgradable(CREATE_HASH_PROTOCOL_VERSION - 1, &base, &extra_base, salt)
+        );
+        assert_ne!(
+            create_nonce_with_nonce(&base, salt),
+            create_hash_upgradable(CREATE_HASH_PROTOCOL_VERSION, &base, &extra_base, salt)
+        );
+        assert_ne!(
+            create_hash_upgradable(CREATE_HASH_PROTOCOL_VERSION, &base, &extra_base, salt),
+            create_hash_upgradable(CREATE_HASH_PROTOCOL_VERSION, &base, &other_extra_base, salt)
+        );
     }
 }
