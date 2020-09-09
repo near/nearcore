@@ -51,6 +51,8 @@ skip = [
     { name = "syn", version = "=0.15.44" },
     { name = "static_assertions", version = "=0.2.5" },
     { name = "parking_lot", version = "=0.7.1" },
+    { name = "parking_lot_core", version = "=0.4.0" },
+    { name = "lock_api", version = "=0.1.5" },
     { name = "smallvec", version = "=0.6.13" },
     { name = "scopeguard", version = "=0.3.3" },
     { name = "rustc-hex", version = "=1.0.0" },
