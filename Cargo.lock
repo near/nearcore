@@ -2632,7 +2632,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-telemetry",
- "num-rational 0.2.4",
  "rand 0.7.3",
  "serde",
  "serde_json",

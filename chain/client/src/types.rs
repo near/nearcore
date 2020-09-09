@@ -185,7 +185,7 @@ impl Message for GetChunk {
 }
 
 /// Queries client for given path / data.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Query {
     pub query_id: String,
     pub block_reference: BlockReference,
