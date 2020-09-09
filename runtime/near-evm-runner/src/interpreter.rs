@@ -11,6 +11,8 @@ use crate::near_ext::NearExt;
 use crate::types::Result;
 use crate::utils;
 
+const PREPAID_GAS: u128 = 1_000_000_000_000;
+
 pub fn deploy_code<T: EvmState>(
     state: &mut T,
     origin: &Address,
@@ -39,12 +41,20 @@ pub fn deploy_code<T: EvmState>(
     // Apply known gas amount changes (all reverts are NeedsReturn)
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
+    let gas_used: U256;
     let (return_data, apply) = match result {
-        Some(GasLeft::Known(_)) => (ReturnData::empty(), true),
-        Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state }) => (data, apply_state),
+        Some(GasLeft::Known(gas_left)) => {
+            gas_used = U256::from(PREPAID_GAS) - gas_left;
+            (ReturnData::empty(), true)
+        },
+        Some(GasLeft::NeedsReturn { gas_left, data, apply_state }) => {
+            gas_used = U256::from(PREPAID_GAS) - gas_left;
+            (data, apply_state)
+        },
         _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
     };
 
+    println!("Gas used in deploy_code: {}", gas_used);
     if apply {
         state.commit_changes(&state_updates.unwrap())?;
         state.set_code(&address, &return_data.to_vec())?;
@@ -74,7 +84,7 @@ pub fn _create<T: EvmState>(
         sender: *sender,
         origin: *origin,
         // TODO: gas usage.
-        gas: 1_000_000_000.into(),
+        gas: PREPAID_GAS.into(),
         gas_price: 1.into(),
         value: ActionValue::Transfer(value),
         code: Some(Arc::new(code.to_vec())),
@@ -88,7 +98,7 @@ pub fn _create<T: EvmState>(
 
     let mut ext = NearExt::new(*address, *origin, &mut sub_state, call_stack_depth + 1, false);
     // TODO: gas usage.
-    ext.info.gas_limit = U256::from(1_000_000_000);
+    ext.info.gas_limit = U256::from(PREPAID_GAS);
     ext.schedule = Schedule::new_constantinople();
 
     let instance = Factory::default().create(params, ext.schedule(), ext.depth());
@@ -203,14 +213,28 @@ fn run_and_commit_if_success<T: EvmState>(
     // Apply known gas amount changes (all reverts are NeedsReturn)
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
+    let gas_used: U256;
     let return_data = match result {
-        Some(GasLeft::Known(_)) => Ok(ReturnData::empty()),
-        Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state: true }) => Ok(data),
-        Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state: false }) => {
+        Some(GasLeft::Known(gas_left)) => {
+            println!("-=-=-= {} {}", PREPAID_GAS, gas_left);
+            gas_used = U256::from(PREPAID_GAS) - gas_left;
+            Ok(ReturnData::empty())
+        },
+        Some(GasLeft::NeedsReturn { gas_left, data, apply_state: true }) => {
+            println!("-=-=-= {} {}", PREPAID_GAS, gas_left);
+
+            gas_used = U256::from(PREPAID_GAS) - gas_left;
+            Ok(data)
+        },
+        Some(GasLeft::NeedsReturn { gas_left, data, apply_state: false }) => {
+            println!("-=-=-= {} {}", PREPAID_GAS, gas_left);
+
+            gas_used = U256::from(PREPAID_GAS) - gas_left;
             Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
-        }
-        _ => Err(VMLogicError::EvmError(EvmError::UnknownError)),
+        },
+        _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
     };
+    println!("Gas used in run_and_commit_if_success: {}", gas_used);
 
     // Don't apply changes from a static context (these _should_ error in the ext)
     if !is_static && return_data.is_ok() && should_commit {
@@ -246,7 +270,7 @@ fn run_against_state<T: EvmState>(
         sender: *sender,
         origin: *origin,
         // TODO: gas usage.
-        gas: 1_000_000_000.into(),
+        gas: PREPAID_GAS.into(),
         gas_price: 1.into(),
         value: ActionValue::Apparent(0.into()),
         code: Some(Arc::new(code)),
@@ -264,7 +288,7 @@ fn run_against_state<T: EvmState>(
     let mut ext =
         NearExt::new(*state_address, *origin, &mut sub_state, call_stack_depth + 1, is_static);
     // TODO: gas usage.
-    ext.info.gas_limit = U256::from(1_000_000_000);
+    ext.info.gas_limit = U256::from(PREPAID_GAS);
     ext.schedule = Schedule::new_constantinople();
 
     let instance = Factory::default().create(params, ext.schedule(), ext.depth());
