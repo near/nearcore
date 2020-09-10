@@ -46,8 +46,8 @@ pub fn get_block_shard_id_rev(
 }
 
 /// Creates a new CryptoHash ID based on the protocol version.
-/// Pre `RECEIPT_ID_AND_RANDOM_SEED_FIX_PROTOCOL_VERSION` it uses `create_nonce_with_nonce` with
-/// just `base` and `salt`. But after `RECEIPT_ID_AND_RANDOM_SEED_FIX_PROTOCOL_VERSION` it uses
+/// Before `CREATE_HASH_PROTOCOL_VERSION` it uses `create_nonce_with_nonce` with
+/// just `base` and `salt`. But after `CREATE_HASH_PROTOCOL_VERSION` it uses
 /// `extra_hash` in addition to the `base` and `salt`.
 /// E.g. this `extra_hash` can be a block hash to distinguish receipts between forks.
 pub fn create_hash_upgradable(
