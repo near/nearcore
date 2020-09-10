@@ -22,6 +22,7 @@
 #  [v] `transactions`: sends random transactions keeping track of expected balances
 #  [v] `staking`: runs staking transactions for validators. Presently the test doesn't track staking invariants, relying on asserts in the nearcore.
 #                `staking2.py` tests some basic stake invariants
+#  [v] `wipe_data`: only used in conjunction with `node_set` and `node_restart`. If present, nodes data folders will be periodically cleaned on restart
 # This test also completely disables rewards, which simplifies ensuring total supply invariance and balance invariances
 
 import sys, time, base58, random, inspect, traceback, requests, logging
@@ -43,12 +44,21 @@ MAX_STAKE = int(1e32)
 
 # How many times to try to send transactions to each validator.
 # Is only applicable in the scenarios where we expect failures in tx sends.
-SEND_TX_ATTEMPTS = 5
+SEND_TX_ATTEMPTS = 10
+
+# Block_header_fetch_horizon + state_fetch_horizon (which is equalto 5) need to be shorter than the epoch length.
+# otherwise say epoch boundaries are H and H'. If the current height is H' + eps, and a node finished header sync at
+# H' + eps - block_header_fetch_horizon, and then rolled state_fetch_horizon back, it will end up before H, and will
+# try to state sync at the beginning of the epoch *two* epochs ago. No node will respond to such state requests.
+BLOCK_HEADER_FETCH_HORIZON = 15
 
 epoch_length = 25
 block_timeout = 20  # if two blocks are not produced within that many seconds, the test will fail. The timeout is increased if nodes are restarted or network is being messed up with
 balances_timeout = 15  # how long to tolerate for balances to update after txs are sent
+restart_sync_timeout = 30  # for how long to wait for nodes to sync in `node_restart`
 tx_tolerance = 0.1
+wait_if_restart = False # whether to wait between `kill` and `start`, is needed when nodes are proxied
+wipe_data = False
 
 assert balances_timeout * 2 <= TIMEOUT_SHUTDOWN
 assert block_timeout * 2 <= TIMEOUT_SHUTDOWN
@@ -66,8 +76,9 @@ def stress_process(func):
     def wrapper(stopped, error, *args):
         try:
             func(stopped, error, *args)
-        except:
+        except Exception as e:
             traceback.print_exc()
+            print("Process %s failed with %s" % (func.__name__, repr(e)))
             error.value = 1
 
     wrapper.__name__ = func.__name__
@@ -78,14 +89,21 @@ def get_recent_hash(node, sync_timeout):
     # return the parent of the last block known to the observer
     # don't return the last block itself, since some validators might have not seen it yet
     # also returns the height of the actual last block (so the height doesn't match the hash!)
-    status = node.get_status()
-    hash_ = status['sync_info']['latest_block_hash']
-    info = node.json_rpc('block', [hash_])
 
     for attempt in range(sync_timeout):
-        if 'error' in info and info['error']['data'] == 'IsSyncing':
+        # use timeout=10 throughout, because during header sync processing headers takes up to 3-10s
+        status = node.get_status(timeout=10)
+        hash_ = status['sync_info']['latest_block_hash']
+        info = node.json_rpc('block', [hash_], timeout=10)
+
+        is_syncing = status['sync_info']['syncing']
+        sync_error = 'error' in info and 'unavailable on the node' in info['error']['data']
+        if is_syncing or sync_error:
             time.sleep(1)
-            info = node.json_rpc('block', [hash_])
+        else:
+            break
+    else:
+        assert False, "Node hasn't synced in %s seconds" % sync_timeout
 
     assert 'result' in info, info
     hash_ = info['result']['header']['last_final_block']
@@ -126,9 +144,9 @@ def monkey_node_set(stopped, error, nodes, nonces):
             else:
                 node.kill()
                 wipe = False
-                if random.choice([True, False]):
+                if wipe_data and random.choice([True, False]):
                     wipe = True
-                    #node.reset_data() # TODO
+                    node.reset_data()
                 logging.info("Node set: stopping%s node %s" %
                       (" and wiping" if wipe else "", i))
             nodes_stopped[i] = not nodes_stopped[i]
@@ -148,23 +166,28 @@ def monkey_node_restart(stopped, error, nodes, nonces):
         node = nodes[node_idx]
         # don't kill the same node too frequently, give it time to reboot and produce something
         while True:
-            _, h = get_recent_hash(node, 30)
+            _, h = get_recent_hash(node, restart_sync_timeout)
             assert h >= heights_after_restart[node_idx], "%s > %s" % (
                 h, heights_after_restart[node_idx])
-            if h > heights_after_restart[node_idx]:
+            if h > heights_after_restart[node_idx] + (5 if not wipe_data else 10):
                 break
             time.sleep(1)
 
-        reset_data = random.choice([True, False, False])
+        reset_data = wipe_data and random.choice([True, False, False])
         logging.info("NUKING NODE %s%s" % (node_idx, " AND WIPING ITS STORAGE" if reset_data else ""))
+
         node.kill()
         if reset_data:
-            #node.reset_data() # TODO
-            pass
+            node.reset_data()
+
+        if wait_if_restart:
+            time.sleep(7)
         node.start(boot_node.node_key.pk, boot_node.addr())
         logging.info("NODE %s IS BACK UP" % node_idx)
 
-        _, heights_after_restart[node_idx] = get_recent_hash(node, 30)
+        _, new_height = get_recent_hash(node, restart_sync_timeout)
+        assert new_height >= heights_after_restart[node_idx]
+        heights_after_restart[node_idx] = new_height
 
         time.sleep(5)
 
@@ -181,7 +204,7 @@ def monkey_local_network(stopped, error, nodes, nonces):
     last_time_height_updated = time.time()
 
     while stopped.value == 0:
-        _, cur_height = get_recent_hash(nodes[-1], 30)
+        _, cur_height = get_recent_hash(nodes[-1], 15)
         if cur_height == last_height and time.time() - last_time_height_updated > 10:
             time.sleep(25)
         else:
@@ -203,7 +226,8 @@ def monkey_local_network(stopped, error, nodes, nonces):
 
 
 @stress_process
-def monkey_global_network():
+def monkey_wipe_data(stopped, error, nodes, nonces):
+    # no implementation needed, wipe_data is implemented inside node_set and node_restart
     pass
 
 
@@ -307,7 +331,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
             amt = random.randint(0, min_balances[from_])
             nonce_val, nonce_lock = nonces[from_]
 
-            hash_, _ = get_recent_hash(nodes[-1], 5)
+            hash_, _ = get_recent_hash(nodes[-1], 15)
 
             with nonce_lock:
                 tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to,
@@ -372,7 +396,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
 
 def get_the_guy_to_mess_up_with(nodes):
     global epoch_length
-    _, height = get_recent_hash(nodes[-1], 5)
+    _, height = get_recent_hash(nodes[-1], 15)
     return (height // epoch_length) % (len(nodes) - 1)
 
 
@@ -383,7 +407,7 @@ def monkey_staking(stopped, error, nodes, nonces):
         whom = random.randint(0, len(nonces) - 2)
 
         status = nodes[-1].get_status()
-        hash_, _ = get_recent_hash(nodes[-1], 5)
+        hash_, _ = get_recent_hash(nodes[-1], 15)
 
         who_can_unstake = get_the_guy_to_mess_up_with(nodes)
 
@@ -511,26 +535,34 @@ def blocks_tracker(stopped, error, nodes, nonces):
 
 
 def doit(s, n, N, k, monkeys, timeout):
-    global block_timeout, balances_timeout, tx_tolerance, epoch_length
+    global block_timeout, balances_timeout, tx_tolerance, epoch_length, wait_if_restart, wipe_data, restart_sync_timeout
 
     assert 2 <= n <= N
 
     config = load_config()
     local_config_changes = {}
 
-    for i in range(N, N + k + 1):
-        # make all the observers track all the shards
-        local_config_changes[i] = {"tracked_shards": list(range(s))}
-
     monkey_names = [x.__name__ for x in monkeys]
     proxy = None
     logging.info(monkey_names)
 
-    if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names or 'monkey_packets_drop' in monkey_names or 'monkey_node_restart' in monkey_names:
+    for i in range(N + k + 1):
+        local_config_changes[i] = {"consensus": {"block_header_fetch_horizon": BLOCK_HEADER_FETCH_HORIZON}}
+    for i in range(N, N + k + 1):
+        # make all the observers track all the shards
+        local_config_changes[i]["tracked_shards"] = list(range(s))
+    if 'monkey_wipe_data' in monkey_names:
+        # When data can be deleted, with the short epoch length while the node with deleted data folder is syncing,
+        # other nodes can run sufficiently far ahead to GC the old data. Have one archival node to address it.
+        # It is also needed, because the balances timeout is longer, and the txs can get GCed on the observer node
+        # by the time it gets to checking their status.
+        local_config_changes[N + k]['archive'] = True
+
+    if 'monkey_local_network' in monkey_names or 'monkey_packets_drop' in monkey_names or 'monkey_node_restart' in monkey_names:
         expect_network_issues()
         block_timeout += 40
 
-    if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names or 'monkey_packets_drop' in monkey_names:
+    if 'monkey_local_network' in monkey_names or 'monkey_packets_drop' in monkey_names:
         assert config['local'], 'Network stress operations only work on local nodes'
         drop_probability = 0.05 if 'monkey_packets_drop' in monkey_names else 0
 
@@ -538,15 +570,31 @@ def doit(s, n, N, k, monkeys, timeout):
         proxy = RejectListProxy(reject_list, drop_probability)
         tx_tolerance += 0.3
 
-    if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names:
-        balances_timeout += 20
+    if 'monkey_local_network' in monkey_names or 'monkey_packets_drop' in monkey_names:
+        # add 15 seconds + 10 seconds for each unique network-related monkey
+        balances_timeout += 15
 
-    if 'monkey_packets_drop':
-        balances_timeout += 30
+        if 'monkey_local_network' in monkey_names:
+            balances_timeout += 10
+
+        if 'monkey_packets_drop' in monkey_names:
+            wait_if_restart = True
+            balances_timeout += 10
 
     if 'monkey_node_restart' in monkey_names or 'monkey_node_set' in monkey_names:
         balances_timeout += 10
         tx_tolerance += 0.5
+
+    if 'monkey_wipe_data' in monkey_names:
+        assert 'monkey_node_restart' in monkey_names or 'monkey_node_set' in monkey_names
+        wipe_data = True
+        balances_timeout += 25
+
+        # if nodes can restart, we should give them way more time to sync.
+        # if packets can also be dropped, each state-sync-related request or response lost adds 10 seconds
+        # to the sync process.
+        restart_sync_timeout = 45 if 'monkey_packets_drop' not in monkey_names else 90
+        block_timeout += (10 if 'monkey_packets_drop' not in monkey_names else 40)
 
     # We need to make sure that the blocks that include txs are not garbage collected. From the first tx sent until
     # we check balances time equal to `balances_timeout * 2` passes, and the block production is capped at 1.7/s.
@@ -615,12 +663,28 @@ def doit(s, n, N, k, monkeys, timeout):
     logging.info("==========================================")
     stopped.value = 1
     started_shutdown = time.time()
+    proxies_stopped = False
+
     while True:
         check_errors()
         still_running = [name for (p, name) in ps if p.is_alive()]
 
         if len(still_running) == 0:
             break
+
+        # If the test is running with proxies, `node_restart` and `node_set` can get
+        # stuck because the proxies now are their child processes. We can't kill the
+        # proxies rigth away, because that would interfere with block production, and
+        # might prevent other workers (e.g. block_tracker) from completing in a timely
+        # manner. Thus, kill the proxies some time into the shut down process.
+        if time.time() - started_shutdown > TIMEOUT_SHUTDOWN / 2 and not proxies_stopped:
+            logging.info("Shutdown is %s seconds in, shutting down proxies if any" % (TIMEOUT_SHUTDOWN / 2))
+            if boot_node.proxy is not None:
+                boot_node.proxy.global_stopped.value = 1
+                for p in boot_node.proxy.ps:
+                    p.terminate()
+            proxies_stopped = True
+
 
         if time.time() - started_shutdown > TIMEOUT_SHUTDOWN:
             for (p, _) in ps:

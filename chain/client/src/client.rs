@@ -611,8 +611,14 @@ impl Client {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
         };
-        // drop the block if a) it is not requested and b) we already processed this height.
-        if !is_requested {
+        // drop the block if a) it is not requested, b) we already processed this height, c) it is not building on top of current head
+        if !is_requested
+            && block.header().prev_hash()
+                != &self
+                    .chain
+                    .head()
+                    .map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash)
+        {
             match self.chain.mut_store().is_height_processed(block.header().height()) {
                 Ok(true) => return (vec![], Ok(None)),
                 Ok(false) => {}
@@ -684,8 +690,7 @@ impl Client {
             &self
                 .chain
                 .header_head()
-                .expect("header_head must be available when processing a block")
-                .last_block_hash,
+                .expect("header_head must be available when processing a block"),
         );
 
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
@@ -724,10 +729,8 @@ impl Client {
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
             ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
-                self.shards_mgr.request_chunks(
-                    iter::once(*chunk_header),
-                    &self.chain.header_head()?.last_block_hash,
-                );
+                self.shards_mgr
+                    .request_chunks(iter::once(*chunk_header), &self.chain.header_head()?);
                 Ok(vec![])
             }
             ProcessPartialEncodedChunkResult::NeedBlock => {
@@ -1002,8 +1005,7 @@ impl Client {
             &self
                 .chain
                 .header_head()
-                .expect("header_head must be avaiable when processing blocks with missing chunks")
-                .last_block_hash,
+                .expect("header_head must be avaiable when processing blocks with missing chunks"),
         );
 
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
@@ -1404,7 +1406,7 @@ impl Client {
                             .unwrap()
                             .drain(..)
                             .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                        &self.chain.header_head()?.last_block_hash,
+                        &self.chain.header_head()?,
                     );
 
                     let unwrapped_accepted_blocks =
