@@ -531,19 +531,28 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             for item in trie_iterator {
                 unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", chunk_header);
             }
+
             // 6. Prev State Roots should be equal
-            // TODO #2843: enable
-            /*
-            #[cfg(feature = "adversarial")]
-            {
+            if chunk_header.height_included == block.header().height() {
                 check_discrepancy!(
                     chunk_header.inner.prev_state_root,
-                    trie_changes.adv_get_old_root(),
+                    trie_changes.old_root,
                     "Prev State Root discrepancy, ShardChunk {:?}",
                     chunk_header
                 );
             }
-            */
+            if let Ok(Some(prev_chunk_extra)) = sv.store.get_ser::<ChunkExtra>(
+                ColChunkExtra,
+                &get_block_shard_id(block.header().prev_hash(), *shard_id),
+            ) {
+                check_discrepancy!(
+                    prev_chunk_extra.state_root,
+                    trie_changes.old_root,
+                    "Prev State Root discrepancy, previous ChunkExtra {:?}",
+                    prev_chunk_extra
+                );
+            }
+
             // 7. State Roots should be equal
             check_discrepancy!(
                 chunk_extra.state_root,
