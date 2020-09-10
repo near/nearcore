@@ -18,7 +18,7 @@ pub const DB_VERSION: DbVersion = 8;
 pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 36;
+pub const PROTOCOL_VERSION: ProtocolVersion = 37;
 /// TODO: Remove in next release. This is to allow nodes with initial version 34
 /// to be compatible with nodes at version 35
 pub const NETWORK_PROTOCOL_VERSION: ProtocolVersion = 34;
@@ -38,5 +38,8 @@ pub const CORRECT_RANDOM_VALUE_PROTOCOL_VERSION: ProtocolVersion = 33;
 /// See [NEP 71](https://github.com/nearprotocol/NEPs/pull/71)
 pub const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
 
+/// The protocol version that enables reward on mainnet.
+pub const ENABLE_INFLATION_PROTOCOL_VERSION: ProtocolVersion = 36;
+
 /// Updates the way receipt ID, data ID and random seeds are constructed.
-pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 36;
+pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 37;

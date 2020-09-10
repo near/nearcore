@@ -36,7 +36,6 @@ delay-detector = { path = "../../tools/delay_detector", optional = true}
 near-logger-utils = {path = "../../test-utils/logger"}
 tempfile = "3"
 bencher = "0.1.5"
-num-rational = "0.2.4"
 
 near-client = { path = "../client" }
 near-telemetry = { path = "../telemetry" }
