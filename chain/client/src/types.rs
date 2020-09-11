@@ -325,12 +325,11 @@ impl Message for GetExecutionOutcome {
     type Result = Result<GetExecutionOutcomeResponse, String>;
 }
 
-pub struct GetExecutionOutcomeForChunk {
+pub struct GetExecutionOutcomesForBlock {
     pub block_hash: CryptoHash,
-    pub shard_id: ShardId,
 }
 
-impl Message for GetExecutionOutcomeForChunk {
+impl Message for GetExecutionOutcomesForBlock {
     // This is not exposed to rpc so we don't convert the result to a view.
     type Result = Result<HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>, String>;
 }

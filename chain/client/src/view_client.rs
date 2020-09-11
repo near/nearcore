@@ -37,7 +37,7 @@ use near_primitives::views::{
 
 use crate::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetExecutionOutcome, GetExecutionOutcomeForChunk, GetGasPrice, Query, TxStatus, TxStatusError,
+    GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, Query, TxStatus, TxStatusError,
 };
 use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
@@ -700,13 +700,11 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
     }
 }
 
-impl Handler<GetExecutionOutcomeForChunk> for ViewClientActor {
+impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
     type Result = Result<HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>, String>;
 
-    fn handle(&mut self, msg: GetExecutionOutcomeForChunk, _: &mut Self::Context) -> Self::Result {
-        self.chain
-            .get_chunk_execution_outcomes(&msg.block_hash, msg.shard_id)
-            .map_err(|e| e.to_string())
+    fn handle(&mut self, msg: GetExecutionOutcomesForBlock, _: &mut Self::Context) -> Self::Result {
+        self.chain.get_block_execution_outcomes(&msg.block_hash).map_err(|e| e.to_string())
     }
 }
 

@@ -3,7 +3,7 @@ use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_no_network;
 use near_client::{
-    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomeForChunk, Query, Status, TxStatus,
+    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
 };
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
@@ -137,9 +137,8 @@ fn test_execution_outcome_for_chunk() {
                 .unwrap();
 
             let execution_outcomes_in_chunk = view_client
-                .send(GetExecutionOutcomeForChunk {
+                .send(GetExecutionOutcomesForBlock {
                     block_hash: execution_outcome.transaction_outcome.block_hash,
-                    shard_id: 0,
                 })
                 .await
                 .unwrap()

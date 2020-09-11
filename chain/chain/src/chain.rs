@@ -1976,24 +1976,16 @@ impl Chain {
         }
     }
 
-    /// Get execution outcomes generated when the chunk is applied
-    pub fn get_chunk_execution_outcomes(
+    /// Get all execution outcomes generated when the chunk are applied
+    pub fn get_block_execution_outcomes(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
     ) -> Result<HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>, Error> {
         let execution_outcome_ids = self.mut_store().get_outcomes_by_block_hash(block_hash)?;
         let mut res = HashMap::new();
-        let runtime_adapter = self.runtime_adapter.clone();
-        // This is inefficient when there are more than one shard
         for id in execution_outcome_ids {
             let execution_outcome = self.get_execution_outcome(&id)?;
-            if runtime_adapter
-                .account_id_to_shard_id(&execution_outcome.outcome_with_id.outcome.executor_id)
-                == shard_id
-            {
-                res.insert(id, execution_outcome.clone());
-            }
+            res.insert(id, execution_outcome.clone());
         }
         Ok(res)
     }

@@ -2119,7 +2119,7 @@ fn test_chunk_execution_outcome() {
     let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].hash).unwrap().clone();
     assert_eq!(chunk.transactions.len(), 3);
     let execution_outcomes_from_chunk =
-        env.clients[0].chain.get_chunk_execution_outcomes(block.hash(), 0).unwrap();
+        env.clients[0].chain.get_block_execution_outcomes(block.hash()).unwrap();
     assert_eq!(execution_outcomes_from_chunk.len(), 5);
     for id in expected_outcome_ids {
         assert!(execution_outcomes_from_chunk.contains_key(&id));
@@ -2131,7 +2131,7 @@ fn test_chunk_execution_outcome() {
     assert!(next_chunk.transactions.is_empty());
     assert!(next_chunk.receipts.is_empty());
     let execution_outcomes_from_chunk =
-        env.clients[0].chain.get_chunk_execution_outcomes(next_block.hash(), 0).unwrap();
+        env.clients[0].chain.get_block_execution_outcomes(next_block.hash()).unwrap();
     assert_eq!(execution_outcomes_from_chunk.len(), 1);
     assert!(execution_outcomes_from_chunk.contains_key(&delayed_receipt_id[0]));
 }
