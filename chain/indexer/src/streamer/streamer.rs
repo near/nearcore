@@ -41,6 +41,7 @@ pub struct StreamerMessage {
     pub chunks: Vec<views::ChunkView>,
     pub outcomes: Vec<Outcome>,
     pub state_changes: views::StateChangesKindsView,
+    pub local_receipts: Vec<views::ReceiptView>,
 }
 
 #[derive(Clone, Debug)]
@@ -143,17 +144,50 @@ async fn build_streamer_message(
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let chunks = fetch_chunks(&client, &block.chunks).await?;
 
-    // TODO read from rocks and save there
-    // let (outcomes, mut outcomes_to_retry) = fetch_outcomes(&client, outcomes_to_get).await;
     let mut outcomes_to_fetch: Vec<TransactionOrReceiptId> = vec![];
+    let mut local_receipts: Vec<views::ReceiptView> = vec![];
+    let mut outcomes: Vec<Outcome> = vec![];
 
     for chunk in &chunks {
-        outcomes_to_fetch.extend(chunk.transactions.iter().map(|transaction| {
-            TransactionOrReceiptId::Transaction {
-                transaction_hash: transaction.hash.clone(),
-                sender_id: transaction.signer_id.to_string(),
+        for transaction in &chunk.transactions {
+            match client
+                .send(near_client::GetExecutionOutcome {
+                    id: types::TransactionOrReceiptId::Transaction {
+                        transaction_hash: transaction.hash.clone(),
+                        sender_id: transaction.signer_id.to_string(),
+                    },
+                })
+                .await
+                .map_err(|e| eprintln!("{:?}", e))
+            {
+                Ok(Ok(outcome)) => {
+                    if transaction.signer_id == transaction.receiver_id {
+                        // This transaction generates local receipt (sir)
+                        local_receipts.push(views::ReceiptView {
+                            predecessor_id: transaction.signer_id.clone(),
+                            receiver_id: transaction.receiver_id.clone(),
+                            receipt_id: outcome
+                                .outcome_proof
+                                .outcome
+                                .receipt_ids
+                                .first()
+                                .unwrap()
+                                .clone(),
+                            receipt: views::ReceiptEnumView::Action {
+                                signer_id: transaction.signer_id.clone(),
+                                signer_public_key: transaction.public_key.clone(),
+                                gas_price: block.header.gas_price, // TODO: fill it
+                                output_data_receivers: vec![],
+                                input_data_ids: vec![],
+                                actions: transaction.actions.clone(),
+                            },
+                        })
+                    }
+                    outcomes.push(Outcome::Transaction(outcome.outcome_proof));
+                }
+                _ => {}
             }
-        }));
+        }
 
         outcomes_to_fetch.extend(chunk.receipts.iter().map(|receipt| {
             TransactionOrReceiptId::Receipt {
@@ -163,13 +197,21 @@ async fn build_streamer_message(
         }));
     }
 
+    // Add local receipts to the start of the outcomes to fetch
+    outcomes_to_fetch.extend(&mut local_receipts.iter().map(|receipt| {
+        TransactionOrReceiptId::Receipt {
+            receipt_id: receipt.receipt_id,
+            receiver_id: receipt.receiver_id.to_string(),
+        }
+    }));
+
     put_outcomes_to_fetch(outcomes_to_fetch, &db).await;
 
-    let outcomes = fetch_outcomes(&client, &db).await;
+    outcomes.extend(fetch_outcomes(&client, &db).await);
 
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
-    Ok(StreamerMessage { block, chunks, outcomes, state_changes })
+    Ok(StreamerMessage { block, chunks, outcomes, state_changes, local_receipts })
 }
 
 async fn put_outcomes_to_fetch(transaction_or_receipt_ids: Vec<TransactionOrReceiptId>, db: &DB) {
