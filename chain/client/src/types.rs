@@ -326,7 +326,8 @@ impl Message for GetExecutionOutcome {
 }
 
 pub struct GetExecutionOutcomeForChunk {
-    pub chunk_hash: ChunkHash,
+    pub block_hash: CryptoHash,
+    pub shard_id: ShardId,
 }
 
 impl Message for GetExecutionOutcomeForChunk {

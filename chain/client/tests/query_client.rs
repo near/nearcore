@@ -9,9 +9,8 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::{NetworkClientMessages, NetworkClientResponses, PeerInfo};
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockId, BlockReference, EpochId};
+use near_primitives::types::{BlockReference, EpochId};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -137,17 +136,10 @@ fn test_execution_outcome_for_chunk() {
                 .unwrap()
                 .unwrap();
 
-            let block = view_client
-                .send(GetBlock(BlockReference::BlockId(BlockId::Hash(
-                    execution_outcome.transaction_outcome.block_hash,
-                ))))
-                .await
-                .unwrap()
-                .unwrap();
-
             let execution_outcomes_in_chunk = view_client
                 .send(GetExecutionOutcomeForChunk {
-                    chunk_hash: ChunkHash(block.chunks[0].chunk_hash),
+                    block_hash: execution_outcome.transaction_outcome.block_hash,
+                    shard_id: 0,
                 })
                 .await
                 .unwrap()

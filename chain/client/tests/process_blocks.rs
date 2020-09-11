@@ -2061,3 +2061,77 @@ fn test_catchup_gas_price_change() {
     // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
     assert_eq!(chunk_extra_after_sync, expected_chunk_extra);
 }
+
+#[test]
+fn test_chunk_execution_outcome() {
+    let epoch_length = 5;
+    let min_gas_price = 10000;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.min_gas_price = min_gas_price;
+    genesis.config.gas_limit = 1000000000000;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis.clone()),
+        vec![],
+        vec![],
+    ))];
+    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let mut tx_hashes = vec![];
+    for i in 0..3 {
+        // send transaction to the same account to generate local receipts
+        let tx = SignedTransaction::send_money(
+            i + 1,
+            "test0".to_string(),
+            "test0".to_string(),
+            &signer,
+            1,
+            *genesis_block.hash(),
+        );
+        tx_hashes.push(tx.get_hash());
+        env.clients[0].process_tx(tx, false, false);
+    }
+    for i in 1..4 {
+        env.produce_block(0, i);
+    }
+
+    let mut expected_outcome_ids = vec![];
+    let mut delayed_receipt_id = vec![];
+    // Due to gas limit, the first two transaactions will create local receipts and they get executed
+    // in the same block. The last local receipt will become delayed receipt
+    for (i, id) in tx_hashes.into_iter().enumerate() {
+        let execution_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
+        assert_eq!(execution_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
+        expected_outcome_ids.push(id);
+        if i < 2 {
+            expected_outcome_ids
+                .push(execution_outcome.outcome_with_id.outcome.receipt_ids[0].clone());
+        } else {
+            delayed_receipt_id
+                .push(execution_outcome.outcome_with_id.outcome.receipt_ids[0].clone())
+        }
+    }
+    let block = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
+    let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].hash).unwrap().clone();
+    assert_eq!(chunk.transactions.len(), 3);
+    let execution_outcomes_from_chunk =
+        env.clients[0].chain.get_chunk_execution_outcomes(block.hash(), 0).unwrap();
+    assert_eq!(execution_outcomes_from_chunk.len(), 5);
+    for id in expected_outcome_ids {
+        assert!(execution_outcomes_from_chunk.contains_key(&id));
+    }
+
+    // Make sure the chunk outcomes contain the outcome from the delayed receipt.
+    let next_block = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
+    let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].hash).unwrap().clone();
+    assert!(next_chunk.transactions.is_empty());
+    assert!(next_chunk.receipts.is_empty());
+    let execution_outcomes_from_chunk =
+        env.clients[0].chain.get_chunk_execution_outcomes(next_block.hash(), 0).unwrap();
+    assert_eq!(execution_outcomes_from_chunk.len(), 1);
+    assert!(execution_outcomes_from_chunk.contains_key(&delayed_receipt_id[0]));
+}
