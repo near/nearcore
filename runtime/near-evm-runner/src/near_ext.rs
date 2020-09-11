@@ -151,7 +151,7 @@ impl<'a> vm::Ext for NearExt<'a> {
             &code.to_vec(),
         )
         // TODO: gas usage.
-        .map(|(result, gas_left)| ContractCreateResult::Created(result, PREPAID_EVM_GAS.into()))
+        .map(|(result, gas_left)| ContractCreateResult::Created(result, gas_left))
         .map_err(|_| TrapKind::Call(ActionParams::default()));
         println!("leave NearExt.create {:?}", gas);
         r
@@ -224,7 +224,7 @@ impl<'a> vm::Ext for NearExt<'a> {
 
         let msg_call_result = match result {
             // TODO: gas usage.
-            Ok((data, gas_left)) => MessageCallResult::Success(PREPAID_EVM_GAS.into(), data),
+            Ok((data, gas_left)) => MessageCallResult::Success(gas_left, data),
             Err(err) => {
                 let message = match err {
                     VMLogicError::EvmError(EvmError::Revert(encoded_message)) => {
