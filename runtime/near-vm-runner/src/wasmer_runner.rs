@@ -174,7 +174,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
 }
 
 pub fn run_wasmer<'a>(
-    code_hash: Vec<u8>,
+    _code_hash: Vec<u8>,
     code: &[u8],
     method_name: &[u8],
     ext: &mut dyn External,
@@ -204,16 +204,10 @@ pub fn run_wasmer<'a>(
         );
     }
 
-    let module = if code_hash.is_empty() {
-        match cache::compile_module_cached(code, wasm_config) {
-            Ok(x) => x,
-            Err(err) => return (None, Some(err)),
-        }
-    } else {
-        match cache::get_module(code_hash, wasm_config) {
-            Ok(x) => x,
-            Err(err) => return (None, Some(err)),
-        }
+    // TODO: consider using get_module() here, once we'll go via deployment path.
+    let module = match cache::compile_module_cached(code, wasm_config) {
+        Ok(x) => x,
+        Err(err) => return (None, Some(err)),
     };
     let mut memory = WasmerMemory::new(
         wasm_config.limit_config.initial_memory_pages,

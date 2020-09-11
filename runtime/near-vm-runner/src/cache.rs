@@ -64,6 +64,7 @@ pub(crate) fn put_module(code: &[u8], config: &VMConfig) -> Result<Vec<u8>, VMEr
     if Path::new(&path).exists() {
         return Ok(code_hash);
     }
+
     let compiled: wasmer_runtime::Module = match compile_module(code_hash.clone(), code, config) {
         Ok(module) => module,
         Err(err) => return Err(err),
