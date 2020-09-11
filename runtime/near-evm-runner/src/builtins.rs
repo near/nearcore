@@ -45,7 +45,7 @@ pub fn precompile(id: u64) -> Result<Box<dyn Impl>, String> {
     })
 }
 
-pub fn process_precompile(addr: &Address, input: &[u8]) -> MessageCallResult {
+pub fn process_precompile(addr: &Address, input: &[u8], gas: &U256) -> MessageCallResult {
     let f = match precompile(addr.to_low_u64_be()) {
         Ok(f) => f,
         Err(_) => return MessageCallResult::Failed,
@@ -61,7 +61,7 @@ pub fn process_precompile(addr: &Address, input: &[u8]) -> MessageCallResult {
     let size = bytes.len();
 
     // TODO: add gas usage here.
-    MessageCallResult::Success(1_000_000_000.into(), ReturnData::new(bytes, 0, size))
+    MessageCallResult::Success(*gas, ReturnData::new(bytes, 0, size))
 }
 
 /** the following is copied from ethcore/src/builtin.rs **/

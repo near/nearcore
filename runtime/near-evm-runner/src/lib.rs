@@ -39,6 +39,8 @@ enum KeyPrefix {
     Contract = 1,
 }
 
+pub const PREPAID_EVM_GAS: u128 = 1_000_000_000;
+
 fn address_to_key(prefix: KeyPrefix, address: &H160) -> Vec<u8> {
     let mut result = Vec::with_capacity(21);
     result.push(prefix as u8);
@@ -153,6 +155,7 @@ impl<'a> EvmContext<'a> {
             CreateContractAddress::FromSenderAndNonce,
             false,
             &bytecode,
+            &PREPAID_EVM_GAS.into(),
         )?;
         Ok(r.0)
     }
@@ -168,9 +171,18 @@ impl<'a> EvmContext<'a> {
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
-        let r =
-            interpreter::call(self, &sender, &sender, value, 0, &contract_address, &input, true)
-                .map(|rd| rd.0.to_vec());
+        let r = interpreter::call(
+            self,
+            &sender,
+            &sender,
+            value,
+            0,
+            &contract_address,
+            &input,
+            true,
+            &PREPAID_EVM_GAS.into(),
+        )
+        .map(|rd| rd.0.to_vec());
         println!("leave call_function");
         r
     }
@@ -193,6 +205,7 @@ impl<'a> EvmContext<'a> {
             &Address::from(&args.address),
             &args.args,
             false,
+            &PREPAID_EVM_GAS.into(),
         )
         .map(|rd| rd.0.to_vec())
     }

@@ -13,7 +13,7 @@ use near_vm_errors::{EvmError, VMLogicError};
 
 use crate::evm_state::{EvmState, SubState};
 use crate::interpreter;
-// use crate::interpreter::PREPAID_EVM_GAS;
+
 pub const PREPAID_EVM_GAS: u128 = 0;
 
 use crate::utils::format_log;
@@ -149,6 +149,7 @@ impl<'a> vm::Ext for NearExt<'a> {
             address_type,
             true,
             &code.to_vec(),
+            gas,
         )
         // TODO: gas usage.
         .map(|(result, gas_left)| ContractCreateResult::Created(result, gas_left))
@@ -181,7 +182,7 @@ impl<'a> vm::Ext for NearExt<'a> {
         // hijack builtins
         if crate::builtins::is_precompile(receive_address) {
             println!("leave NearExt.call {:?} precompile", gas);
-            return Ok(crate::builtins::process_precompile(receive_address, data));
+            return Ok(crate::builtins::process_precompile(receive_address, data, gas));
         }
 
         let result = match call_type {
@@ -198,6 +199,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 receive_address,
                 &data.to_vec(),
                 true, // should_commit
+                gas,
             ),
             CallType::StaticCall => interpreter::static_call(
                 self.sub_state,
@@ -206,6 +208,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 self.depth,
                 receive_address,
                 &data.to_vec(),
+                gas,
             ),
             CallType::CallCode => {
                 // Call another contract using storage of the current contract. No longer used.
@@ -219,6 +222,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 receive_address,
                 code_address,
                 &data.to_vec(),
+                gas,
             ),
         };
 
