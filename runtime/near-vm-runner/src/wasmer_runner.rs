@@ -204,9 +204,16 @@ pub fn run_wasmer<'a>(
         );
     }
 
-    let module = match cache::compile_module(code_hash, code, wasm_config) {
-        Ok(x) => x,
-        Err(err) => return (None, Some(err)),
+    let module = if code_hash.is_empty() {
+        match cache::compile_module_cached(code, wasm_config) {
+            Ok(x) => x,
+            Err(err) => return (None, Some(err)),
+        }
+    } else {
+        match cache::get_module(code_hash, wasm_config) {
+            Ok(x) => x,
+            Err(err) => return (None, Some(err)),
+        }
     };
     let mut memory = WasmerMemory::new(
         wasm_config.limit_config.initial_memory_pages,

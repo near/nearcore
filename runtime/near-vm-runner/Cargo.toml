@@ -18,6 +18,8 @@ wasmer-runtime = { version = "=0.17.1", features = ["default-backend-singlepass"
 wasmer-runtime-core = { version = "=0.17.1" }
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
+bs58 = "0.3.1"
+sha2 = "0.8"
 wasmtime = { version = "0.17.0", features = ["lightbeam"], default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
 near-runtime-fees = { path="../near-runtime-fees", version = "2.2.0" }
