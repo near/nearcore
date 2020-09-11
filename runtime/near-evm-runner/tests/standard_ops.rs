@@ -109,6 +109,7 @@ fn test_internal_create() {
     let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
     assert_eq!(context.get_nonce(test_addr.0.to_vec()).unwrap(), U256::from(1));
 
+    println!("==========");
     let sub_addr = address_from_arr(&raw[12..32]);
     let (new_input, _) = subcontract::functions::a_number::call();
     let new_raw = context.call_function(encode_call_function_args(sub_addr, new_input)).unwrap();

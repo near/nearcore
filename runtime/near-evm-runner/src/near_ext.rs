@@ -13,6 +13,9 @@ use near_vm_errors::{EvmError, VMLogicError};
 
 use crate::evm_state::{EvmState, SubState};
 use crate::interpreter;
+// use crate::interpreter::PREPAID_EVM_GAS;
+pub const PREPAID_EVM_GAS: u128 = 0;
+
 use crate::utils::format_log;
 
 // https://github.com/paritytech/parity-ethereum/blob/77643c13e80ca09d9a6b10631034f5a1568ba6d3/ethcore/machine/src/externalities.rs
@@ -123,19 +126,21 @@ impl<'a> vm::Ext for NearExt<'a> {
 
     fn create(
         &mut self,
-        _gas: &U256,
+        gas: &U256,
         value: &U256,
         code: &[u8],
         address_type: CreateContractAddress,
         _trap: bool,
     ) -> Result<ContractCreateResult, TrapKind> {
+        println!("enter NearExt.create {:?}", gas);
         if self.is_static() {
+            println!("leave NearExt.create {:?}", gas);
             return Err(TrapKind::Call(ActionParams::default()));
         }
 
         // TODO: better error propagation.
         // TODO: gas metering.
-        interpreter::deploy_code(
+        let r = interpreter::deploy_code(
             self.sub_state,
             &self.origin,
             &self.context_addr,
@@ -146,8 +151,10 @@ impl<'a> vm::Ext for NearExt<'a> {
             &code.to_vec(),
         )
         // TODO: gas usage.
-        .map(|result| ContractCreateResult::Created(result, 1_000_000_000.into()))
-        .map_err(|_| TrapKind::Call(ActionParams::default()))
+        .map(|(result, gas_left)| ContractCreateResult::Created(result, PREPAID_EVM_GAS.into()))
+        .map_err(|_| TrapKind::Call(ActionParams::default()));
+        println!("leave NearExt.create {:?}", gas);
+        r
     }
 
     /// Message call.
@@ -157,7 +164,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     /// and true if subcall was successful.
     fn call(
         &mut self,
-        _gas: &U256,
+        gas: &U256,
         sender_address: &Address,
         receive_address: &Address,
         value: Option<U256>,
@@ -166,12 +173,14 @@ impl<'a> vm::Ext for NearExt<'a> {
         call_type: CallType,
         _trap: bool,
     ) -> Result<MessageCallResult, TrapKind> {
+        println!("enter NearExt.call {:?}", gas);
         if self.is_static() && call_type != CallType::StaticCall {
             panic!("MutableCallInStaticContext")
         }
 
         // hijack builtins
         if crate::builtins::is_precompile(receive_address) {
+            println!("leave NearExt.call {:?} precompile", gas);
             return Ok(crate::builtins::process_precompile(receive_address, data));
         }
 
@@ -215,7 +224,7 @@ impl<'a> vm::Ext for NearExt<'a> {
 
         let msg_call_result = match result {
             // TODO: gas usage.
-            Ok(data) => MessageCallResult::Success(1_000_000_000.into(), data),
+            Ok((data, gas_left)) => MessageCallResult::Success(PREPAID_EVM_GAS.into(), data),
             Err(err) => {
                 let message = match err {
                     VMLogicError::EvmError(EvmError::Revert(encoded_message)) => {
@@ -226,11 +235,12 @@ impl<'a> vm::Ext for NearExt<'a> {
                 let message_len = message.len();
                 // TODO: gas usage.
                 MessageCallResult::Reverted(
-                    1_000_000_000.into(),
+                    PREPAID_EVM_GAS.into(),
                     ReturnData::new(message, 0, message_len),
                 )
             }
         };
+        println!("leave NearExt.call {:?}", gas);
         Ok(msg_call_result)
     }
 

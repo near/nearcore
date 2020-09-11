@@ -144,7 +144,7 @@ impl<'a> EvmContext<'a> {
     pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
-        interpreter::deploy_code(
+        let r = interpreter::deploy_code(
             self,
             &sender,
             &sender,
@@ -153,10 +153,12 @@ impl<'a> EvmContext<'a> {
             CreateContractAddress::FromSenderAndNonce,
             false,
             &bytecode,
-        )
+        )?;
+        Ok(r.0)
     }
 
     pub fn call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
+        println!("enter call_function");
         if args.len() <= 20 {
             return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
         }
@@ -166,8 +168,11 @@ impl<'a> EvmContext<'a> {
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
-        interpreter::call(self, &sender, &sender, value, 0, &contract_address, &input, true)
-            .map(|rd| rd.to_vec())
+        let r =
+            interpreter::call(self, &sender, &sender, value, 0, &contract_address, &input, true)
+                .map(|rd| rd.0.to_vec());
+        println!("leave call_function");
+        r
     }
 
     /// Make an EVM transaction. Calls `contract_address` with `encoded_input`. Execution
@@ -189,7 +194,7 @@ impl<'a> EvmContext<'a> {
             &args.args,
             false,
         )
-        .map(|rd| rd.to_vec())
+        .map(|rd| rd.0.to_vec())
     }
 
     pub fn get_code(&self, args: Vec<u8>) -> Result<Vec<u8>> {

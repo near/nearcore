@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ethereum_types::{Address, U256};
-use evm::{CreateContractAddress, Factory};
+use evm::{CreateContractAddress, Factory, Finalize};
 use vm::{ActionParams, ActionValue, CallType, Ext, GasLeft, ParamsType, ReturnData, Schedule};
 
 use near_vm_errors::{EvmError, VMLogicError};
@@ -11,7 +11,7 @@ use crate::near_ext::NearExt;
 use crate::types::Result;
 use crate::utils;
 
-const PREPAID_GAS: u128 = 1_000_000_000_000;
+pub const PREPAID_EVM_GAS: u128 = 1_000_000_000;
 
 pub fn deploy_code<T: EvmState>(
     state: &mut T,
@@ -22,7 +22,7 @@ pub fn deploy_code<T: EvmState>(
     address_type: CreateContractAddress,
     recreate: bool,
     code: &[u8],
-) -> Result<Address> {
+) -> Result<(Address, U256)> {
     let mut nonce = U256::default();
     if address_type == CreateContractAddress::FromSenderAndNonce {
         nonce = state.next_nonce(&sender)?;
@@ -42,15 +42,20 @@ pub fn deploy_code<T: EvmState>(
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
     let gas_used: U256;
+    let left: U256;
     let (return_data, apply) = match result {
         Some(GasLeft::Known(gas_left)) => {
-            gas_used = U256::from(PREPAID_GAS) - gas_left;
+            left = gas_left;
+            gas_used = U256::from(PREPAID_EVM_GAS) - gas_left;
+            println!("Known {} {}", PREPAID_EVM_GAS, gas_left);
             (ReturnData::empty(), true)
-        },
+        }
         Some(GasLeft::NeedsReturn { gas_left, data, apply_state }) => {
-            gas_used = U256::from(PREPAID_GAS) - gas_left;
+            gas_used = U256::from(PREPAID_EVM_GAS) - gas_left;
+            left = gas_left;
+            println!("NeedsReturn, apply_state: {} {} {}", apply_state, PREPAID_EVM_GAS, gas_left);
             (data, apply_state)
-        },
+        }
         _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
     };
 
@@ -63,7 +68,7 @@ pub fn deploy_code<T: EvmState>(
             return_data.to_vec(),
         ))));
     }
-    Ok(address)
+    Ok((address, left))
 }
 
 pub fn _create<T: EvmState>(
@@ -75,6 +80,7 @@ pub fn _create<T: EvmState>(
     address: &Address,
     code: &[u8],
 ) -> Result<(Option<GasLeft>, Option<StateStore>)> {
+    println!("enter _create");
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
 
@@ -84,7 +90,7 @@ pub fn _create<T: EvmState>(
         sender: *sender,
         origin: *origin,
         // TODO: gas usage.
-        gas: PREPAID_GAS.into(),
+        gas: PREPAID_EVM_GAS.into(),
         gas_price: 1.into(),
         value: ActionValue::Transfer(value),
         code: Some(Arc::new(code.to_vec())),
@@ -98,14 +104,14 @@ pub fn _create<T: EvmState>(
 
     let mut ext = NearExt::new(*address, *origin, &mut sub_state, call_stack_depth + 1, false);
     // TODO: gas usage.
-    ext.info.gas_limit = U256::from(PREPAID_GAS);
+    ext.info.gas_limit = U256::from(PREPAID_EVM_GAS);
     ext.schedule = Schedule::new_constantinople();
 
     let instance = Factory::default().create(params, ext.schedule(), ext.depth());
 
     // Run the code
     let result = instance.exec(&mut ext);
-
+    println!("leave _create");
     Ok((result.ok().unwrap().ok(), Some(store)))
 }
 
@@ -119,8 +125,12 @@ pub fn call<T: EvmState>(
     contract_address: &Address,
     input: &[u8],
     should_commit: bool,
-) -> Result<ReturnData> {
-    run_and_commit_if_success(
+) -> Result<(ReturnData, U256)> {
+    println!(
+        "enter interpreter::call {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
+        origin, sender, value, call_stack_depth, contract_address, input, should_commit
+    );
+    let r = run_and_commit_if_success(
         state,
         origin,
         sender,
@@ -132,7 +142,9 @@ pub fn call<T: EvmState>(
         input,
         false,
         should_commit,
-    )
+    );
+    println!("leave interpreter::call {:?}", r);
+    r
 }
 
 pub fn delegate_call<T: EvmState>(
@@ -143,7 +155,7 @@ pub fn delegate_call<T: EvmState>(
     context: &Address,
     delegee: &Address,
     input: &[u8],
-) -> Result<ReturnData> {
+) -> Result<(ReturnData, U256)> {
     run_and_commit_if_success(
         state,
         origin,
@@ -166,7 +178,7 @@ pub fn static_call<T: EvmState>(
     call_stack_depth: usize,
     contract_address: &Address,
     input: &[u8],
-) -> Result<ReturnData> {
+) -> Result<(ReturnData, U256)> {
     run_and_commit_if_success(
         state,
         origin,
@@ -195,8 +207,9 @@ fn run_and_commit_if_success<T: EvmState>(
     input: &[u8],
     is_static: bool,
     should_commit: bool,
-) -> Result<ReturnData> {
+) -> Result<(ReturnData, U256)> {
     // run the interpreter and
+    println!("enter run_and_commit_if_success");
     let (result, state_updates) = run_against_state(
         state,
         origin,
@@ -214,31 +227,34 @@ fn run_and_commit_if_success<T: EvmState>(
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
     let gas_used: U256;
+    let left: U256;
     let return_data = match result {
         Some(GasLeft::Known(gas_left)) => {
-            println!("Known {} {}", PREPAID_GAS, gas_left);
-            gas_used = U256::from(PREPAID_GAS) - gas_left;
-            Ok(ReturnData::empty())
-        },
+            println!("Known {} {}", PREPAID_EVM_GAS, gas_left);
+            left = gas_left;
+            gas_used = U256::from(PREPAID_EVM_GAS) - gas_left;
+            Ok((ReturnData::empty(), left))
+        }
         Some(GasLeft::NeedsReturn { gas_left, data, apply_state: true }) => {
-            println!("NeedsReturn, apply_state: true {} {}", PREPAID_GAS, gas_left);
-            gas_used = U256::from(PREPAID_GAS) - gas_left;
-            Ok(data)
-        },
+            println!("NeedsReturn, apply_state: true {} {}", PREPAID_EVM_GAS, gas_left);
+            gas_used = U256::from(PREPAID_EVM_GAS) - gas_left;
+            left = gas_left;
+            Ok((data, left))
+        }
         Some(GasLeft::NeedsReturn { gas_left, data, apply_state: false }) => {
-            println!("NeedsReturn, apply_state: false {} {}", PREPAID_GAS, gas_left);
-            gas_used = U256::from(PREPAID_GAS) - gas_left;
+            println!("NeedsReturn, apply_state: false {} {}", PREPAID_EVM_GAS, gas_left);
+            gas_used = U256::from(PREPAID_EVM_GAS) - gas_left;
+            left = gas_left;
             Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
-        },
-        _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
+        }
+        x => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
     };
     println!("Gas used in run_and_commit_if_success: {}", gas_used);
-
     // Don't apply changes from a static context (these _should_ error in the ext)
     if !is_static && return_data.is_ok() && should_commit {
         state.commit_changes(&state_updates.unwrap())?;
     }
-
+    println!("leave run_and_commit_if_success {:?}", return_data);
     return_data
 }
 
@@ -256,6 +272,7 @@ fn run_against_state<T: EvmState>(
     input: &[u8],
     is_static: bool,
 ) -> Result<(Option<GasLeft>, Option<StateStore>)> {
+    println!("enter run_against_state");
     let code = state.code_at(code_address)?.unwrap_or_else(Vec::new);
 
     let mut store = StateStore::default();
@@ -268,7 +285,7 @@ fn run_against_state<T: EvmState>(
         sender: *sender,
         origin: *origin,
         // TODO: gas usage.
-        gas: PREPAID_GAS.into(),
+        gas: PREPAID_EVM_GAS.into(),
         gas_price: 1.into(),
         value: ActionValue::Apparent(0.into()),
         code: Some(Arc::new(code)),
@@ -286,12 +303,17 @@ fn run_against_state<T: EvmState>(
     let mut ext =
         NearExt::new(*state_address, *origin, &mut sub_state, call_stack_depth + 1, is_static);
     // TODO: gas usage.
-    ext.info.gas_limit = U256::from(PREPAID_GAS);
+    // Gas limit is evm block gas limit, should at least prepaid gas.
+    ext.info.gas_limit = U256::from(PREPAID_EVM_GAS);
     ext.schedule = Schedule::new_constantinople();
 
     let instance = Factory::default().create(params, ext.schedule(), ext.depth());
 
     // Run the code
+    println!("before instance.exec");
     let result = instance.exec(&mut ext);
-    Ok((result.ok().unwrap().ok(), Some(store)))
+    println!("after instance.exec");
+    let r = result.ok();
+    println!("leave run_against_state {:?}", &r);
+    Ok((r.unwrap().ok(), Some(store)))
 }
