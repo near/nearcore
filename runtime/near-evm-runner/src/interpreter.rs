@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use ethereum_types::{Address, U256};
 use evm::{CreateContractAddress, Factory};
-use vm::{ActionParams, ActionValue, CallType, Ext, GasLeft, ParamsType, ReturnData, Schedule};
+use vm::{
+    ActionParams, ActionValue, CallType, ContractCreateResult, Ext, GasLeft, ParamsType,
+    ReturnData, Schedule,
+};
 
 use near_vm_errors::{EvmError, VMLogicError};
 
@@ -21,7 +24,7 @@ pub fn deploy_code<T: EvmState>(
     recreate: bool,
     code: &[u8],
     gas: &U256,
-) -> Result<(Address, U256)> {
+) -> Result<ContractCreateResult> {
     let mut nonce = U256::default();
     if address_type == CreateContractAddress::FromSenderAndNonce {
         nonce = state.next_nonce(&sender)?;
@@ -51,12 +54,10 @@ pub fn deploy_code<T: EvmState>(
     if apply {
         state.commit_changes(&state_updates.unwrap())?;
         state.set_code(&address, &return_data.to_vec())?;
+        Ok(ContractCreateResult::Created(address, gas_left))
     } else {
-        return Err(VMLogicError::EvmError(EvmError::DeployFail(hex::encode(
-            return_data.to_vec(),
-        ))));
+        Ok(ContractCreateResult::Reverted(gas_left, return_data))
     }
-    Ok((address, gas_left))
 }
 
 pub fn _create<T: EvmState>(

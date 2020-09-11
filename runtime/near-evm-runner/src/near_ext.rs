@@ -148,7 +148,6 @@ impl<'a> vm::Ext for NearExt<'a> {
             &code.to_vec(),
             gas,
         )
-        .map(|(result, gas_left)| ContractCreateResult::Created(result, gas_left))
         .map_err(|_| TrapKind::Call(ActionParams::default()))
     }
 

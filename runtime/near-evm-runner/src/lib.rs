@@ -4,6 +4,7 @@ extern crate enum_primitive_derive;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
+use vm::ContractCreateResult;
 
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
@@ -157,7 +158,13 @@ impl<'a> EvmContext<'a> {
             &bytecode,
             &PREPAID_EVM_GAS.into(),
         )?;
-        Ok(r.0)
+        match r {
+            ContractCreateResult::Created(address, gas_left) => Ok(address),
+            ContractCreateResult::Reverted(gas_left, return_data) => {
+                Err(VMLogicError::EvmError(EvmError::DeployFail(hex::encode(return_data.to_vec()))))
+            }
+            _ => unreachable!(),
+        }
     }
 
     pub fn call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {

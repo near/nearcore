@@ -3164,6 +3164,7 @@ name = "near-vm-errors"
 version = "2.2.0"
 dependencies = [
  "borsh",
+ "ethereum-types",
  "near-rpc-error-macro",
  "serde",
 ]
