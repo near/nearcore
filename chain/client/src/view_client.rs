@@ -37,12 +37,15 @@ use near_primitives::views::{
 
 use crate::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetExecutionOutcome, GetGasPrice, Query, TxStatus, TxStatusError,
+    GetExecutionOutcome, GetExecutionOutcomeForChunk, GetGasPrice, Query, TxStatus, TxStatusError,
 };
 use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
+use near_primitives::sharding::ChunkHash;
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use std::collections::HashMap;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -409,6 +412,25 @@ impl ViewClientActor {
 
         head.height
     }
+
+    fn get_execution_outcomes_for_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>, near_chain::Error> {
+        let chunk = self.chain.get_chunk(chunk_hash)?;
+        let id_iter = chunk
+            .transactions
+            .iter()
+            .map(|t| t.get_hash())
+            .chain(chunk.receipts.iter().map(|r| r.receipt_id))
+            .collect::<Vec<_>>();
+        let mut res = HashMap::new();
+        for id in id_iter {
+            let execution_outcome = self.chain.get_execution_outcome(&id)?.clone();
+            res.insert(id, execution_outcome);
+        }
+        Ok(res)
+    }
 }
 
 impl Actor for ViewClientActor {
@@ -695,6 +717,14 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                 _ => Err(e.to_string()),
             },
         }
+    }
+}
+
+impl Handler<GetExecutionOutcomeForChunk> for ViewClientActor {
+    type Result = Result<HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>, String>;
+
+    fn handle(&mut self, msg: GetExecutionOutcomeForChunk, _: &mut Self::Context) -> Self::Result {
+        self.get_execution_outcomes_for_chunk(&msg.chunk_hash).map_err(|e| e.to_string())
     }
 }
 
