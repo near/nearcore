@@ -161,7 +161,6 @@ impl<'a> EvmContext<'a> {
     }
 
     pub fn call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
-        println!("enter call_function");
         if args.len() <= 20 {
             return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
         }
@@ -171,7 +170,7 @@ impl<'a> EvmContext<'a> {
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
-        let r = interpreter::call(
+        interpreter::call(
             self,
             &sender,
             &sender,
@@ -182,9 +181,7 @@ impl<'a> EvmContext<'a> {
             true,
             &PREPAID_EVM_GAS.into(),
         )
-        .map(|rd| rd.0.to_vec());
-        println!("leave call_function");
-        r
+        .map(|rd| rd.0.to_vec())
     }
 
     /// Make an EVM transaction. Calls `contract_address` with `encoded_input`. Execution

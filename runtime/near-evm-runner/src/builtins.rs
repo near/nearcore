@@ -60,7 +60,6 @@ pub fn process_precompile(addr: &Address, input: &[u8], gas: &U256) -> MessageCa
     };
     let size = bytes.len();
 
-    // TODO: add gas usage here.
     MessageCallResult::Success(*gas, ReturnData::new(bytes, 0, size))
 }
 
@@ -128,6 +127,9 @@ pub struct Blake2FImpl;
 pub trait Impl: Send + Sync {
     /// execute this built-in on the given input, writing to the given output.
     fn execute(&self, input: &[u8], output: &mut BytesRef) -> Result<(), Error>;
+    fn gas(&self, _input: &[u8]) -> U256 {
+        0.into()
+    }
 }
 
 impl Impl for Identity {

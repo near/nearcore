@@ -132,15 +132,12 @@ impl<'a> vm::Ext for NearExt<'a> {
         address_type: CreateContractAddress,
         _trap: bool,
     ) -> Result<ContractCreateResult, TrapKind> {
-        println!("enter NearExt.create {:?}", gas);
         if self.is_static() {
-            println!("leave NearExt.create {:?}", gas);
             return Err(TrapKind::Call(ActionParams::default()));
         }
 
         // TODO: better error propagation.
-        // TODO: gas metering.
-        let r = interpreter::deploy_code(
+        interpreter::deploy_code(
             self.sub_state,
             &self.origin,
             &self.context_addr,
@@ -151,11 +148,8 @@ impl<'a> vm::Ext for NearExt<'a> {
             &code.to_vec(),
             gas,
         )
-        // TODO: gas usage.
         .map(|(result, gas_left)| ContractCreateResult::Created(result, gas_left))
-        .map_err(|_| TrapKind::Call(ActionParams::default()));
-        println!("leave NearExt.create {:?}", gas);
-        r
+        .map_err(|_| TrapKind::Call(ActionParams::default()))
     }
 
     /// Message call.
@@ -174,14 +168,12 @@ impl<'a> vm::Ext for NearExt<'a> {
         call_type: CallType,
         _trap: bool,
     ) -> Result<MessageCallResult, TrapKind> {
-        println!("enter NearExt.call {:?}", gas);
         if self.is_static() && call_type != CallType::StaticCall {
             panic!("MutableCallInStaticContext")
         }
 
         // hijack builtins
         if crate::builtins::is_precompile(receive_address) {
-            println!("leave NearExt.call {:?} precompile", gas);
             return Ok(crate::builtins::process_precompile(receive_address, data, gas));
         }
 
@@ -227,7 +219,6 @@ impl<'a> vm::Ext for NearExt<'a> {
         };
 
         let msg_call_result = match result {
-            // TODO: gas usage.
             Ok((data, gas_left)) => MessageCallResult::Success(gas_left, data),
             Err(err) => {
                 let message = match err {
@@ -244,7 +235,6 @@ impl<'a> vm::Ext for NearExt<'a> {
                 )
             }
         };
-        println!("leave NearExt.call {:?}", gas);
         Ok(msg_call_result)
     }
 

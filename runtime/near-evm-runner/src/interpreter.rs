@@ -40,25 +40,14 @@ pub fn deploy_code<T: EvmState>(
     // Apply known gas amount changes (all reverts are NeedsReturn)
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
-    let gas_used: U256;
-    let left: U256;
-    let (return_data, apply) = match result {
-        Some(GasLeft::Known(gas_left)) => {
-            left = gas_left;
-            gas_used = gas - gas_left;
-            println!("Known {} {}", gas, gas_left);
-            (ReturnData::empty(), true)
-        }
-        Some(GasLeft::NeedsReturn { gas_left, data, apply_state }) => {
-            gas_used = gas - gas_left;
-            left = gas_left;
-            println!("NeedsReturn, apply_state: {} {} {}", apply_state, gas, gas_left);
-            (data, apply_state)
+    let (return_data, apply, gas_left) = match result {
+        Some(GasLeft::Known(left)) => (ReturnData::empty(), true, left),
+        Some(GasLeft::NeedsReturn { gas_left: left, data, apply_state }) => {
+            (data, apply_state, left)
         }
         _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
     };
 
-    println!("Gas used in deploy_code: {}", gas_used);
     if apply {
         state.commit_changes(&state_updates.unwrap())?;
         state.set_code(&address, &return_data.to_vec())?;
@@ -67,7 +56,7 @@ pub fn deploy_code<T: EvmState>(
             return_data.to_vec(),
         ))));
     }
-    Ok((address, left))
+    Ok((address, gas_left))
 }
 
 pub fn _create<T: EvmState>(
@@ -80,7 +69,6 @@ pub fn _create<T: EvmState>(
     code: &[u8],
     gas: &U256,
 ) -> Result<(Option<GasLeft>, Option<StateStore>)> {
-    println!("enter _create");
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
 
@@ -89,7 +77,6 @@ pub fn _create<T: EvmState>(
         address: *address,
         sender: *sender,
         origin: *origin,
-        // TODO: gas usage.
         gas: *gas,
         gas_price: 1.into(),
         value: ActionValue::Transfer(value),
@@ -103,7 +90,6 @@ pub fn _create<T: EvmState>(
     sub_state.transfer_balance(sender, address, value)?;
 
     let mut ext = NearExt::new(*address, *origin, &mut sub_state, call_stack_depth + 1, false);
-    // TODO: gas usage.
     ext.info.gas_limit = U256::from(gas);
     ext.schedule = Schedule::new_constantinople();
 
@@ -111,7 +97,6 @@ pub fn _create<T: EvmState>(
 
     // Run the code
     let result = instance.exec(&mut ext);
-    println!("leave _create");
     Ok((result.ok().unwrap().ok(), Some(store)))
 }
 
@@ -127,11 +112,7 @@ pub fn call<T: EvmState>(
     should_commit: bool,
     gas: &U256,
 ) -> Result<(ReturnData, U256)> {
-    println!(
-        "enter interpreter::call {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
-        origin, sender, value, call_stack_depth, contract_address, input, should_commit
-    );
-    let r = run_and_commit_if_success(
+    run_and_commit_if_success(
         state,
         origin,
         sender,
@@ -144,9 +125,7 @@ pub fn call<T: EvmState>(
         false,
         should_commit,
         gas,
-    );
-    println!("leave interpreter::call {:?}", r);
-    r
+    )
 }
 
 pub fn delegate_call<T: EvmState>(
@@ -216,7 +195,6 @@ fn run_and_commit_if_success<T: EvmState>(
     gas: &U256,
 ) -> Result<(ReturnData, U256)> {
     // run the interpreter and
-    println!("enter run_and_commit_if_success");
     let (result, state_updates) = run_against_state(
         state,
         origin,
@@ -234,35 +212,18 @@ fn run_and_commit_if_success<T: EvmState>(
     // Apply known gas amount changes (all reverts are NeedsReturn)
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
-    let gas_used: U256;
-    let left: U256;
     let return_data = match result {
-        Some(GasLeft::Known(gas_left)) => {
-            println!("Known {} {}", gas, gas_left);
-            left = gas_left;
-            gas_used = gas - gas_left;
-            Ok((ReturnData::empty(), left))
-        }
-        Some(GasLeft::NeedsReturn { gas_left, data, apply_state: true }) => {
-            println!("NeedsReturn, apply_state: true {} {}", gas, gas_left);
-            gas_used = gas - gas_left;
-            left = gas_left;
-            Ok((data, left))
-        }
+        Some(GasLeft::Known(gas_left)) => Ok((ReturnData::empty(), gas_left)),
+        Some(GasLeft::NeedsReturn { gas_left, data, apply_state: true }) => Ok((data, gas_left)),
         Some(GasLeft::NeedsReturn { gas_left, data, apply_state: false }) => {
-            println!("NeedsReturn, apply_state: false {} {}", gas, gas_left);
-            gas_used = gas - gas_left;
-            left = gas_left;
             Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
         }
         _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
     };
-    println!("Gas used in run_and_commit_if_success: {}", gas_used);
     // Don't apply changes from a static context (these _should_ error in the ext)
     if !is_static && return_data.is_ok() && should_commit {
         state.commit_changes(&state_updates.unwrap())?;
     }
-    println!("leave run_and_commit_if_success {:?}", return_data);
     return_data
 }
 
@@ -281,7 +242,6 @@ fn run_against_state<T: EvmState>(
     is_static: bool,
     gas: &U256,
 ) -> Result<(Option<GasLeft>, Option<StateStore>)> {
-    println!("enter run_against_state {:?}", gas);
     let code = state.code_at(code_address)?.unwrap_or_else(Vec::new);
 
     let mut store = StateStore::default();
@@ -293,7 +253,6 @@ fn run_against_state<T: EvmState>(
         address: *state_address,
         sender: *sender,
         origin: *origin,
-        // TODO: gas usage.
         gas: *gas,
         gas_price: 1.into(),
         value: ActionValue::Apparent(0.into()),
@@ -311,7 +270,6 @@ fn run_against_state<T: EvmState>(
 
     let mut ext =
         NearExt::new(*state_address, *origin, &mut sub_state, call_stack_depth + 1, is_static);
-    // TODO: gas usage.
     // Gas limit is evm block gas limit, should at least prepaid gas.
     ext.info.gas_limit = *gas;
     ext.schedule = Schedule::new_constantinople();
@@ -319,10 +277,7 @@ fn run_against_state<T: EvmState>(
     let instance = Factory::default().create(params, ext.schedule(), ext.depth());
 
     // Run the code
-    println!("before instance.exec");
     let result = instance.exec(&mut ext);
-    println!("after instance.exec");
     let r = result.ok();
-    println!("leave run_against_state {:?}", &r);
     Ok((r.unwrap().ok(), Some(store)))
 }
