@@ -10,7 +10,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
-use near_primitives::utils::create_hash_upgradable;
+use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{TrieUpdate, TrieUpdateValuePtr};
 use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
@@ -22,7 +22,7 @@ pub struct RuntimeExt<'a> {
     signer_id: &'a AccountId,
     signer_public_key: &'a PublicKey,
     gas_price: Balance,
-    base_data_id: &'a CryptoHash,
+    action_hash: &'a CryptoHash,
     data_count: u64,
     epoch_id: &'a EpochId,
     last_block_hash: &'a CryptoHash,
@@ -49,7 +49,7 @@ impl<'a> RuntimeExt<'a> {
         signer_id: &'a AccountId,
         signer_public_key: &'a PublicKey,
         gas_price: Balance,
-        base_data_id: &'a CryptoHash,
+        action_hash: &'a CryptoHash,
         epoch_id: &'a EpochId,
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
@@ -62,7 +62,7 @@ impl<'a> RuntimeExt<'a> {
             signer_id,
             signer_public_key,
             gas_price,
-            base_data_id,
+            action_hash,
             data_count: 0,
             epoch_id,
             last_block_hash,
@@ -76,11 +76,11 @@ impl<'a> RuntimeExt<'a> {
     }
 
     fn new_data_id(&mut self) -> CryptoHash {
-        let data_id = create_hash_upgradable(
+        let data_id = create_data_id(
             self.current_protocol_version,
-            &self.base_data_id,
+            &self.action_hash,
             &self.last_block_hash,
-            self.data_count,
+            self.data_count as usize,
         );
         self.data_count += 1;
         data_id

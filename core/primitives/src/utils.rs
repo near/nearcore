@@ -12,8 +12,12 @@ use serde;
 use lazy_static::lazy_static;
 
 use crate::hash::{hash, CryptoHash};
+use crate::receipt::Receipt;
+use crate::transaction::SignedTransaction;
 use crate::types::{AccountId, NumSeats, NumShards, ShardId};
-use crate::version::{ProtocolVersion, CREATE_HASH_PROTOCOL_VERSION};
+use crate::version::{
+    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
+};
 use std::mem::size_of;
 
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -45,12 +49,85 @@ pub fn get_block_shard_id_rev(
     Ok((block_hash, shard_id))
 }
 
+/// Creates a new Receipt ID from a given signed transaction and a block hash.
+/// This method is backward compatible, so it takes a current protocol version.
+pub fn create_receipt_id_from_transaction(
+    protocol_version: ProtocolVersion,
+    signed_transaction: &SignedTransaction,
+    block_hash: &CryptoHash,
+) -> CryptoHash {
+    create_hash_upgradable(protocol_version, &signed_transaction.get_hash(), &block_hash, 0)
+}
+
+/// Creates a new Receipt ID from a given receipt, a block hash and a new receipt index.
+/// This method is backward compatible, so it takes a current protocol version.
+pub fn create_receipt_id_from_receipt(
+    protocol_version: ProtocolVersion,
+    receipt: &Receipt,
+    block_hash: &CryptoHash,
+    receipt_index: usize,
+) -> CryptoHash {
+    create_hash_upgradable(protocol_version, &receipt.receipt_id, &block_hash, receipt_index as u64)
+}
+
+/// Creates a new action_hash from a given receipt, a block hash and an action index.
+/// This method is backward compatible, so it takes a current protocol version.
+pub fn create_action_hash(
+    protocol_version: ProtocolVersion,
+    receipt: &Receipt,
+    block_hash: &CryptoHash,
+    action_index: usize,
+) -> CryptoHash {
+    create_hash_upgradable(
+        protocol_version,
+        &receipt.receipt_id,
+        &block_hash,
+        u64::max_value() - action_index as u64,
+    )
+}
+
+/// Creates a new `data_id` from a given action hash, a block hash and a data index.
+/// This method is backward compatible, so it takes a current protocol version.
+pub fn create_data_id(
+    protocol_version: ProtocolVersion,
+    action_hash: &CryptoHash,
+    block_hash: &CryptoHash,
+    data_index: usize,
+) -> CryptoHash {
+    create_hash_upgradable(protocol_version, &action_hash, &block_hash, data_index as u64)
+}
+
+/// Creates a unique random seed to be provided to `VMContext` from a give `action_hash` and
+/// a given `random_seed`.
+/// This method is backward compatible, so it takes a current protocol version.
+pub fn create_random_seed(
+    protocol_version: ProtocolVersion,
+    action_hash: CryptoHash,
+    random_seed: CryptoHash,
+) -> Vec<u8> {
+    let res = if protocol_version < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION {
+        action_hash
+    } else if protocol_version < CREATE_HASH_PROTOCOL_VERSION {
+        random_seed
+    } else {
+        // Generates random seed from random_seed and action_hash.
+        // Since every action hash is unique, the seed will be unique per receipt and even
+        // per action within a receipt.
+        let mut bytes: Vec<u8> =
+            Vec::with_capacity(size_of::<CryptoHash>() + size_of::<CryptoHash>());
+        bytes.extend_from_slice(action_hash.as_ref());
+        bytes.extend_from_slice(random_seed.as_ref());
+        hash(&bytes)
+    };
+    res.as_ref().to_vec()
+}
+
 /// Creates a new CryptoHash ID based on the protocol version.
 /// Before `CREATE_HASH_PROTOCOL_VERSION` it uses `create_nonce_with_nonce` with
 /// just `base` and `salt`. But after `CREATE_HASH_PROTOCOL_VERSION` it uses
 /// `extra_hash` in addition to the `base` and `salt`.
 /// E.g. this `extra_hash` can be a block hash to distinguish receipts between forks.
-pub fn create_hash_upgradable(
+fn create_hash_upgradable(
     protocol_version: ProtocolVersion,
     base: &CryptoHash,
     extra_hash: &CryptoHash,
@@ -70,7 +147,7 @@ pub fn create_hash_upgradable(
 }
 
 /// Deprecated. Please use `create_hash_upgradable`
-pub fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
+fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
     let mut nonce: Vec<u8> = base.as_ref().to_owned();
     nonce.extend(index_to_bytes(salt));
     hash(&nonce)
