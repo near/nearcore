@@ -60,6 +60,11 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
+    // TODO: maybe we don't need it in such a way.
+    let cache = match &apply_state.cache {
+        Some(cache) => Some((*cache).as_ref()),
+        None => None,
+    };
     let code = match get_code_with_cache(state_update, account_id, &account) {
         Ok(Some(code)) => code,
         Ok(None) => {
@@ -137,6 +142,7 @@ pub(crate) fn action_function_call(
         &config.transaction_costs,
         promise_results,
         apply_state.current_protocol_version,
+        cache,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {
@@ -153,6 +159,9 @@ pub(crate) fn action_function_call(
         }
         Some(VMError::InconsistentStateError(err)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
+        }
+        Some(VMError::CacheError(err)) => {
+            return Err(StorageError::StorageInconsistentState(err).into());
         }
         None => true,
     };

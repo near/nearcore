@@ -1520,6 +1520,7 @@ mod test {
     use near_network::test_utils::MockNetworkAdapter;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::sharding::ChunkHash;
+    #[cfg(feature = "expensive_tests")]
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;

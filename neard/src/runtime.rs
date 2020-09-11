@@ -42,6 +42,7 @@ use near_store::{
     set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::cache::StoreCompiledContractCache;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
@@ -445,6 +446,7 @@ impl NightshadeRuntime {
                 &self.genesis_runtime_config,
                 current_protocol_version,
             ),
+            cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
         };
 
         let apply_result = self

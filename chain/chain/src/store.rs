@@ -2409,6 +2409,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
                 self.chain_store.processed_block_heights.cache_remove(key);
             }
+            DBCol::ColCachedContractCode => {
+                store_update.delete(col, key);
+            }
             DBCol::ColDbVersion
             | DBCol::ColBlockMisc
             | DBCol::ColBlockHeader
