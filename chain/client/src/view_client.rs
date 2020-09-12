@@ -30,9 +30,9 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView,
-    StateChangesView, ValidatorStakeView,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    FinalExecutionOutcomeView, FinalExecutionStatus, GasPriceView, LightClientBlockView,
+    QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView, ValidatorStakeView,
 };
 
 use crate::types::{
@@ -43,8 +43,6 @@ use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use std::collections::HashMap;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -701,10 +699,16 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 }
 
 impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
-    type Result = Result<HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>, String>;
+    type Result = Result<Vec<ExecutionOutcomeWithIdView>, String>;
 
     fn handle(&mut self, msg: GetExecutionOutcomesForBlock, _: &mut Self::Context) -> Self::Result {
-        self.chain.get_block_execution_outcomes(&msg.block_hash).map_err(|e| e.to_string())
+        Ok(self
+            .chain
+            .get_block_execution_outcomes(&msg.block_hash)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 }
 

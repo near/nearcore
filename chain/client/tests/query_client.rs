@@ -136,15 +136,15 @@ fn test_execution_outcome_for_chunk() {
                 .unwrap()
                 .unwrap();
 
-            let execution_outcomes_in_chunk = view_client
+            let execution_outcomes_in_block = view_client
                 .send(GetExecutionOutcomesForBlock {
                     block_hash: execution_outcome.transaction_outcome.block_hash,
                 })
                 .await
                 .unwrap()
                 .unwrap();
-            assert_eq!(execution_outcomes_in_chunk.len(), 1);
-            assert!(execution_outcomes_in_chunk.contains_key(&tx_hash));
+            assert_eq!(execution_outcomes_in_block.len(), 1);
+            assert!(execution_outcomes_in_block[0].id == tx_hash);
             System::current().stop();
         });
         near_network::test_utils::wait_or_panic(5000);

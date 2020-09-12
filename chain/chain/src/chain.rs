@@ -1980,14 +1980,12 @@ impl Chain {
     pub fn get_block_execution_outcomes(
         &mut self,
         block_hash: &CryptoHash,
-    ) -> Result<HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>, Error> {
-        let execution_outcome_ids = self.mut_store().get_outcomes_by_block_hash(block_hash)?;
-        let mut res = HashMap::new();
-        for id in execution_outcome_ids {
-            let execution_outcome = self.get_execution_outcome(&id)?;
-            res.insert(id, execution_outcome.clone());
-        }
-        Ok(res)
+    ) -> Result<Vec<ExecutionOutcomeWithIdAndProof>, Error> {
+        self.mut_store()
+            .get_outcomes_by_block_hash(block_hash)?
+            .into_iter()
+            .map(|id| Ok(self.get_execution_outcome(&id)?.clone()))
+            .collect()
     }
 }
 
