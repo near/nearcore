@@ -43,6 +43,8 @@ pub struct EpochManager {
     /// TODO: must be dynamically changing over time, so there should be a way to change it.
     config: EpochConfig,
     reward_calculator: RewardCalculator,
+    /// Genesis protocol version. Useful when there are protocol upgrades.
+    genesis_protocol_version: ProtocolVersion,
 
     /// Cache of epoch information.
     epochs_info: SizedCache<EpochId, EpochInfo>,
@@ -69,6 +71,7 @@ impl EpochManager {
             store,
             config,
             reward_calculator,
+            genesis_protocol_version,
             epochs_info: SizedCache::with_size(EPOCH_CACHE_SIZE),
             blocks_info: SizedCache::with_size(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SizedCache::with_size(EPOCH_CACHE_SIZE),
@@ -318,6 +321,7 @@ impl EpochManager {
         } = self.collect_blocks_info(&block_info, last_block_hash)?;
         let epoch_id = self.get_epoch_id(last_block_hash)?;
         let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let epoch_protocol_version = epoch_info.protocol_version;
         let validator_stake = epoch_info
             .validators
             .clone()
@@ -330,6 +334,8 @@ impl EpochManager {
             validator_block_chunk_stats,
             &validator_stake,
             block_info.total_supply,
+            epoch_protocol_version,
+            self.genesis_protocol_version,
         );
         let next_next_epoch_info = match proposals_to_epoch_info(
             &self.config,
@@ -1856,7 +1862,7 @@ mod tests {
             max_inflation_rate: Rational::new(5, 100),
             num_blocks_per_year: 50,
             epoch_length,
-            protocol_reward_percentage: Rational::new(1, 10),
+            protocol_reward_rate: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(90, 100),
             online_max_threshold: Rational::new(99, 100),
@@ -1917,6 +1923,8 @@ mod tests {
             validator_online_ratio,
             &validator_stakes,
             total_supply,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
@@ -1949,7 +1957,7 @@ mod tests {
             max_inflation_rate: Rational::new(5, 100),
             num_blocks_per_year: 50,
             epoch_length,
-            protocol_reward_percentage: Rational::new(1, 10),
+            protocol_reward_rate: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(90, 100),
             online_max_threshold: Rational::new(99, 100),
@@ -2018,6 +2026,8 @@ mod tests {
             validator_online_ratio,
             &validators_stakes,
             total_supply,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         );
         let test1_reward = *validator_reward.get("test1").unwrap();
         let test2_reward = *validator_reward.get("test2").unwrap();
@@ -2061,7 +2071,7 @@ mod tests {
             max_inflation_rate: Rational::new(5, 100),
             num_blocks_per_year: 1_000_000,
             epoch_length,
-            protocol_reward_percentage: Rational::new(1, 10),
+            protocol_reward_rate: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(90, 100),
             online_max_threshold: Rational::new(99, 100),
@@ -2123,6 +2133,8 @@ mod tests {
             validator_online_ratio,
             &validators_stakes,
             total_supply,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();

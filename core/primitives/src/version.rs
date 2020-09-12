@@ -12,13 +12,13 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 8;
+pub const DB_VERSION: DbVersion = 9;
 
 /// Protocol version type.
 pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 36;
+pub const PROTOCOL_VERSION: ProtocolVersion = 37;
 /// TODO: Remove in next release. This is to allow nodes with initial version 34
 /// to be compatible with nodes at version 35
 pub const NETWORK_PROTOCOL_VERSION: ProtocolVersion = 34;
@@ -38,6 +38,9 @@ pub const CORRECT_RANDOM_VALUE_PROTOCOL_VERSION: ProtocolVersion = 33;
 /// See [NEP 71](https://github.com/nearprotocol/NEPs/pull/71)
 pub const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
 
+/// The protocol version that enables reward on mainnet.
+pub const ENABLE_INFLATION_PROTOCOL_VERSION: ProtocolVersion = 36;
+
 /// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
 /// version when there is no new change in protocol version.
-pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 36;
+pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
