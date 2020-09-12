@@ -52,6 +52,11 @@ pub fn process_precompile(addr: &Address, input: &[u8], gas: &U256) -> MessageCa
     };
     let mut bytes = vec![];
     let mut output = parity_bytes::BytesRef::Flexible(&mut bytes);
+    let cost = f.gas(input);
+
+    if cost > *gas {
+        return MessageCallResult::Failed;
+    }
 
     // mutates bytes
     match f.execute(input, &mut output) {
@@ -60,7 +65,7 @@ pub fn process_precompile(addr: &Address, input: &[u8], gas: &U256) -> MessageCa
     };
     let size = bytes.len();
 
-    MessageCallResult::Success(*gas, ReturnData::new(bytes, 0, size))
+    MessageCallResult::Success(*gas - cost, ReturnData::new(bytes, 0, size))
 }
 
 /** the following is copied from ethcore/src/builtin.rs **/
