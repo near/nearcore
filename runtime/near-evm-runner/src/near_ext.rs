@@ -9,12 +9,8 @@ use vm::{
     MessageCallResult, Result as EvmResult, ReturnData, Schedule, TrapKind,
 };
 
-use near_vm_errors::{EvmError, VMLogicError};
-
 use crate::evm_state::{EvmState, SubState};
 use crate::interpreter;
-
-pub const PREPAID_EVM_GAS: u128 = 0;
 
 use crate::utils::format_log;
 

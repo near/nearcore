@@ -310,6 +310,30 @@ impl EvmState for SubState<'_> {
     }
 }
 
+pub struct EvmGasCounter {
+    used_gas: U256,
+    max_gas: U256,
+}
+
+impl EvmGasCounter {
+    pub fn new(used_gas: U256, max_gas: U256) -> EvmGasCounter {
+        Self { used_gas, max_gas }
+    }
+
+    pub fn pay_gas(&mut self, amount: U256) {
+        // TODO: return error if gas not sufficient
+        self.used_gas += amount;
+    }
+
+    pub fn set_gas_left(&mut self, left: U256) {
+        self.used_gas = self.max_gas - left;
+    }
+
+    pub fn gas_left(&self) -> U256 {
+        self.max_gas - self.used_gas
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

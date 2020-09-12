@@ -12,7 +12,7 @@ use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
 use near_vm_logic::{ActionCosts, External, VMConfig, VMLogicError, VMOutcome};
 
-use crate::evm_state::{EvmAccount, EvmState, StateStore};
+use crate::evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore};
 use crate::types::{
     AddressArg, GetStorageAtArgs, Result, TransferArgs, ViewCallArgs, WithdrawArgs,
 };
@@ -32,6 +32,7 @@ pub struct EvmContext<'a> {
     storage_usage: StorageUsage,
     pub logs: Vec<String>,
     gas_counter: GasCounter,
+    evm_gas_counter: EvmGasCounter,
     fees_config: &'a RuntimeFeesConfig,
 }
 
@@ -140,6 +141,7 @@ impl<'a> EvmContext<'a> {
                 is_view,
                 None,
             ),
+            evm_gas_counter: EvmGasCounter::new(0.into(), PREPAID_EVM_GAS.into()),
             fees_config,
         }
     }
@@ -156,11 +158,15 @@ impl<'a> EvmContext<'a> {
             CreateContractAddress::FromSenderAndNonce,
             false,
             &bytecode,
-            &PREPAID_EVM_GAS.into(),
+            &self.evm_gas_counter.gas_left(),
         )?;
         match r {
-            ContractCreateResult::Created(address, gas_left) => Ok(address),
+            ContractCreateResult::Created(address, gas_left) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Ok(address)
+            }
             ContractCreateResult::Reverted(gas_left, return_data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
                 Err(VMLogicError::EvmError(EvmError::DeployFail(hex::encode(return_data.to_vec()))))
             }
             _ => unreachable!(),
@@ -186,11 +192,15 @@ impl<'a> EvmContext<'a> {
             &contract_address,
             &input,
             true,
-            &PREPAID_EVM_GAS.into(),
+            &self.evm_gas_counter.gas_left(),
         )?;
         match rd {
-            MessageCallResult::Success(gas_left, data) => Ok(data.to_vec()),
+            MessageCallResult::Success(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Ok(data.to_vec())
+            }
             MessageCallResult::Reverted(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
                 Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
             }
             _ => unreachable!(),
@@ -215,11 +225,15 @@ impl<'a> EvmContext<'a> {
             &Address::from(&args.address),
             &args.args,
             false,
-            &PREPAID_EVM_GAS.into(),
+            &self.evm_gas_counter.gas_left(),
         )?;
         match rd {
-            MessageCallResult::Success(gas_left, data) => Ok(data.to_vec()),
+            MessageCallResult::Success(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Ok(data.to_vec())
+            }
             MessageCallResult::Reverted(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
                 Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
             }
             _ => unreachable!(),
