@@ -34,3 +34,7 @@ pub fn create_context<'a>(
         false,
     )
 }
+
+pub fn show_evm_gas_used(context: &EvmContext) {
+    println!("Accumulated EVM gas used: {}", &context.evm_gas_counter.used_gas);
+}

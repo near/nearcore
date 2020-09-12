@@ -32,7 +32,7 @@ pub struct EvmContext<'a> {
     storage_usage: StorageUsage,
     pub logs: Vec<String>,
     gas_counter: GasCounter,
-    evm_gas_counter: EvmGasCounter,
+    pub evm_gas_counter: EvmGasCounter,
     fees_config: &'a RuntimeFeesConfig,
 }
 

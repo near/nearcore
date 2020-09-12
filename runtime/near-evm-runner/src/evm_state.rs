@@ -311,8 +311,8 @@ impl EvmState for SubState<'_> {
 }
 
 pub struct EvmGasCounter {
-    used_gas: U256,
-    max_gas: U256,
+    pub used_gas: U256,
+    pub max_gas: U256,
 }
 
 impl EvmGasCounter {
