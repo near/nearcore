@@ -3,8 +3,8 @@ use std::sync::Arc;
 use ethereum_types::{Address, U256};
 use evm::{CreateContractAddress, Factory};
 use vm::{
-    ActionParams, ActionValue, CallType, ContractCreateResult, Ext, GasLeft, ParamsType,
-    ReturnData, Schedule,
+    ActionParams, ActionValue, CallType, ContractCreateResult, Ext, GasLeft, MessageCallResult,
+    ParamsType, ReturnData, Schedule,
 };
 
 use near_vm_errors::{EvmError, VMLogicError};
@@ -112,7 +112,7 @@ pub fn call<T: EvmState>(
     input: &[u8],
     should_commit: bool,
     gas: &U256,
-) -> Result<(ReturnData, U256)> {
+) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
         origin,
@@ -138,7 +138,7 @@ pub fn delegate_call<T: EvmState>(
     delegee: &Address,
     input: &[u8],
     gas: &U256,
-) -> Result<(ReturnData, U256)> {
+) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
         origin,
@@ -163,7 +163,7 @@ pub fn static_call<T: EvmState>(
     contract_address: &Address,
     input: &[u8],
     gas: &U256,
-) -> Result<(ReturnData, U256)> {
+) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
         origin,
@@ -194,7 +194,7 @@ fn run_and_commit_if_success<T: EvmState>(
     is_static: bool,
     should_commit: bool,
     gas: &U256,
-) -> Result<(ReturnData, U256)> {
+) -> Result<MessageCallResult> {
     // run the interpreter and
     let (result, state_updates) = run_against_state(
         state,
@@ -213,16 +213,22 @@ fn run_and_commit_if_success<T: EvmState>(
     // Apply known gas amount changes (all reverts are NeedsReturn)
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
+    let mut should_apply_state = true;
     let return_data = match result {
-        Some(GasLeft::Known(gas_left)) => Ok((ReturnData::empty(), gas_left)),
-        Some(GasLeft::NeedsReturn { gas_left, data, apply_state: true }) => Ok((data, gas_left)),
+        Some(GasLeft::Known(gas_left)) => {
+            Ok(MessageCallResult::Success(gas_left, ReturnData::empty()))
+        }
+        Some(GasLeft::NeedsReturn { gas_left, data, apply_state: true }) => {
+            Ok(MessageCallResult::Success(gas_left, data))
+        }
         Some(GasLeft::NeedsReturn { gas_left, data, apply_state: false }) => {
-            Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
+            should_apply_state = false;
+            Ok(MessageCallResult::Reverted(gas_left, data))
         }
         _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
     };
     // Don't apply changes from a static context (these _should_ error in the ext)
-    if !is_static && return_data.is_ok() && should_commit {
+    if !is_static && return_data.is_ok() && should_apply_state && should_commit {
         state.commit_changes(&state_updates.unwrap())?;
     }
     return_data

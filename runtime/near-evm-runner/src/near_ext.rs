@@ -216,25 +216,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 gas,
             ),
         };
-
-        let msg_call_result = match result {
-            Ok((data, gas_left)) => MessageCallResult::Success(gas_left, data),
-            Err(err) => {
-                let message = match err {
-                    VMLogicError::EvmError(EvmError::Revert(encoded_message)) => {
-                        hex::decode(encoded_message).unwrap_or(vec![])
-                    }
-                    _ => format!("{:?}", err).as_bytes().to_vec(),
-                };
-                let message_len = message.len();
-                // TODO: gas usage.
-                MessageCallResult::Reverted(
-                    PREPAID_EVM_GAS.into(),
-                    ReturnData::new(message, 0, message_len),
-                )
-            }
-        };
-        Ok(msg_call_result)
+        result.map_err(|_| TrapKind::Call(ActionParams::default()))
     }
 
     /// Returns code at given address

@@ -4,7 +4,7 @@ extern crate enum_primitive_derive;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
-use vm::ContractCreateResult;
+use vm::{ContractCreateResult, MessageCallResult};
 
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
@@ -177,7 +177,7 @@ impl<'a> EvmContext<'a> {
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
-        interpreter::call(
+        let rd = interpreter::call(
             self,
             &sender,
             &sender,
@@ -187,8 +187,14 @@ impl<'a> EvmContext<'a> {
             &input,
             true,
             &PREPAID_EVM_GAS.into(),
-        )
-        .map(|rd| rd.0.to_vec())
+        )?;
+        match rd {
+            MessageCallResult::Success(gas_left, data) => Ok(data.to_vec()),
+            MessageCallResult::Reverted(gas_left, data) => {
+                Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
+            }
+            _ => unreachable!(),
+        }
     }
 
     /// Make an EVM transaction. Calls `contract_address` with `encoded_input`. Execution
@@ -200,7 +206,7 @@ impl<'a> EvmContext<'a> {
         let args = ViewCallArgs::try_from_slice(&args)
             .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
         let sender = Address::from(&args.sender);
-        interpreter::call(
+        let rd = interpreter::call(
             self,
             &sender,
             &sender,
@@ -210,8 +216,14 @@ impl<'a> EvmContext<'a> {
             &args.args,
             false,
             &PREPAID_EVM_GAS.into(),
-        )
-        .map(|rd| rd.0.to_vec())
+        )?;
+        match rd {
+            MessageCallResult::Success(gas_left, data) => Ok(data.to_vec()),
+            MessageCallResult::Reverted(gas_left, data) => {
+                Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
+            }
+            _ => unreachable!(),
+        }
     }
 
     pub fn get_code(&self, args: Vec<u8>) -> Result<Vec<u8>> {
