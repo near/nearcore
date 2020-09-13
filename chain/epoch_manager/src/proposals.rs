@@ -41,7 +41,7 @@ pub(crate) fn find_threshold(
 pub fn proposals_to_epoch_info(
     epoch_config: &EpochConfig,
     rng_seed: RngSeed,
-    epoch_info: &EpochInfo,
+    prev_epoch_info: &EpochInfo,
     proposals: Vec<ValidatorStake>,
     mut validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
@@ -67,7 +67,7 @@ pub fn proposals_to_epoch_info(
             ordered_proposals.insert(p.account_id.clone(), p);
         }
     }
-    for r in epoch_info.validators.iter() {
+    for r in prev_epoch_info.validators.iter() {
         if validator_kickout.contains_key(&r.account_id) {
             stake_change.insert(r.account_id.clone(), 0);
             continue;
@@ -77,7 +77,7 @@ pub fn proposals_to_epoch_info(
         stake_change.insert(p.account_id.clone(), p.stake);
     }
 
-    for r in epoch_info.fishermen.iter() {
+    for r in prev_epoch_info.fishermen.iter() {
         if validator_kickout.contains_key(&r.account_id) {
             stake_change.insert(r.account_id.clone(), 0);
             continue;
@@ -107,8 +107,8 @@ pub fn proposals_to_epoch_info(
             fishermen.push(p);
         } else {
             *stake_change.get_mut(&account_id).unwrap() = 0;
-            if epoch_info.validator_to_index.contains_key(&account_id)
-                || epoch_info.fishermen_to_index.contains_key(&account_id)
+            if prev_epoch_info.validator_to_index.contains_key(&account_id)
+                || prev_epoch_info.fishermen_to_index.contains_key(&account_id)
             {
                 validator_kickout.insert(
                     account_id,
@@ -156,8 +156,8 @@ pub fn proposals_to_epoch_info(
             fishermen.push(p);
         } else {
             stake_change.insert(p.account_id.clone(), 0);
-            if epoch_info.validator_to_index.contains_key(&p.account_id)
-                || epoch_info.fishermen_to_index.contains_key(&p.account_id)
+            if prev_epoch_info.validator_to_index.contains_key(&p.account_id)
+                || prev_epoch_info.fishermen_to_index.contains_key(&p.account_id)
             {
                 validator_kickout.insert(p.account_id, ValidatorKickoutReason::DidNotGetASeat);
             }
@@ -195,7 +195,7 @@ pub fn proposals_to_epoch_info(
         .collect::<HashMap<_, _>>();
 
     Ok(EpochInfo {
-        epoch_height: epoch_info.epoch_height + 1,
+        epoch_height: prev_epoch_info.epoch_height + 1,
         validators: final_proposals,
         fishermen,
         validator_to_index,
