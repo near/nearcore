@@ -698,6 +698,12 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
     }
 }
 
+/// Extract the list of execution outcomes that were produced in a given block
+/// (including those created for local receipts).
+///
+/// NOTE: The order of execution outcomes is NOT preserved (that would require
+/// data migration), so the order should be recovered from the transactions
+/// and receipts.
 impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
     type Result = Result<Vec<ExecutionOutcomeWithIdView>, String>;
 
