@@ -6,6 +6,18 @@ use keccak_hash::keccak;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vm::CreateContractAddress;
 
+pub fn safe_next_address(addr: &[u8; 20]) -> [u8; 20] {
+    let mut expanded_addr = [0u8; 32];
+    expanded_addr[12..].copy_from_slice(addr);
+    let mut result = [0u8; 32];
+    U256::from_big_endian(&expanded_addr)
+        .saturating_add(U256::from(1u8))
+        .to_big_endian(&mut result);
+    let mut address = [0u8; 20];
+    address.copy_from_slice(&result[12..]);
+    address
+}
+
 pub fn internal_storage_key(address: &Address, key: [u8; 32]) -> [u8; 52] {
     let mut k = [0u8; 52];
     k[..20].copy_from_slice(address.as_ref());
@@ -60,20 +72,6 @@ pub fn address_from_arr(arr: &[u8]) -> Address {
     let mut address = [0u8; 20];
     address.copy_from_slice(&arr);
     Address::from(address)
-}
-
-pub fn balance_to_u256(val: &Balance) -> U256 {
-    let mut bin = [0u8; 32];
-    bin[16..].copy_from_slice(&val.to_be_bytes());
-    bin.into()
-}
-
-pub fn u256_to_balance(val: &U256) -> Balance {
-    let mut scratch = [0u8; 32];
-    let mut bin = [0u8; 16];
-    val.to_big_endian(&mut scratch);
-    bin.copy_from_slice(&scratch[16..]);
-    Balance::from_be_bytes(bin)
 }
 
 pub fn u256_to_arr(val: &U256) -> [u8; 32] {
@@ -143,7 +141,10 @@ impl Balance {
 }
 
 impl Serialize for Balance {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    fn serialize<S>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<<S as Serializer>::Ok, <S as Serializer>::Error>
     where
         S: Serializer,
     {
@@ -152,7 +153,7 @@ impl Serialize for Balance {
 }
 
 impl<'de> Deserialize<'de> for Balance {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, <D as Deserializer<'de>>::Error>
     where
         D: Deserializer<'de>,
     {
@@ -167,7 +168,7 @@ impl From<Balance> for u128 {
     }
 }
 
-pub fn format_log(topics: Vec<H256>, data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+pub fn format_log(topics: Vec<H256>, data: &[u8]) -> std::result::Result<Vec<u8>, std::io::Error> {
     let mut result = Vec::with_capacity(1 + topics.len() * 32 + data.len());
     result.write_u8(topics.len() as u8)?;
     for topic in topics.iter() {

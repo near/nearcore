@@ -64,7 +64,7 @@ pub trait EvmState {
     fn next_nonce(&mut self, address: &Address) -> Result<U256> {
         let mut account = self.get_account(address)?.unwrap_or_default();
         let nonce = account.nonce;
-        account.nonce += U256::from(1);
+        account.nonce += account.nonce.saturating_add(U256::from(1));
         self.set_account(address, &account)?;
         Ok(nonce)
     }
@@ -131,13 +131,21 @@ pub struct StateStore {
 impl StateStore {
     fn overwrite_storage(&mut self, addr: [u8; 20]) {
         let address_key = addr.to_vec();
-        let mut next_address_key = address_key.clone();
-        *(next_address_key.last_mut().unwrap()) += 1;
+        // If address in the last, use RangeFrom to remove all elements until the end.
+        let keys: Vec<_> = if addr == [255; 20] {
+            self.storages.range(std::ops::RangeFrom { start: address_key })
+        } else {
+            let next_address = utils::safe_next_address(&addr);
 
-        let range =
-            (std::ops::Bound::Excluded(address_key), std::ops::Bound::Excluded(next_address_key));
+            let range = (
+                std::ops::Bound::Excluded(address_key),
+                std::ops::Bound::Excluded(next_address.to_vec()),
+            );
 
-        let keys: Vec<_> = self.storages.range(range).map(|(k, _)| k.clone()).collect();
+            self.storages.range(range)
+        }
+        .map(|(k, _)| k.clone())
+        .collect();
         for k in keys.iter() {
             self.storages.remove(k);
         }
@@ -442,6 +450,15 @@ mod test {
             Some(storage_value_1)
         );
         assert_eq!(top.read_contract_storage(&addr_2, storage_key_0).unwrap(), None);
+    }
+
+    #[test]
+    fn test_overflows() {
+        let mut top = StateStore::default();
+        let mut address = [0; 20];
+        address[19] = 255;
+        top.overwrite_storage(address);
+        top.overwrite_storage([255; 20]);
     }
 
     #[test]
