@@ -82,6 +82,15 @@ where
     }
 }
 
+impl<T> BlobInHexString<T>
+where
+    T: AsRef<[u8]> + From<Vec<u8>>,
+{
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
 impl<T> serde::Serialize for BlobInHexString<T>
 where
     T: AsRef<[u8]> + From<Vec<u8>>,
@@ -136,6 +145,12 @@ where
     }
 }
 
+impl From<u64> for SignedDiff<u64> {
+    fn from(value: u64) -> Self {
+        Self { is_positive: true, absolute_difference: value }
+    }
+}
+
 impl From<u128> for SignedDiff<u128> {
     fn from(value: u128) -> Self {
         Self { is_positive: true, absolute_difference: value }
@@ -156,6 +171,10 @@ where
 
     pub fn is_positive(&self) -> bool {
         self.is_positive
+    }
+
+    pub fn absolute_difference(&self) -> T {
+        self.absolute_difference
     }
 }
 

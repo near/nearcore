@@ -13,6 +13,7 @@ use strum::IntoEnumIterator;
 
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
+use near_primitives::borsh::BorshDeserialize;
 use near_primitives::serialize::BaseEncode;
 
 pub use config::RosettaRpcConfig;
@@ -533,75 +534,16 @@ async fn construction_preprocess(
         });
     }
 
-    let mut sender_account_id: Option<String> = None;
-    let mut receiver_account_id: Option<String> = None;
-    let mut operations = operations.iter().rev();
-    while let Some(receiver_operation) = operations.next() {
-        match receiver_operation.type_ {
-            models::OperationType::Transfer => {
-                let receiver_amount = receiver_operation.amount.as_ref().ok_or_else(|| {
-                    errors::ErrorKind::InvalidInput(
-                        "TRANSFER operations must specify `amount`".to_string(),
-                    )
-                })?;
-                if !receiver_amount.value.is_positive() {
-                    return Err(errors::ErrorKind::InvalidInput(
-                        "Receiver TRANSFER operations must have positive `amount`".to_string(),
-                    )
-                    .into());
-                }
-                if let Some(ref receiver_account_id) = receiver_account_id {
-                    if &receiver_operation.account.address != receiver_account_id {
-                        return Err(errors::ErrorKind::InvalidInput(
-                            format!("A single transaction cannot be send to multiple receipients ('{}' and '{}')", receiver_operation.account.address, receiver_account_id)
-                        ).into());
-                    }
-                } else {
-                    receiver_account_id = Some(receiver_operation.account.address.clone());
-                }
-                let sender_operation = operations.next().ok_or_else(|| {
-                    errors::ErrorKind::InvalidInput(
-                        "Source TRANSFER operation is missing".to_string(),
-                    )
-                })?;
+    let near_actions: crate::adapters::NearActions = operations.as_slice().try_into()?;
 
-                let sender_amount = sender_operation.amount.as_ref().ok_or_else(|| {
-                    errors::ErrorKind::InvalidInput(
-                        "TRANSFER operations must specify `amount`".to_string(),
-                    )
-                })?;
-                if -sender_amount.value != receiver_amount.value {
-                    return Err(errors::ErrorKind::InvalidInput(
-                        "The sum of amounts of Sender and Receiver TRANSFER operations must be zero"
-                            .to_string(),
-                    )
-                    .into());
-                }
-                if let Some(sender_account_id) = sender_account_id.as_ref() {
-                    if &sender_operation.account.address != sender_account_id {
-                        return Err(errors::ErrorKind::InvalidInput(
-                            format!("A single transaction cannot be send from multiple senders ('{}' and '{}')", sender_operation.account.address, sender_account_id)
-                        ).into());
-                    }
-                } else {
-                    sender_account_id = Some(sender_operation.account.address.clone());
-                }
-            }
-            _ => unimplemented!(),
-        }
-    }
-
-    let signer_account_id = sender_account_id.ok_or_else(|| {
-        errors::ErrorKind::InvalidInput(
-            "There are no operations specifying signer [sender] account".to_string(),
-        )
-    })?;
     Ok(Json(models::ConstructionPreprocessResponse {
         required_public_keys: vec![models::AccountIdentifier {
-            address: signer_account_id.clone(),
+            address: near_actions.sender_account_id.clone(),
             sub_account: None,
         }],
-        options: models::ConstructionMetadataOptions { signer_account_id },
+        options: models::ConstructionMetadataOptions {
+            signer_account_id: near_actions.sender_account_id,
+        },
     }))
 }
 
@@ -644,7 +586,7 @@ async fn construction_metadata(
     let access_key_query = near_client::Query::new(
         near_primitives::types::BlockReference::latest(),
         near_primitives::views::QueryRequest::ViewAccessKey {
-            account_id: options.signer_account_id.clone(),
+            account_id: options.signer_account_id,
             public_key: (&signer_public_access_key).try_into().map_err(|err| {
                 errors::ErrorKind::InvalidInput(format!(
                     "public key could not be parsed due to: {:?}",
@@ -687,8 +629,7 @@ async fn construction_metadata(
     Ok(Json(models::ConstructionMetadataResponse {
         metadata: models::ConstructionMetadata {
             recent_block_hash: access_key_query_response.block_hash.to_base(),
-            signer_account_id: options.signer_account_id,
-            signer_public_access_key_nonce: access_key.nonce,
+            signer_public_access_key_nonce: access_key.nonce.saturating_add(1),
         },
     }))
 }
@@ -734,11 +675,13 @@ async fn construction_payloads(
         });
     }
 
-    let models::ConstructionMetadata {
-        recent_block_hash,
-        signer_account_id,
-        signer_public_access_key_nonce,
-    } = metadata;
+    let crate::adapters::NearActions {
+        sender_account_id: signer_account_id,
+        receiver_account_id,
+        actions,
+    } = operations.as_slice().try_into()?;
+    let models::ConstructionMetadata { recent_block_hash, signer_public_access_key_nonce } =
+        metadata;
     let unsigned_transaction = near_primitives::transaction::Transaction {
         block_hash: recent_block_hash.try_into().map_err(|err| {
             errors::ErrorKind::InvalidInput(format!(
@@ -754,24 +697,18 @@ async fn construction_payloads(
             ))
         })?,
         nonce: signer_public_access_key_nonce,
-        // TODO
-        receiver_id: "near.test".to_string(),
-        actions: vec![near_primitives::transaction::Action::Transfer(
-            near_primitives::transaction::TransferAction {
-                deposit: 1_000_000_000_000_000_000_000_000,
-            },
-        )],
+        receiver_id: receiver_account_id,
+        actions,
     };
 
-    let unsigned_transaction_blob: crate::utils::BorshInHexString<
-        near_primitives::transaction::Transaction,
-    > = unsigned_transaction.into();
+    let transaction_hash = unsigned_transaction.get_hash().clone();
+
     Ok(Json(models::ConstructionPayloadsResponse {
-        unsigned_transaction: unsigned_transaction_blob.clone(),
+        unsigned_transaction: unsigned_transaction.into(),
         payloads: vec![models::SigningPayload {
             address: signer_account_id,
             signature_type: None,
-            hex_bytes: unsigned_transaction_blob,
+            hex_bytes: transaction_hash.as_ref().to_owned().into(),
         }],
     }))
 }
@@ -850,8 +787,36 @@ async fn construction_parse(
         });
     }
 
-    unimplemented!()
-    //Ok(Json(models::ConstructionParseResponse { signers, operations }))
+    let near_primitives::transaction::Transaction {
+        actions,
+        signer_id: sender_account_id,
+        receiver_id: receiver_account_id,
+        ..
+    } = if signed {
+        near_primitives::transaction::SignedTransaction::try_from_slice(&transaction.into_inner())
+            .map_err(|err| {
+                errors::ErrorKind::InvalidInput(format!(
+                    "Could not parse unsigned transaction: {}",
+                    err
+                ))
+            })?
+            .transaction
+    } else {
+        near_primitives::transaction::Transaction::try_from_slice(&transaction.into_inner())
+            .map_err(|err| {
+                errors::ErrorKind::InvalidInput(format!(
+                    "Could not parse unsigned transaction: {}",
+                    err
+                ))
+            })?
+    };
+
+    let signers = if signed { vec![sender_account_id.clone()] } else { vec![] };
+
+    let near_actions =
+        crate::adapters::NearActions { sender_account_id, receiver_account_id, actions };
+
+    Ok(Json(models::ConstructionParseResponse { signers, operations: (&near_actions).into() }))
 }
 
 #[api_v2_operation]

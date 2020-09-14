@@ -61,6 +61,12 @@ pub(crate) struct AccountIdentifier {
     // pub metadata: Option<serde_json::Value>,
 }
 
+impl From<near_primitives::types::AccountId> for AccountIdentifier {
+    fn from(account_id: near_primitives::types::AccountId) -> Self {
+        Self { address: account_id, sub_account: None }
+    }
+}
+
 /// Allow specifies supported Operation status, Operation types, and all
 /// possible error statuses. This Allow object is used by clients to validate
 /// the correctness of a Rosetta Server implementation. It is expected that
@@ -103,6 +109,15 @@ pub(crate) struct Amount {
     //
     // #[serde(skip_serializing_if = "Option::is_none")]
     // pub metadata: Option<serde_json::Value>,
+}
+
+impl std::ops::Neg for Amount {
+    type Output = Self;
+
+    fn neg(mut self) -> Self::Output {
+        self.value = -self.value;
+        self
+    }
 }
 
 impl Amount {
@@ -286,7 +301,6 @@ pub(crate) struct ConstructionMetadataRequest {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionMetadata {
-    pub signer_account_id: String,
     pub signer_public_access_key_nonce: u64,
     pub recent_block_hash: String,
 }
@@ -352,7 +366,7 @@ pub(crate) struct ConstructionParseRequest {
     /// This must be either the unsigned transaction blob returned by
     /// `/construction/payloads` or the signed transaction blob
     /// returned by `/construction/combine`.
-    pub transaction: String,
+    pub transaction: BlobInHexString<Vec<u8>>,
 }
 
 /// ConstructionParseResponse contains an array of operations that occur in
@@ -703,6 +717,32 @@ impl OperationStatusKind {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct OperationMetadata {
+    /// Has to be specified for ADD_KEY, REMOVE_KEY, and STAKE operations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<PublicKey>,
+    // /// Has to be specified for ADD_KEY
+    // TODO: Allow specifying the access key permissions and nonce. We go with full-access keys for now
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    //pub access_key: Option<TODO>,
+    /// Has to be specified for DEPLOY_CONTRACT operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<BlobInHexString<Vec<u8>>>,
+    /// Has to be specified for FUNCTION_CALL operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method_name: Option<String>,
+    /// Has to be specified for FUNCTION_CALL operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<BlobInHexString<Vec<u8>>>,
+    /// Has to be specified for FUNCTION_CALL operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
+    /// Has to be specified for DELETE_ACCOUNT operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beneficiary_id: Option<AccountIdentifier>,
+}
+
 /// Operations contain all balance-changing information within a transaction.
 /// They are always one-sided (only affect 1 AccountIdentifier) and can
 /// succeed or fail independently from a Transaction.
@@ -735,11 +775,9 @@ pub(crate) struct Operation {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<Amount>,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<OperationMetadata>,
 }
 
 /// The operation_identifier uniquely identifies an operation within a
@@ -959,6 +997,13 @@ pub(crate) struct PublicKey {
     pub curve_type: CurveType,
 }
 
+impl From<&near_crypto::PublicKey> for PublicKey {
+    fn from(public_key: &near_crypto::PublicKey) -> Self {
+        let hex_bytes = public_key.key_data().to_owned().into();
+        Self { hex_bytes, curve_type: public_key.key_type().into() }
+    }
+}
+
 impl TryFrom<&PublicKey> for near_crypto::PublicKey {
     type Error = near_crypto::TryFromSliceError;
 
@@ -984,6 +1029,15 @@ pub(crate) enum CurveType {
     Secp256k1,
 }
 
+impl From<near_crypto::KeyType> for CurveType {
+    fn from(key_type: near_crypto::KeyType) -> Self {
+        match key_type {
+            near_crypto::KeyType::ED25519 => Self::Edwards25519,
+            near_crypto::KeyType::SECP256K1 => Self::Secp256k1,
+        }
+    }
+}
+
 /// SigningPayload is signed by the client with the keypair associated with an
 /// address using the specified SignatureType. SignatureType can be optionally
 /// populated if there is a restriction on the signature scheme that can be used
@@ -993,7 +1047,7 @@ pub(crate) struct SigningPayload {
     /// The network-specific address of the account that should sign the
     /// payload.
     pub address: String,
-    pub hex_bytes: BorshInHexString<near_primitives::transaction::Transaction>,
+    pub hex_bytes: BlobInHexString<Vec<u8>>,
     pub signature_type: Option<SignatureType>,
 }
 

@@ -2491,6 +2491,7 @@ dependencies = [
  "bs58",
  "c2-chacha",
  "curve25519-dalek",
+ "derive_more",
  "digest",
  "ed25519-dalek",
  "hex-literal",

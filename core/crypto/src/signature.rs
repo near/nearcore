@@ -1,8 +1,9 @@
 use std::cmp::Ordering;
-use std::convert::{TryFrom, TryInto};
+use std::convert::{AsRef, TryFrom, TryInto};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Write};
+use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use lazy_static::lazy_static;
@@ -32,36 +33,36 @@ impl Display for KeyType {
     }
 }
 
-impl TryFrom<String> for KeyType {
-    type Error = Box<dyn std::error::Error>;
+impl FromStr for KeyType {
+    type Err = crate::ParseKeyError;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.to_lowercase().as_str() {
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
             "ed25519" => Ok(KeyType::ED25519),
             "secp256k1" => Ok(KeyType::SECP256K1),
-            _ => Err(format!("Unknown curve kind {}", value).into()),
+            _ => Err(Self::Err::UnknownCurve(value.to_string())),
         }
     }
 }
 
 impl TryFrom<u8> for KeyType {
-    type Error = Box<dyn std::error::Error>;
+    type Error = crate::ParseKeyError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(KeyType::ED25519),
             1 => Ok(KeyType::SECP256K1),
-            _ => Err(format!("Unknown curve id {}", value).into()),
+            _ => Err(Self::Error::UnknownCurve(value.to_string())),
         }
     }
 }
 
-fn split_key_type_data(value: &str) -> Result<(KeyType, &str), Box<dyn std::error::Error>> {
+fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::ParseKeyError> {
     if let Some(idx) = value.find(':') {
         let (prefix, key_data) = value.split_at(idx);
-        Ok((KeyType::try_from(prefix.to_string())?, &key_data[1..]))
+        Ok((KeyType::from_str(prefix)?, &key_data[1..]))
     } else {
-        // If there is no Default is ED25519.
+        // If there is no prefix then we Default to ED25519.
         Ok((KeyType::ED25519, value))
     }
 }
@@ -94,6 +95,12 @@ impl TryFrom<&[u8]> for Secp256K1PublicKey {
     }
 }
 
+impl AsRef<[u8]> for Secp256K1PublicKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 impl std::fmt::Debug for Secp256K1PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
@@ -120,7 +127,8 @@ impl Ord for Secp256K1PublicKey {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, derive_more::AsRef)]
+#[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
 
 impl From<[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]> for ED25519PublicKey {
@@ -173,8 +181,8 @@ pub enum PublicKey {
 impl PublicKey {
     pub fn len(&self) -> usize {
         match self {
-            PublicKey::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
-            PublicKey::SECP256K1(_) => 65,
+            Self::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
+            Self::SECP256K1(_) => 65,
         }
     }
 
@@ -189,15 +197,22 @@ impl PublicKey {
 
     pub fn key_type(&self) -> KeyType {
         match self {
-            PublicKey::ED25519(_) => KeyType::ED25519,
-            PublicKey::SECP256K1(_) => KeyType::SECP256K1,
+            Self::ED25519(_) => KeyType::ED25519,
+            Self::SECP256K1(_) => KeyType::SECP256K1,
+        }
+    }
+
+    pub fn key_data(&self) -> &[u8] {
+        match self {
+            Self::ED25519(key) => key.as_ref(),
+            Self::SECP256K1(key) => key.as_ref(),
         }
     }
 
     pub fn unwrap_as_ed25519(&self) -> &ED25519PublicKey {
         match self {
-            PublicKey::ED25519(key) => &key,
-            PublicKey::SECP256K1(_) => panic!(),
+            Self::ED25519(key) => &key,
+            Self::SECP256K1(_) => panic!(),
         }
     }
 }
@@ -443,6 +458,39 @@ impl std::fmt::Display for SecretKey {
     }
 }
 
+impl std::str::FromStr for SecretKey {
+    type Err = crate::ParseKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (key_type, key_data) = split_key_type_data(&s)?;
+        match key_type {
+            KeyType::ED25519 => {
+                let mut array = [0; ed25519_dalek::KEYPAIR_LENGTH];
+                let length = bs58::decode(key_data)
+                    .into(&mut array[..])
+                    .map_err(|err| Self::Err::InvalidData(err.to_string()))?;
+                if length != ed25519_dalek::KEYPAIR_LENGTH {
+                    return Err(Self::Err::InvalidLength(length));
+                }
+                Ok(Self::ED25519(ED25519SecretKey(array)))
+            }
+            _ => {
+                let mut array = [0; secp256k1::constants::SECRET_KEY_SIZE];
+                let length = bs58::decode(key_data)
+                    .into(&mut array[..])
+                    .map_err(|err| Self::Err::InvalidData(err.to_string()))?;
+                if length != secp256k1::constants::SECRET_KEY_SIZE {
+                    return Err(Self::Err::InvalidLength(length));
+                }
+                Ok(Self::SECP256K1(
+                    secp256k1::key::SecretKey::from_slice(&SECP256K1, &array)
+                        .map_err(|err| Self::Err::InvalidData(err.to_string()))?,
+                ))
+            }
+        }
+    }
+}
+
 impl serde::Serialize for SecretKey {
     fn serialize<S>(
         &self,
@@ -465,39 +513,7 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
         D: serde::Deserializer<'de>,
     {
         let s = <String as serde::Deserialize>::deserialize(deserializer)?;
-        let (key_type, key_data) =
-            split_key_type_data(&s).map_err(|err| serde::de::Error::custom(err.to_string()))?;
-        match key_type {
-            KeyType::ED25519 => {
-                let mut array = [0; ed25519_dalek::KEYPAIR_LENGTH];
-                let length = bs58::decode(key_data)
-                    .into(&mut array[..])
-                    .map_err(|err| serde::de::Error::custom(err.to_string()))?;
-                if length != ed25519_dalek::KEYPAIR_LENGTH {
-                    return Err(serde::de::Error::custom(format!(
-                        "Invalid length {} of ED25519 secret key",
-                        length
-                    )));
-                }
-                Ok(SecretKey::ED25519(ED25519SecretKey(array)))
-            }
-            _ => {
-                let mut array = [0; secp256k1::constants::SECRET_KEY_SIZE];
-                let length = bs58::decode(key_data)
-                    .into(&mut array[..])
-                    .map_err(|err| serde::de::Error::custom(err.to_string()))?;
-                if length != secp256k1::constants::SECRET_KEY_SIZE {
-                    return Err(serde::de::Error::custom(format!(
-                        "Invalid length {} of SECP256K1 secret key",
-                        length
-                    )));
-                }
-                Ok(SecretKey::SECP256K1(
-                    secp256k1::key::SecretKey::from_slice(&SECP256K1, &array)
-                        .map_err(|err| serde::de::Error::custom(err.to_string()))?,
-                ))
-            }
-        }
+        Self::from_str(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
 

@@ -1,4 +1,4 @@
-pub use errors::{ParseSignatureError, TryFromSliceError};
+pub use errors::{ParseKeyError, ParseSignatureError, TryFromSliceError};
 pub use key_file::KeyFile;
 pub use signature::{KeyType, PublicKey, SecretKey, Signature};
 pub use signer::{EmptySigner, InMemorySigner, Signer};
