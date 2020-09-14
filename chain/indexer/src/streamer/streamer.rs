@@ -37,7 +37,7 @@ impl From<MailboxError> for FailedToFetchData {
 pub struct StreamerMessage {
     pub block: views::BlockView,
     pub chunks: Vec<IndexerChunkView>,
-    pub outcomes: HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>,
+    pub receipt_execution_outcomes: HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>,
     pub state_changes: views::StateChangesKindsView,
     /// Transaction where signer is receiver produces so called "local receipt"
     /// these receipts will never get to chunks' `receipts` field. Anyway they can
@@ -105,51 +105,61 @@ async fn build_streamer_message(
     let mut outcomes = fetch_outcomes(&client, block.header.hash).await?;
     let mut indexer_chunks: Vec<IndexerChunkView> = vec![];
 
-    for chunk in &chunks {
-        let indexer_transactions = chunk
-            .transactions
-            .iter()
-            .map(|transaction| {
-                if transaction.signer_id == transaction.receiver_id {
-                    // This transaction generates local receipt (sir)
-                    local_receipts.push(views::ReceiptView {
-                        predecessor_id: transaction.signer_id.clone(),
-                        receiver_id: transaction.receiver_id.clone(),
-                        receipt_id: outcomes
-                            .get(&transaction.hash)
-                            .unwrap()
-                            .outcome
-                            .receipt_ids
-                            .first()
-                            .unwrap()
-                            .clone(),
-                        receipt: views::ReceiptEnumView::Action {
-                            signer_id: transaction.signer_id.clone(),
-                            signer_public_key: transaction.public_key.clone(),
-                            gas_price: block.header.gas_price, // TODO: fill it
-                            output_data_receivers: vec![],
-                            input_data_ids: vec![],
-                            actions: transaction.actions.clone(),
-                        },
-                    })
-                }
-                IndexerTransactionWithOutcome {
-                    transaction: transaction.clone(),
-                    outcome: outcomes.remove_entry(&transaction.hash).unwrap().1,
-                }
-            })
-            .collect::<Vec<IndexerTransactionWithOutcome>>();
+    for chunk in chunks {
+        let views::ChunkView { transactions, author, header, receipts } = chunk;
+
+        let indexer_transactions = transactions
+        .into_iter()
+        .map(|transaction| {
+            IndexerTransactionWithOutcome {
+            outcome: outcomes.remove(&transaction.hash).expect("The transaction execution outcome should always present in the same block as the transaction itself"),
+            transaction,
+        }
+        })
+        .collect::<Vec<IndexerTransactionWithOutcome>>();
+
+        local_receipts.extend(
+            indexer_transactions
+                .iter()
+                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
+                .map(|tx| views::ReceiptView {
+                    predecessor_id: tx.transaction.signer_id.clone(),
+                    receiver_id: tx.transaction.receiver_id.clone(),
+                    receipt_id: tx
+                        .outcome
+                        .outcome
+                        .receipt_ids
+                        .first()
+                        .expect("The transaction outcome should always include single `receipt_id` in vec")
+                        .clone(),
+                    receipt: views::ReceiptEnumView::Action {
+                        signer_id: tx.transaction.signer_id.clone(),
+                        signer_public_key: tx.transaction.public_key.clone(),
+                        gas_price: block.header.gas_price, // TODO: fill it
+                        output_data_receivers: vec![],
+                        input_data_ids: vec![],
+                        actions: tx.transaction.actions.clone(),
+                    },
+                }),
+        );
+
         indexer_chunks.push(IndexerChunkView {
-            author: chunk.author.clone(),
-            header: chunk.header.clone(),
+            author,
+            header,
             transactions: indexer_transactions,
-            receipts: chunk.receipts.clone(),
+            receipts,
         });
     }
 
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
-    Ok(StreamerMessage { block, chunks: indexer_chunks, outcomes, state_changes, local_receipts })
+    Ok(StreamerMessage {
+        block,
+        chunks: indexer_chunks,
+        receipt_execution_outcomes: outcomes,
+        state_changes,
+        local_receipts,
+    })
 }
 
 async fn fetch_state_changes(
