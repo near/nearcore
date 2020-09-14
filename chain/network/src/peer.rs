@@ -1,8 +1,10 @@
 use std::cmp::max;
 use std::io;
 use std::net::SocketAddr;
-use std::ops::AddAssign;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 use actix::io::{FramedWrite, WriteHandler};
@@ -10,7 +12,6 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
-use parking_lot::RwLock;
 use tracing::{debug, error, info, trace, warn};
 
 use near_metrics;
@@ -174,7 +175,7 @@ pub struct Peer {
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
     /// How many transactions we have received since the last block message
-    txns_since_last_block: Arc<RwLock<usize>>,
+    txns_since_last_block: Arc<AtomicUsize>,
 }
 
 impl Peer {
@@ -190,7 +191,7 @@ impl Peer {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         edge_info: Option<EdgeInfo>,
         network_metrics: NetworkMetrics,
-        txns_since_last_block: Arc<RwLock<usize>>,
+        txns_since_last_block: Arc<AtomicUsize>,
     ) -> Self {
         Peer {
             node_info,
@@ -623,8 +624,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
 
         self.tracker.increment_received(msg.len() as u64);
         if codec::is_forward_tx(&msg) {
-            let r = self.txns_since_last_block.read();
-            if *r > MAX_TXNS_PER_BLOCK_MESSAGE {
+            let r = self.txns_since_last_block.load(Ordering::Acquire);
+            if r > MAX_TXNS_PER_BLOCK_MESSAGE {
                 return;
             }
         }
@@ -660,11 +661,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
         };
         if let PeerMessage::Routed(rm) = &peer_msg {
             if let RoutedMessageBody::ForwardTx(_) = rm.body {
-                self.txns_since_last_block.write().add_assign(1);
+                self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
             }
         } else if let PeerMessage::Block(_) = &peer_msg {
-            let mut w = self.txns_since_last_block.write();
-            *w = 0;
+            self.txns_since_last_block.store(0, Ordering::Release);
         }
 
         trace!(target: "network", "Received message: {}", peer_msg);

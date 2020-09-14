@@ -3,7 +3,7 @@ use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::{Duration, Instant};
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
@@ -15,7 +15,6 @@ use actix::{
 use chrono::Utc;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
-use parking_lot::RwLock;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
@@ -131,7 +130,7 @@ pub struct PeerManagerActor {
     #[cfg(feature = "metric_recorder")]
     metric_recorder: MetricRecorder,
     edge_verifier_pool: Addr<EdgeVerifier>,
-    txns_since_last_block: Arc<RwLock<usize>>,
+    txns_since_last_block: Arc<AtomicUsize>,
 }
 
 impl PeerManagerActor {
@@ -153,7 +152,7 @@ impl PeerManagerActor {
         #[cfg(feature = "metric_recorder")]
         let metric_recorder = MetricRecorder::default().set_me(me.clone());
 
-        let txns_since_last_block = Arc::new(RwLock::new(0));
+        let txns_since_last_block = Arc::new(AtomicUsize::new(0));
 
         Ok(PeerManagerActor {
             peer_id: me,
