@@ -158,7 +158,7 @@ pub fn default_reward_calculator() -> RewardCalculator {
         max_inflation_rate: Rational::from_integer(0),
         num_blocks_per_year: 1,
         epoch_length: 1,
-        protocol_reward_percentage: Rational::from_integer(0),
+        protocol_reward_rate: Rational::from_integer(0),
         protocol_treasury_account: "near".to_string(),
         online_min_threshold: Rational::new(90, 100),
         online_max_threshold: Rational::new(99, 100),

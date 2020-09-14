@@ -14,6 +14,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, MaybeBlockId, ShardId, TransactionOrReceiptId,
 };
@@ -185,7 +186,7 @@ impl Message for GetChunk {
 }
 
 /// Queries client for given path / data.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Query {
     pub query_id: String,
     pub block_reference: BlockReference,
@@ -322,6 +323,15 @@ pub struct GetExecutionOutcomeResponse {
 
 impl Message for GetExecutionOutcome {
     type Result = Result<GetExecutionOutcomeResponse, String>;
+}
+
+pub struct GetExecutionOutcomeForChunk {
+    pub chunk_hash: ChunkHash,
+}
+
+impl Message for GetExecutionOutcomeForChunk {
+    // This is not exposed to rpc so we don't convert the result to a view.
+    type Result = Result<HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>, String>;
 }
 
 pub struct GetBlockProof {
