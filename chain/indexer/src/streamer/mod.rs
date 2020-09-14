@@ -1,3 +1,3 @@
 mod streamer;
 pub(crate) use self::streamer::start;
-pub use self::streamer::{Outcome, StreamerMessage};
+pub use self::streamer::{IndexerTransactionWithOutcome, StreamerMessage};

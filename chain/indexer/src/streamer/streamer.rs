@@ -1,13 +1,11 @@
 //! Streamer watches the network and collects all the blocks and related chunks
 //! into one struct and pushes in in to the given queue
+use std::collections::HashMap;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use futures::stream::StreamExt;
-use near_primitives::borsh;
-use near_primitives::borsh::de::BorshDeserialize;
-use near_primitives::borsh::ser::BorshSerialize;
-use rocksdb::{WriteBatch, DB};
+use rocksdb::DB;
 use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info};
@@ -39,66 +37,18 @@ impl From<MailboxError> for FailedToFetchData {
 pub struct StreamerMessage {
     pub block: views::BlockView,
     pub chunks: Vec<views::ChunkView>,
-    pub outcomes: Vec<Outcome>,
+    pub outcomes: HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>,
     pub state_changes: views::StateChangesKindsView,
+    /// Transaction where signer is receiver produces so called "local receipt"
+    /// these receipts will never get to chunks' `receipts` field. Anyway they can
+    /// contain actions that is necessary to handle in Indexers
     pub local_receipts: Vec<views::ReceiptView>,
 }
 
 #[derive(Clone, Debug)]
-pub enum Outcome {
-    Receipt(views::ExecutionOutcomeWithIdView),
-    Transaction(views::ExecutionOutcomeWithIdView),
-}
-
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug)]
-pub struct IndexerReceiptMetaData {
-    pub parent_receipt_id: CryptoHash,
-    pub transaction_hash: CryptoHash,
-    pub receipt_id: CryptoHash,
-    pub receiver_id: types::AccountId,
-}
-
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug)]
-pub enum TransactionOrReceiptId {
-    Transaction { transaction_hash: CryptoHash, sender_id: types::AccountId },
-    Receipt { receipt_id: CryptoHash, receiver_id: types::AccountId },
-}
-
-impl TransactionOrReceiptId {
-    fn id(&self) -> &CryptoHash {
-        match self {
-            TransactionOrReceiptId::Transaction { transaction_hash, sender_id: _ } => {
-                transaction_hash
-            }
-            TransactionOrReceiptId::Receipt { receipt_id, receiver_id: _ } => receipt_id,
-        }
-    }
-}
-
-impl From<types::TransactionOrReceiptId> for TransactionOrReceiptId {
-    fn from(near_enum: types::TransactionOrReceiptId) -> Self {
-        match near_enum {
-            types::TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
-                Self::Receipt { receipt_id, receiver_id }
-            }
-            types::TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
-                Self::Transaction { transaction_hash, sender_id }
-            }
-        }
-    }
-}
-
-impl From<TransactionOrReceiptId> for types::TransactionOrReceiptId {
-    fn from(indexer_enum: TransactionOrReceiptId) -> Self {
-        match indexer_enum {
-            TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
-                Self::Receipt { receipt_id, receiver_id }
-            }
-            TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
-                Self::Transaction { transaction_hash, sender_id }
-            }
-        }
-    }
+pub struct IndexerTransactionWithOutcome {
+    pub transaction: views::SignedTransactionView,
+    pub outcome: views::ExecutionOutcomeWithIdView,
 }
 
 async fn fetch_status(
@@ -140,88 +90,48 @@ async fn fetch_block_by_height(
 async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
-    db: &DB,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let chunks = fetch_chunks(&client, &block.chunks).await?;
 
-    let mut outcomes_to_fetch: Vec<TransactionOrReceiptId> = vec![];
     let mut local_receipts: Vec<views::ReceiptView> = vec![];
-    let mut outcomes: Vec<Outcome> = vec![];
+    let mut outcomes = fetch_outcomes(&client, block.header.hash).await?;
+    let mut transactions: Vec<IndexerTransactionWithOutcome> = vec![];
 
     for chunk in &chunks {
         for transaction in &chunk.transactions {
-            match client
-                .send(near_client::GetExecutionOutcome {
-                    id: types::TransactionOrReceiptId::Transaction {
-                        transaction_hash: transaction.hash.clone(),
-                        sender_id: transaction.signer_id.to_string(),
+            if transaction.signer_id == transaction.receiver_id {
+                // This transaction generates local receipt (sir)
+                local_receipts.push(views::ReceiptView {
+                    predecessor_id: transaction.signer_id.clone(),
+                    receiver_id: transaction.receiver_id.clone(),
+                    receipt_id: outcomes
+                        .get(&transaction.hash)
+                        .unwrap()
+                        .outcome
+                        .receipt_ids
+                        .first()
+                        .unwrap()
+                        .clone(),
+                    receipt: views::ReceiptEnumView::Action {
+                        signer_id: transaction.signer_id.clone(),
+                        signer_public_key: transaction.public_key.clone(),
+                        gas_price: block.header.gas_price, // TODO: fill it
+                        output_data_receivers: vec![],
+                        input_data_ids: vec![],
+                        actions: transaction.actions.clone(),
                     },
                 })
-                .await
-                .map_err(|e| eprintln!("{:?}", e))
-            {
-                Ok(Ok(outcome)) => {
-                    if transaction.signer_id == transaction.receiver_id {
-                        // This transaction generates local receipt (sir)
-                        local_receipts.push(views::ReceiptView {
-                            predecessor_id: transaction.signer_id.clone(),
-                            receiver_id: transaction.receiver_id.clone(),
-                            receipt_id: outcome
-                                .outcome_proof
-                                .outcome
-                                .receipt_ids
-                                .first()
-                                .unwrap()
-                                .clone(),
-                            receipt: views::ReceiptEnumView::Action {
-                                signer_id: transaction.signer_id.clone(),
-                                signer_public_key: transaction.public_key.clone(),
-                                gas_price: block.header.gas_price, // TODO: fill it
-                                output_data_receivers: vec![],
-                                input_data_ids: vec![],
-                                actions: transaction.actions.clone(),
-                            },
-                        })
-                    }
-                    outcomes.push(Outcome::Transaction(outcome.outcome_proof));
-                }
-                _ => {}
             }
+            transactions.push(IndexerTransactionWithOutcome {
+                transaction: transaction.clone(),
+                outcome: outcomes.remove_entry(&transaction.hash).unwrap().1,
+            });
         }
-
-        outcomes_to_fetch.extend(chunk.receipts.iter().map(|receipt| {
-            TransactionOrReceiptId::Receipt {
-                receipt_id: receipt.receipt_id,
-                receiver_id: receipt.receiver_id.to_string(),
-            }
-        }));
     }
-
-    // Add local receipts to the start of the outcomes to fetch
-    outcomes_to_fetch.extend(&mut local_receipts.iter().map(|receipt| {
-        TransactionOrReceiptId::Receipt {
-            receipt_id: receipt.receipt_id,
-            receiver_id: receipt.receiver_id.to_string(),
-        }
-    }));
-
-    put_outcomes_to_fetch(outcomes_to_fetch, &db).await;
-
-    outcomes.extend(fetch_outcomes(&client, &db).await);
 
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
     Ok(StreamerMessage { block, chunks, outcomes, state_changes, local_receipts })
-}
-
-async fn put_outcomes_to_fetch(transaction_or_receipt_ids: Vec<TransactionOrReceiptId>, db: &DB) {
-    let mut batch = WriteBatch::default();
-    for transaction_or_receipt_id in transaction_or_receipt_ids {
-        // Generate key with prefix "outcome_to_get_" and CryptoHash tail of particular Transaction or Receipt
-        let key = format!("outcome_to_get_{}", transaction_or_receipt_id.id().to_string());
-        batch.put(key.into_bytes(), transaction_or_receipt_id.try_to_vec().unwrap())
-    }
-    db.write(batch);
 }
 
 async fn fetch_state_changes(
@@ -245,30 +155,19 @@ async fn fetch_single_chunk(
 /// Fetch ExecutionOutcomeWithId for receipts and transactions from previous block
 /// Returns fetched Outcomes and Vec of failed to fetch outcome which should be retried to fetch
 /// in the next block
-async fn fetch_outcomes(client: &Addr<near_client::ViewClientActor>, db: &DB) -> Vec<Outcome> {
-    let mut outcomes: Vec<Outcome> = vec![];
-    for (db_key, v) in db.prefix_iterator("outcome_to_get_") {
-        let transaction_or_receipt_id = TransactionOrReceiptId::try_from_slice(&v).unwrap();
-        match client
-            .send(near_client::GetExecutionOutcome { id: transaction_or_receipt_id.clone().into() })
-            .await
-            .map_err(|err| FailedToFetchData::MailboxError(err))
-        {
-            Ok(Ok(outcome)) => {
-                match &transaction_or_receipt_id {
-                    TransactionOrReceiptId::Transaction { .. } => {
-                        outcomes.push(Outcome::Transaction(outcome.outcome_proof));
-                    }
-                    TransactionOrReceiptId::Receipt { .. } => {
-                        outcomes.push(Outcome::Receipt(outcome.outcome_proof));
-                    }
-                };
-                db.delete(db_key);
-            }
-            _ => {}
-        }
-    }
-    outcomes
+async fn fetch_outcomes(
+    client: &Addr<near_client::ViewClientActor>,
+    block_hash: CryptoHash,
+) -> Result<HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>, FailedToFetchData> {
+    let outcomes = client
+        .send(near_client::GetExecutionOutcomesForBlock { block_hash })
+        .await?
+        .map_err(|err| FailedToFetchData::String(err))?;
+
+    Ok(outcomes
+        .into_iter()
+        .map(|outcome| (outcome.id, outcome))
+        .collect::<HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>>())
 }
 
 /// Fetches all the chunks by their hashes.
@@ -315,11 +214,11 @@ pub(crate) async fn start(
     'main: loop {
         time::delay_for(INTERVAL).await;
         let status = fetch_status(&client).await;
-        // if let Ok(status) = status {
-        //     if status.sync_info.syncing {
-        //         continue;
-        //     }
-        // }
+        if let Ok(status) = status {
+            if status.sync_info.syncing {
+                continue;
+            }
+        }
 
         let block = if let Ok(block) = fetch_latest_block(&view_client).await {
             block
@@ -353,7 +252,7 @@ pub(crate) async fn start(
         );
         for block_height in start_syncing_block_height..=latest_block_height {
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response = build_streamer_message(&view_client, block, &db).await;
+                let response = build_streamer_message(&view_client, block).await;
 
                 match response {
                     Ok(streamer_message) => {
