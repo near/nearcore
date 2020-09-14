@@ -15,6 +15,7 @@ use actix::{
 use chrono::Utc;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
+use parking_lot::RwLock;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
@@ -130,6 +131,7 @@ pub struct PeerManagerActor {
     #[cfg(feature = "metric_recorder")]
     metric_recorder: MetricRecorder,
     edge_verifier_pool: Addr<EdgeVerifier>,
+    txns_since_last_block: Arc<RwLock<usize>>,
 }
 
 impl PeerManagerActor {
@@ -151,6 +153,8 @@ impl PeerManagerActor {
         #[cfg(feature = "metric_recorder")]
         let metric_recorder = MetricRecorder::default().set_me(me.clone());
 
+        let txns_since_last_block = Arc::new(RwLock::new(0));
+
         Ok(PeerManagerActor {
             peer_id: me,
             config,
@@ -166,6 +170,7 @@ impl PeerManagerActor {
             edge_verifier_pool,
             #[cfg(feature = "metric_recorder")]
             metric_recorder,
+            txns_since_last_block,
         })
     }
 
@@ -381,6 +386,7 @@ impl PeerManagerActor {
         };
 
         let network_metrics = self.network_metrics.clone();
+        let txns_since_last_block = Arc::clone(&self.txns_since_last_block);
 
         // Start every peer actor on separate thread.
         let arbiter = Arbiter::new();
@@ -413,6 +419,7 @@ impl PeerManagerActor {
                 view_client_addr,
                 edge_info,
                 network_metrics,
+                txns_since_last_block,
             )
         });
     }

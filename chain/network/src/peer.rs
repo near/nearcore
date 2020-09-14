@@ -1,6 +1,8 @@
 use std::cmp::max;
 use std::io;
 use std::net::SocketAddr;
+use std::ops::AddAssign;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::io::{FramedWrite, WriteHandler};
@@ -8,6 +10,7 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
+use parking_lot::RwLock;
 use tracing::{debug, error, info, trace, warn};
 
 use near_metrics;
@@ -20,7 +23,7 @@ use near_primitives::version::{
     ProtocolVersion, NETWORK_PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
 };
 
-use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{PeerMessageMetadata, Status};
@@ -46,6 +49,11 @@ const MAX_TRACK_SIZE: usize = 30;
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
 const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
+
+/// Maximum number of transaction messages we will accept between block messages.
+/// The purpose of this constant is to ensure we do not spend too much time deserializing and
+/// dispatching transactions when we should be focusing on consensus-related messages.
+const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
@@ -165,6 +173,8 @@ pub struct Peer {
     last_time_received_message_update: Instant,
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
+    /// How many transactions we have received since the last block message
+    txns_since_last_block: Arc<RwLock<usize>>,
 }
 
 impl Peer {
@@ -180,6 +190,7 @@ impl Peer {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         edge_info: Option<EdgeInfo>,
         network_metrics: NetworkMetrics,
+        txns_since_last_block: Arc<RwLock<usize>>,
     ) -> Self {
         Peer {
             node_info,
@@ -199,6 +210,7 @@ impl Peer {
             edge_info,
             last_time_received_message_update: Instant::now(),
             network_metrics,
+            txns_since_last_block,
         }
     }
 
@@ -610,7 +622,12 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
         let msg_size = msg.len();
 
         self.tracker.increment_received(msg.len() as u64);
-
+        if codec::is_forward_tx(&msg) {
+            let r = self.txns_since_last_block.read();
+            if *r > MAX_TXNS_PER_BLOCK_MESSAGE {
+                return;
+            }
+        }
         let mut peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
             Err(err) => {
@@ -641,6 +658,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 return;
             }
         };
+        if let PeerMessage::Routed(rm) = &peer_msg {
+            if let RoutedMessageBody::ForwardTx(_) = rm.body {
+                self.txns_since_last_block.write().add_assign(1);
+            }
+        } else if let PeerMessage::Block(_) = &peer_msg {
+            let mut w = self.txns_since_last_block.write();
+            *w = 0;
+        }
 
         trace!(target: "network", "Received message: {}", peer_msg);
 

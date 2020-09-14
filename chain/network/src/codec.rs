@@ -74,12 +74,63 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
     PeerMessage::try_from_slice(bytes)
 }
 
+fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
+    // 1 byte for enum variant, then some number depending on the
+    // public key type
+    match enum_var {
+        0 => Some(1 + 32),
+        1 => Some(1 + 64),
+        _ => None,
+    }
+}
+
+pub fn is_forward_tx(bytes: &[u8]) -> bool {
+    // PeerMessage::Routed variant == 13
+    if bytes[0] == 13 {
+        let target_field_len = if bytes[1] == 0 {
+            match peer_id_type_field_len(bytes[2]) {
+                Some(l) => l,
+                None => {
+                    return false;
+                }
+            }
+        } else if bytes[1] == 1 {
+            // PeerIdOrHash::Hash is always 32 bytes
+            32
+        } else {
+            return false;
+        };
+        let author_variant_idx = 2 + target_field_len;
+        let author_field_len = match peer_id_type_field_len(bytes[author_variant_idx]) {
+            Some(l) => l,
+            None => {
+                return false;
+            }
+        };
+        let signature_variant_idx = author_variant_idx + author_field_len;
+        let signature_field_len = match bytes[signature_variant_idx] {
+            0 => 1 + 64,
+            1 => 1 + 65,
+            _ => {
+                return false;
+            }
+        };
+        let ttl_idx = signature_variant_idx + signature_field_len;
+        let message_body_idx = ttl_idx + 1;
+
+        bytes[message_body_idx] == 1
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use near_crypto::{KeyType, PublicKey, SecretKey};
+    use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;
     use near_primitives::network::{AnnounceAccount, PeerId};
+    use near_primitives::transaction::{SignedTransaction, Transaction};
     use near_primitives::{
         types::EpochId,
         version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
@@ -99,6 +150,30 @@ mod test {
         codec.encode(peer_message_to_bytes(msg.clone()).unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
         assert_eq!(bytes_to_peer_message(&decoded).unwrap(), msg);
+    }
+
+    #[test]
+    fn test_tx_forward() {
+        let pk = PublicKey::empty(KeyType::ED25519);
+        let tx = SignedTransaction::new(
+            Signature::default(),
+            Transaction::new(
+                "tmp".to_string(),
+                pk.clone(),
+                "other".to_string(),
+                0,
+                CryptoHash::default(),
+            ),
+        );
+        let msg = PeerMessage::Routed(RoutedMessage {
+            target: PeerIdOrHash::Hash(CryptoHash::default()),
+            author: PeerId(pk),
+            signature: Default::default(),
+            ttl: 0,
+            body: RoutedMessageBody::ForwardTx(tx),
+        });
+        let bytes = msg.try_to_vec().unwrap();
+        assert!(is_forward_tx(&bytes));
     }
 
     #[test]
