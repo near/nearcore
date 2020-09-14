@@ -36,13 +36,21 @@ impl From<MailboxError> for FailedToFetchData {
 #[derive(Debug)]
 pub struct StreamerMessage {
     pub block: views::BlockView,
-    pub chunks: Vec<views::ChunkView>,
+    pub chunks: Vec<IndexerChunkView>,
     pub outcomes: HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>,
     pub state_changes: views::StateChangesKindsView,
     /// Transaction where signer is receiver produces so called "local receipt"
     /// these receipts will never get to chunks' `receipts` field. Anyway they can
     /// contain actions that is necessary to handle in Indexers
     pub local_receipts: Vec<views::ReceiptView>,
+}
+
+#[derive(Debug)]
+pub struct IndexerChunkView {
+    pub author: types::AccountId,
+    pub header: views::ChunkHeaderView,
+    pub transactions: Vec<IndexerTransactionWithOutcome>,
+    pub receipts: Vec<views::ReceiptView>,
 }
 
 #[derive(Clone, Debug)]
@@ -95,43 +103,53 @@ async fn build_streamer_message(
 
     let mut local_receipts: Vec<views::ReceiptView> = vec![];
     let mut outcomes = fetch_outcomes(&client, block.header.hash).await?;
-    let mut transactions: Vec<IndexerTransactionWithOutcome> = vec![];
+    let mut indexer_chunks: Vec<IndexerChunkView> = vec![];
 
     for chunk in &chunks {
-        for transaction in &chunk.transactions {
-            if transaction.signer_id == transaction.receiver_id {
-                // This transaction generates local receipt (sir)
-                local_receipts.push(views::ReceiptView {
-                    predecessor_id: transaction.signer_id.clone(),
-                    receiver_id: transaction.receiver_id.clone(),
-                    receipt_id: outcomes
-                        .get(&transaction.hash)
-                        .unwrap()
-                        .outcome
-                        .receipt_ids
-                        .first()
-                        .unwrap()
-                        .clone(),
-                    receipt: views::ReceiptEnumView::Action {
-                        signer_id: transaction.signer_id.clone(),
-                        signer_public_key: transaction.public_key.clone(),
-                        gas_price: block.header.gas_price, // TODO: fill it
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: transaction.actions.clone(),
-                    },
-                })
-            }
-            transactions.push(IndexerTransactionWithOutcome {
-                transaction: transaction.clone(),
-                outcome: outcomes.remove_entry(&transaction.hash).unwrap().1,
-            });
-        }
+        let indexer_transactions = chunk
+            .transactions
+            .iter()
+            .map(|transaction| {
+                if transaction.signer_id == transaction.receiver_id {
+                    // This transaction generates local receipt (sir)
+                    local_receipts.push(views::ReceiptView {
+                        predecessor_id: transaction.signer_id.clone(),
+                        receiver_id: transaction.receiver_id.clone(),
+                        receipt_id: outcomes
+                            .get(&transaction.hash)
+                            .unwrap()
+                            .outcome
+                            .receipt_ids
+                            .first()
+                            .unwrap()
+                            .clone(),
+                        receipt: views::ReceiptEnumView::Action {
+                            signer_id: transaction.signer_id.clone(),
+                            signer_public_key: transaction.public_key.clone(),
+                            gas_price: block.header.gas_price, // TODO: fill it
+                            output_data_receivers: vec![],
+                            input_data_ids: vec![],
+                            actions: transaction.actions.clone(),
+                        },
+                    })
+                }
+                IndexerTransactionWithOutcome {
+                    transaction: transaction.clone(),
+                    outcome: outcomes.remove_entry(&transaction.hash).unwrap().1,
+                }
+            })
+            .collect::<Vec<IndexerTransactionWithOutcome>>();
+        indexer_chunks.push(IndexerChunkView {
+            author: chunk.author.clone(),
+            header: chunk.header.clone(),
+            transactions: indexer_transactions,
+            receipts: chunk.receipts.clone(),
+        });
     }
 
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
-    Ok(StreamerMessage { block, chunks, outcomes, state_changes, local_receipts })
+    Ok(StreamerMessage { block, chunks: indexer_chunks, outcomes, state_changes, local_receipts })
 }
 
 async fn fetch_state_changes(
