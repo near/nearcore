@@ -50,7 +50,7 @@ pub fn get_block_shard_id_rev(
 }
 
 /// Creates a new Receipt ID from a given signed transaction and a block hash.
-/// This method is backward compatible, so it takes a current protocol version.
+/// This method is backward compatible, so it takes the current protocol version.
 pub fn create_receipt_id_from_transaction(
     protocol_version: ProtocolVersion,
     signed_transaction: &SignedTransaction,
@@ -60,7 +60,7 @@ pub fn create_receipt_id_from_transaction(
 }
 
 /// Creates a new Receipt ID from a given receipt, a block hash and a new receipt index.
-/// This method is backward compatible, so it takes a current protocol version.
+/// This method is backward compatible, so it takes the current protocol version.
 pub fn create_receipt_id_from_receipt(
     protocol_version: ProtocolVersion,
     receipt: &Receipt,
@@ -71,7 +71,7 @@ pub fn create_receipt_id_from_receipt(
 }
 
 /// Creates a new action_hash from a given receipt, a block hash and an action index.
-/// This method is backward compatible, so it takes a current protocol version.
+/// This method is backward compatible, so it takes the current protocol version.
 pub fn create_action_hash(
     protocol_version: ProtocolVersion,
     receipt: &Receipt,
@@ -87,7 +87,7 @@ pub fn create_action_hash(
 }
 
 /// Creates a new `data_id` from a given action hash, a block hash and a data index.
-/// This method is backward compatible, so it takes a current protocol version.
+/// This method is backward compatible, so it takes the current protocol version.
 pub fn create_data_id(
     protocol_version: ProtocolVersion,
     action_hash: &CryptoHash,
@@ -99,7 +99,7 @@ pub fn create_data_id(
 
 /// Creates a unique random seed to be provided to `VMContext` from a give `action_hash` and
 /// a given `random_seed`.
-/// This method is backward compatible, so it takes a current protocol version.
+/// This method is backward compatible, so it takes the current protocol version.
 pub fn create_random_seed(
     protocol_version: ProtocolVersion,
     action_hash: CryptoHash,
