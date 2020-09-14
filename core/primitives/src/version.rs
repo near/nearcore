@@ -18,7 +18,7 @@ pub const DB_VERSION: DbVersion = 9;
 pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 37;
+pub const PROTOCOL_VERSION: ProtocolVersion = 38;
 /// TODO: Remove in next release. This is to allow nodes with initial version 34
 /// to be compatible with nodes at version 35
 pub const NETWORK_PROTOCOL_VERSION: ProtocolVersion = 34;
@@ -44,3 +44,6 @@ pub const ENABLE_INFLATION_PROTOCOL_VERSION: ProtocolVersion = 36;
 /// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
 /// version when there is no new change in protocol version.
 pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
+
+/// Updates the way receipt ID, data ID and random seeds are constructed.
+pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
