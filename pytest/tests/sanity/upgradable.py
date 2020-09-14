@@ -117,6 +117,8 @@ def main():
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
+    # hex_account_id = (b"I'm hex!" * 4).hex()
+    hex_account_id = '49276d206865782149276d206865782149276d206865782149276d2068657821'
     tx = sign_payment_tx(key=nodes[0].signer_key,
                          to=hex_account_id,
                          amount=10**25,
