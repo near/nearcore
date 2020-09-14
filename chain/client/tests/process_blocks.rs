@@ -2063,7 +2063,7 @@ fn test_catchup_gas_price_change() {
 }
 
 #[test]
-fn test_chunk_execution_outcome() {
+fn test_block_execution_outcomes() {
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
@@ -2140,6 +2140,7 @@ fn test_chunk_execution_outcome() {
     assert!(execution_outcomes_from_block[0].outcome_with_id.id == delayed_receipt_id[0]);
 }
 
+#[test]
 fn test_epoch_protocol_version_change() {
     init_test_logger();
     let epoch_length = 5;
