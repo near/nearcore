@@ -226,7 +226,6 @@ pub(crate) async fn start(
 
     // TODO: implement proper error handling
     let db = DB::open_default(indexer_db_path).unwrap();
-    // let mut outcomes_to_get = Vec::<types::TransactionOrReceiptId>::new();
     let mut last_synced_block_height: Option<types::BlockHeight> = None;
 
     'main: loop {
