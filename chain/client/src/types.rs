@@ -14,7 +14,6 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, MaybeBlockId, ShardId, TransactionOrReceiptId,
 };
@@ -325,13 +324,12 @@ impl Message for GetExecutionOutcome {
     type Result = Result<GetExecutionOutcomeResponse, String>;
 }
 
-pub struct GetExecutionOutcomeForChunk {
-    pub chunk_hash: ChunkHash,
+pub struct GetExecutionOutcomesForBlock {
+    pub block_hash: CryptoHash,
 }
 
-impl Message for GetExecutionOutcomeForChunk {
-    // This is not exposed to rpc so we don't convert the result to a view.
-    type Result = Result<HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>, String>;
+impl Message for GetExecutionOutcomesForBlock {
+    type Result = Result<Vec<ExecutionOutcomeWithIdView>, String>;
 }
 
 pub struct GetBlockProof {
