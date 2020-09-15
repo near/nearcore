@@ -2,7 +2,6 @@ use crate::testbed_runners::end_count;
 use crate::testbed_runners::start_count;
 use crate::testbed_runners::GasMetric;
 use glob::glob;
-use near_evm::builtins::Precompile;
 use near_evm_runner::run_evm;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
@@ -155,7 +154,7 @@ fn deploy_evm_contract(code: &[u8], gas_metric: GasMetric) -> Option<EvmCost> {
             0u128,
             0u64,
             "deploy_code".to_string(),
-            code.into(),
+            hex::decode(&code).unwrap(),
             1_000_000_000u64,
             false,
         );
@@ -179,22 +178,24 @@ const USING_LIGHTBEAM: bool = true;
 #[cfg(not(feature = "lightbeam"))]
 const USING_LIGHTBEAM: bool = false;
 
-pub struct EvmCostConfig {
-    pub deploy_cost: EvmCost,
-    pub run_cost: EvmCost,
-    pub ecRecoverCost: EvmCost,
-    pub sha256Cost: EvmCost,
-    pub ripemd160Cost: EvmCost,
-    pub identityCost: EvmCost,
-    pub modexpImplCost: EvmCost,
-    pub bn128AddImplCost: EvmCost,
-    pub bn128MulImplCost: EvmCost,
-    pub bn128PairingImplCost: EvmCost,
-    pub blake2FImplCost: EvmCost,
-    pub lastPrecompileCost: EvmCost,
+type Coef = (Ratio<u64>, Ratio<u64>);
+
+pub struct EvmCostCoef {
+    pub deploy_cost: Coef,
+    // pub run_cost: Coef,
+    // pub ecRecoverCost: Coef,
+    // pub sha256Cost: Coef,
+    // pub ripemd160Cost: Coef,
+    // pub identityCost: Coef,
+    // pub modexpImplCost: Coef,
+    // pub bn128AddImplCost: Coef,
+    // pub bn128MulImplCost: Coef,
+    // pub bn128PairingImplCost: Coef,
+    // pub blake2FImplCost: Coef,
+    // pub lastPrecompileCost: Coef,
 }
 
-pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> (Ratio<u64>, Ratio<u64>) {
+pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> Coef {
     let globbed_files = glob("./**/*.bin").expect("Failed to read glob pattern for bin files");
     let paths = globbed_files
         .filter_map(|x| match x {
@@ -229,7 +230,7 @@ pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> (Ratio<u64>, 
         .filter(|x| x.is_some())
         .map(|x| x.unwrap())
         .collect::<Vec<EvmCost>>();
-    let b = measurements.iter().fold(base, |_b, EvmCost { evm_gas: _, cost }| base.min(*cost));
+    let b = measurements.iter().fold(base, |b, EvmCost { evm_gas: _, cost }| b.min(*cost));
     let m = measurements
         .iter()
         .fold(ratio, |r, EvmCost { evm_gas, cost }| r.max((*cost - b) / evm_gas));
@@ -239,7 +240,7 @@ pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> (Ratio<u64>, 
     (m, b)
 }
 
-pub fn measure_evm_run(gas_metric: GasMetric, verbose: bool) -> (Ratio<u64>, Ratio<u64>) {
+pub fn measure_evm_run(gas_metric: GasMetric, verbose: bool) -> Coef {
     let ratio = Ratio::new(0 as u64, 1);
     let base = Ratio::new(u64::MAX, 1);
     //TODO
@@ -247,10 +248,8 @@ pub fn measure_evm_run(gas_metric: GasMetric, verbose: bool) -> (Ratio<u64>, Rat
 }
 
 /// Cost of all evm related
-pub fn cost_of_evm(gas_metric: GasMetric, verbose: bool) -> EvmCostConfig {
-    let mut evm_cost_config: EvmCostConfig;
-    evm_cost_config.deploy_cost = measure_deploy(gas_metric, verbose);
-
+pub fn cost_of_evm(gas_metric: GasMetric, verbose: bool) -> EvmCostCoef {
+    let evm_cost_config = EvmCostCoef { deploy_cost: measure_evm_deploy(gas_metric, verbose) };
     evm_cost_config
 }
 

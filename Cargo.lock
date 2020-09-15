@@ -4389,6 +4389,7 @@ dependencies = [
  "csv",
  "glob 0.3.0",
  "gnuplot",
+ "hex",
  "indicatif 0.15.0",
  "near-crypto",
  "near-evm-runner",

@@ -158,9 +158,12 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         );
         process::exit(0);
     } else if only_evm {
-        let (evm_cost, evm_base_cost) = cost_of_evm(config.metric, true);
-        let contract_byte_cost = ratio_to_gas(config.metric, evm_cost);
-        println!("{}, {}", contract_byte_cost, ratio_to_gas(config.metric, evm_base_cost));
+        let cost = cost_of_evm(config.metric, true);
+        println!(
+            "EVM base deploy cost: {}, deploy cost per EVM gas: {}",
+            ratio_to_gas(config.metric, cost.deploy_cost.0),
+            ratio_to_gas(config.metric, cost.deploy_cost.1)
+        );
         process::exit(0);
     }
     config.block_sizes = vec![100];

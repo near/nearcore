@@ -29,6 +29,7 @@ rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disabl
 glob = "0.3.0"
 walrus = "0.18.0"
 near-evm-runner = { path = "../../runtime/near-evm-runner" }
+hex = "0.4"
 
 [features]
 default = []
