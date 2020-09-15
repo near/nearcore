@@ -20,7 +20,7 @@ use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use crate::vm_estimator::{cost_per_op, cost_to_compile};
+use crate::vm_estimator::{cost_of_evm, cost_per_op, cost_to_compile};
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
@@ -158,7 +158,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         );
         process::exit(0);
     } else if only_evm {
-        let (evm_cost, evm_base_cost) = cost_of_evm(config.metric, config.vm_kind);
+        let (evm_cost, evm_base_cost) = cost_of_evm(config.metric, true);
         let contract_byte_cost = ratio_to_gas(config.metric, evm_cost);
         println!("{}, {}", contract_byte_cost, ratio_to_gas(config.metric, evm_base_cost));
         process::exit(0);

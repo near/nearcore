@@ -4391,6 +4391,7 @@ dependencies = [
  "gnuplot",
  "indicatif 0.15.0",
  "near-crypto",
+ "near-evm-runner",
  "near-primitives",
  "near-runtime-fees",
  "near-store",
