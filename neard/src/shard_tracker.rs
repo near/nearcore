@@ -264,7 +264,7 @@ mod tests {
             max_inflation_rate: Rational::from_integer(0),
             num_blocks_per_year: 1000000,
             epoch_length: 1,
-            protocol_reward_percentage: Rational::from_integer(0),
+            protocol_reward_rate: Rational::from_integer(0),
             protocol_treasury_account: "".to_string(),
             online_max_threshold: initial_epoch_config.online_max_threshold,
             online_min_threshold: initial_epoch_config.online_min_threshold,

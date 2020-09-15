@@ -1539,7 +1539,7 @@ mod test {
                 vec![],
                 vec![],
                 &vec![],
-                merklize(&runtime_adapter.build_receipts_hashes(&[])).0,
+                merklize(&runtime_adapter.build_receipts_hashes(&vec![])).0,
                 CryptoHash::default(),
                 &signer,
                 &mut rs,
