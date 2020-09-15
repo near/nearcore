@@ -51,7 +51,7 @@ pub(crate) fn execute_function_call(
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     if account.code_hash == *EVM_CODE_HASH {
-        near_evm_runner::run_evm(
+        let (outcome, error, _) = near_evm_runner::run_evm(
             runtime_ext,
             &config.wasm_config,
             &config.transaction_costs,
@@ -63,7 +63,8 @@ pub(crate) fn execute_function_call(
             function_call.args.clone(),
             function_call.gas,
             is_view,
-        )
+        );
+        (outcome, error)
     } else {
         let code = match runtime_ext.get_code(account.code_hash) {
             Ok(Some(code)) => code,

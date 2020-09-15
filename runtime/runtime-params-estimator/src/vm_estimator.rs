@@ -2,6 +2,7 @@ use crate::testbed_runners::end_count;
 use crate::testbed_runners::start_count;
 use crate::testbed_runners::GasMetric;
 use glob::glob;
+use near_evm_runner::run_evm;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -131,13 +132,97 @@ fn load_and_compile(path: &PathBuf, gas_metric: GasMetric, vm_kind: VMKind) -> O
     }
 }
 
+struct EvmCost {
+    evm_gas: u64,
+    cost: Ratio<u64>,
+}
+
+fn deploy_evm_contract(code: &[u8], gas_metric: &GasMetric) -> Option<EvmCost> {
+    let mut fake_external = MockedExternal::new();
+    let config = VMConfig::default();
+    let fees = RuntimeFeesConfig::default();
+
+    let start = start_count(gas_metric);
+    let evm_gas;
+    for i in 0..NUM_ITERATIONS {
+        let (_, _, gas_used) = run_evm(
+            fake_external,
+            config,
+            fees,
+            "alice".to_string(),
+            1000.into(),
+            0.into(),
+            0.into(),
+            "deploy_code",
+            code,
+            1_000_000_000.into(),
+            false,
+        );
+        // All iterations use same amount of (evm) gas, it's safe to use any of them as gas_used.
+        // But we loop because we want avg of number of (near) gas_metric
+        evm_gas = gas_used;
+    }
+    let end = end_count(gas_metric, &start);
+    Some((evm_gas as u64, Ratio::new(end, NUM_ITERATIONS)))
+}
+
+fn load_and_deploy_evm_contract(path: &PathBuf, gas_metric: GasMetric) -> Option<EvmCost> {
+    match fs::read(path) {
+        Ok(mut code) => deploy_evm_contract(&code, gas_metric),
+        _ => None,
+    }
+}
+
 #[cfg(feature = "lightbeam")]
 const USING_LIGHTBEAM: bool = true;
 #[cfg(not(feature = "lightbeam"))]
 const USING_LIGHTBEAM: bool = false;
 
+/// Cost of all evm related
+pub fn cost_of_evm(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<u64>, Ratio<u64>) {
+    let globbed_files = glob("./**/*.bin").expect("Failed to read glob pattern for bin files");
+    let paths = globbed_files
+        .filter_map(|x| match x {
+            Ok(p) => Some(p),
+            _ => None,
+        })
+        .collect::<Vec<PathBuf>>();
+    let ratio = Ratio::new(0 as u64, 1);
+    let base = Ratio::new(u64::MAX, 1);
+
+    let measurements = paths
+        .iter()
+        .filter(|path| fs::metadata(path).is_ok())
+        .map(|path| {
+            if verbose {
+                print!("Testing {}: ", path.display());
+            };
+            // Evm counted gas already count on size of the contract, therefore we look for cost = m*evm_gas + b.
+            if let Some((evm_gas, cost)) = load_and_deploy_evm_contract(path, gas_metric) {
+                if verbose {
+                    println!("({}, {})", evm_gas, cost);
+                };
+                Some(EvmCost { evm_gas, cost })
+            } else {
+                if verbose {
+                    println!("FAILED")
+                };
+                None
+            }
+        })
+        .filter(|x| x.is_some())
+        .map(|x| x.unwrap())
+        .collect::<Vec<CompileCost>>();
+    let b = measurements.iter().fold(base, |base, (_, cost)| base.min(*cost));
+    let m = measurements.iter().fold(ratio, |r, (evm_gas, cost)| r.max((*cost - b) / evm_gas));
+    if verbose {
+        println!("raw data: ({},{})", m, b);
+    }
+    (m, b)
+}
+
 /// Cost of the compile contract with vm_kind
-pub fn cost_to_compile(
+pub fn cost_of_compile(
     gas_metric: GasMetric,
     vm_kind: VMKind,
     verbose: bool,

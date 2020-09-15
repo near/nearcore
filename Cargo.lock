@@ -2853,7 +2853,7 @@ dependencies = [
 
 [[package]]
 name = "near-evm-runner"
-version = "0.1.0"
+version = "2.2.0"
 dependencies = [
  "bn",
  "borsh",
@@ -3193,6 +3193,7 @@ dependencies = [
  "assert_matches",
  "bencher",
  "cached",
+ "near-evm-runner",
  "near-runtime-fees",
  "near-vm-errors",
  "near-vm-logic",

@@ -361,7 +361,7 @@ pub fn run_evm(
     args: Vec<u8>,
     prepaid_gas: Gas,
     is_view: bool,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> (Option<VMOutcome>, Option<VMError>, U256) {
     let mut context = EvmContext::new(
         ext,
         config,
@@ -402,12 +402,18 @@ pub fn run_evm(
                 used_gas: context.gas_counter.used_gas(),
                 logs: context.logs,
             };
-            (Some(outcome), None)
+            (Some(outcome), None, context.evm_gas_counter.used_gas)
         }
-        Err(VMLogicError::EvmError(err)) => {
-            (None, Some(VMError::FunctionCallError(FunctionCallError::EvmError(err))))
-        }
-        Err(_) => (None, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))),
+        Err(VMLogicError::EvmError(err)) => (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::EvmError(err))),
+            context.evm_gas_counter.used_gas,
+        ),
+        Err(_) => (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)),
+            context.evm_gas_counter.used_gas,
+        ),
     }
 }
 

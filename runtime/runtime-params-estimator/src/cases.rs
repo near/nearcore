@@ -145,7 +145,7 @@ pub enum Metric {
     cpu_ram_soak_test,
 }
 
-pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
+pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeConfig {
     let mut m = Measurements::new(config.metric);
     if only_compile {
         let (contract_compile_cost, contract_compile_base_cost) =
@@ -156,6 +156,11 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
             contract_byte_cost,
             ratio_to_gas(config.metric, contract_compile_base_cost)
         );
+        process::exit(0);
+    } else if only_evm {
+        let (evm_cost, evm_base_cost) = cost_of_evm(config.metric, config.vm_kind);
+        let contract_byte_cost = ratio_to_gas(config.metric, evm_cost);
+        println!("{}, {}", contract_byte_cost, ratio_to_gas(config.metric, evm_base_cost));
         process::exit(0);
     }
     config.block_sizes = vec![100];
