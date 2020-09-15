@@ -84,44 +84,45 @@ fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
     }
 }
 
-pub fn is_forward_tx(bytes: &[u8]) -> bool {
-    // PeerMessage::Routed variant == 13
-    if bytes[0] == 13 {
-        let target_field_len = if bytes[1] == 0 {
-            match peer_id_type_field_len(bytes[2]) {
-                Some(l) => l,
-                None => {
-                    return false;
-                }
-            }
-        } else if bytes[1] == 1 {
-            // PeerIdOrHash::Hash is always 32 bytes
-            32
-        } else {
-            return false;
-        };
-        let author_variant_idx = 2 + target_field_len;
-        let author_field_len = match peer_id_type_field_len(bytes[author_variant_idx]) {
-            Some(l) => l,
-            None => {
-                return false;
-            }
-        };
-        let signature_variant_idx = author_variant_idx + author_field_len;
-        let signature_field_len = match bytes[signature_variant_idx] {
-            0 => 1 + 64,
-            1 => 1 + 65,
-            _ => {
-                return false;
-            }
-        };
-        let ttl_idx = signature_variant_idx + signature_field_len;
-        let message_body_idx = ttl_idx + 1;
+pub fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
+    let peer_message_variant = *bytes.get(0)?;
 
-        bytes[message_body_idx] == 1
-    } else {
-        false
+    // PeerMessage::Routed variant == 13
+    if peer_message_variant != 13 {
+        return Some(false);
     }
+
+    let target_field_variant = *bytes.get(1)?;
+    let target_field_len = if target_field_variant == 0 {
+        // PeerIdOrHash::PeerId
+        let peer_id_variant = *bytes.get(2)?;
+        peer_id_type_field_len(peer_id_variant)?
+    } else if target_field_variant == 1 {
+        // PeerIdOrHash::Hash is always 32 bytes
+        32
+    } else {
+        return None;
+    };
+
+    let author_variant_idx = 2 + target_field_len;
+    let author_variant = *bytes.get(author_variant_idx)?;
+    let author_field_len = peer_id_type_field_len(author_variant)?;
+
+    let signature_variant_idx = author_variant_idx + author_field_len;
+    let signature_variant = *bytes.get(signature_variant_idx)?;
+    let signature_field_len = match signature_variant {
+        0 => 1 + 64, // Signature::ED25519
+        1 => 1 + 65, // Signature::SECP256K1
+        _ => {
+            return None;
+        }
+    };
+
+    let ttl_idx = signature_variant_idx + signature_field_len;
+    let message_body_idx = ttl_idx + 1;
+    let message_body_variant = *bytes.get(message_body_idx)?;
+
+    Some(message_body_variant == 1)
 }
 
 #[cfg(test)]
@@ -225,7 +226,7 @@ mod test {
         schemas.for_each(|s| {
             let msg = create_tx_forward(s);
             let bytes = msg.try_to_vec().unwrap();
-            assert!(is_forward_tx(&bytes));
+            assert!(is_forward_tx(&bytes).unwrap());
         })
     }
 
