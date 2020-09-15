@@ -1975,6 +1975,18 @@ impl Chain {
             Err(ErrorKind::Other(format!("{} not on current chain", block_hash)).into())
         }
     }
+
+    /// Get all execution outcomes generated when the chunk are applied
+    pub fn get_block_execution_outcomes(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<Vec<ExecutionOutcomeWithIdAndProof>, Error> {
+        self.mut_store()
+            .get_outcomes_by_block_hash(block_hash)?
+            .into_iter()
+            .map(|id| Ok(self.get_execution_outcome(&id)?.clone()))
+            .collect()
+    }
 }
 
 /// Implement block merkle proof retrieval.
