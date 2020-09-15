@@ -200,7 +200,7 @@ pub fn start_with_config(
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
         start_rosetta_rpc(
             rosetta_rpc_config,
-            config.genesis.config.clone(),
+            Arc::new(config.genesis.clone()),
             client_actor.clone(),
             view_client.clone(),
         );

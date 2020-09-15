@@ -700,14 +700,14 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
 
 pub fn start_rosetta_rpc(
     config: crate::config::RosettaRpcConfig,
-    genesis_config: GenesisConfig,
+    genesis: Arc<Genesis>,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins } = config;
     HttpServer::new(move || {
         App::new()
-            .data(genesis_config.clone())
+            .data(genesis.clone())
             .data(client_addr.clone())
             .data(view_client_addr.clone())
             .wrap(get_cors(&cors_allowed_origins))
