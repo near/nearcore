@@ -11,9 +11,9 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, EpochInfoProvider, ValidatorStake};
+use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::{
-    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
+    create_random_seed, is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::is_account_id_64_len_hex;
@@ -29,44 +29,10 @@ use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
-use near_primitives::version::{
-    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
-};
+use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
-
-/// Checks if given account has enough balance for state stake, and returns:
-///  - None if account has enough balance,
-///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
-///  - Err(StorageError::StorageInconsistentState) if account has invalid storage usage or amount/locked.
-///
-/// Read details of state staking https://nomicon.io/Economics/README.html#state-stake
-pub(crate) fn get_insufficient_storage_stake(
-    account: &Account,
-    runtime_config: &RuntimeConfig,
-) -> Result<Option<Balance>, StorageError> {
-    let required_amount = Balance::from(account.storage_usage)
-        .checked_mul(runtime_config.storage_amount_per_byte)
-        .ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Account's storage_usage {} overflows multiplication",
-                account.storage_usage
-            ))
-        })?;
-    let available_amount = account.amount.checked_add(account.locked).ok_or_else(|| {
-        StorageError::StorageInconsistentState(format!(
-            "Account's amount {} and locked {} overflow addition",
-            account.amount, account.locked
-        ))
-    })?;
-    if available_amount >= required_amount {
-        Ok(None)
-    } else {
-        Ok(Some(required_amount - available_amount))
-    }
-}
 
 pub(crate) fn get_code_with_cache(
     state_update: &TrieUpdate,
@@ -125,6 +91,7 @@ pub(crate) fn action_function_call(
         &apply_state.epoch_id,
         &apply_state.last_block_hash,
         epoch_info_provider,
+        apply_state.current_protocol_version,
     );
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
@@ -132,6 +99,12 @@ pub(crate) fn action_function_call(
     } else {
         vec![]
     };
+    let random_seed = create_random_seed(
+        apply_state.current_protocol_version,
+        *action_hash,
+        apply_state.random_seed,
+    );
+
     let context = VMContext {
         current_account_id: account_id.clone(),
         signer_account_id: action_receipt.signer_id.clone(),
@@ -149,12 +122,7 @@ pub(crate) fn action_function_call(
         storage_usage: account.storage_usage,
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
-        random_seed: if apply_state.current_protocol_version < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
-        {
-            action_hash.as_ref().to_vec()
-        } else {
-            apply_state.random_seed.as_ref().to_vec()
-        },
+        random_seed,
         is_view: false,
         output_data_receivers,
     };

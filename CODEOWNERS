@@ -3,7 +3,7 @@
 /chain/ @SkidanovAlex @bowenwang1996
 /chain/jsonrpc/ @frol @evgenykuzyakov
 /chain/indexer/ @khorolets @frol
-/chain/rosettarpc/ @frol
+/chain/rosetta-rpc/ @frol
 
 /runtime/ @evgenykuzyakov @chain-police
 /runtime/runtime-params-estimator/ @olonho @willemneal

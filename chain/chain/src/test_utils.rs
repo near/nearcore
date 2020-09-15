@@ -960,7 +960,6 @@ pub fn setup_with_tx_validity_period(
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            max_inflation_rate: Rational::from_integer(0),
             gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: tx_validity_period,
             epoch_length: 10,
@@ -1001,7 +1000,6 @@ pub fn setup_with_validators(
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            max_inflation_rate: Rational::from_integer(0),
             gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: tx_validity_period,
             epoch_length,
@@ -1121,11 +1119,78 @@ impl ChainGenesis {
             min_gas_price: 0,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            max_inflation_rate: Rational::from_integer(0),
             gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: 100,
             epoch_length: 5,
             protocol_version: PROTOCOL_VERSION,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::KeyValueRuntime;
+    use crate::types::ReceiptList;
+    use crate::RuntimeAdapter;
+    use borsh::BorshSerialize;
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::receipt::Receipt;
+    use near_primitives::types::NumShards;
+    use near_store::test_utils::create_test_store;
+    use rand::Rng;
+    use std::time::Instant;
+
+    impl KeyValueRuntime {
+        fn naive_build_receipt_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
+            let mut receipts_hashes = vec![];
+            for shard_id in 0..self.num_shards() {
+                let shard_receipts: Vec<Receipt> = receipts
+                    .iter()
+                    .filter(|&receipt| {
+                        self.account_id_to_shard_id(&receipt.receiver_id) == shard_id
+                    })
+                    .cloned()
+                    .collect();
+                receipts_hashes
+                    .push(hash(&ReceiptList(shard_id, &shard_receipts).try_to_vec().unwrap()));
+            }
+            receipts_hashes
+        }
+    }
+
+    fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
+        let store = create_test_store();
+        let runtime_adapter = KeyValueRuntime::new_with_validators(
+            store,
+            vec![(0..num_shards).map(|i| format!("test{}", i)).collect()],
+            1,
+            num_shards,
+            10,
+        );
+        let create_receipt_from_receiver_id =
+            |receiver_id| Receipt::new_balance_refund(&receiver_id, 0);
+        let mut rng = rand::thread_rng();
+        let receipts = (0..3000)
+            .map(|_| {
+                let random_number = rng.gen_range(0, 1000);
+                create_receipt_from_receiver_id(format!("test{}", random_number))
+            })
+            .collect::<Vec<_>>();
+        let start = Instant::now();
+        let naive_result = runtime_adapter.naive_build_receipt_hashes(&receipts);
+        let naive_duration = start.elapsed();
+        let start = Instant::now();
+        let prod_result = runtime_adapter.build_receipts_hashes(&receipts);
+        let prod_duration = start.elapsed();
+        assert_eq!(naive_result, prod_result);
+        // production implementation is at least 50% faster
+        assert!(2 * naive_duration > 3 * prod_duration);
+    }
+
+    #[test]
+    fn test_build_receipt_hashes() {
+        for num_shards in 1..10 {
+            test_build_receipt_hashes_with_num_shard(num_shards);
         }
     }
 }
