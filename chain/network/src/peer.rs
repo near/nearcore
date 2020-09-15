@@ -34,8 +34,8 @@ use crate::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
     NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
-    QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage,
+    Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
@@ -659,10 +659,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 return;
             }
         };
-        if let PeerMessage::Routed(rm) = &peer_msg {
-            if let RoutedMessageBody::ForwardTx(_) = rm.body {
-                self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
-            }
+        if let PeerMessage::Routed(RoutedMessage {
+            body: RoutedMessageBody::ForwardTx(_), ..
+        }) = &peer_msg
+        {
+            self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
         } else if let PeerMessage::Block(_) = &peer_msg {
             self.txns_since_last_block.store(0, Ordering::Release);
         }
