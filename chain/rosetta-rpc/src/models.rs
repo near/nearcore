@@ -376,9 +376,9 @@ pub(crate) struct ConstructionParseRequest {
 pub(crate) struct ConstructionParseResponse {
     pub operations: Vec<Operation>,
 
-    /// All signers (addresses) of a particular transaction. If the transaction
-    /// is unsigned, it should be empty.
-    pub signers: Vec<String>,
+    /// All account identifiers of signers of a particular transaction. If the
+    /// transaction is unsigned, it should be empty.
+    pub account_identifier_signers: Vec<AccountIdentifier>,
     //
     // Rosetta Spec also optionally provides:
     //
@@ -1044,9 +1044,8 @@ impl From<near_crypto::KeyType> for CurveType {
 /// to sign the payload.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct SigningPayload {
-    /// The network-specific address of the account that should sign the
-    /// payload.
-    pub address: String,
+    /// The account identifier that should sign the payload.
+    pub account_identifier: AccountIdentifier,
     pub hex_bytes: BlobInHexString<Vec<u8>>,
     pub signature_type: Option<SignatureType>,
 }

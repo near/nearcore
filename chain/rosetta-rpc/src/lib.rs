@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use actix::Addr;
 use actix_cors::{Cors, CorsFactory};
-use actix_web::{App, HttpServer};
+use actix_web::{App, HttpServer, ResponseError};
 use paperclip::actix::{
     api_v2_operation,
     web::{self, Json},
@@ -25,7 +25,7 @@ mod models;
 mod utils;
 
 pub const BASE_PATH: &str = "";
-pub const API_VERSION: &str = "1.4.3";
+pub const API_VERSION: &str = "1.4.4";
 
 /// Get List of Available Networks
 ///
@@ -706,7 +706,7 @@ async fn construction_payloads(
     Ok(Json(models::ConstructionPayloadsResponse {
         unsigned_transaction: unsigned_transaction.into(),
         payloads: vec![models::SigningPayload {
-            address: signer_account_id,
+            account_identifier: signer_account_id.into(),
             signature_type: None,
             hex_bytes: transaction_hash.as_ref().to_owned().into(),
         }],
@@ -811,12 +811,16 @@ async fn construction_parse(
             })?
     };
 
-    let signers = if signed { vec![sender_account_id.clone()] } else { vec![] };
+    let account_identifier_signers =
+        if signed { vec![sender_account_id.clone().into()] } else { vec![] };
 
     let near_actions =
         crate::adapters::NearActions { sender_account_id, receiver_account_id, actions };
 
-    Ok(Json(models::ConstructionParseResponse { signers, operations: (&near_actions).into() }))
+    Ok(Json(models::ConstructionParseResponse {
+        account_identifier_signers,
+        operations: (&near_actions).into(),
+    }))
 }
 
 #[api_v2_operation]
@@ -927,9 +931,22 @@ pub fn start_rosetta_rpc(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
-    let crate::config::RosettaRpcConfig { addr, cors_allowed_origins } = config;
+    let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits } = config;
     HttpServer::new(move || {
+        let json_config = web::JsonConfig::default()
+            .limit(limits.input_payload_max_size)
+            .error_handler(|err, _req| {
+                let error_message = err.to_string();
+                actix_web::error::InternalError::from_response(
+                    err,
+                    models::Error::from_error_kind(errors::ErrorKind::InvalidInput(error_message))
+                        .error_response(),
+                )
+                .into()
+            });
+
         App::new()
+            .app_data(json_config)
             .data(Arc::clone(&genesis))
             .data(client_addr.clone())
             .data(view_client_addr.clone())
@@ -944,9 +961,6 @@ pub fn start_rosetta_rpc(
                     .route(web::post().to(block_transaction_details)),
             )
             .service(web::resource("/account/balance").route(web::post().to(account_balance)))
-            .service(
-                web::resource("/construction/submit").route(web::post().to(construction_submit)),
-            )
             .service(web::resource("/mempool").route(web::post().to(mempool)))
             .service(
                 web::resource("/mempool/transaction").route(web::post().to(mempool_transaction)),
@@ -971,6 +985,9 @@ pub fn start_rosetta_rpc(
             )
             .service(web::resource("/construction/parse").route(web::post().to(construction_parse)))
             .service(web::resource("/construction/hash").route(web::post().to(construction_hash)))
+            .service(
+                web::resource("/construction/submit").route(web::post().to(construction_submit)),
+            )
             .with_json_spec_at("/api/spec")
             .build()
     })
