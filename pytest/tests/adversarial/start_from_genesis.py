@@ -15,9 +15,13 @@ if "doomslug_off" in sys.argv:
 TIMEOUT = 300
 BLOCKS = 30
 
+
+# Low sync_check_period to sync from a new peer with greater height
+client_config_change = {"consensus":{"sync_check_period": {"secs": 0, "nanos": 100000000}}}
+
 nodes = start_cluster(
     2, 1, 2, None,
-    [["epoch_length", 100], ["block_producer_kickout_threshold", 80]], {})
+    [["epoch_length", 100], ["block_producer_kickout_threshold", 80]], {0: client_config_change})
 if not doomslug:
     # we expect inconsistency in store in node 0
     # because we're going to turn off doomslug
@@ -40,38 +44,41 @@ while True:
 
 print("Got to %s blocks, getting to fun stuff" % BLOCKS)
 
+status = nodes[0].get_status()
+print("STATUS OF HONEST", status)
+saved_blocks = nodes[0].json_rpc('adv_get_saved_blocks', [])
+print("SAVED BLOCKS", saved_blocks)
+
 nodes[0].kill()  # to disallow syncing
 nodes[1].kill()
+
+# Switch node1 to an adversarial chain
 nodes[1].reset_data()
-
 nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
-res = nodes[1].json_rpc('adv_disable_header_sync', [])
-assert 'result' in res, res
 
+num_produce_blocks = BLOCKS // 2 - 5
+if overtake:
+    num_produce_blocks += 10
+
+res = nodes[1].json_rpc('adv_produce_blocks', [num_produce_blocks, True])
+assert 'result' in res, res
 time.sleep(2)
+nodes[1].kill()
+
+# Restart both nodes.
+# Disabling doomslug must happen before starting node1
 nodes[0].start(nodes[0].node_key.pk, nodes[0].addr())
 if not doomslug:
     res = nodes[0].json_rpc('adv_disable_doomslug', [])
     assert 'result' in res, res
-
-time.sleep(2)
-status = nodes[0].get_status()
-print("STATUS OF HONEST", status)
-status = nodes[1].get_status()
-print("STATUS OF MALICIOUS", status)
-saved_blocks = nodes[0].json_rpc('adv_get_saved_blocks', [])
-print("SAVED BLOCKS", saved_blocks)
-
-start_prod_time = time.time()
-num_produce_blocks = BLOCKS // 2 - 5
-if overtake:
-    num_produce_blocks += 10
-res = nodes[1].json_rpc('adv_produce_blocks', [num_produce_blocks, True])
-assert 'result' in res, res
+nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
 
 time.sleep(3)
+status = nodes[1].get_status()
+print("STATUS OF MALICIOUS", status)
+
 status = nodes[0].get_status()
-print(status)
+print("STATUS OF HONEST AFTER", status)
 height = status['sync_info']['latest_block_height']
 
 saved_blocks_2 = nodes[0].json_rpc('adv_get_saved_blocks', [])
