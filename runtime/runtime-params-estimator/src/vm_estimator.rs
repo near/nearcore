@@ -2,6 +2,7 @@ use crate::testbed_runners::end_count;
 use crate::testbed_runners::start_count;
 use crate::testbed_runners::GasMetric;
 use glob::glob;
+use near_evm::builtins::Precompile;
 use near_evm_runner::run_evm;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
@@ -132,9 +133,9 @@ fn load_and_compile(path: &PathBuf, gas_metric: GasMetric, vm_kind: VMKind) -> O
     }
 }
 
-struct EvmCost {
-    evm_gas: u64,
-    cost: Ratio<u64>,
+pub struct EvmCost {
+    pub evm_gas: u64,
+    pub cost: Ratio<u64>,
 }
 
 fn deploy_evm_contract(code: &[u8], gas_metric: GasMetric) -> Option<EvmCost> {
@@ -178,8 +179,22 @@ const USING_LIGHTBEAM: bool = true;
 #[cfg(not(feature = "lightbeam"))]
 const USING_LIGHTBEAM: bool = false;
 
-/// Cost of all evm related
-pub fn cost_of_evm(gas_metric: GasMetric, verbose: bool) -> (Ratio<u64>, Ratio<u64>) {
+pub struct EvmCostConfig {
+    pub deploy_cost: EvmCost,
+    pub run_cost: EvmCost,
+    pub ecRecoverCost: EvmCost,
+    pub sha256Cost: EvmCost,
+    pub ripemd160Cost: EvmCost,
+    pub identityCost: EvmCost,
+    pub modexpImplCost: EvmCost,
+    pub bn128AddImplCost: EvmCost,
+    pub bn128MulImplCost: EvmCost,
+    pub bn128PairingImplCost: EvmCost,
+    pub blake2FImplCost: EvmCost,
+    pub lastPrecompileCost: EvmCost,
+}
+
+pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> (Ratio<u64>, Ratio<u64>) {
     let globbed_files = glob("./**/*.bin").expect("Failed to read glob pattern for bin files");
     let paths = globbed_files
         .filter_map(|x| match x {
@@ -222,6 +237,21 @@ pub fn cost_of_evm(gas_metric: GasMetric, verbose: bool) -> (Ratio<u64>, Ratio<u
         println!("raw data: ({},{})", m, b);
     }
     (m, b)
+}
+
+pub fn measure_evm_run(gas_metric: GasMetric, verbose: bool) -> (Ratio<u64>, Ratio<u64>) {
+    let ratio = Ratio::new(0 as u64, 1);
+    let base = Ratio::new(u64::MAX, 1);
+    //TODO
+    (ratio, base)
+}
+
+/// Cost of all evm related
+pub fn cost_of_evm(gas_metric: GasMetric, verbose: bool) -> EvmCostConfig {
+    let mut evm_cost_config: EvmCostConfig;
+    evm_cost_config.deploy_cost = measure_deploy(gas_metric, verbose);
+
+    evm_cost_config
 }
 
 /// Cost of the compile contract with vm_kind
