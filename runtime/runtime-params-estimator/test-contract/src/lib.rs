@@ -636,7 +636,7 @@ pub unsafe fn data_receipt_10b_1000() {
     );
 }
 
-// Function to subtract the base from the `data_receipt_creation_config`. This method doesn't make
+// Function to subtract the base from the `data_receipt_creation_config`. This method doesn't
 // have a callback on created promises so there is no data dependency.
 #[no_mangle]
 pub unsafe fn data_receipt_base_10b_1000() {
