@@ -378,40 +378,6 @@ pub(crate) async fn collect_transactions(
     }
 }
 
-struct InitializeOnce<'a> {
-    error_message: &'a str,
-    known_value: Option<crate::models::AccountIdentifier>,
-}
-
-impl<'a> InitializeOnce<'a> {
-    fn new(error_message: &'a str) -> Self {
-        Self { error_message, known_value: None }
-    }
-
-    fn try_set(
-        &mut self,
-        new_value: &crate::models::AccountIdentifier,
-    ) -> Result<(), crate::errors::ErrorKind> {
-        if let Some(ref known_value) = self.known_value {
-            if new_value != known_value {
-                Err(crate::errors::ErrorKind::InvalidInput(format!(
-                    "{} ('{:?}' and '{:?}')",
-                    self.error_message, new_value, known_value
-                )))
-            } else {
-                Ok(())
-            }
-        } else {
-            self.known_value = Some(new_value.to_owned());
-            Ok(())
-        }
-    }
-
-    fn into_inner(self) -> Option<crate::models::AccountIdentifier> {
-        self.known_value
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct NearActions {
     pub sender_account_id: near_primitives::types::AccountId,
@@ -636,10 +602,12 @@ impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
     type Error = crate::errors::ErrorKind;
 
     fn try_from(operations: Vec<crate::models::Operation>) -> Result<Self, Self::Error> {
-        let mut sender_account_id =
-            InitializeOnce::new("A single transaction cannot be send from multiple senders");
-        let mut receiver_account_id =
-            InitializeOnce::new("A single transaction cannot be send to multiple recipients");
+        let mut sender_account_id = crate::utils::InitializeOnce::new(
+            "A single transaction cannot be send from multiple senders",
+        );
+        let mut receiver_account_id = crate::utils::InitializeOnce::new(
+            "A single transaction cannot be send to multiple recipients",
+        );
         let mut actions = vec![];
 
         // Iterate over operations backwards to handle the related operations

@@ -42,7 +42,7 @@ pub(crate) struct AccountBalanceResponse {
 /// The account_identifier uniquely identifies an account within a network. All
 /// fields in the account_identifier are utilized to determine this uniqueness
 /// (including the metadata field, if populated).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct AccountIdentifier {
     /// The address may be a cryptographic public key (or some encoding of it)
     /// or a provided username.
@@ -852,7 +852,7 @@ pub(crate) struct Peer {
      * pub metadata: Option<serde_json::Value>, */
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum SubAccount {
     LiquidBalanceForStorage,
@@ -868,7 +868,7 @@ impl From<SubAccount> for crate::models::SubAccountIdentifier {
 /// An account may have state specific to a contract address (ERC-20 token)
 /// and/or a stake (delegated balance). The sub_account_identifier should
 /// specify which state (if applicable) an account instantiation refers to.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct SubAccountIdentifier {
     /// The SubAccount address may be a cryptographic value or some other
     /// identifier (ex: bonded) that uniquely specifies a SubAccount.

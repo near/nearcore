@@ -363,3 +363,40 @@ pub(crate) async fn query_accounts(
         .filter_map(|account_info| account_info.transpose())
         .collect()
 }
+
+pub(crate) struct InitializeOnce<'a, T>
+where
+    T: std::fmt::Debug + Eq + ToOwned<Owned = T>,
+{
+    error_message: &'a str,
+    known_value: Option<T>,
+}
+
+impl<'a, T> InitializeOnce<'a, T>
+where
+    T: std::fmt::Debug + Eq + ToOwned<Owned = T>,
+{
+    pub fn new(error_message: &'a str) -> Self {
+        Self { error_message, known_value: None }
+    }
+
+    pub fn try_set(&mut self, new_value: &T) -> Result<(), crate::errors::ErrorKind> {
+        if let Some(ref known_value) = self.known_value {
+            if new_value != known_value {
+                Err(crate::errors::ErrorKind::InvalidInput(format!(
+                    "{} ('{:?}' and '{:?}')",
+                    self.error_message, new_value, known_value
+                )))
+            } else {
+                Ok(())
+            }
+        } else {
+            self.known_value = Some(new_value.to_owned());
+            Ok(())
+        }
+    }
+
+    pub fn into_inner(self) -> Option<T> {
+        self.known_value
+    }
+}
