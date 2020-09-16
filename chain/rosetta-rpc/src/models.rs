@@ -30,14 +30,13 @@ pub(crate) struct AccountBalanceResponse {
 
     /// A single account may have a balance in multiple currencies.
     pub balances: Vec<Amount>,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // /// Account-based blockchains that utilize a nonce or sequence number should
-    // /// include that number in the metadata. This number could be unique to the
-    // /// identifier or global across the account address.
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * /// Account-based blockchains that utilize a nonce or sequence number should
+     * /// include that number in the metadata. This number could be unique to the
+     * /// identifier or global across the account address.
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 /// The account_identifier uniquely identifies an account within a network. All
@@ -51,14 +50,13 @@ pub(crate) struct AccountIdentifier {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sub_account: Option<SubAccountIdentifier>,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // /// Blockchains that utilize a username model (where the address is not a
-    // /// derivative of a cryptographic public key) should specify the public
-    // /// key(s) owned by the address in metadata.
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * /// Blockchains that utilize a username model (where the address is not a
+     * /// derivative of a cryptographic public key) should specify the public
+     * /// key(s) owned by the address in metadata.
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 impl From<near_primitives::types::AccountId> for AccountIdentifier {
@@ -104,11 +102,10 @@ pub(crate) struct Amount {
     pub value: crate::utils::SignedDiff<near_primitives::types::Balance>,
 
     pub currency: Currency,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 impl std::ops::Neg for Amount {
@@ -150,11 +147,10 @@ pub(crate) struct Block {
     pub timestamp: i64,
 
     pub transactions: Vec<Transaction>,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 /// The block_identifier uniquely identifies a block in a particular network.
@@ -248,12 +244,12 @@ pub(crate) struct BlockTransactionResponse {
 pub(crate) struct ConstructionPreprocessRequest {
     pub network_identifier: NetworkIdentifier,
     pub operations: Vec<Operation>,
-    // Rosetta Spec also optionally provides:
-    //
-    // pub max_fee: Vec<Amount>,
-    // pub suggested_fee_multiplier: f64,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * pub max_fee: Vec<Amount>,
+     * pub suggested_fee_multiplier: f64,
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
@@ -379,11 +375,10 @@ pub(crate) struct ConstructionParseResponse {
     /// All account identifiers of signers of a particular transaction. If the
     /// transaction is unsigned, it should be empty.
     pub account_identifier_signers: Vec<AccountIdentifier>,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 /// The transaction submission request includes a signed transaction.
@@ -400,11 +395,10 @@ pub(crate) struct ConstructionSubmitRequest {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct TransactionIdentifierResponse {
     pub transaction_identifier: TransactionIdentifier,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 /// ConstructionHashRequest is the input to the /construction/hash endpoint.
@@ -434,14 +428,13 @@ pub(crate) struct Currency {
     /// to represent the value of some currency in atomic units that is not base
     /// 10.
     pub decimals: u32,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // /// Any additional information related to the currency itself.  For example,
-    // /// it would be useful to populate this object with the contract address of
-    // /// an ERC-20 token.
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * /// Any additional information related to the currency itself.  For example,
+     * /// it would be useful to populate this object with the contract address of
+     * /// an ERC-20 token.
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 impl Currency {
@@ -465,14 +458,13 @@ pub(crate) struct Error {
     /// An error is retriable if the same request may succeed if submitted
     /// again.
     pub retriable: bool,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // /// Often times it is useful to return context specific to the request that
-    // /// caused the error (i.e. a sample of the stack trace or impacted account)
-    // /// in addition to the standard error message.
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub details: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * /// Often times it is useful to return context specific to the request that
+     * /// caused the error (i.e. a sample of the stack trace or impacted account)
+     * /// in addition to the standard error message.
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub details: Option<serde_json::Value>, */
 }
 
 impl std::fmt::Display for Error {
@@ -548,11 +540,10 @@ pub(crate) struct MempoolTransactionRequest {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct MempoolTransactionResponse {
     pub transaction: Transaction,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 /// A MetadataRequest is utilized in any request where the only argument is
@@ -626,11 +617,10 @@ pub(crate) struct NetworkOptionsResponse {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct NetworkRequest {
     pub network_identifier: NetworkIdentifier,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 /// NetworkStatusResponse contains basic information about the node's view of a
@@ -662,36 +652,30 @@ pub(crate) struct NetworkStatusResponse {
     Clone,
     Copy,
     PartialEq,
+    Eq,
     serde::Serialize,
     serde::Deserialize,
     Apiv2Schema,
     strum::EnumIter,
+    strum::IntoStaticStr,
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum OperationType {
+    InitiateCreateAccount,
     CreateAccount,
-    DeployContract,
-    FunctionCall,
+    InitiateDeleteAccount,
+    DeleteAccount,
+    RefundDeleteAccount,
+    InitiateAddKey,
+    AddKey,
+    InitiateDeleteKey,
+    DeleteKey,
     Transfer,
     Stake,
-    AddKey,
-    DeleteKey,
-    DeleteAccount,
-}
-
-impl std::convert::From<&near_primitives::views::ActionView> for OperationType {
-    fn from(action: &near_primitives::views::ActionView) -> Self {
-        match action {
-            near_primitives::views::ActionView::CreateAccount => Self::CreateAccount,
-            near_primitives::views::ActionView::DeployContract { .. } => Self::DeployContract,
-            near_primitives::views::ActionView::FunctionCall { .. } => Self::FunctionCall,
-            near_primitives::views::ActionView::Transfer { .. } => Self::Transfer,
-            near_primitives::views::ActionView::Stake { .. } => Self::Stake,
-            near_primitives::views::ActionView::AddKey { .. } => Self::AddKey,
-            near_primitives::views::ActionView::DeleteKey { .. } => Self::DeleteKey,
-            near_primitives::views::ActionView::DeleteAccount { .. } => Self::DeleteAccount,
-        }
-    }
+    InitiateDeployContract,
+    DeployContract,
+    InitiateFunctionCall,
+    FunctionCall,
 }
 
 #[derive(
@@ -723,9 +707,10 @@ pub(crate) struct OperationMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<PublicKey>,
     // /// Has to be specified for ADD_KEY
-    // TODO: Allow specifying the access key permissions and nonce. We go with full-access keys for now
+    // TODO: Allow specifying the access key permissions and nonce. We go with full-access keys for
+    // now
     //#[serde(skip_serializing_if = "Option::is_none")]
-    //pub access_key: Option<TODO>,
+    // pub access_key: Option<TODO>,
     /// Has to be specified for DEPLOY_CONTRACT operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<BlobInHexString<Vec<u8>>>,
@@ -738,9 +723,6 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
-    /// Has to be specified for DELETE_ACCOUNT operation
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub beneficiary_id: Option<AccountIdentifier>,
 }
 
 /// Operations contain all balance-changing information within a transaction.
@@ -863,11 +845,10 @@ impl TryFrom<PartialBlockIdentifier> for near_primitives::types::BlockReference 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct Peer {
     pub peer_id: String,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
@@ -891,15 +872,14 @@ pub(crate) struct SubAccountIdentifier {
     /// The SubAccount address may be a cryptographic value or some other
     /// identifier (ex: bonded) that uniquely specifies a SubAccount.
     pub address: SubAccount,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // /// If the SubAccount address is not sufficient to uniquely specify a
-    // /// SubAccount, any other identifying information can be stored here.  It is
-    // /// important to note that two SubAccounts with identical addresses but
-    // /// differing metadata will not be considered equal by clients.
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * /// If the SubAccount address is not sufficient to uniquely specify a
+     * /// SubAccount, any other identifying information can be stored here.  It is
+     * /// important to note that two SubAccounts with identical addresses but
+     * /// differing metadata will not be considered equal by clients.
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 /// In blockchains with sharded state, the SubNetworkIdentifier is required to
@@ -908,11 +888,10 @@ pub(crate) struct SubAccountIdentifier {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct SubNetworkIdentifier {
     pub network: String,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 /// The timestamp of the block in milliseconds since the Unix Epoch. The
@@ -978,13 +957,12 @@ pub(crate) struct Version {
     /// deployments.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub middleware_version: Option<String>,
-    //
-    // Rosetta Spec also optionally provides:
-    //
-    // /// Any other information that may be useful about versioning of dependent
-    // /// services should be returned here.
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    /* Rosetta Spec also optionally provides:
+     *
+     * /// Any other information that may be useful about versioning of dependent
+     * /// services should be returned here.
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
 }
 
 /// PublicKey contains a public key byte array for a particular CurveType
@@ -1081,17 +1059,16 @@ impl TryFrom<&Signature> for near_crypto::Signature {
 pub(crate) enum SignatureType {
     /// `R (32-byte) || s (32-bytes)` - `64 bytes`
     Ed25519,
-    //
-    // Rosetta Spec also provides:
-    //
-    // /// `r (32-bytes) || s (32-bytes)` - `64 bytes`
-    // ECDSA,
-    // /// `r (32-bytes) || s (32-bytes) || v (1-byte)` - `65 bytes`
-    // #[serde(rename = "ecdsa_recovery")]
-    // ECDSARecovery,
-    // #[serde(rename = "schnorr_1")]
-    // /// `r (32-bytes) || s (32-bytes)` - `64 bytes` (schnorr signature
-    // /// implemented by Zilliqa where both `r` and `s` are scalars encoded as
-    // /// `32-bytes` values, most significant byte first.)
-    // Schnorr1,
+    /* Rosetta Spec also provides:
+     *
+     * /// `r (32-bytes) || s (32-bytes)` - `64 bytes`
+     * ECDSA,
+     * /// `r (32-bytes) || s (32-bytes) || v (1-byte)` - `65 bytes`
+     * #[serde(rename = "ecdsa_recovery")]
+     * ECDSARecovery,
+     * #[serde(rename = "schnorr_1")]
+     * /// `r (32-bytes) || s (32-bytes)` - `64 bytes` (schnorr signature
+     * /// implemented by Zilliqa where both `r` and `s` are scalars encoded as
+     * /// `32-bytes` values, most significant byte first.)
+     * Schnorr1, */
 }

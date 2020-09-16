@@ -534,7 +534,7 @@ async fn construction_preprocess(
         });
     }
 
-    let near_actions: crate::adapters::NearActions = operations.as_slice().try_into()?;
+    let near_actions: crate::adapters::NearActions = operations.try_into()?;
 
     Ok(Json(models::ConstructionPreprocessResponse {
         required_public_keys: vec![models::AccountIdentifier {
@@ -679,7 +679,7 @@ async fn construction_payloads(
         sender_account_id: signer_account_id,
         receiver_account_id,
         actions,
-    } = operations.as_slice().try_into()?;
+    } = operations.try_into()?;
     let models::ConstructionMetadata { recent_block_hash, signer_public_access_key_nonce } =
         metadata;
     let unsigned_transaction = near_primitives::transaction::Transaction {
@@ -819,7 +819,7 @@ async fn construction_parse(
 
     Ok(Json(models::ConstructionParseResponse {
         account_identifier_signers,
-        operations: (&near_actions).into(),
+        operations: near_actions.into(),
     }))
 }
 
