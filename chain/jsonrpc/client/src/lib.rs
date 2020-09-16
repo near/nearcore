@@ -199,7 +199,7 @@ impl JsonRpcClient {
     pub fn EXPERIMENTAL_genesis_records(
         &self,
         request: RpcGenesisRecordsRequest,
-    ) -> RpcRequest<GenesisRecordsView<'_>> {
+    ) -> RpcRequest<GenesisRecordsView<'static>> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_genesis_records", request)
     }
 
