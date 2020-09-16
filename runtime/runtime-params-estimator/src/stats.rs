@@ -173,7 +173,7 @@ impl DataStats {
             stddev: stddev as u64,
             ile5: ile5 as u64,
             ile95: ile95 as u64,
-            ext_costs: ext_costs,
+            ext_costs,
             gas_metric,
         }
     }
@@ -181,6 +181,17 @@ impl DataStats {
     /// Get mean + 4*sigma
     pub fn upper(&self) -> u64 {
         self.mean + 4u64 * self.stddev
+    }
+
+    /// Get upper using base:
+    /// `mean_clean = mean - mean_noop`
+    /// `stddev_clean^2 = stddev^2 + stddev_noop^2`
+    /// and then compute upper as `mean_clean + 4*stddev_clean`
+    pub fn upper_with_base(&self, base: &Self) -> u64 {
+        let mean = self.mean - base.mean;
+        let stddev =
+            (((self.stddev as u128).pow(2) + (base.stddev as u128).pow(2)) as f64).sqrt() as u64;
+        mean + 4u64 * stddev
     }
 }
 
