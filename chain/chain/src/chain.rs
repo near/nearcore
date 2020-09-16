@@ -415,6 +415,7 @@ impl Chain {
         if !chain_store_update.is_height_processed(block_height)? {
             chain_store_update.save_block_height_processed(block_height);
         }
+        chain_store_update.commit()?;
         Ok(())
     }
 
