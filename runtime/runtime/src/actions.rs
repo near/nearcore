@@ -154,6 +154,9 @@ pub(crate) fn action_function_call(
         Some(VMError::InconsistentStateError(err)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
+        Some(VMError::CacheError(err)) => {
+            return Err(StorageError::StorageInconsistentState(err).into());
+        }
         None => true,
     };
     if let Some(outcome) = outcome {
