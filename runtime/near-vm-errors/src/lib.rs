@@ -11,6 +11,7 @@ pub enum VMError {
     /// An error that is caused by an operation on an inconsistent state.
     /// E.g. an integer overflow by using a value from the given context.
     InconsistentStateError(InconsistentStateError),
+    CacheError(String),
 }
 
 #[derive(

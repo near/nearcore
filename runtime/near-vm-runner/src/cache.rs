@@ -71,22 +71,22 @@ pub(crate) fn put_module(code: &[u8], config: &VMConfig) -> Result<Vec<u8>, VMEr
     };
     let cached = match compiled.cache() {
         Ok(cached) => cached,
-        Err(_e) => return Err(VMError::ExternalError(b"cannot make cached artifact".to_vec())),
+        Err(_e) => return Err(VMError::CacheError("cannot make cached artifact".to_string())),
     };
     let buffer = match cached.serialize() {
         Ok(buffer) => buffer,
         Err(_e) => {
-            return Err(VMError::ExternalError(b"cannot serialize cached artifact".to_vec()))
+            return Err(VMError::CacheError("cannot serialize cached artifact".to_string()))
         }
     };
 
     let mut file = match File::create(path) {
         Ok(file) => file,
-        Err(_e) => return Err(VMError::ExternalError(b"Cannot create cache file".to_vec())),
+        Err(_e) => return Err(VMError::CacheError("Cannot create cache file".to_string())),
     };
     match file.write_all(&buffer) {
         Ok(_ok) => {}
-        Err(_e) => return Err(VMError::ExternalError(b"Cannot write cache file".to_vec())),
+        Err(_e) => return Err(VMError::CacheError("Cannot write cache file".to_string())),
     };
     Ok(code_hash.clone())
 }
@@ -98,11 +98,11 @@ pub(crate) fn get_module(
     let path = get_cached_name(&code_hash);
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
-        Err(_e) => return Err(VMError::ExternalError(b"cannot read from file".to_vec())),
+        Err(_e) => return Err(VMError::CacheError("cannot read from file".to_string())),
     };
     let cache = match Artifact::deserialize(bytes.as_slice()) {
         Ok(cache) => cache,
-        Err(_e) => return Err(VMError::ExternalError(b"cannot deserialize from file".to_vec())),
+        Err(_e) => return Err(VMError::CacheError("cannot deserialize from file".to_string())),
     };
     unsafe {
         return match load_cache_with(
@@ -110,7 +110,7 @@ pub(crate) fn get_module(
             compiler_for_backend(Backend::Singlepass).unwrap().as_ref(),
         ) {
             Ok(module) => Ok(module),
-            Err(_e) => Err(VMError::ExternalError(b"cannot read from cache".to_vec())),
+            Err(_e) => Err(VMError::CacheError("cannot read from cache".to_string())),
         };
     }
 }
