@@ -100,9 +100,7 @@ async fn fetch_block_by_hash(
     hash: CryptoHash,
 ) -> Result<views::BlockView, FailedToFetchData> {
     client
-        .send(near_client::GetBlock(near_primitives::types::BlockReference::BlockId(
-            near_primitives::types::BlockId::Hash(hash),
-        )))
+        .send(near_client::GetBlock(near_primitives::types::BlockId::Hash(hash).into()))
         .await?
         .map_err(|err| FailedToFetchData::String(err))
 }
@@ -246,7 +244,7 @@ async fn fetch_single_chunk(
 }
 
 /// Fetch all ExecutionOutcomeWithId for current block
-/// Returns the Hash where the key is Receipt or Transaction id and the value is ExecutionOutcomeWithId
+/// Returns a HashMap where the key is Receipt id or Transaction hash and the value is ExecutionOutcome wth id and proof
 async fn fetch_outcomes(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: CryptoHash,
