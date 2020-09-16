@@ -13,7 +13,7 @@ lazy_static! {
     pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum KeyType {
     ED25519 = 0,
     SECP256K1 = 1,
