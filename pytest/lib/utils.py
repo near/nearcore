@@ -284,7 +284,8 @@ def obj_to_string(obj, extra='    ', full=False):
         for item in sorted(obj.__dict__))
     elif isinstance(obj, bytes):
         if not full:
-            obj = obj[:7] + b"..."
+            if len(obj) > 10:
+                obj = obj[:7] + b"..."
         return str(obj)
     else:
         return str(obj)

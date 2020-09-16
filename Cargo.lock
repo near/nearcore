@@ -2529,7 +2529,7 @@ dependencies = [
 
 [[package]]
 name = "near-indexer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "actix",
  "futures",
@@ -2537,6 +2537,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "neard",
+ "node-runtime",
  "rocksdb",
  "tokio",
  "tracing",
@@ -2634,7 +2635,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-telemetry",
- "num-rational 0.2.4",
  "rand 0.7.3",
  "serde",
  "serde_json",

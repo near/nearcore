@@ -185,7 +185,7 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
             streamer_message.chunks.len(),
             streamer_message.chunks.iter().map(|chunk| chunk.transactions.len()).sum::<usize>(),
             streamer_message.chunks.iter().map(|chunk| chunk.receipts.len()).sum::<usize>(),
-            streamer_message.outcomes.len(),
+            streamer_message.receipt_execution_outcomes.len(),
         );
     }
 }

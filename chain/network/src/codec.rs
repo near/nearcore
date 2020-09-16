@@ -74,18 +74,73 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
     PeerMessage::try_from_slice(bytes)
 }
 
+fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
+    // 1 byte for enum variant, then some number depending on the
+    // public key type
+    match enum_var {
+        0 => Some(1 + 32),
+        1 => Some(1 + 64),
+        _ => None,
+    }
+}
+
+pub fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
+    let peer_message_variant = *bytes.get(0)?;
+
+    // PeerMessage::Routed variant == 13
+    if peer_message_variant != 13 {
+        return Some(false);
+    }
+
+    let target_field_variant = *bytes.get(1)?;
+    let target_field_len = if target_field_variant == 0 {
+        // PeerIdOrHash::PeerId
+        let peer_id_variant = *bytes.get(2)?;
+        peer_id_type_field_len(peer_id_variant)?
+    } else if target_field_variant == 1 {
+        // PeerIdOrHash::Hash is always 32 bytes
+        32
+    } else {
+        return None;
+    };
+
+    let author_variant_idx = 2 + target_field_len;
+    let author_variant = *bytes.get(author_variant_idx)?;
+    let author_field_len = peer_id_type_field_len(author_variant)?;
+
+    let signature_variant_idx = author_variant_idx + author_field_len;
+    let signature_variant = *bytes.get(signature_variant_idx)?;
+    let signature_field_len = match signature_variant {
+        0 => 1 + 64, // Signature::ED25519
+        1 => 1 + 65, // Signature::SECP256K1
+        _ => {
+            return None;
+        }
+    };
+
+    let ttl_idx = signature_variant_idx + signature_field_len;
+    let message_body_idx = ttl_idx + 1;
+    let message_body_variant = *bytes.get(message_body_idx)?;
+
+    Some(message_body_variant == 1)
+}
+
 #[cfg(test)]
 mod test {
-    use near_crypto::{KeyType, SecretKey};
+    use near_crypto::{KeyType, PublicKey, SecretKey};
     use near_primitives::block::{Approval, ApprovalInner};
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::network::AnnounceAccount;
-    use near_primitives::types::EpochId;
+    use near_primitives::hash::{self, CryptoHash};
+    use near_primitives::network::{AnnounceAccount, PeerId};
+    use near_primitives::transaction::{SignedTransaction, Transaction};
+    use near_primitives::{
+        types::EpochId,
+        version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
+    };
 
     use crate::routing::EdgeInfo;
     use crate::types::{
-        Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody,
-        SyncData,
+        Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerIdOrHash, PeerInfo,
+        RoutedMessage, RoutedMessageBody, SyncData,
     };
 
     use super::*;
@@ -98,11 +153,88 @@ mod test {
         assert_eq!(bytes_to_peer_message(&decoded).unwrap(), msg);
     }
 
+    #[derive(Debug, Copy, Clone)]
+    enum ForwardTxTargetType {
+        Hash,
+        PublicKey(KeyType),
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    struct ForwardTxType {
+        target: ForwardTxTargetType,
+        author: KeyType,
+        tx: KeyType,
+    }
+
+    fn create_tx_forward(schema: ForwardTxType) -> PeerMessage {
+        let target = match schema.target {
+            ForwardTxTargetType::Hash => PeerIdOrHash::Hash(hash::hash(b"peer_id_hash")),
+            ForwardTxTargetType::PublicKey(key_type) => {
+                let secret_key = SecretKey::from_seed(key_type, "target_secret_key");
+                PeerIdOrHash::PeerId(PeerId(secret_key.public_key()))
+            }
+        };
+
+        let (author, signature) = {
+            let secret_key = SecretKey::from_seed(schema.author, "author_secret_key");
+            let public_key = secret_key.public_key();
+            let author = PeerId(public_key);
+            let msg_data = hash::hash(b"msg_data");
+            let signature = secret_key.sign(msg_data.as_ref());
+
+            (author, signature)
+        };
+
+        let tx = {
+            let secret_key = SecretKey::from_seed(schema.tx, "tx_secret_key");
+            let public_key = secret_key.public_key();
+            let tx_hash = hash::hash(b"this_great_tx_data");
+            let signature = secret_key.sign(tx_hash.as_ref());
+
+            SignedTransaction::new(
+                signature,
+                Transaction::new("x".to_string(), public_key, "y".to_string(), 7, tx_hash),
+            )
+        };
+
+        PeerMessage::Routed(RoutedMessage {
+            target,
+            author,
+            signature,
+            ttl: 99,
+            body: RoutedMessageBody::ForwardTx(tx),
+        })
+    }
+
+    #[test]
+    fn test_tx_forward() {
+        let targets = [
+            ForwardTxTargetType::PublicKey(KeyType::ED25519),
+            ForwardTxTargetType::PublicKey(KeyType::SECP256K1),
+            ForwardTxTargetType::Hash,
+        ];
+        let authors = [KeyType::ED25519, KeyType::SECP256K1];
+        let txs_keys = [KeyType::ED25519, KeyType::SECP256K1];
+
+        let schemas = targets
+            .iter()
+            .flat_map(|target| authors.iter().map(move |author| (*target, *author)))
+            .flat_map(|(target, author)| {
+                txs_keys.iter().map(move |tx| ForwardTxType { target, author, tx: *tx })
+            });
+
+        schemas.for_each(|s| {
+            let msg = create_tx_forward(s);
+            let bytes = msg.try_to_vec().unwrap();
+            assert!(is_forward_tx(&bytes).unwrap());
+        })
+    }
+
     #[test]
     fn test_peer_message_handshake() {
         let peer_info = PeerInfo::random();
         let fake_handshake = Handshake {
-            version: 1,
+            version: PROTOCOL_VERSION,
             peer_id: peer_info.id.clone(),
             target_peer_id: peer_info.id,
             listen_port: None,
@@ -115,6 +247,62 @@ mod test {
         };
         let msg = PeerMessage::Handshake(fake_handshake);
         test_codec(msg);
+    }
+
+    #[test]
+    fn test_peer_message_handshake_v2() {
+        let peer_info = PeerInfo::random();
+        let fake_handshake = HandshakeV2 {
+            version: PROTOCOL_VERSION,
+            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+            peer_id: peer_info.id.clone(),
+            target_peer_id: peer_info.id,
+            listen_port: None,
+            chain_info: PeerChainInfo {
+                genesis_id: Default::default(),
+                height: 0,
+                tracked_shards: vec![],
+            },
+            edge_info: EdgeInfo::default(),
+        };
+        let msg = PeerMessage::HandshakeV2(fake_handshake);
+        test_codec(msg);
+    }
+
+    #[test]
+    fn test_peer_message_handshake_v2_00() {
+        let fake_handshake = HandshakeV2 {
+            version: 0,
+            oldest_supported_version: 0,
+            peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            target_peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            listen_port: None,
+            chain_info: PeerChainInfo {
+                genesis_id: Default::default(),
+                height: 0,
+                tracked_shards: vec![],
+            },
+            edge_info: EdgeInfo::default(),
+        };
+        let msg = PeerMessage::HandshakeV2(fake_handshake);
+
+        let mut codec = Codec::new();
+        let mut buffer = BytesMut::new();
+        codec.encode(peer_message_to_bytes(msg.clone()).unwrap(), &mut buffer).unwrap();
+        let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
+
+        let err = bytes_to_peer_message(&decoded).unwrap_err();
+
+        assert_eq!(
+            *err.get_ref()
+                .map(|inner| inner.downcast_ref::<HandshakeFailureReason>())
+                .unwrap()
+                .unwrap(),
+            HandshakeFailureReason::ProtocolVersionMismatch {
+                version: 0,
+                oldest_supported_version: 0,
+            }
+        );
     }
 
     #[test]
