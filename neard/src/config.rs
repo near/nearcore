@@ -533,14 +533,14 @@ pub struct NearConfig {
     #[cfg(feature = "rosetta_rpc")]
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
-    pub genesis: Arc<Genesis>,
+    pub genesis: Genesis,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
 }
 
 impl NearConfig {
     pub fn new(
         config: Config,
-        genesis: Arc<Genesis>,
+        genesis: Genesis,
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
@@ -1007,10 +1007,10 @@ pub fn load_config(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = InMemorySigner::from_file(&dir.join(&config.node_key_file));
-    NearConfig::new(config, Arc::new(genesis), (&network_signer).into(), validator_signer)
+    NearConfig::new(config, genesis, (&network_signer).into(), validator_signer)
 }
 
-pub fn load_test_config(seed: &str, port: u16, genesis: Arc<Genesis>) -> NearConfig {
+pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", open_port());

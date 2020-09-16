@@ -157,7 +157,7 @@ pub fn start_with_config(
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
         Arc::clone(&store),
-        Arc::clone(&config.genesis),
+        &config.genesis,
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),
     ));
@@ -192,7 +192,7 @@ pub fn start_with_config(
     );
     start_http(
         config.rpc_config,
-        Arc::clone(&config.genesis),
+        config.genesis.config.clone(),
         client_actor.clone(),
         view_client.clone(),
     );
@@ -200,7 +200,7 @@ pub fn start_with_config(
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
         start_rosetta_rpc(
             rosetta_rpc_config,
-            Arc::clone(&config.genesis),
+            Arc::new(config.genesis.clone()),
             client_actor.clone(),
             view_client.clone(),
         );
