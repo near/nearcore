@@ -164,6 +164,11 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
             ratio_to_gas(config.metric, cost.deploy_cost.0),
             ratio_to_gas(config.metric, cost.deploy_cost.1)
         );
+        println!(
+            "EVM function call cost: {}, function cost cost per EVM gas: {}",
+            ratio_to_gas(config.metric, cost.funcall_cost.0),
+            ratio_to_gas(config.metric, cost.funcall_cost.1)
+        );
         process::exit(0);
     }
     config.block_sizes = vec![100];

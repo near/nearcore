@@ -30,6 +30,10 @@ glob = "0.3.0"
 walrus = "0.18.0"
 near-evm-runner = { path = "../../runtime/near-evm-runner" }
 hex = "0.4"
+ethabi = "8.0.0"
+ethabi-contract = "8.0.0"
+ethabi-derive = "8.0.0"
+lazy-static-include = "2.2.2"
 
 [features]
 default = []

@@ -1,8 +1,11 @@
 use crate::testbed_runners::end_count;
 use crate::testbed_runners::start_count;
 use crate::testbed_runners::GasMetric;
+use ethabi_contract::use_contract;
 use glob::glob;
-use near_evm_runner::run_evm;
+use lazy_static_include::lazy_static_include_str;
+use near_evm_runner::utils::encode_call_function_args;
+use near_evm_runner::{run_evm, EvmContext};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -182,7 +185,7 @@ type Coef = (Ratio<u64>, Ratio<u64>);
 
 pub struct EvmCostCoef {
     pub deploy_cost: Coef,
-    // pub run_cost: Coef,
+    pub funcall_cost: Coef,
     // pub ecRecoverCost: Coef,
     // pub sha256Cost: Coef,
     // pub ripemd160Cost: Coef,
@@ -203,8 +206,6 @@ pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> Coef {
             _ => None,
         })
         .collect::<Vec<PathBuf>>();
-    let ratio = Ratio::new(0 as u64, 1);
-    let base = Ratio::new(u64::MAX, 1);
 
     let measurements = paths
         .iter()
@@ -230,26 +231,118 @@ pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> Coef {
         .filter(|x| x.is_some())
         .map(|x| x.unwrap())
         .collect::<Vec<EvmCost>>();
-    let b = measurements.iter().fold(base, |b, EvmCost { evm_gas: _, cost }| b.min(*cost));
-    let m = measurements
-        .iter()
-        .fold(ratio, |r, EvmCost { evm_gas, cost }| r.max((*cost - b) / evm_gas));
-    if verbose {
-        println!("raw data: ({},{})", m, b);
-    }
-    (m, b)
+    measurements_to_coef(measurements, true)
 }
 
-pub fn measure_evm_run(gas_metric: GasMetric, verbose: bool) -> Coef {
-    let ratio = Ratio::new(0 as u64, 1);
-    let base = Ratio::new(u64::MAX, 1);
-    //TODO
-    (ratio, base)
+use_contract!(soltest, "../near-evm-runner/tests/build/SolTests.abi");
+use_contract!(subcontract, "../near-evm-runner/tests/build/SubContract.abi");
+use_contract!(create2factory, "../near-evm-runner/tests/build/Create2Factory.abi");
+use_contract!(selfdestruct, "../near-evm-runner/tests/build/SelfDestruct.abi");
+
+lazy_static_include_str!(TEST, "../near-evm-runner/tests/build/SolTests.bin");
+lazy_static_include_str!(SUBCONTRACT_TEST, "../near-evm-runner/tests/build/SubContract.bin");
+lazy_static_include_str!(FACTORY_TEST, "../near-evm-runner/tests/build/Create2Factory.bin");
+lazy_static_include_str!(DESTRUCT_TEST, "../near-evm-runner/tests/build/SelfDestruct.bin");
+lazy_static_include_str!(CONSTRUCTOR_TEST, "../near-evm-runner/tests/build/ConstructorRevert.bin");
+
+pub fn create_evm_context<'a>(
+    external: &'a mut MockedExternal,
+    vm_config: &'a VMConfig,
+    fees_config: &'a RuntimeFeesConfig,
+    account_id: String,
+    attached_deposit: u128,
+) -> EvmContext<'a> {
+    EvmContext::new(
+        external,
+        vm_config,
+        fees_config,
+        1000,
+        account_id.to_string(),
+        attached_deposit,
+        0,
+        10u64.pow(14),
+        false,
+    )
+}
+
+pub fn measure_evm_funcall(gas_metric: GasMetric, verbose: bool) -> Coef {
+    let mut fake_external = MockedExternal::new();
+    let config = VMConfig::default();
+    let fees = RuntimeFeesConfig::default();
+
+    let mut context =
+        create_evm_context(&mut fake_external, &config, &fees, "alice".to_string(), 100);
+    let sol_test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
+    // TODO: this deploy always fail with empty string error message
+    // let factory_test_addr = context.deploy_code(hex::decode(&FACTORY_TEST).unwrap()).unwrap();
+    // let destruct_test_addr = context.deploy_code(hex::decode(&DESTRUCT_TEST).unwrap()).unwrap();
+    // let constructor_test_addr =
+    //     context.deploy_code(hex::decode(&CONSTRUCTOR_TEST).unwrap()).unwrap();
+    let subcontract_test_addr =
+        context.deploy_code(hex::decode(&SUBCONTRACT_TEST).unwrap()).unwrap();
+
+    let measurements = vec![
+        measure_evm_function(
+            gas_metric,
+            verbose,
+            &mut context,
+            encode_call_function_args(sol_test_addr, soltest::functions::deploy_new_guy::call(8).0),
+        ),
+        measure_evm_function(
+            gas_metric,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                subcontract_test_addr,
+                subcontract::functions::a_number::call().0,
+            ),
+        ),
+        measure_evm_function(
+            gas_metric,
+            verbose,
+            &mut context,
+            encode_call_function_args(sol_test_addr, soltest::functions::pay_new_guy::call(8).0),
+        ),
+        measure_evm_function(
+            gas_metric,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                sol_test_addr,
+                soltest::functions::return_some_funds::call().0,
+            ),
+        ),
+    ];
+
+    measurements_to_coef(measurements, true)
+}
+
+pub fn measure_evm_function(
+    gas_metric: GasMetric,
+    verbose: bool,
+    context: &mut EvmContext,
+    args: Vec<u8>,
+) -> EvmCost {
+    let start = start_count(gas_metric);
+    let mut evm_gas = 0;
+    for i in 0..NUM_ITERATIONS {
+        if i == 0 {
+            evm_gas = context.evm_gas_counter.used_gas.as_u64();
+        } else if i == 1 {
+            evm_gas = context.evm_gas_counter.used_gas.as_u64() - evm_gas;
+        }
+        let _ = context.call_function(args.clone()).unwrap();
+    }
+    let end = end_count(gas_metric, &start);
+    EvmCost { evm_gas, cost: Ratio::new(end, NUM_ITERATIONS) }
 }
 
 /// Cost of all evm related
 pub fn cost_of_evm(gas_metric: GasMetric, verbose: bool) -> EvmCostCoef {
-    let evm_cost_config = EvmCostCoef { deploy_cost: measure_evm_deploy(gas_metric, verbose) };
+    let evm_cost_config = EvmCostCoef {
+        deploy_cost: measure_evm_deploy(gas_metric, verbose),
+        funcall_cost: measure_evm_funcall(gas_metric, verbose),
+    };
     evm_cost_config
 }
 
@@ -307,6 +400,19 @@ pub fn cost_to_compile(
         .collect::<Vec<CompileCost>>();
     let b = measurements.iter().fold(base, |base, (_, cost)| base.min(*cost));
     let m = measurements.iter().fold(ratio, |r, (bytes, cost)| r.max((*cost - b) / bytes));
+    if verbose {
+        println!("raw data: ({},{})", m, b);
+    }
+    (m, b)
+}
+
+fn measurements_to_coef(measurements: Vec<EvmCost>, verbose: bool) -> Coef {
+    let ratio = Ratio::new(0 as u64, 1);
+    let base = Ratio::new(u64::MAX, 1);
+    let b = measurements.iter().fold(base, |b, EvmCost { evm_gas: _, cost }| b.min(*cost));
+    let m = measurements
+        .iter()
+        .fold(ratio, |r, EvmCost { evm_gas, cost }| r.max((*cost - b) / evm_gas));
     if verbose {
         println!("raw data: ({},{})", m, b);
     }
