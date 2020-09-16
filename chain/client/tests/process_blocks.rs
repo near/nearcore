@@ -1944,15 +1944,9 @@ fn test_block_execution_outcomes() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
-    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let mut tx_hashes = vec![];
