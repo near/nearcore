@@ -1,6 +1,7 @@
 //! Streamer watches the network and collects all the blocks and related chunks
 //! into one struct and pushes in in to the given queue
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
@@ -13,6 +14,7 @@ use tracing::{debug, info};
 use near_client;
 pub use near_primitives::hash::CryptoHash;
 pub use near_primitives::{types, views};
+use node_runtime::config::tx_cost;
 
 use crate::IndexerConfig;
 
@@ -92,12 +94,87 @@ async fn fetch_block_by_height(
         .map_err(|err| FailedToFetchData::String(err))
 }
 
+/// Fetches specific block by it's hash
+async fn fetch_block_by_hash(
+    client: &Addr<near_client::ViewClientActor>,
+    hash: CryptoHash,
+) -> Result<views::BlockView, FailedToFetchData> {
+    client
+        .send(near_client::GetBlock(near_primitives::types::BlockReference::BlockId(
+            near_primitives::types::BlockId::Hash(hash),
+        )))
+        .await?
+        .map_err(|err| FailedToFetchData::String(err))
+}
+
+async fn convert_transactions_sir_into_local_receipts(
+    client: &Addr<near_client::ViewClientActor>,
+    near_config: &neard::NearConfig,
+    txs: Vec<&IndexerTransactionWithOutcome>,
+    block: &views::BlockView,
+) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
+    let prev_block = fetch_block_by_hash(&client, block.header.prev_hash.clone()).await?;
+    let prev_block_gas_price = prev_block.header.gas_price;
+
+    let local_receipts: Vec<views::ReceiptView> = txs
+        .into_iter()
+        .map(|tx| {
+            let cost = tx_cost(
+                &near_config.genesis.config.runtime_config.transaction_costs,
+                &near_primitives::transaction::Transaction {
+                    signer_id: tx.transaction.signer_id.clone(),
+                    public_key: tx.transaction.public_key.clone(),
+                    nonce: tx.transaction.nonce,
+                    receiver_id: tx.transaction.receiver_id.clone(),
+                    block_hash: block.header.hash,
+                    actions: tx
+                        .transaction
+                        .actions
+                        .clone()
+                        .into_iter()
+                        .map(|action| {
+                            near_primitives::transaction::Action::try_from(action).unwrap()
+                        })
+                        .collect(),
+                },
+                prev_block_gas_price,
+                true,
+                near_config.genesis.config.protocol_version,
+            );
+            views::ReceiptView {
+                predecessor_id: tx.transaction.signer_id.clone(),
+                receiver_id: tx.transaction.receiver_id.clone(),
+                receipt_id: tx
+                    .outcome
+                    .outcome
+                    .receipt_ids
+                    .first()
+                    .expect("The transaction ExecutionOutcome should have one receipt id in vec")
+                    .clone(),
+                receipt: views::ReceiptEnumView::Action {
+                    signer_id: tx.transaction.signer_id.clone(),
+                    signer_public_key: tx.transaction.public_key.clone(),
+                    gas_price: cost
+                        .expect("TransactionCost returned IntegerOverflowError")
+                        .receipt_gas_price,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: tx.transaction.actions.clone(),
+                },
+            }
+        })
+        .collect();
+
+    Ok(local_receipts)
+}
+
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
 /// and returns everything together in one struct
 async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
+    near_config: &neard::NearConfig,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let chunks = fetch_chunks(&client, &block.chunks).await?;
 
@@ -119,28 +196,16 @@ async fn build_streamer_message(
         .collect::<Vec<IndexerTransactionWithOutcome>>();
 
         local_receipts.extend(
-            indexer_transactions
-                .iter()
-                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
-                .map(|tx| views::ReceiptView {
-                    predecessor_id: tx.transaction.signer_id.clone(),
-                    receiver_id: tx.transaction.receiver_id.clone(),
-                    receipt_id: tx
-                        .outcome
-                        .outcome
-                        .receipt_ids
-                        .first()
-                        .expect("The transaction outcome should always include single `receipt_id` in vec")
-                        .clone(),
-                    receipt: views::ReceiptEnumView::Action {
-                        signer_id: tx.transaction.signer_id.clone(),
-                        signer_public_key: tx.transaction.public_key.clone(),
-                        gas_price: block.header.gas_price, // TODO: fill it
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: tx.transaction.actions.clone(),
-                    },
-                }),
+            convert_transactions_sir_into_local_receipts(
+                &client,
+                near_config,
+                indexer_transactions
+                    .iter()
+                    .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
+                    .collect::<Vec<&IndexerTransactionWithOutcome>>(),
+                &block,
+            )
+            .await?,
         );
 
         indexer_chunks.push(IndexerChunkView {
@@ -180,9 +245,8 @@ async fn fetch_single_chunk(
     client.send(get_chunk).await?.map_err(|err| FailedToFetchData::String(err))
 }
 
-/// Fetch ExecutionOutcomeWithId for receipts and transactions from previous block
-/// Returns fetched Outcomes and Vec of failed to fetch outcome which should be retried to fetch
-/// in the next block
+/// Fetch all ExecutionOutcomeWithId for current block
+/// Returns the Hash where the key is Receipt or Transaction id and the value is ExecutionOutcomeWithId
 async fn fetch_outcomes(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: CryptoHash,
@@ -227,6 +291,7 @@ async fn fetch_chunks(
 pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,
+    near_config: neard::NearConfig,
     indexer_config: IndexerConfig,
     mut blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
@@ -279,7 +344,7 @@ pub(crate) async fn start(
         );
         for block_height in start_syncing_block_height..=latest_block_height {
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response = build_streamer_message(&view_client, block).await;
+                let response = build_streamer_message(&view_client, block, &near_config).await;
 
                 match response {
                     Ok(streamer_message) => {
