@@ -1,4 +1,3 @@
-
 #[cfg(not(feature = "single_thread_rocksdb"))]
 use std::cmp;
 use std::collections::HashMap;

@@ -284,6 +284,7 @@ impl fmt::Display for VMError {
             VMError::FunctionCallError(err) => fmt::Display::fmt(err, f),
             VMError::ExternalError(_err) => write!(f, "Serialized ExternalError"),
             VMError::InconsistentStateError(err) => fmt::Display::fmt(err, f),
+            VMError::CacheError(err) => fmt::Display::fmt(err, f),
         }
     }
 }
