@@ -11,7 +11,7 @@ use paperclip::actix::{
 };
 use strum::IntoEnumIterator;
 
-use near_chain_configs::{Genesis, GenesisConfig};
+use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_primitives::serialize::BaseEncode;
 
@@ -55,7 +55,7 @@ async fn network_list(
 /// This endpoint returns the current status of the network requested. Any
 /// NetworkIdentifier returned by /network/list should be accessible here.
 async fn network_status(
-    genesis_config: web::Data<GenesisConfig>,
+    genesis: web::Data<Arc<Genesis>>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::NetworkRequest>,
@@ -74,7 +74,7 @@ async fn network_status(
         });
     }
 
-    let genesis_height = genesis_config.genesis_height;
+    let genesis_height = genesis.config.genesis_height;
     let (network_info, genesis_block, earliest_block) = tokio::try_join!(
         client_addr.send(near_client::GetNetworkInfo {}),
         view_client_addr.send(near_client::GetBlock(
@@ -707,7 +707,7 @@ pub fn start_rosetta_rpc(
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins } = config;
     HttpServer::new(move || {
         App::new()
-            .data(genesis.clone())
+            .data(Arc::clone(&genesis))
             .data(client_addr.clone())
             .data(view_client_addr.clone())
             .wrap(get_cors(&cors_allowed_origins))
