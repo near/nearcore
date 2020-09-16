@@ -48,6 +48,20 @@ use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::NEAR_BASE;
 
+pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
+    (0..n)
+        .map(|_| {
+            Arc::new(neard::NightshadeRuntime::new(
+                Path::new("."),
+                create_test_store(),
+                genesis,
+                vec![],
+                vec![],
+            )) as Arc<dyn RuntimeAdapter>
+        })
+        .collect()
+}
+
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
 fn produce_two_blocks() {
@@ -1013,19 +1027,12 @@ fn test_minimum_gas_price() {
 }
 
 fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
-    let store = create_test_store();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        store,
-        Arc::new(genesis),
-        vec![],
-        vec![],
-    ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let mut blocks = vec![];
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     blocks.push(genesis_block);
@@ -1082,25 +1089,10 @@ fn test_gc_long_epoch() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 5);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis),
-            vec![],
-            vec![],
-        )),
-    ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 5, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 5, create_nightshade_runtimes(&genesis, 2));
     let num_blocks = 100;
     let mut blocks = vec![];
 
@@ -1172,16 +1164,10 @@ fn test_gc_execution_outcome() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let tx = SignedTransaction::send_money(
@@ -1212,25 +1198,10 @@ fn test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-    ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 1, create_nightshade_runtimes(&genesis, 2));
     for i in 1..epoch_length * 4 + 2 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -1258,16 +1229,10 @@ fn test_process_block_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     for i in 1..epoch_length * 4 + 2 {
         env.produce_block(0, i);
     }
@@ -1297,25 +1262,14 @@ fn test_gc_fork_tail() {
     let epoch_length = 101;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-    ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis.clone(), 2, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(
+        chain_genesis.clone(),
+        2,
+        1,
+        create_nightshade_runtimes(&genesis, 2),
+    );
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     for i in 0..2 {
         env.process_block(i, b1.clone(), Provenance::NONE);
@@ -1368,24 +1322,11 @@ fn test_tx_forward_around_epoch_boundary() {
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
-    let create_runtime = |store| -> neard::NightshadeRuntime {
-        neard::NightshadeRuntime::new(
-            Path::new("."),
-            store,
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )
-    };
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(create_runtime(create_test_store())),
-        Arc::new(create_runtime(create_test_store())),
-        Arc::new(create_runtime(create_test_store())),
-    ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     chain_genesis.gas_limit = genesis.config.gas_limit;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 3, 2, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 3, 2, create_nightshade_runtimes(&genesis, 3));
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let tx = SignedTransaction::stake(
@@ -1431,20 +1372,13 @@ fn test_tx_forward_around_epoch_boundary() {
 /// Blocks that have already been gc'ed should not be accepted again.
 #[test]
 fn test_not_resync_old_blocks() {
-    let store = create_test_store();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        store,
-        Arc::new(genesis),
-        vec![],
-        vec![],
-    ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let mut blocks = vec![];
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1465,25 +1399,10 @@ fn test_gc_tail_update() {
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let epoch_length = 2;
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis),
-            vec![],
-            vec![],
-        )),
-    ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 1, create_nightshade_runtimes(&genesis, 2));
     let mut blocks = vec![];
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1544,16 +1463,9 @@ fn test_gas_price_change() {
     genesis.config.gas_limit = gas_limit;
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     genesis.config.runtime_config.storage_amount_per_byte = 0;
-    let genesis = Arc::new(genesis);
     let chain_genesis = ChainGenesis::from(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        genesis,
-        vec![],
-        vec![],
-    ))];
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
@@ -1596,16 +1508,10 @@ fn test_gas_price_overflow() {
     genesis.config.transaction_validity_period = 100000;
     genesis.config.epoch_length = 43200;
     genesis.config.max_gas_price = max_gas_price;
-    let genesis = Arc::new(genesis);
+
     let chain_genesis = ChainGenesis::from(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        genesis,
-        vec![],
-        vec![],
-    ))];
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
@@ -1645,12 +1551,11 @@ fn test_invalid_block_root() {
 #[test]
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0", "test1"], 2);
-    let genesis = Arc::new(genesis);
     let chain_genesis = ChainGenesis::from(&genesis);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        genesis,
+        &genesis,
         vec![],
         vec![],
     ));
@@ -1708,14 +1613,12 @@ fn test_data_reset_before_state_sync() {
     let mut genesis = Genesis::test(vec!["test0"], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
@@ -1767,16 +1670,10 @@ fn test_sync_hash_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     for i in 1..19 {
         env.produce_block(0, i);
     }
@@ -1826,14 +1723,12 @@ fn test_validate_chunk_extra() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let genesis_height = genesis_block.header().height();
 
@@ -1953,15 +1848,9 @@ fn test_gas_price_change_no_chunk() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = 30;
     genesis.config.min_gas_price = min_gas_price;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
-    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     for i in 1..=20 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1986,24 +1875,9 @@ fn test_catchup_gas_price_change() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-    ];
-    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 1, create_nightshade_runtimes(&genesis, 2));
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let mut blocks = vec![];
     for i in 1..3 {
@@ -2070,15 +1944,9 @@ fn test_block_execution_outcomes() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
-    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let mut tx_hashes = vec![];
@@ -2148,24 +2016,9 @@ fn test_epoch_protocol_version_change() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let genesis_height = genesis.config.genesis_height;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-    ];
-    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 2, runtimes);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 2, create_nightshade_runtimes(&genesis, 2));
     for i in 1..=16 {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]

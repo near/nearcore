@@ -5,7 +5,6 @@
 //! out the better place.
 use std::marker::PhantomData;
 use std::path::Path;
-use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use num_rational::Rational;
@@ -142,7 +141,7 @@ pub struct Genesis {
     phantom: PhantomData<()>,
 }
 
-impl AsRef<GenesisConfig> for Arc<Genesis> {
+impl AsRef<GenesisConfig> for &Genesis {
     fn as_ref(&self) -> &GenesisConfig {
         &self.config
     }

@@ -10,8 +10,8 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
+use near_primitives::rpc::RpcQueryRequest;
 use near_primitives::rpc::RpcValidatorsOrderedRequest;
-use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::types::{BlockId, BlockReference, Finality, ShardId, SyncCheckpoint};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
@@ -483,67 +483,6 @@ fn test_genesis_config() {
         assert_eq!(genesis_config["protocol_version"].as_u64().unwrap(), PROTOCOL_VERSION as u64);
         assert!(!genesis_config["chain_id"].as_str().unwrap().is_empty());
         assert!(!genesis_config.as_object().unwrap().contains_key("records"));
-    });
-}
-
-/// Retrieve genesis records via JSON RPC.
-#[test]
-fn test_genesis_records() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let genesis_records = client
-            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
-                pagination: Default::default(),
-            })
-            .await
-            .unwrap();
-        assert_eq!(genesis_records.records.len(), 100);
-        let first100_records = genesis_records.records.to_vec();
-
-        let second_genesis_record = client
-            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
-                pagination: RpcPagination { offset: 1, limit: 1 },
-            })
-            .await
-            .unwrap();
-        assert_eq!(second_genesis_record.records.len(), 1);
-
-        assert_eq!(
-            serde_json::to_value(&first100_records[1]).unwrap(),
-            serde_json::to_value(&second_genesis_record.records[0]).unwrap()
-        );
-    });
-}
-
-/// Check invalid arguments to genesis records via JSON RPC.
-#[test]
-fn test_invalid_genesis_records_arguments() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let genesis_records_response = client
-            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
-                pagination: RpcPagination { offset: 1, limit: 101 },
-            })
-            .await;
-        let validation_error = genesis_records_response.err().unwrap();
-        assert_eq!(validation_error.code, -32_602);
-        assert_eq!(validation_error.message, "Invalid params");
-        assert_eq!(
-            validation_error.data.unwrap(),
-            serde_json::json!({
-                "pagination": {
-                    "limit": [
-                        {
-                            "code": "range",
-                            "message": null,
-                            "params": {
-                                "max": 100.0,
-                                "value": 101,
-                                "min": 1.0,
-                            }
-                        }
-                    ]
-                }
-            })
-        );
     });
 }
 

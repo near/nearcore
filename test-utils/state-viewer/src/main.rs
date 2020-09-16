@@ -51,7 +51,7 @@ fn load_trie_stop_at_height(
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
-        Arc::clone(&near_config.genesis),
+        &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
@@ -107,7 +107,7 @@ fn print_chain(
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
-        Arc::clone(&near_config.genesis),
+        &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
@@ -176,7 +176,7 @@ fn replay_chain(
     let runtime = NightshadeRuntime::new(
         &home_dir,
         new_store,
-        Arc::clone(&near_config.genesis),
+        &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
@@ -204,7 +204,7 @@ fn apply_block_at_height(
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
-        Arc::clone(&near_config.genesis),
+        &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
