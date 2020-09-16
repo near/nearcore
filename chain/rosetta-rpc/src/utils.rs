@@ -364,6 +364,9 @@ pub(crate) async fn query_accounts(
         .collect()
 }
 
+/// This is a helper to ensure that all the values you try to assign are the
+/// same, and return an error otherwise (useful in ensuring that all the
+/// "sender" Operations have the same account).
 pub(crate) struct InitializeOnce<'a, T>
 where
     T: std::fmt::Debug + Eq + ToOwned<Owned = T>,

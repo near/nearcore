@@ -378,6 +378,16 @@ pub(crate) async fn collect_transactions(
     }
 }
 
+/// This is used as a common denominator for matching Rosetta Operations to
+/// and from NEAR Actions (see From and TryFrom implementations).
+///
+/// A single NEAR Action expands into 1-3 Rosetta Operations. This
+/// relation is bijective (NEAR Actions -> Rosetta Operations ->
+/// NEAR Actions == original NEAR Actions).
+///
+/// There are some helper Operation Types defined since a single operation
+/// has only a single "account" field, so to indicate "sender" and "receiver"
+/// we use two operations (e.g. InitiateAddKey and AddKey).
 #[derive(Debug, Clone)]
 pub struct NearActions {
     pub sender_account_id: near_primitives::types::AccountId,
@@ -386,6 +396,7 @@ pub struct NearActions {
 }
 
 impl From<NearActions> for Vec<crate::models::Operation> {
+    /// Convert NEAR Actions to Rosetta Operations. It never fails.
     fn from(near_actions: NearActions) -> Self {
         let NearActions { sender_account_id, receiver_account_id, actions } = near_actions;
         let sender_account_identifier: crate::models::AccountIdentifier = sender_account_id.into();
@@ -601,6 +612,11 @@ impl From<NearActions> for Vec<crate::models::Operation> {
 impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
     type Error = crate::errors::ErrorKind;
 
+    /// Convert Rosetta Operations to NEAR Actions.
+    ///
+    /// See the inverted implementation of From<NearActions> for Vec<Operations>
+    /// above to understand how a single NEAR Action is represented with Rosetta
+    /// Operations. The implementations are bijective (there is a test below).
     fn try_from(operations: Vec<crate::models::Operation>) -> Result<Self, Self::Error> {
         let mut sender_account_id = crate::utils::InitializeOnce::new(
             "A single transaction cannot be send from multiple senders",
@@ -612,7 +628,7 @@ impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
 
         // Iterate over operations backwards to handle the related operations
         let mut operations = operations.into_iter().rev();
-        // A single iteration consumest at least one operation from the iterator.
+        // A single iteration consumes at least one operation from the iterator
         while let Some(tail_operation) = operations.next() {
             match tail_operation.type_ {
                 crate::models::OperationType::CreateAccount => {
