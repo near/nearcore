@@ -83,9 +83,12 @@ impl<'a> EvmState for EvmContext<'a> {
     }
 
     fn commit_changes(&mut self, other: &StateStore) -> Result<()> {
-        // TODO: figure out how to handle this on the top level.
-        //        self.commit_self_destructs(&other.self_destructs);
-        //        self.commit_self_destructs(&other.recreated);
+        for address in other.self_destructs.iter() {
+            self.clear_contract_info(address)?;
+        }
+        for address in other.recreated.iter() {
+            self.clear_contract_info(address)?;
+        }
         for (address, code) in other.code.iter() {
             self.set_code(&H160(*address), code)?;
         }
@@ -139,6 +142,10 @@ impl<'a> EvmContext<'a> {
             ),
             fees_config,
         }
+    }
+
+    fn clear_contract_info(&mut self, other: &[u8; 20]) -> Result<()> {
+        self.ext.storage_remove_subtree(other)
     }
 
     pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
