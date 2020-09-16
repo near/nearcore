@@ -33,7 +33,7 @@ impl ValidatedOperation for FunctionCallOperation {
 
             related_operations: None,
             type_: Self::OPERATION_TYPE,
-            status: crate::models::OperationStatusKind::Success,
+            status: None,
         }
     }
 }

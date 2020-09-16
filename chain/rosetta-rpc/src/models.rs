@@ -751,7 +751,8 @@ pub(crate) struct Operation {
     /// transactions that partially apply. Blockchains with atomic transactions
     /// (all operations succeed or all operations fail) will have the same
     /// status for each operation.
-    pub status: OperationStatusKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<OperationStatusKind>,
 
     pub account: AccountIdentifier,
 

@@ -54,7 +54,7 @@ async fn convert_genesis_records_to_transaction(
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(account_balances.liquid)),
                 type_: crate::models::OperationType::Transfer,
-                status: crate::models::OperationStatusKind::Success,
+                status: Some(crate::models::OperationStatusKind::Success),
                 metadata: None,
             });
         }
@@ -71,7 +71,7 @@ async fn convert_genesis_records_to_transaction(
                     account_balances.liquid_for_storage,
                 )),
                 type_: crate::models::OperationType::Transfer,
-                status: crate::models::OperationStatusKind::Success,
+                status: Some(crate::models::OperationStatusKind::Success),
                 metadata: None,
             });
         }
@@ -86,7 +86,7 @@ async fn convert_genesis_records_to_transaction(
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(account_balances.locked)),
                 type_: crate::models::OperationType::Transfer,
-                status: crate::models::OperationStatusKind::Success,
+                status: Some(crate::models::OperationStatusKind::Success),
                 metadata: None,
             });
         }
@@ -221,7 +221,7 @@ pub(crate) async fn convert_block_to_transactions(
                             ),
                         )),
                         type_: crate::models::OperationType::Transfer,
-                        status: crate::models::OperationStatusKind::Success,
+                        status: Some(crate::models::OperationStatusKind::Success),
                         metadata: None,
                     });
                 }
@@ -245,7 +245,7 @@ pub(crate) async fn convert_block_to_transactions(
                             ),
                         )),
                         type_: crate::models::OperationType::Transfer,
-                        status: crate::models::OperationStatusKind::Success,
+                        status: Some(crate::models::OperationStatusKind::Success),
                         metadata: None,
                     });
                 }
@@ -265,7 +265,7 @@ pub(crate) async fn convert_block_to_transactions(
                             ),
                         )),
                         type_: crate::models::OperationType::Transfer,
-                        status: crate::models::OperationStatusKind::Success,
+                        status: Some(crate::models::OperationStatusKind::Success),
                         metadata: None,
                     });
                 }
@@ -302,7 +302,7 @@ pub(crate) async fn convert_block_to_transactions(
                             ),
                         )),
                         type_: crate::models::OperationType::Transfer,
-                        status: crate::models::OperationStatusKind::Success,
+                        status: Some(crate::models::OperationStatusKind::Success),
                         metadata: None,
                     });
                 }
@@ -326,7 +326,7 @@ pub(crate) async fn convert_block_to_transactions(
                             ),
                         )),
                         type_: crate::models::OperationType::Transfer,
-                        status: crate::models::OperationStatusKind::Success,
+                        status: Some(crate::models::OperationStatusKind::Success),
                         metadata: None,
                     });
                 }
@@ -346,7 +346,7 @@ pub(crate) async fn convert_block_to_transactions(
                             ),
                         )),
                         type_: crate::models::OperationType::Transfer,
-                        status: crate::models::OperationStatusKind::Success,
+                        status: Some(crate::models::OperationStatusKind::Success),
                         metadata: None,
                     });
                 }
