@@ -811,8 +811,8 @@ impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
                             validated_operations::TransferOperation::try_from_option(
                                 operations.next(),
                             )?;
-                        if !transfer_operation.amount.value.is_positive()
-                            && transfer_operation.amount.value.absolute_difference()
+                        if transfer_operation.amount.value.is_positive()
+                            || transfer_operation.amount.value.absolute_difference()
                                 != function_call_operation.attached_amount
                         {
                             return Err(crate::errors::ErrorKind::InvalidInput(
@@ -901,8 +901,10 @@ mod tests {
                 .public_key(),
         }
         .into()];
-        let transfer_actions =
-            vec![near_primitives::transaction::TransferAction { deposit: 123 }.into()];
+        let transfer_actions = vec![near_primitives::transaction::TransferAction {
+            deposit: near_primitives::types::Balance::MAX,
+        }
+        .into()];
         let stake_actions = vec![near_primitives::transaction::StakeAction {
             stake: 456,
             public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
@@ -926,7 +928,7 @@ mod tests {
                 method_name: "method-name".into(),
                 args: b"args".to_vec(),
                 gas: 100500,
-                deposit: 999,
+                deposit: near_primitives::types::Balance::MAX,
             }
             .into()];
 
@@ -999,5 +1001,436 @@ mod tests {
             );
             assert_eq!(near_actions_recreated.actions, near_actions.actions);
         }
+    }
+
+    #[test]
+    fn test_near_actions_invalid_transfer_no_amount() {
+        let operations = vec![crate::models::Operation {
+            type_: crate::models::OperationType::Transfer,
+            account: "sender.near".into(),
+            amount: None,
+            operation_identifier: crate::models::OperationIdentifier::new(&[]),
+            related_operations: None,
+            status: None,
+            metadata: None,
+        }];
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_actions_invalid_transfer_negative_receiver_amount() {
+        let operations = vec![crate::models::Operation {
+            type_: crate::models::OperationType::Transfer,
+            account: "sender.near".into(),
+            amount: Some(-crate::models::Amount::from_yoctonear(1)),
+            operation_identifier: crate::models::OperationIdentifier::new(&[]),
+            related_operations: None,
+            status: None,
+            metadata: None,
+        }];
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_actions_invalid_transfer_mismatching_amount() {
+        let sender_transfer_operation_id =
+            crate::models::OperationIdentifier { index: 0, network_index: None };
+        let receiver_transfer_operation_id =
+            crate::models::OperationIdentifier { index: 1, network_index: None };
+
+        let operations = vec![
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "sender.near".into(),
+                amount: Some(-crate::models::Amount::from_yoctonear(2)),
+                operation_identifier: sender_transfer_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "receiver.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: receiver_transfer_operation_id.clone(),
+                related_operations: Some(vec![sender_transfer_operation_id.clone()]),
+                status: None,
+                metadata: None,
+            },
+        ];
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_actions_invalid_transfer_mismatching_sign_amount() {
+        let sender_transfer_operation_id =
+            crate::models::OperationIdentifier { index: 0, network_index: None };
+        let receiver_transfer_operation_id =
+            crate::models::OperationIdentifier { index: 1, network_index: None };
+
+        let operations = vec![
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "sender.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: sender_transfer_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "receiver.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: receiver_transfer_operation_id.clone(),
+                related_operations: Some(vec![sender_transfer_operation_id.clone()]),
+                status: None,
+                metadata: None,
+            },
+        ];
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_actions_invalid_transfer_mismatching_zero_sender_amount() {
+        let sender_transfer_operation_id =
+            crate::models::OperationIdentifier { index: 0, network_index: None };
+        let receiver_transfer_operation_id =
+            crate::models::OperationIdentifier { index: 1, network_index: None };
+
+        let operations = vec![
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "sender.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(0)),
+                operation_identifier: sender_transfer_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "receiver.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: receiver_transfer_operation_id.clone(),
+                related_operations: Some(vec![sender_transfer_operation_id.clone()]),
+                status: None,
+                metadata: None,
+            },
+        ];
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_actions_invalid_transfer_mismatching_zero_receiver_amount() {
+        let sender_transfer_operation_id =
+            crate::models::OperationIdentifier { index: 0, network_index: None };
+        let receiver_transfer_operation_id =
+            crate::models::OperationIdentifier { index: 1, network_index: None };
+
+        let operations = vec![
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "sender.near".into(),
+                amount: Some(-crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: sender_transfer_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "receiver.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(0)),
+                operation_identifier: receiver_transfer_operation_id.clone(),
+                related_operations: Some(vec![sender_transfer_operation_id.clone()]),
+                status: None,
+                metadata: None,
+            },
+        ];
+
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_actions_invalid_function_call_without_fund_amount() {
+        let fund_transfer_function_call_operation_id =
+            crate::models::OperationIdentifier { index: 0, network_index: None };
+        let initiate_function_call_operation_id =
+            crate::models::OperationIdentifier { index: 1, network_index: None };
+        let function_call_operation_id =
+            crate::models::OperationIdentifier { index: 2, network_index: None };
+
+        let operations = vec![
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "sender.near".into(),
+                amount: None,
+                operation_identifier: fund_transfer_function_call_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::InitiateFunctionCall,
+                account: "sender.near".into(),
+                amount: None,
+                operation_identifier: initiate_function_call_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::FunctionCall,
+                account: "sender.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: function_call_operation_id,
+                related_operations: Some(vec![
+                    fund_transfer_function_call_operation_id.clone(),
+                    initiate_function_call_operation_id.clone(),
+                ]),
+                status: None,
+                metadata: Some(crate::models::OperationMetadata {
+                    method_name: Some("method-name".into()),
+                    args: Some(b"binary-args".to_vec().into()),
+                    attached_gas: Some(123.into()),
+                    ..Default::default()
+                }),
+            },
+        ];
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_actions_invalid_function_call_with_zero_fund_amount() {
+        let fund_transfer_function_call_operation_id =
+            crate::models::OperationIdentifier { index: 0, network_index: None };
+        let initiate_function_call_operation_id =
+            crate::models::OperationIdentifier { index: 1, network_index: None };
+        let function_call_operation_id =
+            crate::models::OperationIdentifier { index: 2, network_index: None };
+
+        let operations = vec![
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "sender.near".into(),
+                // This is expected to be negative to match the amount in the FunctionCallOperation
+                amount: Some(crate::models::Amount::from_yoctonear(0)),
+                operation_identifier: fund_transfer_function_call_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::InitiateFunctionCall,
+                account: "sender.near".into(),
+                amount: None,
+                operation_identifier: initiate_function_call_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::FunctionCall,
+                account: "sender.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: function_call_operation_id,
+                related_operations: Some(vec![
+                    fund_transfer_function_call_operation_id.clone(),
+                    initiate_function_call_operation_id.clone(),
+                ]),
+                status: None,
+                metadata: Some(crate::models::OperationMetadata {
+                    method_name: Some("method-name".into()),
+                    args: Some(b"binary-args".to_vec().into()),
+                    attached_gas: Some(123.into()),
+                    ..Default::default()
+                }),
+            },
+        ];
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_actions_invalid_function_call_with_positive_fund_amount() {
+        let fund_transfer_function_call_operation_id =
+            crate::models::OperationIdentifier { index: 0, network_index: None };
+        let initiate_function_call_operation_id =
+            crate::models::OperationIdentifier { index: 1, network_index: None };
+        let function_call_operation_id =
+            crate::models::OperationIdentifier { index: 2, network_index: None };
+
+        let operations = vec![
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "sender.near".into(),
+                // This is expected to be negative to match the amount in the FunctionCallOperation
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: fund_transfer_function_call_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::InitiateFunctionCall,
+                account: "sender.near".into(),
+                amount: None,
+                operation_identifier: initiate_function_call_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::FunctionCall,
+                account: "sender.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: function_call_operation_id,
+                related_operations: Some(vec![
+                    fund_transfer_function_call_operation_id.clone(),
+                    initiate_function_call_operation_id.clone(),
+                ]),
+                status: None,
+                metadata: Some(crate::models::OperationMetadata {
+                    method_name: Some("method-name".into()),
+                    args: Some(b"binary-args".to_vec().into()),
+                    attached_gas: Some(123.into()),
+                    ..Default::default()
+                }),
+            },
+        ];
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_actions_invalid_function_call_non_matching_amounts() {
+        let fund_transfer_function_call_operation_id =
+            crate::models::OperationIdentifier { index: 0, network_index: None };
+        let initiate_function_call_operation_id =
+            crate::models::OperationIdentifier { index: 1, network_index: None };
+        let function_call_operation_id =
+            crate::models::OperationIdentifier { index: 2, network_index: None };
+
+        let operations = vec![
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "sender.near".into(),
+                // This is expected to match the amount in the FunctionCallOperation
+                amount: Some(-crate::models::Amount::from_yoctonear(2)),
+                operation_identifier: fund_transfer_function_call_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::InitiateFunctionCall,
+                account: "sender.near".into(),
+                amount: None,
+                operation_identifier: initiate_function_call_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::FunctionCall,
+                account: "sender.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: function_call_operation_id,
+                related_operations: Some(vec![
+                    fund_transfer_function_call_operation_id.clone(),
+                    initiate_function_call_operation_id.clone(),
+                ]),
+                status: None,
+                metadata: Some(crate::models::OperationMetadata {
+                    method_name: Some("method-name".into()),
+                    args: Some(b"binary-args".to_vec().into()),
+                    attached_gas: Some(123.into()),
+                    ..Default::default()
+                }),
+            },
+        ];
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_actions_invalid_function_call_operations() {
+        let fund_transfer_function_call_operation_id =
+            crate::models::OperationIdentifier { index: 0, network_index: None };
+        let initiate_function_call_operation_id =
+            crate::models::OperationIdentifier { index: 1, network_index: None };
+        let function_call_operation_id =
+            crate::models::OperationIdentifier { index: 2, network_index: None };
+
+        let operations = vec![
+            crate::models::Operation {
+                type_: crate::models::OperationType::Transfer,
+                account: "sender.near".into(),
+                amount: Some(-crate::models::Amount::from_yoctonear(2)),
+                operation_identifier: fund_transfer_function_call_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::InitiateFunctionCall,
+                account: "sender.near".into(),
+                amount: None,
+                operation_identifier: initiate_function_call_operation_id.clone(),
+                related_operations: None,
+                status: None,
+                metadata: None,
+            },
+            crate::models::Operation {
+                type_: crate::models::OperationType::FunctionCall,
+                account: "sender.near".into(),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                operation_identifier: function_call_operation_id,
+                related_operations: Some(vec![
+                    fund_transfer_function_call_operation_id.clone(),
+                    initiate_function_call_operation_id.clone(),
+                ]),
+                status: None,
+                metadata: Some(crate::models::OperationMetadata {
+                    method_name: Some("method-name".into()),
+                    args: Some(b"binary-args".to_vec().into()),
+                    attached_gas: Some(123.into()),
+                    ..Default::default()
+                }),
+            },
+        ];
+
+        assert!(matches!(
+            NearActions::try_from(operations),
+            Err(crate::errors::ErrorKind::InvalidInput(_))
+        ));
     }
 }

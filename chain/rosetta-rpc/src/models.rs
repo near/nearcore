@@ -65,6 +65,12 @@ impl From<near_primitives::types::AccountId> for AccountIdentifier {
     }
 }
 
+impl From<&str> for AccountIdentifier {
+    fn from(account_id: &str) -> Self {
+        Self::from(near_primitives::types::AccountId::from(account_id))
+    }
+}
+
 /// Allow specifies supported Operation status, Operation types, and all
 /// possible error statuses. This Allow object is used by clients to validate
 /// the correctness of a Rosetta Server implementation. It is expected that
