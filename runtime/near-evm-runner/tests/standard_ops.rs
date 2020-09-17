@@ -15,7 +15,7 @@ use near_vm_errors::{EvmError, VMLogicError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::VMConfig;
 
-use crate::utils::{accounts, create_context, setup, show_evm_gas_used};
+use crate::utils::{accounts, create_context, setup};
 
 mod utils;
 
@@ -79,10 +79,8 @@ fn test_deploy_with_nonce() {
     let address = near_account_id_to_evm_address(&accounts(1));
     assert_eq!(context.get_nonce(address.0.to_vec()).unwrap(), U256::from(0));
     let address1 = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
-    show_evm_gas_used(&context);
     assert_eq!(context.get_nonce(address.0.to_vec()).unwrap(), U256::from(1));
     let address2 = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
-    show_evm_gas_used(&context);
     assert_eq!(context.get_nonce(address.0.to_vec()).unwrap(), U256::from(2));
     assert_ne!(address1, address2);
 }
@@ -94,7 +92,6 @@ fn test_failed_deploy_returns_error() {
     if let Err(VMLogicError::EvmError(EvmError::DeployFail(_))) =
         context.deploy_code(hex::decode(&CONSTRUCTOR_TEST).unwrap())
     {
-        show_evm_gas_used(&context);
     } else {
         panic!("Should fail");
     }
@@ -105,19 +102,16 @@ fn test_internal_create() {
     let (mut fake_external, vm_config, fees_config) = setup();
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     let test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
-    show_evm_gas_used(&context);
     assert_eq!(context.get_nonce(test_addr.0.to_vec()).unwrap(), U256::from(0));
 
     // This should increment the nonce of the deploying contract
     let (input, _) = soltest::functions::deploy_new_guy::call(8);
     let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
-    show_evm_gas_used(&context);
     assert_eq!(context.get_nonce(test_addr.0.to_vec()).unwrap(), U256::from(1));
 
     let sub_addr = address_from_arr(&raw[12..32]);
     let (new_input, _) = subcontract::functions::a_number::call();
     let new_raw = context.call_function(encode_call_function_args(sub_addr, new_input)).unwrap();
-    show_evm_gas_used(&context);
     let output = subcontract::functions::a_number::decode_output(&new_raw).unwrap();
     assert_eq!(output, U256::from(8));
 }
@@ -128,12 +122,10 @@ fn test_precompiles() {
     let mut context =
         create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
     let test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
-    show_evm_gas_used(&context);
 
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     let (input, _) = soltest::functions::precompile_test::call();
     let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
-    show_evm_gas_used(&context);
     assert_eq!(raw.len(), 0);
 }
 
@@ -142,7 +134,6 @@ fn setup_and_deploy_test() -> (MockedExternal, Address, VMConfig, RuntimeFeesCon
     let mut context =
         create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
     let test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
-    show_evm_gas_used(&context);
     assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(100));
     (fake_external, test_addr, vm_config, fees_config)
 }
@@ -157,7 +148,6 @@ fn test_deploy_and_transfer() {
     let mut context =
         create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
     let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
-    show_evm_gas_used(&context);
     assert!(context.logs.len() > 0);
 
     // The sub_addr should have been transferred 100 yoctoN.
@@ -176,7 +166,6 @@ fn test_deploy_with_value() {
     let mut context =
         create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
     let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
-    show_evm_gas_used(&context);
 
     // The sub_addr should have been transferred 100 tokens.
     let sub_addr = raw[12..32].to_vec();
@@ -192,7 +181,6 @@ fn test_contract_to_eoa_transfer() {
     let mut context =
         create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
     let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
-    show_evm_gas_used(&context);
 
     let sender_addr = raw[12..32].to_vec();
     assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(150));
@@ -224,7 +212,6 @@ fn test_view_call() {
             input,
         ))
         .unwrap();
-    show_evm_gas_used(&context);
     assert_eq!(context.get_nonce(test_addr.0.to_vec()).unwrap(), U256::from(0));
 
     let sub_addr = raw[12..32].to_vec();
@@ -244,13 +231,11 @@ fn test_solidity_accurate_storage_on_selfdestruct() {
     // Deploy CREATE2 Factory
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     let factory_addr = context.deploy_code(hex::decode(&FACTORY_TEST).unwrap()).unwrap();
-    show_evm_gas_used(&context);
 
     // Deploy + SelfDestruct in one transaction
     let salt = H256([0u8; 32]);
     let destruct_code = hex::decode(&DESTRUCT_TEST).unwrap();
     let input = create2factory::functions::test_double_deploy::call(salt, destruct_code.clone()).0;
     let raw = context.call_function(encode_call_function_args(factory_addr, input)).unwrap();
-    show_evm_gas_used(&context);
     assert!(create2factory::functions::test_double_deploy::decode_output(&raw).unwrap());
 }
