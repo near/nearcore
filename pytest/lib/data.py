@@ -49,3 +49,43 @@ def compute_rate(timestamps):
     cumulative_events = [i for i in range(1, len(timestamps) + 1)]
     fit = linear_regression(timestamps, cumulative_events)
     return fit['slope']
+
+
+def flatten_dict(d):
+    '''
+    Flattens nested dictionaries to a single level. New keys have the form
+    `outer_key.inner_key`. E.g. `{ 'a' : 0, 'b' : { 'x' : 'Hello', 'y' : 'World' } }`
+    would become `{  'a' : 0, 'b.x' : 'Hello', 'b.y' : 'World' }`.
+    '''
+    dict_keys = [k for k in d.keys() if type(d[k]) == dict]
+    if len(dict_keys) == 0:
+        return d
+    else:
+        flattened_elements = [flatten_dict(d[k]) for k in dict_keys]
+        scalar_keys = [k for k in d.keys() if k not in dict_keys]
+        result = {}
+        for k in scalar_keys:
+            result[k] = d[k]
+        for (k, sub_dict) in zip(dict_keys, flattened_elements):
+            for sub_k in sub_dict:
+                new_key = '.'.join([k, sub_k])
+                result[new_key] = sub_dict[sub_k]
+        return result
+
+
+def dict_to_csv(ds, filename, mode='w'):
+    '''
+    Serializes a list of dictionaries to a csv file. Each element of the list is
+    assumed to correspond to a single row. If the dictionary contains nested
+    dictionaries, they are flattened in the output. Elements of the flattened
+    dictionary must be scalar quantities (e.g. numbers and strings), not lists
+    or tuples.
+    '''
+    keys = sorted(list(flatten_dict(ds[0]).keys()))
+    header = ','.join(keys)
+    with open(filename, mode) as output:
+        output.write(header + '\n')
+        for d in ds:
+            f = flatten_dict(d)
+            row = ','.join(map(lambda k: str(f[k]), keys))
+            output.write(row + '\n')
