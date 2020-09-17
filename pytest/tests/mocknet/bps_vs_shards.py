@@ -17,7 +17,7 @@ def measure_bps(nodes, num_shards, output_file):
 if __name__ == '__main__':
     nodes = mocknet.get_nodes(prefix='sharded-')
     output_file = 'shards_vs_bps.csv'
-    num_shards_to_test = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    num_shards_to_test = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 30 ,40 ,50, 60, 70, 80, 90, 100]
     for num_shards in num_shards_to_test:
         config_file = f'config_{num_shards}.json'
         genesis_file = f'genesis_{num_shards}.json'
