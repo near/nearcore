@@ -86,11 +86,11 @@ contract PrecompiledFunction {
 
     }
 
-    function testSha256() public pure returns bytes32 {
+    function testSha256() public pure returns (bytes32) {
         return sha256("");
     }
 
-    function testEcrecover() public pure returns address {
+    function testEcrecover() public pure returns (address) {
         return ecrecover(
             hex"1111111111111111111111111111111111111111111111111111111111111111",
             27,
@@ -99,12 +99,26 @@ contract PrecompiledFunction {
         );
     }
 
-    function testRipemd160() public pure returns bytes20 {
+    function testRipemd160() public pure returns (bytes20) {
         return ripemd160("");
     }
 
-    // TODO: identity function, etc. doesn't exist in solidity need to be tested with evm assembly.
-    
+    function identity(bytes memory data) public returns (bytes memory) {
+        bytes memory ret = new bytes(data.length);
+        assembly {
+            let len := mload(data)
+            if iszero(call(gas, 0x04, 0, add(data, 0x20), len, add(ret,0x20), len)) {
+                invalid()
+            }
+        }
+
+        return ret;
+    }
+
+    function test_identity() public returns (bytes memory) {
+        return identity("0");
+    }
+
     function modexp(uint base, uint e, uint m) public view returns (uint o) {
         assembly {
             // define pointer
@@ -124,11 +138,11 @@ contract PrecompiledFunction {
         }
     }
 
-    function testModExp() public pure returns uint {
-        return expmod(12345, 173, 101);
+    function testModExp() public view returns (uint) {
+        return modexp(12345, 173, 101);
     }
 
-    function testBn128Add() public pure returns uint {
-        
+    function testBn128Add() public pure returns (uint) {
+
     }
 }

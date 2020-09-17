@@ -63,6 +63,9 @@ pub struct RuntimeFeesConfig {
 
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational,
+
+    /// Describes cost of running method of evm, include deploy code and call contract function
+    pub evm_config: EvmCostConfig,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -133,6 +136,26 @@ pub struct StorageUsageConfig {
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
+}
+
+/// Describe cost of evm
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmCostConfig {
+    /// Base cost of instantiate an evm instance for any evm operation
+    pub bootstrap_cost: u64,
+    /// For every unit of gas used by evm in funcall, equivalent near gas cost
+    pub funcall_cost_per_evm_gas: u64,
+    // Base cost of instantiate an evm instance and deploy minimum contract
+    pub deploy_base_cost: u64,
+    /// For every unit of gas used by evm in deploy evm contract, equivalent near gas cost
+    pub deploy_cost_per_evm_gas: u64,
+
+    /// Evm precompiled function costs
+    pub ecrecover_cost: u64,
+    pub sha256_cost: u64,
+    pub ripemd160_cost: u64,
+    pub identity_cost: u64,
+    pub modexp_cost: u64,
 }
 
 impl Default for RuntimeFeesConfig {
@@ -228,6 +251,15 @@ impl Default for RuntimeFeesConfig {
             },
             burnt_gas_reward: Rational::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
+            evm_config: EvmCostConfig {
+                bootstrap_cost: 0,
+                per_evm_gas_cost: 0,
+                ecrecover_cost: 0,
+                sha256_cost: 0,
+                ripemd160_cost: 0,
+                identity_cost: 0,
+                modexp_cost: 0,
+            },
         }
     }
 }
@@ -263,6 +295,15 @@ impl RuntimeFeesConfig {
             },
             burnt_gas_reward: Rational::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational::from_integer(0),
+            evm_config: EvmCostConfig {
+                bootstrap_cost: 0,
+                per_evm_gas_cost: 0,
+                ecrecover_cost: 0,
+                sha256_cost: 0,
+                ripemd160_cost: 0,
+                identity_cost: 0,
+                modexp_cost: 0,
+            },
         }
     }
 

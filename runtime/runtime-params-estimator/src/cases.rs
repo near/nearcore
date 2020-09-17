@@ -20,7 +20,7 @@ use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use crate::vm_estimator::{cost_of_evm, cost_per_op, cost_to_compile};
+use crate::vm_estimator::{cost_of_evm, cost_per_op, cost_to_compile, near_cost_to_evm_gas};
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
@@ -165,10 +165,32 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
             ratio_to_gas(config.metric, cost.deploy_cost.1)
         );
         println!(
-            "EVM function call cost: {}, function cost cost per EVM gas: {}",
+            "EVM function call cost: {}, function call cost per EVM gas: {}",
             ratio_to_gas(config.metric, cost.funcall_cost.0),
             ratio_to_gas(config.metric, cost.funcall_cost.1)
         );
+        println!("EVM precompiled function evm gas:");
+        println!(
+            "ecrecover: {}",
+            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.ecRecoverCost)
+        );
+        println!(
+            "sha256: {}",
+            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.sha256Cost)
+        );
+        println!(
+            "ripemd160: {}",
+            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.ripemd160Cost)
+        );
+        println!(
+            "identity: {}",
+            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.identityCost)
+        );
+        println!(
+            "modexp: {}",
+            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.modexpImplCost)
+        );
+
         process::exit(0);
     }
     config.block_sizes = vec![100];

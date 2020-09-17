@@ -13,6 +13,7 @@ use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
 use std::collections::hash_map::DefaultHasher;
+use std::convert::TryFrom;
 use std::fs;
 use std::{
     hash::{Hash, Hasher},
@@ -183,19 +184,23 @@ const USING_LIGHTBEAM: bool = false;
 
 type Coef = (Ratio<u64>, Ratio<u64>);
 
+pub struct EvmPrecompiledFunctionCost {
+    pub ecRecoverCost: Ratio<u64>,
+    pub sha256Cost: Ratio<u64>,
+    pub ripemd160Cost: Ratio<u64>,
+    pub identityCost: Ratio<u64>,
+    pub modexpImplCost: Ratio<u64>,
+    // pub bn128AddImplCost: Ratio<u64>,
+    // pub bn128MulImplCost: Ratio<u64>,
+    // pub bn128PairingImplCost: Ratio<u64>,
+    // pub blake2FImplCost: Ratio<u64>,
+    // pub lastPrecompileCost: Ratio<u64>,
+}
+
 pub struct EvmCostCoef {
     pub deploy_cost: Coef,
     pub funcall_cost: Coef,
-    // pub ecRecoverCost: Coef,
-    // pub sha256Cost: Coef,
-    // pub ripemd160Cost: Coef,
-    // pub identityCost: Coef,
-    // pub modexpImplCost: Coef,
-    // pub bn128AddImplCost: Coef,
-    // pub bn128MulImplCost: Coef,
-    // pub bn128PairingImplCost: Coef,
-    // pub blake2FImplCost: Coef,
-    // pub lastPrecompileCost: Coef,
+    pub precompiled_function_cost: EvmPrecompiledFunctionCost,
 }
 
 pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> Coef {
@@ -235,15 +240,13 @@ pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> Coef {
 }
 
 use_contract!(soltest, "../near-evm-runner/tests/build/SolTests.abi");
-use_contract!(subcontract, "../near-evm-runner/tests/build/SubContract.abi");
-use_contract!(create2factory, "../near-evm-runner/tests/build/Create2Factory.abi");
-use_contract!(selfdestruct, "../near-evm-runner/tests/build/SelfDestruct.abi");
+use_contract!(precompiled_function, "../near-evm-runner/tests/build/PrecompiledFunction.abi");
 
 lazy_static_include_str!(TEST, "../near-evm-runner/tests/build/SolTests.bin");
-lazy_static_include_str!(SUBCONTRACT_TEST, "../near-evm-runner/tests/build/SubContract.bin");
-lazy_static_include_str!(FACTORY_TEST, "../near-evm-runner/tests/build/Create2Factory.bin");
-lazy_static_include_str!(DESTRUCT_TEST, "../near-evm-runner/tests/build/SelfDestruct.bin");
-lazy_static_include_str!(CONSTRUCTOR_TEST, "../near-evm-runner/tests/build/ConstructorRevert.bin");
+lazy_static_include_str!(
+    PRECOMPILED_TEST,
+    "../near-evm-runner/tests/build/PrecompiledFunction.bin"
+);
 
 pub fn create_evm_context<'a>(
     external: &'a mut MockedExternal,
@@ -273,13 +276,6 @@ pub fn measure_evm_funcall(gas_metric: GasMetric, verbose: bool) -> Coef {
     let mut context =
         create_evm_context(&mut fake_external, &config, &fees, "alice".to_string(), 100);
     let sol_test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
-    // TODO: this deploy always fail with empty string error message
-    // let factory_test_addr = context.deploy_code(hex::decode(&FACTORY_TEST).unwrap()).unwrap();
-    // let destruct_test_addr = context.deploy_code(hex::decode(&DESTRUCT_TEST).unwrap()).unwrap();
-    // let constructor_test_addr =
-    //     context.deploy_code(hex::decode(&CONSTRUCTOR_TEST).unwrap()).unwrap();
-    let subcontract_test_addr =
-        context.deploy_code(hex::decode(&SUBCONTRACT_TEST).unwrap()).unwrap();
 
     let measurements = vec![
         measure_evm_function(
@@ -287,21 +283,14 @@ pub fn measure_evm_funcall(gas_metric: GasMetric, verbose: bool) -> Coef {
             verbose,
             &mut context,
             encode_call_function_args(sol_test_addr, soltest::functions::deploy_new_guy::call(8).0),
-        ),
-        measure_evm_function(
-            gas_metric,
-            verbose,
-            &mut context,
-            encode_call_function_args(
-                subcontract_test_addr,
-                subcontract::functions::a_number::call().0,
-            ),
+            "deploy_new_guy(8)",
         ),
         measure_evm_function(
             gas_metric,
             verbose,
             &mut context,
             encode_call_function_args(sol_test_addr, soltest::functions::pay_new_guy::call(8).0),
+            "pay_new_guy(8)",
         ),
         measure_evm_function(
             gas_metric,
@@ -311,7 +300,19 @@ pub fn measure_evm_funcall(gas_metric: GasMetric, verbose: bool) -> Coef {
                 sol_test_addr,
                 soltest::functions::return_some_funds::call().0,
             ),
+            "return_some_funds()",
         ),
+        {
+            // function not payable must has zero deposit
+            context.attached_deposit = 0;
+            measure_evm_function(
+                gas_metric,
+                verbose,
+                &mut context,
+                encode_call_function_args(sol_test_addr, soltest::functions::emit_it::call(8).0),
+                "emit_it(8)",
+            )
+        },
     ];
 
     measurements_to_coef(measurements, true)
@@ -322,6 +323,7 @@ pub fn measure_evm_function(
     verbose: bool,
     context: &mut EvmContext,
     args: Vec<u8>,
+    test_name: &str,
 ) -> EvmCost {
     let start = start_count(gas_metric);
     let mut evm_gas = 0;
@@ -334,7 +336,97 @@ pub fn measure_evm_function(
         let _ = context.call_function(args.clone()).unwrap();
     }
     let end = end_count(gas_metric, &start);
-    EvmCost { evm_gas, cost: Ratio::new(end, NUM_ITERATIONS) }
+    let cost = Ratio::new(end, NUM_ITERATIONS);
+    if verbose {
+        println!("Testing call {}: ({}, {})", test_name, evm_gas, cost);
+    }
+    EvmCost { evm_gas, cost }
+}
+
+pub fn measure_evm_precompiled(gas_metric: GasMetric, verbose: bool) -> EvmPrecompiledFunctionCost {
+    let mut fake_external = MockedExternal::new();
+    let config = VMConfig::default();
+    let fees = RuntimeFeesConfig::default();
+
+    let mut context =
+        create_evm_context(&mut fake_external, &config, &fees, "alice".to_string(), 0);
+    let precompiled_function_addr =
+        context.deploy_code(hex::decode(&PRECOMPILED_TEST).unwrap()).unwrap();
+
+    let measurements = vec![
+        measure_evm_function(
+            gas_metric,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                precompiled_function_addr,
+                precompiled_function::functions::noop::call().0,
+            ),
+            "noop()",
+        ),
+        measure_evm_function(
+            gas_metric,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                precompiled_function_addr,
+                precompiled_function::functions::test_ecrecover::call().0,
+            ),
+            "test_ecrecover()",
+        ),
+        measure_evm_function(
+            gas_metric,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                precompiled_function_addr,
+                precompiled_function::functions::test_sha256::call().0,
+            ),
+            "test_sha256()",
+        ),
+        measure_evm_function(
+            gas_metric,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                precompiled_function_addr,
+                precompiled_function::functions::test_ripemd160::call().0,
+            ),
+            "test_ripemd160()",
+        ),
+        measure_evm_function(
+            gas_metric,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                precompiled_function_addr,
+                precompiled_function::functions::test_identity::call().0,
+            ),
+            "test_identity()",
+        ),
+        measure_evm_function(
+            gas_metric,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                precompiled_function_addr,
+                precompiled_function::functions::test_mod_exp::call().0,
+            ),
+            "test_mod_exp()",
+        ),
+    ];
+
+    EvmPrecompiledFunctionCost {
+        ecRecoverCost: measurements[1].cost - measurements[0].cost,
+        sha256Cost: measurements[2].cost - measurements[0].cost,
+        ripemd160Cost: measurements[3].cost - measurements[0].cost,
+        identityCost: measurements[4].cost - measurements[0].cost,
+        modexpImplCost: measurements[5].cost - measurements[0].cost,
+    }
+}
+
+pub fn near_cost_to_evm_gas(funcall_cost: Coef, cost: Ratio<u64>) -> u64 {
+    return u64::try_from((cost / funcall_cost.0).to_integer()).unwrap();
 }
 
 /// Cost of all evm related
@@ -342,6 +434,7 @@ pub fn cost_of_evm(gas_metric: GasMetric, verbose: bool) -> EvmCostCoef {
     let evm_cost_config = EvmCostCoef {
         deploy_cost: measure_evm_deploy(gas_metric, verbose),
         funcall_cost: measure_evm_funcall(gas_metric, verbose),
+        precompiled_function_cost: measure_evm_precompiled(gas_metric, verbose),
     };
     evm_cost_config
 }
@@ -381,7 +474,7 @@ pub fn cost_to_compile(
         .filter(|path| fs::metadata(path).is_ok())
         .map(|path| {
             if verbose {
-                print!("Testing {}: ", path.display());
+                print!("Testing deploy {}: ", path.display());
             };
             if let Some((size, cost)) = load_and_compile(path, gas_metric, vm_kind) {
                 if verbose {

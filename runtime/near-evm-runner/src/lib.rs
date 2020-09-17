@@ -28,7 +28,7 @@ pub struct EvmContext<'a> {
     ext: &'a mut dyn External,
     predecessor_id: AccountId,
     current_amount: Balance,
-    attached_deposit: Balance,
+    pub attached_deposit: Balance,
     storage_usage: StorageUsage,
     pub logs: Vec<String>,
     gas_counter: GasCounter,
