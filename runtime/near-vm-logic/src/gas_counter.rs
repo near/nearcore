@@ -117,6 +117,10 @@ impl GasCounter {
         self.deduct_gas(value, value)
     }
 
+    pub fn pay_evm_gas(&mut self, value: u64) -> Result<()> {
+        self.deduct_gas(value, value)
+    }
+
     /// A helper function to pay per byte gas
     pub fn pay_per_byte(&mut self, cost: ExtCosts, num_bytes: u64) -> Result<()> {
         let use_gas = num_bytes

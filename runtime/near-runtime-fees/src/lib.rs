@@ -142,20 +142,19 @@ pub struct StorageUsageConfig {
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct EvmCostConfig {
     /// Base cost of instantiate an evm instance for any evm operation
-    pub bootstrap_cost: u64,
-    /// For every unit of gas used by evm in funcall, equivalent near gas cost
-    pub funcall_cost_per_evm_gas: u64,
-    // Base cost of instantiate an evm instance and deploy minimum contract
-    pub deploy_base_cost: u64,
+    pub bootstrap_cost: Gas,
     /// For every unit of gas used by evm in deploy evm contract, equivalent near gas cost
-    pub deploy_cost_per_evm_gas: u64,
-
+    pub deploy_cost_per_evm_gas: Gas,
+    /// For bootstrapped evm, base cost to invoke a contract function
+    pub funcall_cost_base: Gas,
+    /// For every unit of gas used by evm in funcall, equivalent near gas cost
+    pub funcall_cost_per_evm_gas: Gas,
     /// Evm precompiled function costs
-    pub ecrecover_cost: u64,
-    pub sha256_cost: u64,
-    pub ripemd160_cost: u64,
-    pub identity_cost: u64,
-    pub modexp_cost: u64,
+    pub ecrecover_cost: Gas,
+    pub sha256_cost: Gas,
+    pub ripemd160_cost: Gas,
+    pub identity_cost: Gas,
+    pub modexp_cost: Gas,
 }
 
 impl Default for RuntimeFeesConfig {
@@ -252,13 +251,18 @@ impl Default for RuntimeFeesConfig {
             burnt_gas_reward: Rational::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
             evm_config: EvmCostConfig {
-                bootstrap_cost: 0,
-                per_evm_gas_cost: 0,
-                ecrecover_cost: 0,
-                sha256_cost: 0,
-                ripemd160_cost: 0,
-                identity_cost: 0,
-                modexp_cost: 0,
+                // Got inside emu-cost docker, numbers very slightly in different runs:
+                // cd /host/nearcore/runtime/near-evm-runner/tests
+                // ../../runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=../../runtime-params-estimator/emu-cost/counter_plugin/libcounter.so ../../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 2000 --iters 1 --warmup-iters 1 --evm-only
+                bootstrap_cost: 31618278,
+                deploy_cost_per_evm_gas: 11374412500,
+                funcall_cost_base: 352935,
+                funcall_cost_per_evm_gas: 19008337500,
+                ecrecover_cost: 792636,
+                sha256_cost: 21337,
+                ripemd160_cost: 19810,
+                identity_cost: 58391,
+                modexp_cost: 31967,
             },
         }
     }
@@ -297,7 +301,9 @@ impl RuntimeFeesConfig {
             pessimistic_gas_price_inflation_ratio: Rational::from_integer(0),
             evm_config: EvmCostConfig {
                 bootstrap_cost: 0,
-                per_evm_gas_cost: 0,
+                deploy_cost_per_evm_gas: 0,
+                funcall_cost_base: 0,
+                funcall_cost_per_evm_gas: 0,
                 ecrecover_cost: 0,
                 sha256_cost: 0,
                 ripemd160_cost: 0,

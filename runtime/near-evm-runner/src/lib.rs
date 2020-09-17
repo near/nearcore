@@ -36,6 +36,13 @@ pub struct EvmContext<'a> {
     fees_config: &'a RuntimeFeesConfig,
 }
 
+// Different kind of evm operations that result in different gas calculation
+pub enum EvmOpForGas {
+    Deploy,
+    Funcall,
+    Other,
+}
+
 enum KeyPrefix {
     Account = 0,
     Contract = 1,
@@ -347,6 +354,23 @@ impl<'a> EvmContext<'a> {
             .ok_or(VMLogicError::EvmError(EvmError::IntegerOverflow))?;
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_receipt)
     }
+
+    fn pay_gas_from_evm_gas(&mut self, op: EvmOpForGas) -> Result<()> {
+        let fee_cfg = &self.fees_config.evm_config;
+        let evm_gas = self.evm_gas_counter.used_gas.as_u64();
+        let gas = match op {
+            EvmOpForGas::Deploy => {
+                evm_gas * fee_cfg.deploy_cost_per_evm_gas + fee_cfg.bootstrap_cost
+            }
+            EvmOpForGas::Funcall => {
+                evm_gas * fee_cfg.funcall_cost_per_evm_gas
+                    + fee_cfg.funcall_cost_base
+                    + fee_cfg.bootstrap_cost
+            }
+            EvmOpForGas::Other => fee_cfg.bootstrap_cost,
+        };
+        self.gas_counter.pay_evm_gas(gas)
+    }
 }
 
 pub fn run_evm(
@@ -392,6 +416,16 @@ pub fn run_evm(
         }
         _ => Err(VMLogicError::EvmError(EvmError::MethodNotFound)),
     };
+    let pay_gas_result = context.pay_gas_from_evm_gas(match method_name.as_str() {
+        "deploy_code" => EvmOpForGas::Deploy,
+        "call_function" => EvmOpForGas::Funcall,
+        _ => EvmOpForGas::Other,
+    });
+    if pay_gas_result.is_err() {
+        // TODO: state should be revert, if run out of gas, or, evm gas attached should be calculated from near gas attached
+        // so run out of gas should be caught by evm
+        panic!();
+    }
     match result {
         Ok(value) => {
             let outcome = VMOutcome {
