@@ -1382,7 +1382,7 @@ mod tests {
     }
 
     #[test]
-    fn test_near_actions_invalid_function_call_operations() {
+    fn test_near_actions_invalid_function_call_with_negative_deposit() {
         let fund_transfer_function_call_operation_id =
             crate::models::OperationIdentifier { index: 0, network_index: None };
         let initiate_function_call_operation_id =
@@ -1394,7 +1394,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
                 account: "sender.near".into(),
-                amount: Some(-crate::models::Amount::from_yoctonear(2)),
+                amount: Some(-crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: fund_transfer_function_call_operation_id.clone(),
                 related_operations: None,
                 status: None,
@@ -1412,7 +1412,8 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::FunctionCall,
                 account: "sender.near".into(),
-                amount: Some(crate::models::Amount::from_yoctonear(1)),
+                // This is expected to be positive
+                amount: Some(-crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
                     fund_transfer_function_call_operation_id.clone(),
