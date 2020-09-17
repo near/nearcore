@@ -1,0 +1,139 @@
+{
+  "genesis_file": "genesis.json",
+  "genesis_records_file": null,
+  "validator_key_file": "validator_key.json",
+  "node_key_file": "node_key.json",
+  "rpc": {
+    "addr": "0.0.0.0:3030",
+    "cors_allowed_origins": [
+      "*"
+    ],
+    "polling_config": {
+      "polling_interval": {
+        "secs": 0,
+        "nanos": 500000000
+      },
+      "polling_timeout": {
+        "secs": 10,
+        "nanos": 0
+      }
+    },
+    "limits_config": {
+      "json_payload_max_size": 10485760
+    }
+  },
+  "telemetry": {
+    "endpoints": []
+  },
+  "network": {
+    "addr": "0.0.0.0:24567",
+    "external_address": "",
+    "boot_nodes": "ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX@34.94.47.206:24567,ed25519:6DSjZ8mvsRZDvFqFxo8tCKePG96omXW7eVYVSySmDk8e@34.86.201.85:24567,ed25519:GkDv7nSMS3xcqA45cpMvFmfV1o4fRF6zYo1JRR6mNqg5@35.203.0.20:24567,ed25519:ydgzeXHJ5Xyt7M1gXLxqLBW1Ejx6scNV5Nx2pxFM8su@34.105.216.68:24567,ed25519:BsFh3Dp3anrnYFokRGwt5hsSvaARuNcqriCQopY8yvmg@34.94.213.251:24567,ed25519:HJHeHmTGs9aj9oNtXbuZhgGq2aTCcr8it13DLRVp4eZw@35.199.1.253:24567,ed25519:DAjVv6BB7Zpf3YukATbYZJd83nQe6NgPoANDfTRPox7D@35.203.45.106:24567,ed25519:6CvYKC36AFZnipYCSAD7w7zBqFipw9rFkwVAjQKQH2sG@34.105.223.180:24567,ed25519:4gREM54YcwM9hoDchn9wLLXCWkxZvihBFdSYgCG9bqC5@34.94.25.93:24567,ed25519:HeNnBe3qf1bqRLvgCTN7ubuPCyXeDiH5XNv8dSSS2xqM@34.86.97.94:24567,ed25519:ERMnxaiCXKR6D8b3xgz7XLSdwAumviN6tubspgg42CDv@35.203.82.141:24567,ed25519:6QGfeXxHEkmNuWrwEAoKEC7BpbnbQeqGdayQLdMkmxMA@35.197.248.181:24567,ed25519:DaPaTeYFziVZyCUcBVdHnPAYeuewffTpzkGeGseZQfxj@34.94.78.112:24567,ed25519:3BGNwULArxF2TJY9THFsXoPXpTYdypunHvymZD3YCBsq@35.199.23.69:24567,ed25519:8zxnER18gJCjGQpSmUtV8GkHesUREyrDj1YS9C8bfKrD@34.95.47.34:24567,ed25519:DWv3kZj8wNqo9m6hfJeAUQAWr2KDmuaSYeTQcb2PaQ7v@34.105.134.130:24567,ed25519:93uZPKioTw4dggcm6E9MUAgJENXaLtseUsEXJhZ8AHLh@35.235.77.42:24567,ed25519:He5eHtRUGFZZ7NvktSo7TLUhe8hZdUrNGHq8LU7DNALg@35.221.44.2:24567,ed25519:Am4YYgVAh56QXAKBzuvunJX2tCyUJdsNFQxYm8fc3rXj@35.203.100.131:24567,ed25519:HYGBPtHN57VsmsftHmw7AsNuzgxA8pGmEBhSJUQnJYyF@35.197.220.67:24567,ed25519:Gig9ku2ooaCNTJWYuw3cdgYyeds9Am5GRWptEuCMv4jC@35.236.112.88:24567,ed25519:E3rcyBLupCnjkkzDS2NNzZZKivKkaKNKkHsqf5kLeRKd@35.221.62.150:24567,ed25519:5nvRy5nvtv7PkG1Ps3tLspqou5tavsxZScV7mCqUDQoH@35.203.64.39:24567,ed25519:B3zhhCv2ZZgpPm5KkFn8sUSFNu84x3eQxfCBKshv2PXA@35.242.155.152:24567,ed25519:FxVU4xqhAPer6zSWe3u3eZsE76ZpspmTMbZKLNXb6Ybk@34.94.110.170:24567,ed25519:6typxgVrcFnrWXb6VKUQweEkEEtTZtAaoxT848bTVDTg@34.86.200.81:24567,ed25519:6FDmhTchHJMvVko5NHz8SBZkmfTn1Tjs34o9LqZQYz2c@34.95.55.31:24567,ed25519:BLC7bEWQemrsRLYG8Kt2FbpS1h6cfqcTdngiemFwKUr6@35.242.184.209:24567,ed25519:72EWyVHRYvEABBE35CYHVh5itHDF7y1wo8jZUQAGp888@35.236.51.65:24567,ed25519:CGbeaQbrvpYjDb4MUBpe5PcSTrUdZrmXRv1Fz5bdu1GW@35.245.21.52:24567,ed25519:4qXiJtskj8aywshr7GsUFuAgYsJkySs3VQ9CZc2XLDbm@35.203.122.255:24567,ed25519:J1Do8kjzVjCfYaQZsqXTCTHXnEnFepvbj3iuXUZfP48Y@35.189.123.2:24567,ed25519:EJ1GgJb3FTYj1uSXHyeXkdpAM4uaf5BBTjLvCNi5TKi6@35.236.24.234:24567,ed25519:83j4vhQp41CyNxTn4JbJD4h1RTFeR4ArfSCK44Hcw9TD@35.245.88.135:24567,ed25519:3RpzQodXExV2kvzLtvfh1URCgcSUF4yZQzeRNuXUo8vQ@35.203.79.180:24567,ed25519:C3ha3bu87vorN3HiM2H5GHfUNDyYfzjVJppmDwT1x1HH@34.105.129.10:24567,ed25519:3k9eAQv6mmh2KbT38AZhCqQJ9fuPxVRBxRSipD98Pihj@34.94.224.215:24567,ed25519:749fRPXTQpTNdKs7BMM4RrTRTdEYH9XcAqHQ53nThkys@34.86.46.69:24567,ed25519:5WqCqmctYkUyUvUSHdWh1BGJDpZKYKvsGGjX6U4sqMF2@35.203.113.28:24567,ed25519:Ff6LPzw7eu4QKyS5xNeTupxjLRGwLg9FiEz1aLbcYuEE@35.242.143.9:24567,ed25519:2Rg7y8KTfeDSuA6fpbZLjntMzKqopTKzJLVFJKDU7psw@35.236.88.153:24567,ed25519:CrAuWe2LKuN8QDadjkXQPZGc4XqUmHeCeXMmq2kiPGv6@35.245.132.125:24567,ed25519:7GnnmAm7xH7rYyXsBLSoJCAEhQSmabCj92EfwSyLfaRi@35.203.124.240:24567,ed25519:4VPazh8C34pvDaZ6wX2fUSNNoQStDxNAnGQvQBoMZB1L@34.89.39.31:24567,ed25519:EnUPB77kcz7CvZKbKhmd5z3pp1i9tN7Cb7M321UmSXUf@34.94.55.243:24567,ed25519:D16BXGmBfmZTDFbbtrhgMJm5gVG9bv51mq5tXeK27RRC@34.86.121.237:24567,ed25519:FKozzBViqSMo3fxYKLnvVwdE4nNr7cP7nk8JswMhmvo6@34.95.41.4:24567,ed25519:AereTpWrQuvLid8cQejNV5xV7He8DfEPzkh8m9rgnbRQ@35.234.154.212:24567,ed25519:4EKrdXp7R6FLDfzViAG4WsksYprVZqwht3urjweAHqNe@34.94.241.36:24567,ed25519:KQ11yHrebTYgPNoVwBqDHsrcBybG4dQqKbCmMgNC9PW@35.245.51.8:24567,ed25519:615ReTiSkDEy5Np8NazfPjrS4PBp9La9JZeuPsoNwDgg@34.95.40.64:24567,ed25519:5HHSvwHdLhHL4ip89nVM2GN4AgjzMd3ozDn8YokfdH6D@35.234.137.24:24567,ed25519:GajT7zHXNAtMVUnnn75mWttUYFwmyS7CBCZTSrbGDmv9@34.94.95.226:24567,ed25519:4CPdn4A2tQZPGRDDj5ye1eKWw2Jta7Qrv4hdDgQmmo7n@35.221.20.41:24567",
+    "max_num_peers": 40,
+    "minimum_outbound_peers": 5,
+    "ideal_connections_lo": 30,
+    "ideal_connections_hi": 35,
+    "peer_recent_time_window": {
+      "secs": 600,
+      "nanos": 0
+    },
+    "safe_set_size": 20,
+    "handshake_timeout": {
+      "secs": 20,
+      "nanos": 0
+    },
+    "reconnect_delay": {
+      "secs": 60,
+      "nanos": 0
+    },
+    "skip_sync_wait": false,
+    "ban_window": {
+      "secs": 10800,
+      "nanos": 0
+    },
+    "blacklist": [],
+    "ttl_account_id_router": {
+      "secs": 3600,
+      "nanos": 0
+    },
+    "peer_stats_period": {
+      "secs": 5,
+      "nanos": 0
+    }
+  },
+  "consensus": {
+    "min_num_peers": 3,
+    "block_production_tracking_delay": {
+      "secs": 0,
+      "nanos": 100000000
+    },
+    "min_block_production_delay": {
+      "secs": 0,
+      "nanos": 600000000
+    },
+    "max_block_production_delay": {
+      "secs": 2,
+      "nanos": 0
+    },
+    "max_block_wait_delay": {
+      "secs": 6,
+      "nanos": 0
+    },
+    "reduce_wait_for_missing_block": {
+      "secs": 0,
+      "nanos": 100000000
+    },
+    "produce_empty_blocks": true,
+    "block_fetch_horizon": 50,
+    "state_fetch_horizon": 5,
+    "block_header_fetch_horizon": 50,
+    "catchup_step_period": {
+      "secs": 0,
+      "nanos": 100000000
+    },
+    "chunk_request_retry_period": {
+      "secs": 0,
+      "nanos": 400000000
+    },
+    "header_sync_initial_timeout": {
+      "secs": 10,
+      "nanos": 0
+    },
+    "header_sync_progress_timeout": {
+      "secs": 2,
+      "nanos": 0
+    },
+    "header_sync_stall_ban_timeout": {
+      "secs": 120,
+      "nanos": 0
+    },
+    "header_sync_expected_height_per_second": 10,
+    "sync_check_period": {
+      "secs": 10,
+      "nanos": 0
+    },
+    "sync_step_period": {
+      "secs": 0,
+      "nanos": 10000000
+    },
+    "doomslug_step_period": {
+      "secs": 0,
+      "nanos": 100000000
+    }
+  },
+  "tracked_accounts": [],
+  "tracked_shards": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "archive": true,
+  "gc_blocks_limit": 2,
+  "view_client_threads": 4
+}
