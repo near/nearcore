@@ -474,7 +474,7 @@ impl std::str::FromStr for SecretKey {
                 }
                 Ok(Self::ED25519(ED25519SecretKey(array)))
             }
-            _ => {
+            KeyType::SECP256K1 => {
                 let mut array = [0; secp256k1::constants::SECRET_KEY_SIZE];
                 let length = bs58::decode(key_data)
                     .into(&mut array[..])
@@ -577,13 +577,13 @@ impl Signature {
                 ed25519_dalek::Signature::from_bytes(signature_data)
                     .map_err(|err| crate::ParseSignatureError::InvalidData(err.to_string()))?,
             )),
-            _ => Ok(Signature::SECP256K1(Secp256K1Signature::try_from(signature_data).map_err(
-                |_| {
+            KeyType::SECP256K1 => Ok(Signature::SECP256K1(
+                Secp256K1Signature::try_from(signature_data).map_err(|_| {
                     crate::ParseSignatureError::InvalidData(
                         "invalid Secp256k1 signature length".to_string(),
                     )
-                },
-            )?)),
+                })?,
+            )),
         }
     }
 
@@ -729,7 +729,7 @@ impl TryFrom<&str> for Signature {
                         .map_err(|e| format!("Invalid ED25519 signature: {}", e.to_string()))?,
                 ))
             }
-            _ => {
+            KeyType::SECP256K1 => {
                 let mut array = [0; 65];
                 let length = bs58::decode(sig_data).into(&mut array[..])?;
                 if length != 65 {
