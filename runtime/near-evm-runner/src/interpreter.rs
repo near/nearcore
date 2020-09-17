@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use ethereum_types::{Address, U256};
 use evm::{CreateContractAddress, Factory};
+use near_runtime_fees::EvmCostConfig;
 use vm::{
     ActionParams, ActionValue, CallType, ContractCreateResult, Ext, GasLeft, MessageCallResult,
     ParamsType, ReturnData, Schedule,
@@ -24,6 +25,7 @@ pub fn deploy_code<T: EvmState>(
     recreate: bool,
     code: &[u8],
     gas: &U256,
+    evm_gas_config: &EvmCostConfig,
 ) -> Result<ContractCreateResult> {
     let mut nonce = U256::default();
     if address_type == CreateContractAddress::FromSenderAndNonce {
@@ -37,8 +39,17 @@ pub fn deploy_code<T: EvmState>(
         return Err(VMLogicError::EvmError(EvmError::DuplicateContract(hex::encode(address.0))));
     }
 
-    let (result, state_updates) =
-        _create(state, origin, sender, value, call_stack_depth, &address, code, gas)?;
+    let (result, state_updates) = _create(
+        state,
+        origin,
+        sender,
+        value,
+        call_stack_depth,
+        &address,
+        code,
+        gas,
+        evm_gas_config,
+    )?;
 
     // Apply known gas amount changes (all reverts are NeedsReturn)
     // Apply NeedsReturn changes if apply_state
@@ -69,6 +80,7 @@ pub fn _create<T: EvmState>(
     address: &Address,
     code: &[u8],
     gas: &U256,
+    evm_gas_config: &EvmCostConfig,
 ) -> Result<(Option<GasLeft>, Option<StateStore>)> {
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
@@ -90,7 +102,14 @@ pub fn _create<T: EvmState>(
 
     sub_state.transfer_balance(sender, address, value)?;
 
-    let mut ext = NearExt::new(*address, *origin, &mut sub_state, call_stack_depth + 1, false);
+    let mut ext = NearExt::new(
+        *address,
+        *origin,
+        &mut sub_state,
+        call_stack_depth + 1,
+        false,
+        evm_gas_config,
+    );
     ext.info.gas_limit = U256::from(gas);
     ext.schedule = Schedule::new_constantinople();
 
@@ -112,6 +131,7 @@ pub fn call<T: EvmState>(
     input: &[u8],
     should_commit: bool,
     gas: &U256,
+    evm_gas_config: &EvmCostConfig,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -126,6 +146,7 @@ pub fn call<T: EvmState>(
         false,
         should_commit,
         gas,
+        evm_gas_config,
     )
 }
 
@@ -138,6 +159,7 @@ pub fn delegate_call<T: EvmState>(
     delegee: &Address,
     input: &[u8],
     gas: &U256,
+    evm_gas_config: &EvmCostConfig,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -152,6 +174,7 @@ pub fn delegate_call<T: EvmState>(
         false,
         true,
         gas,
+        evm_gas_config,
     )
 }
 
@@ -163,6 +186,7 @@ pub fn static_call<T: EvmState>(
     contract_address: &Address,
     input: &[u8],
     gas: &U256,
+    evm_gas_config: &EvmCostConfig,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -177,6 +201,7 @@ pub fn static_call<T: EvmState>(
         true,
         false,
         gas,
+        evm_gas_config,
     )
 }
 
@@ -194,6 +219,7 @@ fn run_and_commit_if_success<T: EvmState>(
     is_static: bool,
     should_commit: bool,
     gas: &U256,
+    evm_gas_config: &EvmCostConfig,
 ) -> Result<MessageCallResult> {
     // run the interpreter and
     let (result, state_updates) = run_against_state(
@@ -208,6 +234,7 @@ fn run_and_commit_if_success<T: EvmState>(
         input,
         is_static,
         gas,
+        evm_gas_config,
     )?;
 
     // Apply known gas amount changes (all reverts are NeedsReturn)
@@ -248,6 +275,7 @@ fn run_against_state<T: EvmState>(
     input: &[u8],
     is_static: bool,
     gas: &U256,
+    evm_gas_config: &EvmCostConfig,
 ) -> Result<(Option<GasLeft>, Option<StateStore>)> {
     let code = state.code_at(code_address)?.unwrap_or_else(Vec::new);
 
@@ -275,8 +303,14 @@ fn run_against_state<T: EvmState>(
         sub_state.transfer_balance(sender, state_address, val)?;
     }
 
-    let mut ext =
-        NearExt::new(*state_address, *origin, &mut sub_state, call_stack_depth + 1, is_static);
+    let mut ext = NearExt::new(
+        *state_address,
+        *origin,
+        &mut sub_state,
+        call_stack_depth + 1,
+        is_static,
+        evm_gas_config,
+    );
     // Gas limit is evm block gas limit, should at least prepaid gas.
     ext.info.gas_limit = *gas;
     ext.schedule = Schedule::new_constantinople();

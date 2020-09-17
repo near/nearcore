@@ -3,6 +3,7 @@ use std::sync::Arc;
 use ethereum_types::{Address, H160, H256, U256};
 use evm::ActionParams;
 use keccak_hash::keccak;
+use near_runtime_fees::EvmCostConfig;
 use parity_bytes::Bytes;
 use vm::{
     CallType, ContractCreateResult, CreateContractAddress, EnvInfo, Error as VmError,
@@ -25,6 +26,7 @@ pub struct NearExt<'a> {
     pub sub_state: &'a mut SubState<'a>,
     pub static_flag: bool,
     pub depth: usize,
+    pub evm_gas_config: &'a EvmCostConfig,
 }
 
 impl std::fmt::Debug for NearExt<'_> {
@@ -46,6 +48,7 @@ impl<'a> NearExt<'a> {
         sub_state: &'a mut SubState<'a>,
         depth: usize,
         static_flag: bool,
+        evm_gas_config: &'a EvmCostConfig,
     ) -> Self {
         Self {
             info: Default::default(),
@@ -56,6 +59,7 @@ impl<'a> NearExt<'a> {
             sub_state,
             static_flag,
             depth,
+            evm_gas_config,
         }
     }
 }
@@ -143,6 +147,7 @@ impl<'a> vm::Ext for NearExt<'a> {
             true,
             &code.to_vec(),
             gas,
+            &self.evm_gas_config,
         )
         .map_err(|_| TrapKind::Call(ActionParams::default()))
     }
@@ -169,7 +174,12 @@ impl<'a> vm::Ext for NearExt<'a> {
 
         // hijack builtins
         if crate::builtins::is_precompile(receive_address) {
-            return Ok(crate::builtins::process_precompile(receive_address, data, gas));
+            return Ok(crate::builtins::process_precompile(
+                receive_address,
+                data,
+                gas,
+                &self.evm_gas_config,
+            ));
         }
 
         let result = match call_type {
@@ -187,6 +197,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 &data.to_vec(),
                 true, // should_commit
                 gas,
+                &self.evm_gas_config,
             ),
             CallType::StaticCall => interpreter::static_call(
                 self.sub_state,
@@ -196,6 +207,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 receive_address,
                 &data.to_vec(),
                 gas,
+                &self.evm_gas_config,
             ),
             CallType::CallCode => {
                 // Call another contract using storage of the current contract. No longer used.
@@ -210,6 +222,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 code_address,
                 &data.to_vec(),
                 gas,
+                &self.evm_gas_config,
             ),
         };
         result.map_err(|_| TrapKind::Call(ActionParams::default()))

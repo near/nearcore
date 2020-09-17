@@ -7,6 +7,7 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
 pub type Gas = u64;
+pub type EvmGas = u64;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
@@ -149,12 +150,12 @@ pub struct EvmCostConfig {
     pub funcall_cost_base: Gas,
     /// For every unit of gas used by evm in funcall, equivalent near gas cost
     pub funcall_cost_per_evm_gas: Gas,
-    /// Evm precompiled function costs
-    pub ecrecover_cost: Gas,
-    pub sha256_cost: Gas,
-    pub ripemd160_cost: Gas,
-    pub identity_cost: Gas,
-    pub modexp_cost: Gas,
+    /// Evm precompiled function costs, note cost is in evm gas unit.
+    pub ecrecover_cost: EvmGas,
+    pub sha256_cost: EvmGas,
+    pub ripemd160_cost: EvmGas,
+    pub identity_cost: EvmGas,
+    pub modexp_cost: EvmGas,
 }
 
 impl Default for RuntimeFeesConfig {

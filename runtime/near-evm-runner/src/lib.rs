@@ -166,6 +166,7 @@ impl<'a> EvmContext<'a> {
             false,
             &bytecode,
             &self.evm_gas_counter.gas_left(),
+            &self.fees_config.evm_config,
         )?;
         match r {
             ContractCreateResult::Created(address, gas_left) => {
@@ -200,6 +201,7 @@ impl<'a> EvmContext<'a> {
             &input,
             true,
             &self.evm_gas_counter.gas_left(),
+            &self.fees_config.evm_config,
         )?;
         match rd {
             MessageCallResult::Success(gas_left, data) => {
@@ -233,6 +235,7 @@ impl<'a> EvmContext<'a> {
             &args.args,
             false,
             &self.evm_gas_counter.gas_left(),
+            &self.fees_config.evm_config,
         )?;
         match rd {
             MessageCallResult::Success(gas_left, data) => {

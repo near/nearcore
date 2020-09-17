@@ -6,6 +6,7 @@ use std::{
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 use ethereum_types::{Address, H256, U256};
+use near_runtime_fees::EvmCostConfig;
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
 use parity_bytes::BytesRef;
@@ -45,14 +46,19 @@ pub fn precompile(id: u64) -> Result<Box<dyn Impl>, String> {
     })
 }
 
-pub fn process_precompile(addr: &Address, input: &[u8], gas: &U256) -> MessageCallResult {
+pub fn process_precompile(
+    addr: &Address,
+    input: &[u8],
+    gas: &U256,
+    evm_gas_config: &EvmCostConfig,
+) -> MessageCallResult {
     let f = match precompile(addr.to_low_u64_be()) {
         Ok(f) => f,
         Err(_) => return MessageCallResult::Failed,
     };
     let mut bytes = vec![];
     let mut output = parity_bytes::BytesRef::Flexible(&mut bytes);
-    let cost = f.gas(input);
+    let cost = f.gas(input, evm_gas_config);
 
     if cost > *gas {
         return MessageCallResult::Failed;
@@ -132,7 +138,7 @@ pub struct Blake2FImpl;
 pub trait Impl: Send + Sync {
     /// execute this built-in on the given input, writing to the given output.
     fn execute(&self, input: &[u8], output: &mut BytesRef) -> Result<(), Error>;
-    fn gas(&self, _input: &[u8]) -> U256 {
+    fn gas(&self, _input: &[u8], _evm_gas_config: &EvmCostConfig) -> U256 {
         0.into()
     }
 }
@@ -141,6 +147,9 @@ impl Impl for Identity {
     fn execute(&self, input: &[u8], output: &mut BytesRef) -> Result<(), Error> {
         output.write(0, input);
         Ok(())
+    }
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.identity_cost.into()
     }
 }
 
@@ -181,6 +190,10 @@ impl Impl for EcRecover {
 
         Ok(())
     }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.ecrecover_cost.into()
+    }
 }
 
 impl Impl for Sha256 {
@@ -190,6 +203,10 @@ impl Impl for Sha256 {
         output.write(0, &*d);
         Ok(())
     }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.sha256_cost.into()
+    }
 }
 
 impl Impl for Ripemd160 {
@@ -198,6 +215,10 @@ impl Impl for Ripemd160 {
         output.write(0, &[0; 12][..]);
         output.write(12, &hash);
         Ok(())
+    }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.ripemd160_cost.into()
     }
 }
 
@@ -306,6 +327,10 @@ impl Impl for ModexpImpl {
         }
 
         Ok(())
+    }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.modexp_cost.into()
     }
 }
 
