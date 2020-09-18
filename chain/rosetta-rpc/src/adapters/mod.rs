@@ -357,8 +357,7 @@ pub(crate) async fn convert_block_to_transactions(
                 return Err(crate::errors::ErrorKind::InternalInvariantError(format!(
                     "queried AccountChanges, but received {:?}.",
                     unexpected_value
-                ))
-                .into())
+                )))
             }
         }
     }
@@ -530,7 +529,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 }
 
                 near_primitives::transaction::Action::Stake(action) => {
-                    assert_eq!(sender_account_identifier, receiver_account_identifier);
                     operations.push(
                         validated_operations::StakeOperation {
                             account: receiver_account_identifier.clone(),
@@ -758,7 +756,6 @@ impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
                     let stake_operation =
                         validated_operations::StakeOperation::try_from(tail_operation)?;
                     receiver_account_id.try_set(&stake_operation.account)?;
-                    sender_account_id.try_set(&stake_operation.account)?;
 
                     let public_key = (&stake_operation.public_key).try_into().map_err(|_| {
                         crate::errors::ErrorKind::InvalidInput(format!(
@@ -854,23 +851,20 @@ impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
         // backwards.
         actions.reverse();
 
+        let receiver_account_id = receiver_account_id
+            .into_inner()
+            .ok_or_else(|| {
+                crate::errors::ErrorKind::InvalidInput(
+                    "There are no operations specifying receiver account".to_string(),
+                )
+            })?
+            .address;
         Ok(Self {
             sender_account_id: sender_account_id
                 .into_inner()
-                .ok_or_else(|| {
-                    crate::errors::ErrorKind::InvalidInput(
-                        "There are no operations specifying signer [sender] account".to_string(),
-                    )
-                })?
-                .address,
-            receiver_account_id: receiver_account_id
-                .into_inner()
-                .ok_or_else(|| {
-                    crate::errors::ErrorKind::InvalidInput(
-                        "There are no operations specifying receiver account".to_string(),
-                    )
-                })?
-                .address,
+                .map(|account_identifier| account_identifier.address)
+                .unwrap_or_else(|| receiver_account_id.clone()),
+            receiver_account_id,
             actions,
         })
     }
@@ -935,6 +929,9 @@ mod tests {
         let wallet_style_create_account_actions =
             [create_account_actions.to_vec(), add_key_actions.to_vec(), transfer_actions.to_vec()]
                 .concat();
+        let create_account_and_stake_immediately_actions =
+            [create_account_actions.to_vec(), transfer_actions.to_vec(), stake_actions.to_vec()]
+                .concat();
         let deploy_contract_and_call_it_actions =
             [deploy_contract_actions.to_vec(), function_call_with_balance_actions.to_vec()]
                 .concat();
@@ -957,6 +954,7 @@ mod tests {
             function_call_without_balance_actions,
             function_call_with_balance_actions,
             wallet_style_create_account_actions,
+            create_account_and_stake_immediately_actions,
             deploy_contract_and_call_it_actions,
             two_factor_auth_actions,
         ];
