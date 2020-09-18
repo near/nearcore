@@ -201,13 +201,7 @@ async fn block_details(
         });
     }
 
-    // TODO: avoid ad-hoc error handling of common use-cases
-    let block_id: near_primitives::types::BlockReference =
-        block_identifier.try_into().map_err(|_| models::Error {
-            code: 4,
-            message: "Invalid input".to_string(),
-            retriable: true,
-        })?;
+    let block_id: near_primitives::types::BlockReference = block_identifier.try_into()?;
 
     let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
         Ok(block) => block,
@@ -298,13 +292,7 @@ async fn block_transaction_details(
         });
     }
 
-    // TODO: avoid ad-hoc error handling of common use-cases
-    let block_id: near_primitives::types::BlockReference =
-        block_identifier.try_into().map_err(|_| models::Error {
-            code: 4,
-            message: "Invalid input".to_string(),
-            retriable: true,
-        })?;
+    let block_id: near_primitives::types::BlockReference = block_identifier.try_into()?;
 
     let block = view_client_addr
         .send(near_client::GetBlock(block_id.clone()))
@@ -366,76 +354,37 @@ async fn account_balance(
         });
     }
 
-    // TODO: avoid ad-hoc error handling of common use-cases
     let block_id: near_primitives::types::BlockReference = block_identifier
         .map(TryInto::try_into)
         .unwrap_or(Ok(near_primitives::types::BlockReference::Finality(
             near_primitives::types::Finality::Final,
-        )))
-        .map_err(|_| models::Error {
-            code: 4,
-            message: "Invalid input".to_string(),
-            retriable: true,
-        })?;
+        )))?;
 
     // TODO: update error handling once we return structured errors from the
     // view_client handlers
     let block = view_client_addr
         .send(near_client::GetBlock(block_id.clone()))
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(errors::ErrorKind::NotFound)?;
 
-    let query = near_client::Query::new(
-        block_id,
-        near_primitives::views::QueryRequest::ViewAccount {
-            account_id: account_identifier.address,
-        },
-    );
-    let account_info_response = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        loop {
-            match view_client_addr.send(query.clone()).await? {
-                Ok(Some(query_response)) => return Ok(Some(query_response)),
-                Ok(None) => {}
-                // TODO: update this once we return structured errors from the view_client handlers
-                Err(err) => {
-                    if err.contains("does not exist") {
-                        return Ok(None);
-                    }
-                    return Err(models::Error::from(errors::ErrorKind::InternalError(err)));
+    let (block_hash, block_height, account_info) =
+        match crate::utils::query_account(block_id, account_identifier.address, &view_client_addr)
+            .await
+        {
+            Ok(account_info_response) => account_info_response,
+            Err(crate::errors::ErrorKind::NotFound(_)) => (
+                block.header.hash,
+                block.header.height,
+                near_primitives::account::Account {
+                    amount: 0,
+                    locked: 0,
+                    storage_usage: 0,
+                    code_hash: Default::default(),
                 }
-            }
-            tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
-        }
-    })
-    .await??;
-
-    let (block_hash, block_height, account_info) = if let Some(account_info_response) =
-        account_info_response
-    {
-        let account_info = match account_info_response.kind {
-            near_primitives::views::QueryResponseKind::ViewAccount(account_info) => account_info,
-            _ => {
-                return Err(errors::ErrorKind::InternalInvariantError(format!(
-                    "queried ViewAccount, but received {:?}.",
-                    account_info_response.kind
-                ))
-                .into());
-            }
+                .into(),
+            ),
+            Err(err) => return Err(err.into()),
         };
-        (account_info_response.block_hash, account_info_response.block_height, account_info)
-    } else {
-        (
-            block.header.hash,
-            block.header.height,
-            near_primitives::account::Account {
-                amount: 0,
-                locked: 0,
-                storage_usage: 0,
-                code_hash: Default::default(),
-            }
-            .into(),
-        )
-    };
 
     let account_balances = crate::utils::RosettaAccountBalances::from_account(
         account_info,
@@ -583,52 +532,22 @@ async fn construction_metadata(
         });
     }
 
-    let access_key_query = near_client::Query::new(
+    let (block_hash, _block_height, access_key) = crate::utils::query_access_key(
         near_primitives::types::BlockReference::latest(),
-        near_primitives::views::QueryRequest::ViewAccessKey {
-            account_id: options.signer_account_id,
-            public_key: (&signer_public_access_key).try_into().map_err(|err| {
-                errors::ErrorKind::InvalidInput(format!(
-                    "public key could not be parsed due to: {:?}",
-                    err
-                ))
-            })?,
-        },
-    );
+        options.signer_account_id,
+        (&signer_public_access_key).try_into().map_err(|err| {
+            errors::ErrorKind::InvalidInput(format!(
+                "public key could not be parsed due to: {:?}",
+                err
+            ))
+        })?,
+        &view_client_addr,
+    )
+    .await?;
 
-    let access_key_query_response =
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            loop {
-                match view_client_addr.send(access_key_query.clone()).await? {
-                    Ok(Some(query_response)) => return Ok(query_response),
-                    Ok(None) => {}
-                    // TODO: update this once we return structured errors in the
-                    // view_client handlers
-                    Err(err) => {
-                        if err.contains("does not exist") {
-                            return Err(crate::errors::ErrorKind::NotFound(err));
-                        }
-                        return Err(crate::errors::ErrorKind::InternalError(err));
-                    }
-                }
-                tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
-            }
-        })
-        .await??;
-
-    let access_key = if let near_primitives::views::QueryResponseKind::AccessKey(access_key) =
-        access_key_query_response.kind
-    {
-        access_key
-    } else {
-        return Err(crate::errors::ErrorKind::InternalInvariantError(
-            "queried ViewAccessKey, but received something else.".to_string(),
-        )
-        .into());
-    };
     Ok(Json(models::ConstructionMetadataResponse {
         metadata: models::ConstructionMetadata {
-            recent_block_hash: access_key_query_response.block_hash.to_base(),
+            recent_block_hash: block_hash.to_base(),
             signer_public_access_key_nonce: access_key.nonce.saturating_add(1),
         },
     }))

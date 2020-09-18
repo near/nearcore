@@ -831,15 +831,21 @@ pub(crate) struct PartialBlockIdentifier {
 }
 
 impl TryFrom<PartialBlockIdentifier> for near_primitives::types::BlockReference {
-    type Error = ();
+    type Error = crate::errors::ErrorKind;
 
     fn try_from(block_identifier: PartialBlockIdentifier) -> Result<Self, Self::Error> {
         Ok(match (block_identifier.index, block_identifier.hash) {
             (Some(index), None) => {
-                near_primitives::types::BlockId::Height(index.try_into().map_err(|_| ())?).into()
+                near_primitives::types::BlockId::Height(index.try_into().map_err(|err| {
+                    Self::Error::InvalidInput(format!("Failed to parse Block Height: {}", err))
+                })?)
+                .into()
             }
             (_, Some(hash)) => {
-                near_primitives::types::BlockId::Hash(hash.try_into().map_err(|_| ())?).into()
+                near_primitives::types::BlockId::Hash(hash.try_into().map_err(|err| {
+                    Self::Error::InvalidInput(format!("Failed to parse Block Hash: {}", err))
+                })?)
+                .into()
             }
             (None, None) => near_primitives::types::BlockReference::Finality(
                 near_primitives::types::Finality::Final,

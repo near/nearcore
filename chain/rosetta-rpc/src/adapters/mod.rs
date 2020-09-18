@@ -31,8 +31,8 @@ async fn convert_genesis_records_to_transaction(
         }
     });
     let genesis_accounts = crate::utils::query_accounts(
-        genesis_account_ids,
         &near_primitives::types::BlockId::Hash(block.header.hash).into(),
+        genesis_account_ids,
         &view_client_addr,
     )
     .await?;
@@ -130,7 +130,7 @@ pub(crate) async fn convert_block_to_transactions(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
     );
     let mut accounts_previous_state =
-        crate::utils::query_accounts(touched_account_ids.iter(), &prev_block_id, &view_client_addr)
+        crate::utils::query_accounts(&prev_block_id, touched_account_ids.iter(), &view_client_addr)
             .await?;
 
     let accounts_changes = view_client_addr

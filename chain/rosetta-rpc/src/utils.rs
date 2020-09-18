@@ -294,9 +294,64 @@ impl RosettaAccountBalances {
     }
 }
 
+pub(crate) async fn query_account(
+    block_id: near_primitives::types::BlockReference,
+    account_id: near_primitives::types::AccountId,
+    view_client_addr: &Addr<ViewClientActor>,
+) -> Result<
+    (
+        near_primitives::hash::CryptoHash,
+        near_primitives::types::BlockHeight,
+        near_primitives::views::AccountView,
+    ),
+    crate::errors::ErrorKind,
+> {
+    let query = near_client::Query::new(
+        block_id,
+        near_primitives::views::QueryRequest::ViewAccount { account_id },
+    );
+    let account_info_response = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            match view_client_addr.send(query.clone()).await? {
+                Ok(Some(query_response)) => return Ok(query_response),
+                Ok(None) => {}
+                // TODO: update this once we return structured errors from the view_client handlers
+                Err(err) => {
+                    if err.contains("does not exist") {
+                        return Err(crate::errors::ErrorKind::NotFound(err));
+                    }
+                    return Err(crate::errors::ErrorKind::InternalError(err));
+                }
+            }
+            tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
+        }
+    })
+    .await??;
+
+    match account_info_response.kind {
+        near_primitives::views::QueryResponseKind::ViewAccount(account_info) => {
+            Ok((account_info_response.block_hash, account_info_response.block_height, account_info))
+        }
+        near_primitives::views::QueryResponseKind::Error(near_primitives::views::QueryError {
+            error,
+            ..
+        }) => {
+            if error.contains("does not exist") {
+                Err(crate::errors::ErrorKind::NotFound(error))
+            } else {
+                Err(crate::errors::ErrorKind::InternalError(error))
+            }
+        }
+        _ => Err(crate::errors::ErrorKind::InternalInvariantError(format!(
+            "queried ViewAccount, but received {:?}.",
+            account_info_response.kind
+        ))),
+    }
+}
+
 pub(crate) async fn query_accounts(
-    account_ids: impl Iterator<Item = &near_primitives::types::AccountId>,
     block_id: &near_primitives::types::BlockReference,
+    account_ids: impl Iterator<Item = &near_primitives::types::AccountId>,
     view_client_addr: &Addr<ViewClientActor>,
 ) -> Result<
     std::collections::HashMap<
@@ -306,62 +361,82 @@ pub(crate) async fn query_accounts(
     crate::errors::ErrorKind,
 > {
     account_ids
-        .map(|account_id| {
-            async move {
-                let query = near_client::Query::new(
-                    block_id.clone(),
-                    near_primitives::views::QueryRequest::ViewAccount {
-                        account_id: account_id.clone(),
-                    },
-                );
-                let account_info_response =
-                    tokio::time::timeout(std::time::Duration::from_secs(10), async {
-                        loop {
-                            match view_client_addr.send(query.clone()).await? {
-                                Ok(Some(query_response)) => return Ok(Some(query_response)),
-                                Ok(None) => {}
-                                // TODO: update this once we return structured errors in the
-                                // view_client handlers
-                                Err(err) => {
-                                    if err.contains("does not exist") {
-                                        return Ok(None);
-                                    }
-                                    return Err(crate::errors::ErrorKind::InternalError(err));
-                                }
-                            }
-                            tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
-                        }
-                    })
-                    .await??;
-
-                let kind = if let Some(account_info_response) = account_info_response {
-                    account_info_response.kind
-                } else {
-                    return Ok(None);
-                };
-
-                match kind {
-                    near_primitives::views::QueryResponseKind::ViewAccount(account_info) => {
-                        Ok(Some((account_id.clone(), account_info)))
-                    }
-                    _ => Err(crate::errors::ErrorKind::InternalInvariantError(
-                        "queried ViewAccount, but received something else.".to_string(),
-                    )
-                    .into()),
-                }
-            }
+        .map(|account_id| async move {
+            let (_, _, account_info) =
+                query_account(block_id.clone(), account_id.clone(), &view_client_addr).await?;
+            Ok((account_id.clone(), account_info))
         })
         .collect::<futures::stream::FuturesUnordered<_>>()
         .collect::<Vec<
             Result<
-                Option<(near_primitives::types::AccountId, near_primitives::views::AccountView)>,
+                (near_primitives::types::AccountId, near_primitives::views::AccountView),
                 crate::errors::ErrorKind,
             >,
         >>()
         .await
         .into_iter()
-        .filter_map(|account_info| account_info.transpose())
+        .filter(|account_info| !matches!(account_info, Err(crate::errors::ErrorKind::NotFound(_))))
         .collect()
+}
+
+pub(crate) async fn query_access_key(
+    block_id: near_primitives::types::BlockReference,
+    account_id: near_primitives::types::AccountId,
+    public_key: near_crypto::PublicKey,
+    view_client_addr: &Addr<ViewClientActor>,
+) -> Result<
+    (
+        near_primitives::hash::CryptoHash,
+        near_primitives::types::BlockHeight,
+        near_primitives::views::AccessKeyView,
+    ),
+    crate::errors::ErrorKind,
+> {
+    let access_key_query = near_client::Query::new(
+        block_id,
+        near_primitives::views::QueryRequest::ViewAccessKey { account_id, public_key },
+    );
+
+    let access_key_query_response =
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                match view_client_addr.send(access_key_query.clone()).await? {
+                    Ok(Some(query_response)) => return Ok(query_response),
+                    Ok(None) => {}
+                    // TODO: update this once we return structured errors in the
+                    // view_client handlers
+                    Err(err) => {
+                        if err.contains("does not exist") {
+                            return Err(crate::errors::ErrorKind::NotFound(err));
+                        }
+                        return Err(crate::errors::ErrorKind::InternalError(err));
+                    }
+                }
+                tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await??;
+
+    match access_key_query_response.kind {
+        near_primitives::views::QueryResponseKind::AccessKey(access_key) => Ok((
+            access_key_query_response.block_hash,
+            access_key_query_response.block_height,
+            access_key,
+        )),
+        near_primitives::views::QueryResponseKind::Error(near_primitives::views::QueryError {
+            error,
+            ..
+        }) => {
+            if error.contains("does not exist") {
+                Err(crate::errors::ErrorKind::NotFound(error))
+            } else {
+                Err(crate::errors::ErrorKind::InternalError(error))
+            }
+        }
+        _ => Err(crate::errors::ErrorKind::InternalInvariantError(
+            "queried ViewAccessKey, but received something else.".to_string(),
+        )),
+    }
 }
 
 /// This is a helper to ensure that all the values you try to assign are the
