@@ -1458,7 +1458,7 @@ mod test {
         vec![Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
             store,
-            Arc::new(genesis),
+            &genesis,
             vec![],
             vec![],
         ))]

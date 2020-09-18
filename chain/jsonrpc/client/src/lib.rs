@@ -7,13 +7,12 @@ use serde::Serialize;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{
-    RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse,
-    RpcValidatorsOrderedRequest,
+    RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
 };
 use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    GenesisRecordsView, QueryResponse, StatusResponse, ValidatorStakeView,
+    QueryResponse, StatusResponse, ValidatorStakeView,
 };
 
 use crate::message::{from_slice, Message, RpcError};
@@ -195,14 +194,6 @@ jsonrpc_client!(pub struct JsonRpcClient {
 });
 
 impl JsonRpcClient {
-    #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_genesis_records(
-        &self,
-        request: RpcGenesisRecordsRequest,
-    ) -> RpcRequest<GenesisRecordsView<'_>> {
-        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_genesis_records", request)
-    }
-
     /// This is a soft-deprecated method to do query RPC request with a path and data positional
     /// parameters.
     pub fn query_by_path(&self, path: String, data: String) -> RpcRequest<QueryResponse> {

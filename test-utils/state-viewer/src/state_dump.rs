@@ -90,13 +90,8 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
-        let nightshade_runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        );
+        let nightshade_runtime =
+            NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
@@ -138,13 +133,8 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
             last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
-        let runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        );
+        let runtime =
+            NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -174,13 +164,8 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
             last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
-        let runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        );
+        let runtime =
+            NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(
@@ -208,7 +193,7 @@ mod test {
         let store1 = create_test_store();
         let store2 = create_test_store();
         let create_runtime = |store| -> NightshadeRuntime {
-            NightshadeRuntime::new(Path::new("."), store, Arc::new(genesis.clone()), vec![], vec![])
+            NightshadeRuntime::new(Path::new("."), store, &genesis, vec![], vec![])
         };
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
             Arc::new(create_runtime(store1.clone())),
@@ -256,13 +241,8 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
-        let nightshade_runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        );
+        let nightshade_runtime =
+            NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
@@ -295,13 +275,8 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
             last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
-        let runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        );
+        let runtime =
+            NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
