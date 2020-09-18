@@ -48,7 +48,7 @@ transactions to a blockchain network.
 | - `/mempool`                 | Not implemented as mempool does not hold transactions for any meaningful time                                                       |
 | - `/mempool/transaction`     | Not implemented (see above)                                                                                                         |
 | Construction API             | Done                                                                                                                                |
-| - `/construction/derive`     | Not implemented (used for implicit accounts)                                                                                        |
+| - `/construction/derive`     | Done (used for implicit accounts)                                                                                                   |
 | - `/construction/preprocess` | Done                                                                                                                                |
 | - `/construction/metadata`   | Done                                                                                                                                |
 | - `/construction/payloads`   | Done                                                                                                                                |

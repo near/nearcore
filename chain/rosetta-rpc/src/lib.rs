@@ -446,14 +446,49 @@ async fn mempool_transaction(
 }
 
 #[api_v2_operation]
-/// Derive an Address from a PublicKey (not implemented by design)
+/// Derive an Address from a PublicKey (online API, only for implicit accounts)
 ///
 /// Derive returns the network-specific address associated with a public key.
 ///
 /// Blockchains that require an on-chain action to create an account should not
 /// implement this method.
-async fn construction_derive() -> Result<Json<()>, models::Error> {
-    Err(errors::ErrorKind::InternalError("Not implemented by design".to_string()).into())
+///
+/// NEAR implements explicit accounts with CREATE_ACCOUNT action and implicit
+/// accounts, where account id is just a hex of the public key.
+async fn construction_derive(
+    client_addr: web::Data<Addr<ClientActor>>,
+    body: Json<models::ConstructionDeriveRequest>,
+) -> Result<Json<models::ConstructionDeriveResponse>, models::Error> {
+    let Json(models::ConstructionDeriveRequest { network_identifier, public_key }) = body;
+
+    let public_key: near_crypto::PublicKey = (&public_key)
+        .try_into()
+        .map_err(|_| errors::ErrorKind::InvalidInput("Invalid PublicKey".to_string()))?;
+    let address = if let near_crypto::KeyType::ED25519 = public_key.key_type() {
+        hex::encode(public_key.key_data())
+    } else {
+        return Err(errors::ErrorKind::InvalidInput(
+            "Only Ed25519 keys are allowed for implicit accounts".to_string(),
+        )
+        .into());
+    };
+
+    // TODO: reduce copy-paste
+    let status = client_addr
+        .send(near_client::Status { is_health_check: false })
+        .await?
+        .map_err(errors::ErrorKind::InternalError)?;
+    if status.chain_id != network_identifier.network {
+        return Err(models::Error {
+            code: 2,
+            message: "Wrong network (chain id)".to_string(),
+            retriable: true,
+        });
+    }
+
+    Ok(Json(models::ConstructionDeriveResponse {
+        account_identifier: models::AccountIdentifier { address, sub_account: None },
+    }))
 }
 
 #[api_v2_operation]

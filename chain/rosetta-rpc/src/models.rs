@@ -220,6 +220,33 @@ pub(crate) struct BlockTransactionResponse {
     pub transaction: Transaction,
 }
 
+/// ConstructionDeriveRequest is passed to the `/construction/derive`
+/// endpoint. Network is provided in the request because some blockchains
+/// have different address formats for different networks.
+/// Metadata is provided in the request because some blockchains
+/// allow for multiple address types (i.e. different address
+/// for validators vs normal accounts).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct ConstructionDeriveRequest {
+    pub network_identifier: NetworkIdentifier,
+    pub public_key: PublicKey,
+    /* Rosetta Spec also optionally provides:
+     *
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
+}
+
+/// ConstructionDeriveResponse is returned by the `/construction/derive`
+/// endpoint.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct ConstructionDeriveResponse {
+    pub account_identifier: AccountIdentifier,
+    /* Rosetta Spec also optionally provides:
+     *
+     * #[serde(skip_serializing_if = "Option::is_none")]
+     * pub metadata: Option<serde_json::Value>, */
+}
+
 /// ConstructionPreprocessRequest is passed to the `/construction/preprocess`
 /// endpoint so that a Rosetta implementation can determine which
 /// metadata it needs to request for construction.
