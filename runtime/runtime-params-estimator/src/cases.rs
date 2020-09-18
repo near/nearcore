@@ -160,14 +160,14 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     } else if only_evm {
         let cost = cost_of_evm(config.metric, true);
         println!(
-            "EVM base deploy cost: {}, deploy cost per EVM gas: {}",
-            ratio_to_gas(config.metric, cost.deploy_cost.0),
-            ratio_to_gas(config.metric, cost.deploy_cost.1)
+            "EVM base deploy (and init evm instance) cost: {}, deploy cost per EVM gas: {}",
+            ratio_to_gas(config.metric, cost.deploy_cost.1),
+            ratio_to_gas(config.metric, cost.deploy_cost.0)
         );
         println!(
             "EVM function call cost: {}, function call cost per EVM gas: {}",
-            ratio_to_gas(config.metric, cost.funcall_cost.0),
-            ratio_to_gas(config.metric, cost.funcall_cost.1)
+            ratio_to_gas(config.metric, cost.funcall_cost.1),
+            ratio_to_gas(config.metric, cost.funcall_cost.0)
         );
         println!("EVM precompiled function evm gas:");
         println!(
