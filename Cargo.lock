@@ -2765,7 +2765,7 @@ version = "2.2.0"
 
 [[package]]
 name = "near-store"
-version = "0.1.0"
+version = "2.2.0"
 dependencies = [
  "bencher",
  "borsh",
@@ -2834,6 +2834,7 @@ dependencies = [
  "bs58",
  "cached",
  "near-runtime-fees",
+ "near-store",
  "near-vm-errors",
  "near-vm-logic",
  "parity-wasm",

@@ -36,6 +36,7 @@ pub use crate::trie::{
 };
 use std::ops::Deref;
 use std::pin::Pin;
+use std::sync::Mutex;
 
 mod db;
 pub mod migrations;
@@ -285,9 +286,23 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     Ok(None)
 }
 
+lazy_static! {
+    static ref CURRENT_STORE: Mutex<Option<Arc<Store>>> = Mutex::new(None);
+}
+
 pub fn create_store(path: &str) -> Arc<Store> {
     let db = Arc::pin(RocksDB::new(path).expect("Failed to open the database"));
-    Arc::new(Store::new(db))
+    let store = Arc::new(Store::new(db));
+    *CURRENT_STORE.lock().unwrap() = Some(store.clone());
+    store
+}
+
+pub fn current_store() -> Arc<Store> {
+    if let Some(store) = &*CURRENT_STORE.lock().unwrap() {
+        store.clone()
+    } else {
+        panic!("current store is unset");
+    }
 }
 
 /// Reads an object from Trie.
