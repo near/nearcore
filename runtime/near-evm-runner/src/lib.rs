@@ -6,7 +6,7 @@ use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
 use vm::{ContractCreateResult, MessageCallResult};
 
-use near_runtime_fees::RuntimeFeesConfig;
+use near_runtime_fees::{EvmCostConfig, RuntimeFeesConfig};
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
 use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
@@ -128,6 +128,7 @@ impl<'a> EvmContext<'a> {
         storage_usage: StorageUsage,
         prepaid_gas: Gas,
         is_view: bool,
+        evm_gas: U256,
     ) -> Self {
         let max_gas_burnt = if is_view {
             config.limit_config.max_gas_burnt_view
@@ -148,7 +149,7 @@ impl<'a> EvmContext<'a> {
                 is_view,
                 None,
             ),
-            evm_gas_counter: EvmGasCounter::new(0.into(), PREPAID_EVM_GAS.into()),
+            evm_gas_counter: EvmGasCounter::new(0.into(), evm_gas),
             fees_config,
         }
     }
@@ -376,6 +377,41 @@ impl<'a> EvmContext<'a> {
     }
 }
 
+fn max_evm_gas_from_near_gas(
+    near_gas: Gas,
+    evm_gas_config: &EvmCostConfig,
+    method_name: &str,
+) -> Option<U256> {
+    match method_name {
+        "deploy_code" => {
+            if near_gas < evm_gas_config.bootstrap_cost {
+                return None;
+            }
+            Some(
+                ((near_gas - evm_gas_config.bootstrap_cost)
+                    / evm_gas_config.deploy_cost_per_evm_gas)
+                    .into(),
+            )
+        }
+        "call_function" => {
+            if near_gas < evm_gas_config.bootstrap_cost + evm_gas_config.funcall_cost_base {
+                return None;
+            }
+            Some(
+                ((near_gas - evm_gas_config.bootstrap_cost - evm_gas_config.funcall_cost_base)
+                    / evm_gas_config.funcall_cost_per_evm_gas)
+                    .into(),
+            )
+        }
+        _ => {
+            if near_gas < evm_gas_config.bootstrap_cost {
+                return None;
+            }
+            Some(evm_gas_config.bootstrap_cost.into())
+        }
+    }
+}
+
 pub fn run_evm(
     ext: &mut dyn External,
     config: &VMConfig,
@@ -389,6 +425,18 @@ pub fn run_evm(
     prepaid_gas: Gas,
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>, U256) {
+    let evm_gas_result =
+        max_evm_gas_from_near_gas(prepaid_gas, &fees_config.evm_config, &method_name);
+    if evm_gas_result.is_none() {
+        return (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::EvmError(EvmError::Revert(
+                "Not enough to run EVM".to_string(),
+            )))),
+            0.into(),
+        );
+    }
+    let evm_gas = evm_gas_result.unwrap();
     let mut context = EvmContext::new(
         ext,
         config,
@@ -401,6 +449,7 @@ pub fn run_evm(
         storage_usage,
         prepaid_gas,
         is_view,
+        evm_gas,
     );
     let result = match method_name.as_str() {
         // Change the state methods.
@@ -419,16 +468,16 @@ pub fn run_evm(
         }
         _ => Err(VMLogicError::EvmError(EvmError::MethodNotFound)),
     };
-    let pay_gas_result = context.pay_gas_from_evm_gas(match method_name.as_str() {
-        "deploy_code" => EvmOpForGas::Deploy,
-        "call_function" => EvmOpForGas::Funcall,
-        _ => EvmOpForGas::Other,
-    });
-    if pay_gas_result.is_err() {
-        // TODO: state should be revert, if run out of gas, or, evm gas attached should be calculated from near gas attached
-        // so run out of gas should be caught by evm
-        panic!();
-    }
+    context
+        .pay_gas_from_evm_gas(match method_name.as_str() {
+            "deploy_code" => EvmOpForGas::Deploy,
+            "call_function" => EvmOpForGas::Funcall,
+            _ => EvmOpForGas::Other,
+        })
+        // It's not possible deduct near gas underflow, because even use full evm gas it's less than prepaid near gas
+        // If full evm gas isn't enough for evm operation, evm will revert result and all near gas is used to pay for evm gas
+        .unwrap();
+
     match result {
         Ok(value) => {
             let outcome = VMOutcome {
