@@ -446,7 +446,7 @@ async fn mempool_transaction(
 }
 
 #[api_v2_operation]
-/// Derive an Address from a PublicKey (online API, only for implicit accounts)
+/// Derive an Address from a PublicKey (offline API, only for implicit accounts)
 ///
 /// Derive returns the network-specific address associated with a public key.
 ///
