@@ -187,6 +187,7 @@ fn replay_chain(
                 .add_validator_proposals(BlockHeaderInfo::new(
                     &header,
                     chain_store.get_block_height(&header.last_final_block()).unwrap(),
+                    true,
                 ))
                 .unwrap();
         }

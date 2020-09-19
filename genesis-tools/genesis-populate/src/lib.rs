@@ -200,7 +200,9 @@ impl GenesisBuilder {
         let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);
         let mut store_update = store.store_update();
 
-        self.runtime.add_validator_proposals(BlockHeaderInfo::new(&genesis.header(), 0)).unwrap();
+        self.runtime
+            .add_validator_proposals(BlockHeaderInfo::new(&genesis.header(), 0, true))
+            .unwrap();
         store_update
             .save_block_header(genesis.header().clone())
             .expect("save genesis block header shouldn't fail");
@@ -223,7 +225,7 @@ impl GenesisBuilder {
 
         let head = Tip::from_header(&genesis.header());
         store_update.save_head(&head).unwrap();
-        store_update.save_sync_head(&head);
+        store_update.save_final_head(&head).unwrap();
         store_update.commit().unwrap();
 
         Ok(())

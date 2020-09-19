@@ -12,7 +12,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::RpcQueryRequest;
 use near_primitives::rpc::RpcValidatorsOrderedRequest;
-use near_primitives::types::{BlockId, BlockReference, Finality, ShardId, SyncCheckpoint};
+use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
@@ -81,9 +81,6 @@ fn test_block_query() {
             assert!(block.header.timestamp > 0);
             assert_eq!(block.header.validator_proposals.len(), 0);
         }
-        // no doomslug final or nfg final block
-        assert!(client.block(BlockReference::Finality(Finality::DoomSlug)).await.is_err());
-        assert!(client.block(BlockReference::Finality(Finality::Final)).await.is_err());
     });
 }
 
@@ -198,30 +195,6 @@ fn test_query_account() {
             assert_eq!(account_info.locked, 0);
             assert_eq!(account_info.storage_paid_at, 0);
             assert_eq!(account_info.storage_usage, 0);
-        }
-
-        let non_finalized_query_response_1 = client
-            .query(RpcQueryRequest {
-                block_reference: BlockReference::Finality(Finality::DoomSlug),
-                request: QueryRequest::ViewAccount { account_id: "test".to_string() },
-            })
-            .await;
-        let non_finalized_query_response_2 = client
-            .query(RpcQueryRequest {
-                block_reference: BlockReference::Finality(Finality::Final),
-                request: QueryRequest::ViewAccount { account_id: "test".to_string() },
-            })
-            .await;
-        for query_response in
-            [non_finalized_query_response_1, non_finalized_query_response_2].iter()
-        {
-            let rpc_error = if let Err(err) = query_response {
-                err
-            } else {
-                panic!("the error is expected since the latest block is not finalized yet");
-            };
-            assert_eq!(rpc_error.code, -32000);
-            assert!(rpc_error.data.as_ref().unwrap().as_str().unwrap().contains("DB Not Found"));
         }
     });
 }

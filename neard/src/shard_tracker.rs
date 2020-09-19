@@ -307,6 +307,7 @@ mod tests {
                     PROTOCOL_VERSION,
                 ),
                 [0; 32],
+                true,
             )
             .unwrap()
             .commit()

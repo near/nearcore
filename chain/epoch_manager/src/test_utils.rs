@@ -245,6 +245,7 @@ pub fn record_block_with_final_block_hash(
                 PROTOCOL_VERSION,
             ),
             [0; 32],
+            true,
         )
         .unwrap()
         .commit()
@@ -274,6 +275,7 @@ pub fn record_block_with_slashes(
                 PROTOCOL_VERSION,
             ),
             [0; 32],
+            true,
         )
         .unwrap()
         .commit()
@@ -312,4 +314,16 @@ pub fn block_info(
         slashed: Default::default(),
         total_supply,
     }
+}
+
+pub fn record_with_block_info(
+    epoch_manager: &mut EpochManager,
+    cur_hash: CryptoHash,
+    block_info: BlockInfo,
+) {
+    epoch_manager
+        .record_block_info(&cur_hash, block_info, [0; 32], true)
+        .unwrap()
+        .commit()
+        .unwrap();
 }

@@ -9,13 +9,15 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
-use crate::db::DBCol::ColStateParts;
+use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColStateParts};
 use crate::db::{DBCol, RocksDB, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
 use crate::migrations::v8_to_v9::{repair_col_receipt_id_to_shard_id, repair_col_transactions};
-use crate::{create_store, Store, StoreUpdate};
+use crate::{create_store, Store, StoreUpdate, FINAL_HEAD_KEY, HEAD_KEY};
+use near_primitives::block::Tip;
+use near_primitives::block_header::BlockHeader;
 
 pub mod v6_to_v7;
 pub mod v8_to_v9;
@@ -124,4 +126,34 @@ pub fn migrate_8_to_9(path: &String) {
     repair_col_transactions(&store);
     repair_col_receipt_id_to_shard_id(&store);
     set_store_version(&store, 9);
+}
+
+pub fn migration_9_to_10(path: &String) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    let head = store.get_ser::<Tip>(ColBlockMisc, HEAD_KEY).unwrap().expect("head must exist");
+    let block_header = store
+        .get_ser::<BlockHeader>(ColBlockHeader, head.last_block_hash.as_ref())
+        .unwrap()
+        .expect("head header must exist");
+    let last_final_block_hash = if block_header.last_final_block() == &CryptoHash::default() {
+        let mut cur_header = block_header;
+        while cur_header.prev_hash() != &CryptoHash::default() {
+            cur_header = store
+                .get_ser::<BlockHeader>(ColBlockHeader, cur_header.prev_hash().as_ref())
+                .unwrap()
+                .unwrap()
+        }
+        *cur_header.hash()
+    } else {
+        *block_header.last_final_block()
+    };
+    let last_final_header = store
+        .get_ser::<BlockHeader>(ColBlockHeader, last_final_block_hash.as_ref())
+        .unwrap()
+        .expect("last final block header must exist");
+    let final_head = Tip::from_header(&last_final_header);
+    store_update.set_ser(ColBlockMisc, FINAL_HEAD_KEY, &final_head).unwrap();
+    store_update.commit().unwrap();
+    set_store_version(&store, 10);
 }

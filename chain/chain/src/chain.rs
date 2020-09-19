@@ -282,6 +282,7 @@ impl Chain {
                         &genesis.header(),
                         // genesis height is considered final
                         chain_genesis.height,
+                        true,
                     ))?;
                     store_update.save_block_header(genesis.header().clone())?;
                     store_update.save_block(genesis.clone());
@@ -309,6 +310,7 @@ impl Chain {
 
                     head = Tip::from_header(genesis.header());
                     store_update.save_head(&head)?;
+                    store_update.save_final_head(&head)?;
 
                     info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_roots);
                 }
@@ -787,6 +789,10 @@ impl Chain {
                 self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
                     &header,
                     self.store.get_block_height(&header.last_final_block())?,
+                    // We only set this to true when final head is updated, which is not the case here.
+                    // This will cause some slowdown during syncing, but that is more acceptable
+                    // than having the slowdown after the node is synced.
+                    false,
                 ))?;
             }
         }
@@ -941,13 +947,15 @@ impl Chain {
         let new_chunk_tail =
             prev_block.chunks().iter().map(|x| x.inner.height_created).min().unwrap();
         let tip = Tip::from_header(prev_block.header());
+        let final_head = Tip::from_header(&self.genesis);
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.save_body_head(&tip)?;
+        // Reset final head to genesis since at this point we don't have the last final block.
+        chain_store_update.save_final_head(&final_head)?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
         chain_store_update.update_tail(new_tail);
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
-        println!("resetting chunk tail to {}", new_chunk_tail);
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
@@ -2181,6 +2189,12 @@ impl Chain {
         self.store.head_header()
     }
 
+    /// Get final head of the chain.
+    #[inline]
+    pub fn final_head(&self) -> Result<Tip, Error> {
+        self.store.final_head()
+    }
+
     /// Gets a block by hash.
     #[inline]
     pub fn get_block(&mut self, hash: &CryptoHash) -> Result<&Block, Error> {
@@ -2945,9 +2959,11 @@ impl<'a> ChainUpdate<'a> {
         } else {
             self.chain_store_update.get_block_header(last_final_block)?.height()
         };
+        let maybe_new_final_head = self.update_final_head(block)?;
         self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
             &block.header(),
             last_finalized_height,
+            maybe_new_final_head.is_some(),
         ))?;
 
         // Add validated block to the db, even if it's not the canonical fork.
@@ -3193,6 +3209,25 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
+    fn update_final_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+        let final_head = self.chain_store_update.final_head()?;
+        let last_final_block_header =
+            match self.chain_store_update.get_block_header(block.header().last_final_block()) {
+                Ok(header) => header,
+                Err(e) => match e.kind() {
+                    ErrorKind::DBNotFoundErr(_) => return Ok(None),
+                    _ => return Err(e),
+                },
+            };
+        if last_final_block_header.height() > final_head.height {
+            let tip = Tip::from_header(last_final_block_header);
+            self.chain_store_update.save_final_head(&tip)?;
+            Ok(Some(tip))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Directly updates the head if we've just appended a new block to it or handle
     /// the situation where the block has higher height to have a fork
     fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
@@ -3261,9 +3296,13 @@ impl<'a> ChainUpdate<'a> {
             } else {
                 &prev_header
             };
+            let last_final_block = *new_head_header.last_final_block();
 
             let tip = Tip::from_header(new_head_header);
             self.chain_store_update.save_head(&tip)?;
+            let new_final_header =
+                self.chain_store_update.get_block_header(&last_final_block)?.clone();
+            self.chain_store_update.save_final_head(&Tip::from_header(&new_final_header))?;
         }
 
         Ok(())
