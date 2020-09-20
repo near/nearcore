@@ -525,7 +525,7 @@ pub fn setup_mock_all_validators(
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
                                             NetworkClientMessages::PartialEncodedChunk(
-                                                partial_encoded_chunk.clone(),
+                                                partial_encoded_chunk.clone().into(),
                                             ),
                                         );
                                     }
