@@ -78,12 +78,24 @@ impl Action {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
+impl From<CreateAccountAction> for Action {
+    fn from(create_account_action: CreateAccountAction) -> Self {
+        Self::CreateAccount(create_account_action)
+    }
+}
+
 /// Deploy contract action
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
     /// WebAssembly binary
     #[serde(with = "base64_format")]
     pub code: Vec<u8>,
+}
+
+impl From<DeployContractAction> for Action {
+    fn from(deploy_contract_action: DeployContractAction) -> Self {
+        Self::DeployContract(deploy_contract_action)
+    }
 }
 
 impl fmt::Debug for DeployContractAction {
@@ -104,6 +116,12 @@ pub struct FunctionCallAction {
     pub deposit: Balance,
 }
 
+impl From<FunctionCallAction> for Action {
+    fn from(function_call_action: FunctionCallAction) -> Self {
+        Self::FunctionCall(function_call_action)
+    }
+}
+
 impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
@@ -121,6 +139,12 @@ pub struct TransferAction {
     pub deposit: Balance,
 }
 
+impl From<TransferAction> for Action {
+    fn from(transfer_action: TransferAction) -> Self {
+        Self::Transfer(transfer_action)
+    }
+}
+
 /// An action which stakes singer_id tokens and setup's validator public key
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
@@ -131,6 +155,12 @@ pub struct StakeAction {
     pub public_key: PublicKey,
 }
 
+impl From<StakeAction> for Action {
+    fn from(stake_action: StakeAction) -> Self {
+        Self::Stake(stake_action)
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AddKeyAction {
     /// A public key which will be associated with an access_key
@@ -139,15 +169,33 @@ pub struct AddKeyAction {
     pub access_key: AccessKey,
 }
 
+impl From<AddKeyAction> for Action {
+    fn from(add_key_action: AddKeyAction) -> Self {
+        Self::AddKey(add_key_action)
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
     /// A public key associated with the access_key to be deleted.
     pub public_key: PublicKey,
 }
 
+impl From<DeleteKeyAction> for Action {
+    fn from(delete_key_action: DeleteKeyAction) -> Self {
+        Self::DeleteKey(delete_key_action)
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
+}
+
+impl From<DeleteAccountAction> for Action {
+    fn from(delete_account_action: DeleteAccountAction) -> Self {
+        Self::DeleteAccount(delete_account_action)
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, Debug, Clone)]
