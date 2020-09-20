@@ -23,7 +23,8 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkWithArcReceipts,
+    ReceiptProof,
 };
 use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
@@ -1109,7 +1110,7 @@ pub enum NetworkRequests {
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkMessage {
         account_id: AccountId,
-        partial_encoded_chunk: PartialEncodedChunk,
+        partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
     },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
