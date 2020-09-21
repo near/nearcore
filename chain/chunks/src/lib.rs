@@ -23,8 +23,8 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
-    ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptList,
+    ReceiptProof, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
@@ -36,7 +36,6 @@ use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
-use near_chain::types::ReceiptList;
 
 mod chunk_cache;
 pub mod test_utils;
@@ -1409,33 +1408,44 @@ impl ShardsManager {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
 
-            let entry = block_producer_mapping.entry(to_whom.clone()).or_insert_with(|| vec![]);
+            let entry = block_producer_mapping.entry(to_whom).or_insert_with(Vec::new);
             entry.push(part_ord);
         }
 
-        let receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts);
+        let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts);
+        let receipt_proofs: Vec<_> = outgoing_receipts_proofs
+            .into_iter()
+            .enumerate()
+            .map(|(proof_shard_id, proof)| {
+                let proof_shard_id = proof_shard_id as u64;
+                let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
+                let shard_proof =
+                    ShardProof { from_shard_id: shard_id, to_shard_id: proof_shard_id, proof };
+                Arc::new(ReceiptProof(receipts, shard_proof))
+            })
+            .collect();
 
         for (to_whom, part_ords) in block_producer_mapping {
-            let tracking_shards = (0..self.runtime_adapter.num_shards()).filter(|chunk_shard_id| {
-                self.cares_about_shard_this_or_next_epoch(
-                    Some(&to_whom),
-                    &prev_block_hash,
-                    *chunk_shard_id,
-                    false,
-                )
-            });
+            let part_receipt_proofs = receipt_proofs
+                .iter()
+                .filter(|proof| {
+                    let proof_shard_id = proof.1.to_shard_id;
+                    self.cares_about_shard_this_or_next_epoch(
+                        Some(&to_whom),
+                        &prev_block_hash,
+                        proof_shard_id,
+                        false,
+                    )
+                })
+                .cloned()
+                .collect();
 
-            let part_receipt_proofs = self.receipts_recipient_filter(
-                shard_id,
-                tracking_shards,
-                &receipts_by_shard,
-                &outgoing_receipts_proofs,
-            );
-            let partial_encoded_chunk = encoded_chunk.create_partial_encoded_chunk(
-                part_ords,
-                part_receipt_proofs,
-                &merkle_paths,
-            );
+            let partial_encoded_chunk = encoded_chunk
+                .create_partial_encoded_chunk_with_arc_receipts(
+                    part_ords,
+                    part_receipt_proofs,
+                    &merkle_paths,
+                );
 
             if Some(&to_whom) != self.me.as_ref() {
                 self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkMessage {

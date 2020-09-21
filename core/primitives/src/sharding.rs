@@ -11,6 +11,7 @@ use crate::transaction::SignedTransaction;
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
 use crate::validator_signer::ValidatorSigner;
 use reed_solomon_erasure::ReconstructShard;
+use std::sync::Arc;
 
 #[derive(
     BorshSerialize,
@@ -154,6 +155,23 @@ pub struct PartialEncodedChunk {
     pub receipts: Vec<ReceiptProof>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PartialEncodedChunkWithArcReceipts {
+    pub header: ShardChunkHeader,
+    pub parts: Vec<PartialEncodedChunkPart>,
+    pub receipts: Vec<Arc<ReceiptProof>>,
+}
+
+impl From<PartialEncodedChunkWithArcReceipts> for PartialEncodedChunk {
+    fn from(pec: PartialEncodedChunkWithArcReceipts) -> Self {
+        Self {
+            header: pec.header,
+            parts: pec.parts,
+            receipts: pec.receipts.into_iter().map(|r| ReceiptProof::clone(&r)).collect(),
+        }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardProof {
     pub from_shard_id: ShardId,
@@ -210,6 +228,9 @@ impl EncodedShardChunkBody {
         merklize(&self.parts.iter().map(|x| x.as_ref().unwrap().clone()).collect::<Vec<_>>())
     }
 }
+
+#[derive(BorshSerialize, Serialize, Debug, Clone)]
+pub struct ReceiptList<'a>(pub ShardId, pub &'a Vec<Receipt>);
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
@@ -333,22 +354,39 @@ impl EncodedShardChunk {
         self.header.chunk_hash()
     }
 
+    fn part_ords_to_parts(
+        &self,
+        part_ords: Vec<u64>,
+        merkle_paths: &[MerklePath],
+    ) -> Vec<PartialEncodedChunkPart> {
+        part_ords
+            .into_iter()
+            .map(|part_ord| PartialEncodedChunkPart {
+                part_ord: part_ord,
+                part: self.content.parts[part_ord as usize].clone().unwrap(),
+                merkle_proof: merkle_paths[part_ord as usize].clone(),
+            })
+            .collect()
+    }
+
     pub fn create_partial_encoded_chunk(
         &self,
         part_ords: Vec<u64>,
         receipts: Vec<ReceiptProof>,
         merkle_paths: &[MerklePath],
     ) -> PartialEncodedChunk {
-        let parts = part_ords
-            .iter()
-            .map(|part_ord| PartialEncodedChunkPart {
-                part_ord: *part_ord,
-                part: self.content.parts[*part_ord as usize].clone().unwrap(),
-                merkle_proof: merkle_paths[*part_ord as usize].clone(),
-            })
-            .collect();
-
+        let parts = self.part_ords_to_parts(part_ords, merkle_paths);
         PartialEncodedChunk { header: self.header.clone(), parts, receipts }
+    }
+
+    pub fn create_partial_encoded_chunk_with_arc_receipts(
+        &self,
+        part_ords: Vec<u64>,
+        receipts: Vec<Arc<ReceiptProof>>,
+        merkle_paths: &[MerklePath],
+    ) -> PartialEncodedChunkWithArcReceipts {
+        let parts = self.part_ords_to_parts(part_ords, merkle_paths);
+        PartialEncodedChunkWithArcReceipts { header: self.header.clone(), parts, receipts }
     }
 
     pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunk, std::io::Error> {

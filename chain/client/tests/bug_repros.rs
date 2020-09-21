@@ -76,7 +76,7 @@ fn repro_1183() {
                                 if &name.to_string() == account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
                                         NetworkClientMessages::PartialEncodedChunk(
-                                            partial_encoded_chunk.clone(),
+                                            partial_encoded_chunk.clone().into(),
                                         ),
                                     );
                                 }
