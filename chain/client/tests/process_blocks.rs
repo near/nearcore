@@ -1719,6 +1719,20 @@ fn test_not_process_height_twice() {
 }
 
 #[test]
+fn test_block_height_processed_orphan() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let block = env.clients[0].produce_block(1).unwrap().unwrap();
+    let mut orphan_block = block.clone();
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    orphan_block.mut_header().get_mut().prev_hash = hash(&[1]);
+    orphan_block.mut_header().resign(&validator_signer);
+    let block_height = orphan_block.header().height();
+    let (_, tip) = env.clients[0].process_block(orphan_block, Provenance::NONE);
+    assert!(matches!(tip.unwrap_err().kind(), ErrorKind::Orphan));
+    assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
+}
+
+#[test]
 fn test_validate_chunk_extra() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
