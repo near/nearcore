@@ -9,6 +9,7 @@ use vm::CreateContractAddress;
 use near_vm_errors::{EvmError, VMLogicError};
 
 use crate::types;
+use near_vm_logic::types::AccountId;
 
 pub fn safe_next_address(addr: &[u8; 20]) -> [u8; 20] {
     let mut expanded_addr = [0u8; 32];
@@ -180,6 +181,40 @@ pub fn format_log(topics: Vec<H256>, data: &[u8]) -> std::result::Result<Vec<u8>
     }
     result.write(data)?;
     Ok(result)
+}
+
+pub fn near_erc721_domain(chain_id: U256) -> [u8; 32] {
+    let mut bytes = Vec::with_capacity(70);
+    bytes.extend_from_slice(
+        &keccak("EIP712Domain(string name,string version,uint256 chainId)".as_bytes()).as_bytes(),
+    );
+    bytes.extend_from_slice(b"NEAR");
+    bytes.extend_from_slice(&[0x01]);
+    bytes.extend_from_slice(&u256_to_arr(&chain_id));
+    keccak(&bytes).into()
+}
+
+pub fn prepare_meta_call_args(
+    domain_separator: &[u8; 32],
+    account_id: &AccountId,
+    args: &[u8],
+) -> [u8; 32] {
+    let mut bytes = Vec::with_capacity(32 + account_id.len() + args.len());
+    bytes.extend_from_slice(
+        &keccak(
+            "NearTx(string evmId, uint256 nonce, address contractAddress, bytes arguments)"
+                .as_bytes(),
+        )
+        .as_bytes(),
+    );
+    bytes.extend_from_slice(account_id.as_bytes());
+    bytes.extend_from_slice(args);
+    let message: [u8; 32] = keccak(&bytes).into();
+    let mut bytes = Vec::with_capacity(2 + 32 + 32);
+    bytes.extend_from_slice(&[0x19, 0x01]);
+    bytes.extend_from_slice(domain_separator);
+    bytes.extend_from_slice(&message);
+    keccak(&bytes).into()
 }
 
 /// Given signature and data, validates that signature is valid for given data and returns ecrecover address.

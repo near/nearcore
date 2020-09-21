@@ -4,7 +4,6 @@ extern crate enum_primitive_derive;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
-use keccak_hash::keccak;
 
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
@@ -16,7 +15,7 @@ use crate::evm_state::{EvmAccount, EvmState, StateStore};
 use crate::types::{
     AddressArg, GetStorageAtArgs, Result, TransferArgs, ViewCallArgs, WithdrawArgs,
 };
-use crate::utils::ecrecover_address;
+use crate::utils::{ecrecover_address, near_erc721_domain, prepare_meta_call_args};
 
 mod builtins;
 mod evm_state;
@@ -27,6 +26,7 @@ pub mod utils;
 
 pub struct EvmContext<'a> {
     ext: &'a mut dyn External,
+    account_id: AccountId,
     signer_id: AccountId,
     predecessor_id: AccountId,
     current_amount: Balance,
@@ -35,6 +35,7 @@ pub struct EvmContext<'a> {
     pub logs: Vec<String>,
     gas_counter: GasCounter,
     fees_config: &'a RuntimeFeesConfig,
+    domain_separator: [u8; 32],
 }
 
 enum KeyPrefix {
@@ -118,6 +119,7 @@ impl<'a> EvmContext<'a> {
         config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         current_amount: Balance,
+        account_id: AccountId,
         signer_id: AccountId,
         predecessor_id: AccountId,
         attached_deposit: Balance,
@@ -130,8 +132,11 @@ impl<'a> EvmContext<'a> {
         } else {
             config.limit_config.max_gas_burnt
         };
+        // TODO: pass chain id from ??? genesis / config.
+        let domain_separator = near_erc721_domain(U256::from(0x4e454152));
         Self {
             ext,
+            account_id,
             signer_id,
             predecessor_id,
             current_amount,
@@ -146,6 +151,7 @@ impl<'a> EvmContext<'a> {
                 None,
             ),
             fees_config,
+            domain_separator,
         }
     }
 
@@ -199,7 +205,10 @@ impl<'a> EvmContext<'a> {
         let mut signature: [u8; 96] = [0; 96];
         signature.copy_from_slice(&args[..96]);
         let args = &args[96..];
-        let sender = ecrecover_address(&keccak(args).0, &signature)?;
+        let sender = ecrecover_address(
+            &prepare_meta_call_args(&self.domain_separator, &self.account_id, args),
+            &signature,
+        )?;
         if sender == Address::zero() {
             return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
         }
@@ -347,6 +356,7 @@ pub fn run_evm(
     ext: &mut dyn External,
     config: &VMConfig,
     fees_config: &RuntimeFeesConfig,
+    account_id: &AccountId,
     signer_id: &AccountId,
     predecessor_id: &AccountId,
     amount: Balance,
@@ -364,6 +374,7 @@ pub fn run_evm(
         // This is total amount of all $NEAR inside this EVM.
         // Should already validate that will not overflow external to this call.
         amount.checked_add(attached_deposit).unwrap_or(amount),
+        account_id.clone(),
         signer_id.clone(),
         predecessor_id.clone(),
         attached_deposit,
@@ -436,6 +447,7 @@ mod tests {
             vm_config,
             fees_config,
             0,
+            "evm".to_string(),
             account_id.to_string(),
             account_id.to_string(),
             0,
