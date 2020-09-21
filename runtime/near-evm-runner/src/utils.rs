@@ -6,6 +6,10 @@ use keccak_hash::keccak;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vm::CreateContractAddress;
 
+use near_vm_errors::{EvmError, VMLogicError};
+
+use crate::types;
+
 pub fn safe_next_address(addr: &[u8; 20]) -> [u8; 20] {
     let mut expanded_addr = [0u8; 32];
     expanded_addr[12..].copy_from_slice(addr);
@@ -176,4 +180,36 @@ pub fn format_log(topics: Vec<H256>, data: &[u8]) -> std::result::Result<Vec<u8>
     }
     result.write(data)?;
     Ok(result)
+}
+
+/// Given signature and data, validates that signature is valid for given data and returns ecrecover address.
+pub fn ecrecover_address(hash: &[u8; 32], signature: &[u8; 96]) -> types::Result<Address> {
+    use sha3::Digest;
+
+    let hash = secp256k1::Message::parse(&H256::from_slice(hash).0);
+    let v = &signature[..32];
+    let r = &signature[32..64];
+    let s = &signature[64..96];
+
+    let bit = match v[31] {
+        27..=30 => v[31] - 27,
+        _ => {
+            // ??
+            return Ok(Address::zero());
+        }
+    };
+
+    let mut sig = [0u8; 64];
+    sig[..32].copy_from_slice(&r);
+    sig[32..].copy_from_slice(&s);
+    let s = secp256k1::Signature::parse(&sig);
+
+    if let Ok(rec_id) = secp256k1::RecoveryId::parse(bit) {
+        if let Ok(p) = secp256k1::recover(&hash, &s, &rec_id) {
+            // recover returns the 65-byte key, but addresses come from the raw 64-byte key
+            let r = sha3::Keccak256::digest(&p.serialize()[1..]);
+            return Ok(address_from_arr(&r[12..]));
+        }
+    }
+    Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature))
 }

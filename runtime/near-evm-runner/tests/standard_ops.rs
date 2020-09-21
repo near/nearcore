@@ -5,6 +5,7 @@ use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
 use ethereum_types::{Address, H256, U256};
 
+use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::types::{TransferArgs, WithdrawArgs};
 use near_evm_runner::utils::{
     address_from_arr, address_to_vec, encode_call_function_args, encode_view_call_function_args,
@@ -15,7 +16,9 @@ use near_vm_errors::{EvmError, VMLogicError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::VMConfig;
 
-use crate::utils::{accounts, create_context, setup};
+use crate::utils::{
+    accounts, create_context, encode_meta_call_function_args, public_key_to_address, setup,
+};
 
 mod utils;
 
@@ -238,4 +241,19 @@ fn test_solidity_accurate_storage_on_selfdestruct() {
     let input = create2factory::functions::test_double_deploy::call(salt, destruct_code.clone()).0;
     let raw = context.call_function(encode_call_function_args(factory_addr, input)).unwrap();
     assert!(create2factory::functions::test_double_deploy::decode_output(&raw).unwrap());
+}
+
+#[test]
+fn test_meta_call() {
+    let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
+    let signer = InMemorySigner::from_random("doesnt".to_string(), KeyType::SECP256K1);
+    let mut context =
+        create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
+    let (input, _) = soltest::functions::return_some_funds::call();
+    let _ = context
+        .meta_call_function(encode_meta_call_function_args(&signer, test_addr, input))
+        .unwrap();
+    let signer_addr = public_key_to_address(signer.public_key);
+    assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(150));
+    assert_eq!(context.get_balance(signer_addr.0.to_vec()).unwrap(), U256::from(50));
 }

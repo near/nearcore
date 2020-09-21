@@ -75,6 +75,12 @@ impl std::fmt::Debug for Secp256K1PublicKey {
     }
 }
 
+impl From<Secp256K1PublicKey> for [u8; 64] {
+    fn from(pubkey: Secp256K1PublicKey) -> Self {
+        pubkey.0
+    }
+}
+
 impl PartialEq for Secp256K1PublicKey {
     fn eq(&self, other: &Self) -> bool {
         self.0[..] == other.0[..]
@@ -476,6 +482,12 @@ impl PartialEq for Secp256K1Signature {
 impl Debug for Secp256K1Signature {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
+    }
+}
+
+impl From<Secp256K1Signature> for [u8; 65] {
+    fn from(sig: Secp256K1Signature) -> [u8; 65] {
+        sig.0
     }
 }
 

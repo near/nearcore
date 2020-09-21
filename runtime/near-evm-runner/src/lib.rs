@@ -4,6 +4,7 @@ extern crate enum_primitive_derive;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
+use keccak_hash::keccak;
 
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
@@ -15,6 +16,7 @@ use crate::evm_state::{EvmAccount, EvmState, StateStore};
 use crate::types::{
     AddressArg, GetStorageAtArgs, Result, TransferArgs, ViewCallArgs, WithdrawArgs,
 };
+use crate::utils::ecrecover_address;
 
 mod builtins;
 mod evm_state;
@@ -25,6 +27,7 @@ pub mod utils;
 
 pub struct EvmContext<'a> {
     ext: &'a mut dyn External,
+    signer_id: AccountId,
     predecessor_id: AccountId,
     current_amount: Balance,
     attached_deposit: Balance,
@@ -115,6 +118,7 @@ impl<'a> EvmContext<'a> {
         config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         current_amount: Balance,
+        signer_id: AccountId,
         predecessor_id: AccountId,
         attached_deposit: Balance,
         storage_usage: StorageUsage,
@@ -128,6 +132,7 @@ impl<'a> EvmContext<'a> {
         };
         Self {
             ext,
+            signer_id,
             predecessor_id,
             current_amount,
             attached_deposit,
@@ -163,13 +168,43 @@ impl<'a> EvmContext<'a> {
         )
     }
 
+    /// Make an EVM transaction. Calls `contract_address` with RLP encoded `input`. Execution
+    /// continues until all EVM messages have been processed. We expect this to behave identically
+    /// to an Ethereum transaction, however there may be some edge cases.
     pub fn call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
         if args.len() <= 20 {
             return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
         }
         let contract_address = Address::from_slice(&args[..20]);
         let input = &args[20..];
+        let origin = utils::near_account_id_to_evm_address(&self.signer_id);
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
+        self.add_balance(&sender, U256::from(self.attached_deposit))?;
+        let value =
+            if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
+        interpreter::call(self, &origin, &sender, value, 0, &contract_address, &input, true)
+            .map(|rd| rd.to_vec())
+    }
+
+    /// Make an EVM call via a meta transaction pattern.
+    /// Specifically, providing signature and NEAREvm message that determines which contract and arguments to be called.
+    /// Format
+    /// 0..95: signature: v - 32 bytes, s - 32 bytes, r - 32 bytes
+    /// 96..115: contract_id: address for contract to call
+    /// 116..: RLP encoded arguments.
+    pub fn meta_call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
+        if args.len() <= 116 {
+            return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
+        }
+        let mut signature: [u8; 96] = [0; 96];
+        signature.copy_from_slice(&args[..96]);
+        let args = &args[96..];
+        let sender = ecrecover_address(&keccak(args).0, &signature)?;
+        if sender == Address::zero() {
+            return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
+        }
+        let contract_address = Address::from_slice(&args[..20]);
+        let input = &args[20..];
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
@@ -312,6 +347,7 @@ pub fn run_evm(
     ext: &mut dyn External,
     config: &VMConfig,
     fees_config: &RuntimeFeesConfig,
+    signer_id: &AccountId,
     predecessor_id: &AccountId,
     amount: Balance,
     attached_deposit: Balance,
@@ -328,6 +364,7 @@ pub fn run_evm(
         // This is total amount of all $NEAR inside this EVM.
         // Should already validate that will not overflow external to this call.
         amount.checked_add(attached_deposit).unwrap_or(amount),
+        signer_id.clone(),
         predecessor_id.clone(),
         attached_deposit,
         storage_usage,
@@ -338,11 +375,14 @@ pub fn run_evm(
         // Change the state methods.
         "deploy_code" => context.deploy_code(args).map(|address| utils::address_to_vec(&address)),
         "call_function" => context.call_function(args),
+        "call" => context.call_function(args),
+        "meta_call" => context.meta_call_function(args),
         "deposit" => context.deposit(args).map(|balance| utils::u256_to_arr(&balance).to_vec()),
         "withdraw" => context.withdraw(args).map(|_| vec![]),
         "transfer" => context.transfer(args).map(|_| vec![]),
         // View methods.
-        "view_call_function" => context.view_call_function(args),
+        "view_function_call" => context.view_call_function(args),
+        "view" => context.view_call_function(args),
         "get_code" => context.get_code(args),
         "get_storage_at" => context.get_storage_at(args),
         "get_nonce" => context.get_nonce(args).map(|nonce| utils::u256_to_arr(&nonce).to_vec()),
@@ -391,7 +431,18 @@ mod tests {
         fees_config: &'a RuntimeFeesConfig,
         account_id: &str,
     ) -> EvmContext<'a> {
-        EvmContext::new(external, vm_config, fees_config, 0, account_id.to_string(), 0, 0, 0, false)
+        EvmContext::new(
+            external,
+            vm_config,
+            fees_config,
+            0,
+            account_id.to_string(),
+            account_id.to_string(),
+            0,
+            0,
+            0,
+            false,
+        )
     }
 
     #[test]

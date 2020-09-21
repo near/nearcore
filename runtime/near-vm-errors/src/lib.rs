@@ -194,6 +194,8 @@ pub enum EvmError {
     IntegerOverflow,
     /// Method not found.
     MethodNotFound,
+    /// Invalid signature when recovering.
+    InvalidEcRecoverSignature,
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]

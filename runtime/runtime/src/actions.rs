@@ -55,6 +55,7 @@ pub(crate) fn execute_function_call(
             runtime_ext,
             &config.wasm_config,
             &config.transaction_costs,
+            &action_receipt.signer_id,
             predecessor_id,
             account.amount,
             function_call.deposit,
