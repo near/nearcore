@@ -39,7 +39,12 @@ class ShardChunk:
 
 
 class ShardChunkHeader:
-    pass
+    def chunk_hash(self):
+        import hashlib
+        from messages.crypto import crypto_schema
+        from serializer import BinarySerializer
+        inner_serialized = BinarySerializer(dict(block_schema + crypto_schema)).serialize(self.inner)
+        return hashlib.sha256(inner_serialized).digest()
 
 
 class ShardChunkHeaderInner:

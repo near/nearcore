@@ -25,7 +25,7 @@ use near_logger_utils::init_test_logger;
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
-use near_network::types::{NetworkInfo, PeerChainInfo, ReasonForBan};
+use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
@@ -775,10 +775,11 @@ fn client_sync_headers() {
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
             active_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
-                chain_info: PeerChainInfo {
+                chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
                     height: 5,
                     tracked_shards: vec![],
+                    archival: false,
                 },
                 edge_info: EdgeInfo::default(),
             }],
@@ -786,10 +787,11 @@ fn client_sync_headers() {
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
-                chain_info: PeerChainInfo {
+                chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
                     height: 5,
                     tracked_shards: vec![],
+                    archival: false,
                 },
                 edge_info: EdgeInfo::default(),
             }],
@@ -1716,6 +1718,20 @@ fn test_not_process_height_twice() {
     let (accepted_blocks, res) = env.clients[0].process_block(invalid_block, Provenance::NONE);
     assert!(accepted_blocks.is_empty());
     assert!(matches!(res, Ok(None)));
+}
+
+#[test]
+fn test_block_height_processed_orphan() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let block = env.clients[0].produce_block(1).unwrap().unwrap();
+    let mut orphan_block = block.clone();
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    orphan_block.mut_header().get_mut().prev_hash = hash(&[1]);
+    orphan_block.mut_header().resign(&validator_signer);
+    let block_height = orphan_block.header().height();
+    let (_, tip) = env.clients[0].process_block(orphan_block, Provenance::NONE);
+    assert!(matches!(tip.unwrap_err().kind(), ErrorKind::Orphan));
+    assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
 }
 
 #[test]

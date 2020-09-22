@@ -906,6 +906,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
+    fn chunk_needs_to_be_fetched_from_archival(
+        &self,
+        _chunk_prev_block_hash: &CryptoHash,
+        _header_head: &CryptoHash,
+    ) -> Result<bool, Error> {
+        Ok(false)
+    }
+
     fn verify_validator_or_fisherman_signature(
         &self,
         _epoch_id: &EpochId,
@@ -1130,11 +1138,11 @@ impl ChainGenesis {
 #[cfg(test)]
 mod test {
     use super::KeyValueRuntime;
-    use crate::types::ReceiptList;
     use crate::RuntimeAdapter;
     use borsh::BorshSerialize;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
+    use near_primitives::sharding::ReceiptList;
     use near_primitives::types::NumShards;
     use near_store::test_utils::create_test_store;
     use rand::Rng;

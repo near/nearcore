@@ -15,7 +15,7 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
-    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, ReceiptList, RuntimeAdapter,
+    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -34,8 +34,8 @@ use near_primitives::merkle::{
 };
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo, ShardProof,
-    StateSyncInfo,
+    ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo,
+    ShardProof, StateSyncInfo,
 };
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
@@ -415,6 +415,7 @@ impl Chain {
         if !chain_store_update.is_height_processed(block_height)? {
             chain_store_update.save_block_height_processed(block_height);
         }
+        chain_store_update.commit()?;
         Ok(())
     }
 

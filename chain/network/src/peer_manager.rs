@@ -1,4 +1,4 @@
-use rand::seq::SliceRandom;
+use rand::seq::{IteratorRandom, SliceRandom};
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
@@ -33,12 +33,12 @@ use crate::peer_store::{PeerStore, TrustLevel};
 use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
-    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
-    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, SyncData, Unregister,
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate,
+    ConsolidateResponse, FullPeerInfo, InboundTcpConnect, KnownPeerStatus, KnownProducer,
+    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
+    PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
+    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, SyncData, Unregister,
 };
 use crate::types::{
     EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
@@ -47,6 +47,7 @@ use crate::types::{
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
+use rand::thread_rng;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: u64 = 60;
@@ -58,6 +59,17 @@ const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
 const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
 /// Maximum number an edge can increase between oldest known edge and new proposed edge.
 const EDGE_NONCE_BUMP_ALLOWED: u64 = 1_000;
+/// Ratio between consecutive attempts to establish connection with another peer.
+/// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
+const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
+/// The maximum waiting time between consecutive attempts to establish connection
+/// with another peer is 60 seconds. This is the minimum exponent after such threshold
+/// is less than the exponential backoff.
+///
+/// 10 * EXPONENTIAL_BACKOFF_RATIO**EXPONENTIAL_BACKOFF_LIMIT > 60000
+///
+/// EXPONENTIAL_BACKOFF_LIMIT = math.log(60000 / 10, EXPONENTIAL_BACKOFF_RATIO)
+const EXPONENTIAL_BACKOFF_LIMIT: u64 = 91;
 /// Time to wait before sending ping to all reachable peers.
 #[cfg(feature = "metric_recorder")]
 const WAIT_BEFORE_PING: u64 = 20_000;
@@ -120,6 +132,8 @@ pub struct PeerManagerActor {
     active_peers: HashMap<PeerId, ActivePeer>,
     /// Routing table to keep track of account id
     routing_table: RoutingTable,
+    /// Flag that track whether we started attempts to establish outbound connections.
+    started_connect_attempts: bool,
     /// Monitor peers attempts, used for fast checking in the beginning with exponential backoff.
     monitor_peers_attempts: u64,
     /// Active peers we have sent new edge update, but we haven't received response so far.
@@ -164,6 +178,7 @@ impl PeerManagerActor {
             outgoing_peers: HashSet::default(),
             routing_table,
             monitor_peers_attempts: 0,
+            started_connect_attempts: false,
             pending_update_nonce_request: HashMap::new(),
             network_metrics: NetworkMetrics::new(),
             edge_verifier_pool,
@@ -730,6 +745,12 @@ impl PeerManagerActor {
                     // Or to peers we are currently trying to connect to
                     || self.outgoing_peers.contains(&peer_state.peer_info.id)
             }) {
+                // Start monitor_peers_attempts from start after we discover the first healthy peer
+                if !self.started_connect_attempts {
+                    self.started_connect_attempts = true;
+                    self.monitor_peers_attempts = 0;
+                }
+
                 self.outgoing_peers.insert(peer_info.id.clone());
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
@@ -748,12 +769,15 @@ impl PeerManagerActor {
         );
 
         // Reschedule the bootstrap peer task, starting of as quick as possible with exponential backoff.
-        let wait = Duration::from_millis(cmp::min(
-            self.config.bootstrap_peers_period.as_millis() as u64,
-            10 << self.monitor_peers_attempts,
-        ));
+        let wait = if self.monitor_peers_attempts >= EXPONENTIAL_BACKOFF_LIMIT {
+            // This is expected to be 60 seconds
+            self.config.bootstrap_peers_period.as_millis() as u64
+        } else {
+            (10f64 * EXPONENTIAL_BACKOFF_RATIO.powf(self.monitor_peers_attempts as f64)) as u64
+        };
+
         self.monitor_peers_attempts = cmp::min(13, self.monitor_peers_attempts + 1);
-        ctx.run_later(wait, move |act, ctx| {
+        ctx.run_later(Duration::from_millis(wait), move |act, ctx| {
             act.monitor_peers(ctx);
         });
     }
@@ -1157,17 +1181,70 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.announce_account(ctx, announce_account);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::PartialEncodedChunkRequest { account_id, request } => {
-                if self.send_message_to_account(
-                    ctx,
-                    &account_id,
-                    RoutedMessageBody::PartialEncodedChunkRequest(request),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
+            NetworkRequests::PartialEncodedChunkRequest { target, request } => match target {
+                AccountIdOrPeerTrackingShard::AccountId(account_id) => {
+                    if self.send_message_to_account(
+                        ctx,
+                        &account_id,
+                        RoutedMessageBody::PartialEncodedChunkRequest(request),
+                    ) {
+                        NetworkResponses::NoResponse
+                    } else {
+                        NetworkResponses::RouteNotFound
+                    }
                 }
-            }
+                AccountIdOrPeerTrackingShard::PeerTrackingShard {
+                    shard_id,
+                    only_archival,
+                    fallback_account_id,
+                } => {
+                    let mut matching_peers = vec![];
+                    for (peer_id, active_peer) in self.active_peers.iter() {
+                        if (active_peer.full_peer_info.chain_info.archival || !only_archival)
+                            && active_peer
+                                .full_peer_info
+                                .chain_info
+                                .tracked_shards
+                                .contains(&shard_id)
+                        {
+                            matching_peers.push(peer_id.clone());
+                        }
+                    }
+
+                    match matching_peers.iter().choose(&mut thread_rng()) {
+                        Some(matching_peer) => {
+                            if self.send_message_to_peer(
+                                ctx,
+                                RawRoutedMessage {
+                                    target: AccountOrPeerIdOrHash::PeerId(matching_peer.clone()),
+                                    body: RoutedMessageBody::PartialEncodedChunkRequest(request),
+                                },
+                            ) {
+                                NetworkResponses::NoResponse
+                            } else {
+                                NetworkResponses::RouteNotFound
+                            }
+                        }
+                        None => {
+                            if let Some(fallback_account_id) = fallback_account_id {
+                                warn!("Chunk request for shard {} cannot be properly sent, because no known peer runs {} node tracking the shard. Falling back to sending to the block producer from the corresponding epoch.", shard_id, if only_archival { "an archival" } else { "a" });
+                                if self.send_message_to_account(
+                                    ctx,
+                                    &fallback_account_id,
+                                    RoutedMessageBody::PartialEncodedChunkRequest(request),
+                                ) {
+                                    NetworkResponses::NoResponse
+                                } else {
+                                    NetworkResponses::RouteNotFound
+                                }
+                            } else {
+                                error!("Chunk request for shard {} cannot be properly sent, because no known peer runs {} node tracking the shard. Dropping the request.", shard_id, if only_archival { "an archival" } else { "a" });
+                                NetworkResponses::NoResponse
+                            }
+                        }
+                    }
+                }
+            },
             NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                 if self.send_message_to_peer(
                     ctx,
@@ -1185,7 +1262,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 if self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk),
+                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk.into()),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1431,6 +1508,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
     fn handle(&mut self, msg: OutboundTcpConnect, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("outbound tcp connect".into());
+        debug!(target: "network", "Trying to connect to {}", msg.peer_info);
         if let Some(addr) = msg.peer_info.addr {
             Resolver::from_registry()
                 .send(ConnectAddr(addr))
