@@ -39,7 +39,7 @@
 # ```
 #
 
-import sys, time, requests, os, logging
+import sys, time, requests, logging
 from subprocess import check_output
 from queue import Queue
 
@@ -99,7 +99,7 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 
         # Check current height
         try:
-            status = rpc_node.get_status()
+            status = rpc_node.get_status(False)
             new_height = status['sync_info']['latest_block_height']
             logging.info(f"Height: {latest_height} => {new_height}")
             latest_height = new_height
