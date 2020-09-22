@@ -6,7 +6,7 @@ import struct
 import base58
 from messages import schema
 from messages.crypto import PublicKey, Signature
-from messages.network import (EdgeInfo, GenesisId, HandshakeV2, PeerChainInfo,
+from messages.network import (EdgeInfo, GenesisId, Handshake, PeerChainInfoV2,
                               PeerMessage, RoutedMessage, PeerIdOrHash)
 from serializer import BinarySerializer
 from nacl.signing import SigningKey
@@ -97,13 +97,13 @@ def create_handshake(my_key_pair_nacl,
         - genesis_id.hash
         - edge_info.signature
     """
-    handshake = HandshakeV2()
+    handshake = Handshake()
     handshake.version = version
     handshake.oldest_supported_version = version
     handshake.peer_id = PublicKey()
     handshake.target_peer_id = PublicKey()
     handshake.listen_port = listen_port
-    handshake.chain_info = PeerChainInfo()
+    handshake.chain_info = PeerChainInfoV2()
     handshake.edge_info = EdgeInfo()
 
     handshake.peer_id.keyType = 0
@@ -116,6 +116,7 @@ def create_handshake(my_key_pair_nacl,
     handshake.chain_info.genesis_id = GenesisId()
     handshake.chain_info.height = 0
     handshake.chain_info.tracked_shards = []
+    handshake.chain_info.archival = False
 
     handshake.chain_info.genesis_id.chain_id = 'moo'
     handshake.chain_info.genesis_id.hash = bytes([0] * 32)
@@ -127,8 +128,8 @@ def create_handshake(my_key_pair_nacl,
     handshake.edge_info.signature.data = bytes([0] * 64)
 
     peer_message = PeerMessage()
-    peer_message.enum = 'HandshakeV2'
-    peer_message.HandshakeV2 = handshake
+    peer_message.enum = 'Handshake'
+    peer_message.Handshake = handshake
 
     return peer_message
 
@@ -158,27 +159,27 @@ async def run_handshake(conn: Connection,
                         key_pair: SigningKey,
                         listen_port=12345):
     handshake = create_handshake(key_pair, target_public_key, listen_port)
-    sign_handshake(key_pair, handshake.HandshakeV2)
+    sign_handshake(key_pair, handshake.Handshake)
 
     await conn.send(handshake)
     response = await conn.recv()
 
     if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch':
         pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
-        handshake.HandshakeV2.version = pvm
-        sign_handshake(key_pair, handshake.HandshakeV2)
+        handshake.Handshake.version = pvm
+        sign_handshake(key_pair, handshake.Handshake)
         await conn.send(handshake)
         response = await conn.recv()
 
     if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'GenesisMismatch':
         gm = response.HandshakeFailure[1].GenesisMismatch
-        handshake.HandshakeV2.chain_info.genesis_id.chain_id = gm.chain_id
-        handshake.HandshakeV2.chain_info.genesis_id.hash = gm.hash
-        sign_handshake(key_pair, handshake.HandshakeV2)
+        handshake.Handshake.chain_info.genesis_id.chain_id = gm.chain_id
+        handshake.Handshake.chain_info.genesis_id.hash = gm.hash
+        sign_handshake(key_pair, handshake.Handshake)
         await conn.send(handshake)
         response = await conn.recv()
 
-    assert response.enum == 'HandshakeV2', response.enum if response.enum != 'HandshakeFailure' else response.HandshakeFailure[1].enum
+    assert response.enum == 'Handshake', response.enum if response.enum != 'HandshakeFailure' else response.HandshakeFailure[1].enum
 
 
 def create_and_sign_routed_peer_message(routed_msg_body, target_node,
