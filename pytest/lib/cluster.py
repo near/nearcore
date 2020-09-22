@@ -302,7 +302,12 @@ class LocalNode(BaseNode):
     def rpc_addr(self):
         return ("127.0.0.1", self.rpc_port)
 
-    def start(self, boot_key, boot_node_addr):
+    def start_proxy_if_needed(self):
+        if self._start_proxy is not None:
+            self._proxy_local_stopped = self._start_proxy()
+
+
+    def start(self, boot_key, boot_node_addr, skip_starting_proxy=False):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
                 logging.debug(f'Waiting for previous proxy instance to close')
@@ -324,8 +329,8 @@ class LocalNode(BaseNode):
                                           stderr=self.stderr,
                                           env=env).pid
 
-        if self._start_proxy is not None:
-            self._proxy_local_stopped = self._start_proxy()
+        if not skip_starting_proxy:
+            self.start_proxy_if_needed()
 
         try:
             self.wait_for_rpc(10)
@@ -523,7 +528,8 @@ def spin_up_node(config,
                  boot_key,
                  boot_addr,
                  blacklist=[],
-                 proxy=None):
+                 proxy=None,
+                 skip_starting_proxy=False):
     is_local = config['local']
 
     print("Starting node %s %s" % (ordinal,
@@ -556,7 +562,7 @@ def spin_up_node(config,
     if proxy is not None:
         proxy.proxify_node(node)
 
-    node.start(boot_key, boot_addr)
+    node.start(boot_key, boot_addr, skip_starting_proxy)
     time.sleep(3)
     print(f"node {ordinal} started")
     return node
@@ -672,7 +678,7 @@ def start_cluster(num_nodes,
 
     def spin_up_node_and_push(i, boot_key, boot_addr):
         node = spin_up_node(config, near_root, node_dirs[i], i, boot_key,
-                            boot_addr, [], proxy)
+                            boot_addr, [], proxy, skip_starting_proxy=True)
         while len(ret) < i:
             time.sleep(0.01)
         ret.append(node)
@@ -690,6 +696,9 @@ def start_cluster(num_nodes,
 
     for handle in handles:
         handle.join()
+
+    for node in ret:
+        node.start_proxy_if_needed()
 
     return ret
 

@@ -906,6 +906,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
+    fn chunk_needs_to_be_fetched_from_archival(
+        &self,
+        _chunk_prev_block_hash: &CryptoHash,
+        _header_head: &CryptoHash,
+    ) -> Result<bool, Error> {
+        Ok(false)
+    }
+
     fn verify_validator_or_fisherman_signature(
         &self,
         _epoch_id: &EpochId,
