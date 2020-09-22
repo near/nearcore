@@ -185,7 +185,7 @@ impl Message for GetChunk {
 }
 
 /// Queries client for given path / data.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Query {
     pub query_id: String,
     pub block_reference: BlockReference,
@@ -322,6 +322,14 @@ pub struct GetExecutionOutcomeResponse {
 
 impl Message for GetExecutionOutcome {
     type Result = Result<GetExecutionOutcomeResponse, String>;
+}
+
+pub struct GetExecutionOutcomesForBlock {
+    pub block_hash: CryptoHash,
+}
+
+impl Message for GetExecutionOutcomesForBlock {
+    type Result = Result<Vec<ExecutionOutcomeWithIdView>, String>;
 }
 
 pub struct GetBlockProof {

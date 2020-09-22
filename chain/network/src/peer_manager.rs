@@ -3,7 +3,7 @@ use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::{Duration, Instant};
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
@@ -130,6 +130,7 @@ pub struct PeerManagerActor {
     #[cfg(feature = "metric_recorder")]
     metric_recorder: MetricRecorder,
     edge_verifier_pool: Addr<EdgeVerifier>,
+    txns_since_last_block: Arc<AtomicUsize>,
 }
 
 impl PeerManagerActor {
@@ -151,6 +152,8 @@ impl PeerManagerActor {
         #[cfg(feature = "metric_recorder")]
         let metric_recorder = MetricRecorder::default().set_me(me.clone());
 
+        let txns_since_last_block = Arc::new(AtomicUsize::new(0));
+
         Ok(PeerManagerActor {
             peer_id: me,
             config,
@@ -166,6 +169,7 @@ impl PeerManagerActor {
             edge_verifier_pool,
             #[cfg(feature = "metric_recorder")]
             metric_recorder,
+            txns_since_last_block,
         })
     }
 
@@ -381,6 +385,7 @@ impl PeerManagerActor {
         };
 
         let network_metrics = self.network_metrics.clone();
+        let txns_since_last_block = Arc::clone(&self.txns_since_last_block);
 
         // Start every peer actor on separate thread.
         let arbiter = Arbiter::new();
@@ -413,6 +418,7 @@ impl PeerManagerActor {
                 view_client_addr,
                 edge_info,
                 network_metrics,
+                txns_since_last_block,
             )
         });
     }
@@ -1179,7 +1185,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 if self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk),
+                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk.into()),
                 ) {
                     NetworkResponses::NoResponse
                 } else {

@@ -86,7 +86,6 @@ pub fn setup(
         min_gas_price: 100,
         max_gas_price: 1_000_000_000,
         total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        max_inflation_rate: Rational::from_integer(0),
         gas_price_adjustment_rate: Rational::from_integer(0),
         transaction_validity_period,
         epoch_length,
@@ -526,7 +525,7 @@ pub fn setup_mock_all_validators(
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
                                             NetworkClientMessages::PartialEncodedChunk(
-                                                partial_encoded_chunk.clone(),
+                                                partial_encoded_chunk.clone().into(),
                                             ),
                                         );
                                     }

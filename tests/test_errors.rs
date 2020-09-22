@@ -16,7 +16,7 @@ use testlib::node::{Node, ThreadNode};
 fn start_node() -> ThreadNode {
     init_integration_logger();
     let genesis = Genesis::test(vec!["alice.near", "bob.near"], 1);
-    let mut near_config = load_test_config("alice.near", open_port(), Arc::new(genesis));
+    let mut near_config = load_test_config("alice.near", open_port(), genesis);
     near_config.client_config.skip_sync_wait = true;
 
     let mut node = ThreadNode::new(near_config);

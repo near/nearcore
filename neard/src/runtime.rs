@@ -127,7 +127,7 @@ impl NightshadeRuntime {
     pub fn new(
         home_dir: &Path,
         store: Arc<Store>,
-        genesis: Arc<Genesis>,
+        genesis: &Genesis,
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
     ) -> Self {
@@ -160,7 +160,7 @@ impl NightshadeRuntime {
             max_inflation_rate: genesis.config.max_inflation_rate,
             num_blocks_per_year: genesis.config.num_blocks_per_year,
             epoch_length: genesis.config.epoch_length,
-            protocol_reward_percentage: genesis.config.protocol_reward_rate,
+            protocol_reward_rate: genesis.config.protocol_reward_rate,
             protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
             online_max_threshold: genesis.config.online_max_threshold,
             online_min_threshold: genesis.config.online_min_threshold,
@@ -232,7 +232,7 @@ impl NightshadeRuntime {
 
     fn genesis_state_from_records(
         store: Arc<Store>,
-        genesis: Arc<Genesis>,
+        genesis: &Genesis,
     ) -> (Arc<Store>, ShardTries, Vec<StateRoot>) {
         let mut store_update = store.store_update();
         let mut state_roots = vec![];
@@ -284,7 +284,7 @@ impl NightshadeRuntime {
     fn initialize_genesis_state(
         store: Arc<Store>,
         home_dir: &Path,
-        genesis: Arc<Genesis>,
+        genesis: &Genesis,
     ) -> (Arc<Store>, ShardTries, Vec<StateRoot>) {
         let has_records = !genesis.records.as_ref().is_empty();
         let has_dump = {
@@ -1507,7 +1507,7 @@ mod test {
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,
-                Arc::new(genesis),
+                &genesis,
                 initial_tracked_accounts,
                 initial_tracked_shards,
             );

@@ -62,7 +62,7 @@ impl GenesisBuilder {
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
             store.clone(),
-            Arc::clone(&genesis),
+            &genesis,
             // Since we are not using runtime as an actor
             // there is no reason to track accounts or shards.
             vec![],

@@ -2,17 +2,21 @@ use actix::System;
 use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_no_network;
-use near_client::{GetBlockWithMerkleTree, Query, Status};
-use near_crypto::KeyType;
+use near_client::{
+    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
+};
+use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
-use near_network::{NetworkClientMessages, PeerInfo};
+use near_network::{NetworkClientMessages, NetworkClientResponses, PeerInfo};
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockReference, EpochId};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Rational;
+use std::time::Duration;
 
 /// Query account from view client
 #[test]
@@ -88,6 +92,61 @@ fn query_status_not_crash() {
             );
             future::ready(())
         }));
+        near_network::test_utils::wait_or_panic(5000);
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_execution_outcome_for_chunk() {
+    init_test_logger();
+    System::run(|| {
+        let (client, view_client) = setup_no_network(vec!["test"], "test", true, false);
+        let signer = InMemorySigner::from_seed("test", KeyType::ED25519, "test");
+
+        actix::spawn(async move {
+            let block_hash =
+                view_client.send(GetBlock::latest()).await.unwrap().unwrap().header.hash;
+
+            let transaction = SignedTransaction::send_money(
+                1,
+                "test".to_string(),
+                "near".to_string(),
+                &signer,
+                10,
+                block_hash,
+            );
+            let tx_hash = transaction.get_hash();
+            let res = client
+                .send(NetworkClientMessages::Transaction {
+                    transaction,
+                    is_forwarded: false,
+                    check_only: false,
+                })
+                .await
+                .unwrap();
+            assert!(matches!(res, NetworkClientResponses::ValidTx));
+
+            actix::clock::delay_for(Duration::from_millis(500)).await;
+
+            let execution_outcome = view_client
+                .send(TxStatus { tx_hash, signer_account_id: "test".to_string() })
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+
+            let execution_outcomes_in_block = view_client
+                .send(GetExecutionOutcomesForBlock {
+                    block_hash: execution_outcome.transaction_outcome.block_hash,
+                })
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(execution_outcomes_in_block.len(), 1);
+            assert!(execution_outcomes_in_block[0].id == tx_hash);
+            System::current().stop();
+        });
         near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();

@@ -1,3 +1,4 @@
+pub use errors::{ParseKeyError, ParseSignatureError, TryFromSliceError};
 pub use key_file::KeyFile;
 pub use signature::{KeyType, PublicKey, SecretKey, Signature};
 pub use signer::{EmptySigner, InMemorySigner, Signer};
@@ -9,6 +10,7 @@ mod traits;
 #[macro_use]
 mod util;
 
+mod errors;
 pub mod key_conversion;
 mod key_file;
 pub mod randomness;
