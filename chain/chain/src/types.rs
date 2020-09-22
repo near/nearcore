@@ -113,11 +113,10 @@ pub struct BlockHeaderInfo {
     pub chunk_mask: Vec<bool>,
     pub total_supply: Balance,
     pub latest_protocol_version: ProtocolVersion,
-    pub is_new_final_block: bool,
 }
 
 impl BlockHeaderInfo {
-    pub fn new(header: &BlockHeader, last_finalized_height: u64, is_new_final_head: bool) -> Self {
+    pub fn new(header: &BlockHeader, last_finalized_height: u64) -> Self {
         Self {
             hash: *header.hash(),
             prev_hash: *header.prev_hash(),
@@ -130,7 +129,6 @@ impl BlockHeaderInfo {
             chunk_mask: header.chunk_mask().to_vec(),
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
-            is_new_final_block: is_new_final_head,
         }
     }
 }

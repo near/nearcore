@@ -282,7 +282,6 @@ impl Chain {
                         &genesis.header(),
                         // genesis height is considered final
                         chain_genesis.height,
-                        true,
                     ))?;
                     store_update.save_block_header(genesis.header().clone())?;
                     store_update.save_block(genesis.clone());
@@ -789,10 +788,6 @@ impl Chain {
                 self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
                     &header,
                     self.store.get_block_height(&header.last_final_block())?,
-                    // We only set this to true when final head is updated, which is not the case here.
-                    // This will cause some slowdown during syncing, but that is more acceptable
-                    // than having the slowdown after the node is synced.
-                    false,
                 ))?;
             }
         }
@@ -2959,11 +2954,9 @@ impl<'a> ChainUpdate<'a> {
         } else {
             self.chain_store_update.get_block_header(last_final_block)?.height()
         };
-        let maybe_new_final_head = self.update_final_head(block)?;
         self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
             &block.header(),
             last_finalized_height,
-            maybe_new_final_head.is_some(),
         ))?;
 
         // Add validated block to the db, even if it's not the canonical fork.
@@ -3209,7 +3202,7 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    fn update_final_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    fn update_final_head_from_block(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
         let final_head = self.chain_store_update.final_head()?;
         let last_final_block_header =
             match self.chain_store_update.get_block_header(block.header().last_final_block()) {
@@ -3233,6 +3226,7 @@ impl<'a> ChainUpdate<'a> {
     fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
         // if we made a fork with higher height than the head (which should also be true
         // when extending the head), update it
+        self.update_final_head_from_block(block)?;
         let head = self.chain_store_update.head()?;
         if block.header().height() > head.height {
             let tip = Tip::from_header(&block.header());

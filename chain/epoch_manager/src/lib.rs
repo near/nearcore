@@ -54,6 +54,8 @@ pub struct EpochManager {
     epoch_id_to_start: SizedCache<EpochId, BlockHeight>,
     /// Aggregator that crunches data when we process block info
     epoch_info_aggregator: Option<EpochInfoAggregator>,
+    /// Largest final height. Monotonically increasing.
+    largest_final_height: BlockHeight,
 }
 
 impl EpochManager {
@@ -76,6 +78,7 @@ impl EpochManager {
             blocks_info: SizedCache::with_size(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SizedCache::with_size(EPOCH_CACHE_SIZE),
             epoch_info_aggregator: None,
+            largest_final_height: 0,
         };
         let genesis_epoch_id = EpochId::default();
         if !epoch_manager.has_epoch_info(&genesis_epoch_id)? {
@@ -367,7 +370,6 @@ impl EpochManager {
         current_hash: &CryptoHash,
         mut block_info: BlockInfo,
         rng_seed: RngSeed,
-        is_new_final_block: bool,
     ) -> Result<StoreUpdate, EpochError> {
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
@@ -445,6 +447,11 @@ impl EpochManager {
 
                 // Save current block info.
                 self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
+                let mut is_new_final_block = false;
+                if block_info.last_finalized_height > self.largest_final_height {
+                    self.largest_final_height = block_info.last_finalized_height;
+                    is_new_final_block = true;
+                }
 
                 // Find the last block hash to properly update epoch info aggregator. We only update
                 // the aggregator if there is a change in the last final block or it is the epoch
@@ -1845,7 +1852,6 @@ mod tests {
                     total_supply,
                 ),
                 rng_seed,
-                true,
             )
             .unwrap();
         epoch_manager
@@ -1853,7 +1859,6 @@ mod tests {
                 &h[1],
                 block_info(1, 1, h[0], h[0], h[1], vec![true], total_supply),
                 rng_seed,
-                true,
             )
             .unwrap();
         epoch_manager
@@ -1861,7 +1866,6 @@ mod tests {
                 &h[2],
                 block_info(2, 2, h[1], h[1], h[1], vec![true], total_supply),
                 rng_seed,
-                true,
             )
             .unwrap();
         let mut validator_online_ratio = HashMap::new();
@@ -2164,7 +2168,6 @@ mod tests {
                     total_supply,
                 ),
                 rng_seed,
-                true,
             )
             .unwrap();
         epoch_manager
@@ -2172,7 +2175,6 @@ mod tests {
                 &h[1],
                 block_info(1, 1, h[0], h[0], h[1], vec![true, true, true], total_supply),
                 rng_seed,
-                true,
             )
             .unwrap();
         epoch_manager
@@ -2180,7 +2182,6 @@ mod tests {
                 &h[3],
                 block_info(3, 3, h[1], h[1], h[2], vec![true, true, true], total_supply),
                 rng_seed,
-                true,
             )
             .unwrap();
         assert_eq!(
@@ -2231,7 +2232,6 @@ mod tests {
                 &h[3],
                 block_info(3, 1, h[1], h[1], h[1], vec![false], total_supply),
                 rng_seed,
-                true,
             )
             .unwrap();
         assert_eq!(
@@ -2512,21 +2512,18 @@ mod tests {
             &h[1],
             block_info(1, 1, h[0], h[0], h[1], vec![true, true, true, false], total_supply),
             rng_seed,
-            true,
         )
         .unwrap();
         em.record_block_info(
             &h[2],
             block_info(2, 2, h[1], h[1], h[1], vec![true, true, true, false], total_supply),
             rng_seed,
-            true,
         )
         .unwrap();
         em.record_block_info(
             &h[3],
             block_info(3, 3, h[2], h[2], h[3], vec![true, true, true, true], total_supply),
             rng_seed,
-            true,
         )
         .unwrap();
         assert_eq!(
@@ -2893,7 +2890,7 @@ mod tests {
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         let mut block_info1 = block_info(1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
         block_info1.latest_protocol_version = 0;
-        epoch_manager.record_block_info(&h[1], block_info1, [0; 32], true).unwrap();
+        epoch_manager.record_block_info(&h[1], block_info1, [0; 32]).unwrap();
         for i in 2..6 {
             record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
         }
@@ -2923,7 +2920,7 @@ mod tests {
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         let mut block_info1 = block_info(1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
         block_info1.latest_protocol_version = 0;
-        epoch_manager.record_block_info(&h[1], block_info1, [0; 32], true).unwrap();
+        epoch_manager.record_block_info(&h[1], block_info1, [0; 32]).unwrap();
         for i in 2..32 {
             record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
         }
@@ -2968,7 +2965,7 @@ mod tests {
             } else {
                 block_info.latest_protocol_version = UPGRADABILITY_FIX_PROTOCOL_VERSION;
             }
-            epoch_manager.record_block_info(&h[i], block_info, [0; 32], true).unwrap();
+            epoch_manager.record_block_info(&h[i], block_info, [0; 32]).unwrap();
         }
 
         assert_eq!(
@@ -2993,7 +2990,7 @@ mod tests {
                 DEFAULT_TOTAL_SUPPLY,
             );
             block_info.latest_protocol_version = UPGRADABILITY_FIX_PROTOCOL_VERSION;
-            epoch_manager.record_block_info(&h[i], block_info, [0; 32], true).unwrap();
+            epoch_manager.record_block_info(&h[i], block_info, [0; 32]).unwrap();
         }
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[6])).unwrap().protocol_version,
@@ -3033,7 +3030,6 @@ mod tests {
                 &h[5],
                 block_info(5, 1, h[1], h[2], h[1], vec![], DEFAULT_TOTAL_SUPPLY),
                 [0; 32],
-                false,
             )
             .unwrap()
             .commit()

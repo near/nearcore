@@ -961,12 +961,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let rng_seed = (block_header_info.random_value.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
         epoch_manager
-            .record_block_info(
-                &block_header_info.hash,
-                block_info,
-                rng_seed,
-                block_header_info.is_new_final_block,
-            )?
+            .record_block_info(&block_header_info.hash, block_info, rng_seed)?
             .commit()
             .map_err(|err| err.into())
     }
@@ -1531,7 +1526,6 @@ mod test {
                     chunk_mask: vec![],
                     total_supply: genesis_total_supply,
                     latest_protocol_version: genesis_protocol_version,
-                    is_new_final_block: true,
                 })
                 .unwrap();
             Self {
@@ -1600,7 +1594,6 @@ mod test {
                     chunk_mask,
                     total_supply: self.runtime.genesis_config.total_supply,
                     latest_protocol_version: self.runtime.genesis_config.protocol_version,
-                    is_new_final_block: true,
                 })
                 .unwrap();
             self.last_receipts = new_receipts;
@@ -2016,7 +2009,6 @@ mod test {
                     chunk_mask: vec![true],
                     total_supply: new_env.runtime.genesis_config.total_supply,
                     latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
-                    is_new_final_block: true,
                 })
                 .unwrap();
             new_env.head.height = i;
