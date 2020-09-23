@@ -1015,6 +1015,7 @@ pub enum ConsolidateResponse {
 pub struct Unregister {
     pub peer_id: PeerId,
     pub peer_type: PeerType,
+    pub remove_from_peer_store: bool,
 }
 
 pub struct PeerList {
