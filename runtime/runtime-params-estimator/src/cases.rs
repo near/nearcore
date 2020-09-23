@@ -143,6 +143,8 @@ pub enum Metric {
     data_receipt_10b_1000,
     data_receipt_100kib_1000,
     cpu_ram_soak_test,
+
+    deploy_evm_contract,
 }
 
 pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeConfig {
@@ -158,7 +160,8 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         );
         process::exit(0);
     } else if only_evm {
-        let cost = cost_of_evm(config.metric, true);
+        config.block_sizes = vec![100];
+        let cost = cost_of_evm(&config, true);
         println!(
             "EVM base deploy (and init evm instance) cost: {}, deploy cost per EVM gas: {}",
             ratio_to_gas(config.metric, cost.deploy_cost.1),

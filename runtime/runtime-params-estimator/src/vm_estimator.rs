@@ -1,20 +1,38 @@
+use crate::cases::Metric;
+use crate::stats::Measurements;
+use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::end_count;
+use crate::testbed_runners::get_account_id;
 use crate::testbed_runners::start_count;
+use crate::testbed_runners::Config;
 use crate::testbed_runners::GasMetric;
 use ethabi_contract::use_contract;
 use glob::glob;
 use lazy_static_include::lazy_static_include_str;
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_evm_runner::utils::encode_call_function_args;
 use near_evm_runner::{run_evm, EvmContext};
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+};
+use near_primitives::utils::EVM_CODE_HASH;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
+use near_vm_logic::gas_counter::reset_evm_gas_counter;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
+use rand::seq::SliceRandom;
+use rand::{Rng, SeedableRng};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fs;
+use std::sync::Mutex;
 use std::{
     hash::{Hash, Hasher},
     path::PathBuf,
@@ -141,38 +159,82 @@ pub struct EvmCost {
     pub cost: Ratio<u64>,
 }
 
-fn deploy_evm_contract(code: &[u8], gas_metric: GasMetric) -> Option<EvmCost> {
-    let mut fake_external = MockedExternal::new();
-    let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
+    let path = PathBuf::from(config.state_dump_path.as_str());
+    println!("{:?}. Preparing testbed. Loading state.", config.metric);
+    let testbed = Mutex::new(RuntimeTestbed::from_state_dump(&path));
+    let allow_failures = false;
+    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    let mut accounts_deployed = HashSet::new();
 
-    let start = start_count(gas_metric);
-    let mut evm_gas = 0;
-    for _ in 0..NUM_ITERATIONS {
-        let (_, _, gas_used) = run_evm(
-            &mut fake_external,
-            &config,
-            &fees,
-            &"alice".to_string(),
-            1000u128,
-            0u128,
-            0u64,
-            "deploy_code".to_string(),
-            hex::decode(&code).unwrap(),
-            1_000_000_000u64,
+    let mut f = || {
+        let account_idx = loop {
+            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
+            if accounts_deployed.contains(&x) {
+                continue;
+            }
+            break x;
+        };
+        accounts_deployed.insert(account_idx);
+        let account_id = get_account_id(account_idx);
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        let mut buf = [0; 32];
+        buf[0] = 1;
+
+        testbed.lock().unwrap().process_block(
+            &vec![SignedTransaction::from_actions(
+                nonce as u64,
+                account_id.clone(),
+                account_id.clone(),
+                &signer,
+                vec![Action::DeployContract(DeployContractAction { code: buf.into() })],
+                CryptoHash::default(),
+            )],
             false,
         );
-        // All iterations use same amount of (evm) gas, it's safe to use any of them as gas_used.
-        // But we loop because we want avg of number of (near) gas_metric
-        evm_gas = gas_used.as_u64();
+
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id.clone(),
+            account_id,
+            &signer,
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "deploy_code".to_string(),
+                args: code.into(),
+                gas: 10u64.pow(18),
+                deposit: 0,
+            })],
+            CryptoHash::default(),
+        )
+    };
+
+    let mut evm_gas = 0;
+    let mut total_cost = 0;
+    for block_size in config.block_sizes.clone() {
+        // [100]
+        for _ in 0..config.iter_per_block {
+            // 0..10
+            let block: Vec<_> = (0..block_size).map(|_| f()).collect();
+            let mut testbed = testbed.lock().unwrap();
+            let start = start_count(config.metric);
+            testbed.process_block(&block, allow_failures);
+            let cost = end_count(config.metric, &start);
+            total_cost += cost;
+            evm_gas = reset_evm_gas_counter();
+        }
     }
-    let end = end_count(gas_metric, &start);
-    Some(EvmCost { evm_gas, cost: Ratio::new(end, NUM_ITERATIONS) })
+
+    Some(EvmCost {
+        evm_gas,
+        cost: Ratio::new(total_cost, (config.iter_per_block * config.block_sizes.len()) as u64),
+    })
 }
 
-fn load_and_deploy_evm_contract(path: &PathBuf, gas_metric: GasMetric) -> Option<EvmCost> {
+fn load_and_deploy_evm_contract(path: &PathBuf, config: &Config) -> Option<EvmCost> {
     match fs::read(path) {
-        Ok(code) => deploy_evm_contract(&code, gas_metric),
+        Ok(code) => deploy_evm_contract(&code, config),
         _ => None,
     }
 }
@@ -203,7 +265,7 @@ pub struct EvmCostCoef {
     pub precompiled_function_cost: EvmPrecompiledFunctionCost,
 }
 
-pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> Coef {
+pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef {
     let globbed_files = glob("./**/*.bin").expect("Failed to read glob pattern for bin files");
     let paths = globbed_files
         .filter_map(|x| match x {
@@ -220,8 +282,7 @@ pub fn measure_evm_deploy(gas_metric: GasMetric, verbose: bool) -> Coef {
                 print!("Testing {}: ", path.display());
             };
             // Evm counted gas already count on size of the contract, therefore we look for cost = m*evm_gas + b.
-            if let Some(EvmCost { evm_gas, cost }) = load_and_deploy_evm_contract(path, gas_metric)
-            {
+            if let Some(EvmCost { evm_gas, cost }) = load_and_deploy_evm_contract(path, config) {
                 if verbose {
                     println!("({}, {})", evm_gas, cost);
                 };
@@ -265,35 +326,36 @@ pub fn create_evm_context<'a>(
         0,
         10u64.pow(14),
         false,
+        100_000_000.into(),
     )
 }
 
-pub fn measure_evm_funcall(gas_metric: GasMetric, verbose: bool) -> Coef {
+pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
     let mut fake_external = MockedExternal::new();
-    let config = VMConfig::default();
+    let vm_config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
 
     let mut context =
-        create_evm_context(&mut fake_external, &config, &fees, "alice".to_string(), 100);
+        create_evm_context(&mut fake_external, &vm_config, &fees, "alice".to_string(), 100);
     let sol_test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
 
     let measurements = vec![
         measure_evm_function(
-            gas_metric,
+            config,
             verbose,
             &mut context,
             encode_call_function_args(sol_test_addr, soltest::functions::deploy_new_guy::call(8).0),
             "deploy_new_guy(8)",
         ),
         measure_evm_function(
-            gas_metric,
+            config,
             verbose,
             &mut context,
             encode_call_function_args(sol_test_addr, soltest::functions::pay_new_guy::call(8).0),
             "pay_new_guy(8)",
         ),
         measure_evm_function(
-            gas_metric,
+            config,
             verbose,
             &mut context,
             encode_call_function_args(
@@ -306,7 +368,7 @@ pub fn measure_evm_funcall(gas_metric: GasMetric, verbose: bool) -> Coef {
             // function not payable must has zero deposit
             context.attached_deposit = 0;
             measure_evm_function(
-                gas_metric,
+                config,
                 verbose,
                 &mut context,
                 encode_call_function_args(sol_test_addr, soltest::functions::emit_it::call(8).0),
@@ -319,12 +381,13 @@ pub fn measure_evm_funcall(gas_metric: GasMetric, verbose: bool) -> Coef {
 }
 
 pub fn measure_evm_function(
-    gas_metric: GasMetric,
+    config: &Config,
     verbose: bool,
     context: &mut EvmContext,
     args: Vec<u8>,
     test_name: &str,
 ) -> EvmCost {
+    let gas_metric = config.metric;
     let start = start_count(gas_metric);
     let mut evm_gas = 0;
     for i in 0..NUM_ITERATIONS {
@@ -343,19 +406,19 @@ pub fn measure_evm_function(
     EvmCost { evm_gas, cost }
 }
 
-pub fn measure_evm_precompiled(gas_metric: GasMetric, verbose: bool) -> EvmPrecompiledFunctionCost {
+pub fn measure_evm_precompiled(config: &Config, verbose: bool) -> EvmPrecompiledFunctionCost {
     let mut fake_external = MockedExternal::new();
-    let config = VMConfig::default();
+    let vm_config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
 
     let mut context =
-        create_evm_context(&mut fake_external, &config, &fees, "alice".to_string(), 0);
+        create_evm_context(&mut fake_external, &vm_config, &fees, "alice".to_string(), 0);
     let precompiled_function_addr =
         context.deploy_code(hex::decode(&PRECOMPILED_TEST).unwrap()).unwrap();
 
     let measurements = vec![
         measure_evm_function(
-            gas_metric,
+            config,
             verbose,
             &mut context,
             encode_call_function_args(
@@ -365,7 +428,7 @@ pub fn measure_evm_precompiled(gas_metric: GasMetric, verbose: bool) -> EvmPreco
             "noop()",
         ),
         measure_evm_function(
-            gas_metric,
+            config,
             verbose,
             &mut context,
             encode_call_function_args(
@@ -375,7 +438,7 @@ pub fn measure_evm_precompiled(gas_metric: GasMetric, verbose: bool) -> EvmPreco
             "test_ecrecover()",
         ),
         measure_evm_function(
-            gas_metric,
+            config,
             verbose,
             &mut context,
             encode_call_function_args(
@@ -385,7 +448,7 @@ pub fn measure_evm_precompiled(gas_metric: GasMetric, verbose: bool) -> EvmPreco
             "test_sha256()",
         ),
         measure_evm_function(
-            gas_metric,
+            config,
             verbose,
             &mut context,
             encode_call_function_args(
@@ -395,7 +458,7 @@ pub fn measure_evm_precompiled(gas_metric: GasMetric, verbose: bool) -> EvmPreco
             "test_ripemd160()",
         ),
         measure_evm_function(
-            gas_metric,
+            config,
             verbose,
             &mut context,
             encode_call_function_args(
@@ -405,7 +468,7 @@ pub fn measure_evm_precompiled(gas_metric: GasMetric, verbose: bool) -> EvmPreco
             "test_identity()",
         ),
         measure_evm_function(
-            gas_metric,
+            config,
             verbose,
             &mut context,
             encode_call_function_args(
@@ -430,11 +493,11 @@ pub fn near_cost_to_evm_gas(funcall_cost: Coef, cost: Ratio<u64>) -> u64 {
 }
 
 /// Cost of all evm related
-pub fn cost_of_evm(gas_metric: GasMetric, verbose: bool) -> EvmCostCoef {
+pub fn cost_of_evm(config: &Config, verbose: bool) -> EvmCostCoef {
     let evm_cost_config = EvmCostCoef {
-        deploy_cost: measure_evm_deploy(gas_metric, verbose),
-        funcall_cost: measure_evm_funcall(gas_metric, verbose),
-        precompiled_function_cost: measure_evm_precompiled(gas_metric, verbose),
+        deploy_cost: measure_evm_deploy(config, verbose),
+        funcall_cost: measure_evm_funcall(config, verbose),
+        precompiled_function_cost: measure_evm_precompiled(config, verbose),
     };
     evm_cost_config
 }

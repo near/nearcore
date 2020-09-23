@@ -362,6 +362,7 @@ impl<'a> EvmContext<'a> {
     fn pay_gas_from_evm_gas(&mut self, op: EvmOpForGas) -> Result<()> {
         let fee_cfg = &self.fees_config.evm_config;
         let evm_gas = self.evm_gas_counter.used_gas.as_u64();
+        self.gas_counter.inc_evm_gas_counter(evm_gas);
         let gas = match op {
             EvmOpForGas::Deploy => {
                 evm_gas * fee_cfg.deploy_cost_per_evm_gas + fee_cfg.bootstrap_cost
@@ -424,7 +425,7 @@ pub fn run_evm(
     args: Vec<u8>,
     prepaid_gas: Gas,
     is_view: bool,
-) -> (Option<VMOutcome>, Option<VMError>, U256) {
+) -> (Option<VMOutcome>, Option<VMError>) {
     let evm_gas_result =
         max_evm_gas_from_near_gas(prepaid_gas, &fees_config.evm_config, &method_name);
     if evm_gas_result.is_none() {
@@ -433,7 +434,6 @@ pub fn run_evm(
             Some(VMError::FunctionCallError(FunctionCallError::EvmError(EvmError::Revert(
                 "Not enough to run EVM".to_string(),
             )))),
-            0.into(),
         );
     }
     let evm_gas = evm_gas_result.unwrap();
@@ -488,18 +488,12 @@ pub fn run_evm(
                 used_gas: context.gas_counter.used_gas(),
                 logs: context.logs,
             };
-            (Some(outcome), None, context.evm_gas_counter.used_gas)
+            (Some(outcome), None)
         }
-        Err(VMLogicError::EvmError(err)) => (
-            None,
-            Some(VMError::FunctionCallError(FunctionCallError::EvmError(err))),
-            context.evm_gas_counter.used_gas,
-        ),
-        Err(_) => (
-            None,
-            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)),
-            context.evm_gas_counter.used_gas,
-        ),
+        Err(VMLogicError::EvmError(err)) => {
+            (None, Some(VMError::FunctionCallError(FunctionCallError::EvmError(err))))
+        }
+        Err(_) => (None, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))),
     }
 }
 
@@ -524,7 +518,18 @@ mod tests {
         fees_config: &'a RuntimeFeesConfig,
         account_id: &str,
     ) -> EvmContext<'a> {
-        EvmContext::new(external, vm_config, fees_config, 0, account_id.to_string(), 0, 0, 0, false)
+        EvmContext::new(
+            external,
+            vm_config,
+            fees_config,
+            0,
+            account_id.to_string(),
+            0,
+            0,
+            0,
+            false,
+            1_000_000_000.into(),
+        )
     }
 
     #[test]

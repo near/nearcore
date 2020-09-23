@@ -1,12 +1,23 @@
 use crate::config::{ActionCosts, ExtCosts, ExtCostsConfig};
 use crate::types::{Gas, ProfileData};
 use crate::{HostError, VMLogicError};
-use near_runtime_fees::Fee;
+use near_runtime_fees::{EvmGas, Fee};
 
 #[cfg(feature = "costs_counting")]
 thread_local! {
     pub static EXT_COSTS_COUNTER: std::cell::RefCell<std::collections::HashMap<ExtCosts, u64>> =
         Default::default();
+
+    pub static EVM_GAS_COUNTER: std::cell::RefCell<EvmGas> = Default::default();
+}
+
+pub fn reset_evm_gas_counter() -> u64 {
+    let mut ret = 0;
+    EVM_GAS_COUNTER.with(|f| {
+        ret = *f.borrow();
+        *f.borrow_mut() = 0;
+    });
+    ret
 }
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
@@ -72,6 +83,18 @@ impl GasCounter {
             res
         }
     }
+
+    #[cfg(feature = "costs_counting")]
+    #[inline]
+    pub fn inc_evm_gas_counter(&mut self, value: EvmGas) {
+        EVM_GAS_COUNTER.with(|f| {
+            *f.borrow_mut() += value;
+        })
+    }
+
+    #[cfg(not(feature = "costs_counting"))]
+    #[inline]
+    pub fn inc_evm_gas_counter(&mut self, _value: EvmGas) {}
 
     #[cfg(feature = "costs_counting")]
     #[inline]
