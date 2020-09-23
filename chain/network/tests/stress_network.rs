@@ -33,6 +33,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
                     genesis_id: Default::default(),
                     height: 1,
                     tracked_shards: vec![],
+                    archival: false,
                 }))
             }
             _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),

@@ -1285,6 +1285,29 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
     }
+
+    fn chunk_needs_to_be_fetched_from_archival(
+        &self,
+        chunk_prev_block_hash: &CryptoHash,
+        header_head: &CryptoHash,
+    ) -> Result<bool, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let head_epoch_id = epoch_manager.get_epoch_id(header_head)?;
+        let head_next_epoch_id = epoch_manager.get_next_epoch_id(header_head)?;
+        let chunk_epoch_id = epoch_manager.get_epoch_id_from_prev_block(chunk_prev_block_hash)?;
+        let chunk_next_epoch_id =
+            epoch_manager.get_next_epoch_id_from_prev_block(chunk_prev_block_hash)?;
+
+        // `chunk_epoch_id != head_epoch_id && chunk_next_epoch_id != head_epoch_id` covers the
+        // common case: the chunk is in the current epoch, or in the previous epoch, relative to the
+        // header head. The third condition (`chunk_epoch_id != head_next_epoch_id`) covers a
+        // corner case, in which the `header_head` is the last block of an epoch, and the chunk is
+        // for the next block. In this case the `chunk_epoch_id` will be one epoch ahead of the
+        // `header_head`.
+        Ok(chunk_epoch_id != head_epoch_id
+            && chunk_next_epoch_id != head_epoch_id
+            && chunk_epoch_id != head_next_epoch_id)
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {

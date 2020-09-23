@@ -12,7 +12,7 @@ use near_client::test_utils::{setup_mock_all_validators, TestEnv};
 use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_crypto::KeyType;
 use near_logger_utils::{init_integration_logger, init_test_logger};
-use near_network::types::PartialEncodedChunkRequestMsg;
+use near_network::types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
@@ -205,7 +205,7 @@ fn chunks_produced_and_distributed_common(
                         partial_chunk_msgs += 1;
                     }
                     NetworkRequests::PartialEncodedChunkRequest {
-                        account_id: to_whom,
+                        target: AccountIdOrPeerTrackingShard::AccountId(to_whom),
                         request: _,
                     } => {
                         if drop_from_1_to_4 && from_whom == "test4" && to_whom == "test1" {

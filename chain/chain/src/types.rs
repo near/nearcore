@@ -556,6 +556,12 @@ pub trait RuntimeAdapter: Send + Sync {
         other_epoch_id: &EpochId,
     ) -> Result<Ordering, Error>;
 
+    fn chunk_needs_to_be_fetched_from_archival(
+        &self,
+        chunk_prev_block_hash: &CryptoHash,
+        header_head: &CryptoHash,
+    ) -> Result<bool, Error>;
+
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
     // here.
