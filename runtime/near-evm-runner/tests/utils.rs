@@ -43,14 +43,11 @@ pub fn create_context<'a>(
         1_000_000_000.into(),
     )
 }
-<<<<<<< HEAD
 
 #[cfg(test)]
 pub fn show_evm_gas_used(context: &EvmContext) {
     println!("Accumulated EVM gas used: {}", &context.evm_gas_counter.used_gas);
 }
-||||||| merged common ancestors
-=======
 
 pub fn public_key_to_address(public_key: PublicKey) -> Address {
     match public_key {
@@ -84,4 +81,3 @@ pub fn encode_meta_call_function_args(
         }
     }
 }
->>>>>>> evm-precompile

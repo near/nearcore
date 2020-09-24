@@ -264,8 +264,18 @@ impl<'a> EvmContext<'a> {
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
-        interpreter::call(self, &sender, &sender, value, 0, &contract_address, &input, true)
-            .map(|rd| rd.to_vec())
+        let rd = interpreter::call(self, &sender, &sender, value, 0, &contract_address, &input, true, &self.evm_gas_counter.gas_left(), &self.fees_config.evm_config)?;
+        match rd {
+            MessageCallResult::Success(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Ok(data.to_vec())
+            }
+            MessageCallResult::Reverted(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
+            }
+            _ => unreachable!(),
+        }
     }
 
     /// Make an EVM transaction. Calls `contract_address` with `encoded_input`. Execution
