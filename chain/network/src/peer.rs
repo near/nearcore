@@ -233,6 +233,9 @@ impl Peer {
     fn send_message(&mut self, msg: PeerMessage) {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
+        #[cfg(feature = "delay_detector")]
+        let mut d = DelayDetector::new(format!("send message {}", msg.msg_variant()).into());
+        d.snapshot("before match");
         match &msg {
             PeerMessage::Block(b) if self.tracker.has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
@@ -248,11 +251,14 @@ impl Peer {
             metadata
         };
 
+        d.snapshot("before converting to bytes");
         match peer_message_to_bytes(msg) {
             Ok(bytes) => {
                 #[cfg(feature = "metric_recorder")]
                 self.peer_manager_addr.do_send(metadata.set_size(bytes.len()));
+                d.snapshot("before increment sent");
                 self.tracker.increment_sent(bytes.len() as u64);
+                d.snapshot("before write");
                 self.framed.write(bytes);
             }
             Err(err) => error!(target: "network", "Error converting message to bytes: {}", err),

@@ -24,6 +24,9 @@ use near_primitives::utils::to_timestamp;
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
 use cached::{Cached, SizedCache};
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
 
@@ -244,6 +247,8 @@ impl HeaderSync {
     }
 
     fn get_locator(&mut self, chain: &mut Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("get_locator".into());
         let tip = chain.header_head()?;
         let genesis_height = chain.genesis().height();
         let heights = get_locator_heights(tip.height - genesis_height)

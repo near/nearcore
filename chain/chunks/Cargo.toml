@@ -22,6 +22,8 @@ near-network = { path = "../network" }
 near-chain = { path = "../chain" }
 near-pool = { path = "../pool" }
 
+delay-detector = { path = "../../tools/delay_detector", optional = true}
+
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
 
@@ -31,3 +33,4 @@ expensive_tests = []
 protocol_feature_forward_chunk_parts = ["near-primitives/protocol_feature_forward_chunk_parts", "near-network/protocol_feature_forward_chunk_parts"]
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "near-primitives/nightly_protocol_features"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
+delay_detector = ["near-primitives/delay_detector", "delay-detector"]

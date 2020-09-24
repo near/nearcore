@@ -335,6 +335,8 @@ impl RoutingTable {
     /// Find peer that is connected to `source` and belong to the shortest path
     /// from `source` to `peer_id`.
     pub fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(format!("find_route_from_peer_id {}", peer_id).into());
         if let Some(routes) = self.peer_forwarding.get(&peer_id).cloned() {
             if routes.is_empty() {
                 return Err(FindRouteError::Disconnected);
@@ -563,6 +565,8 @@ impl RoutingTable {
 
     // Find route back with given hash and removes it from cache.
     fn fetch_route_back(&mut self, hash: CryptoHash) -> Option<PeerId> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(format!("fetch route back {}", hash).into());
         self.route_back.remove(&hash)
     }
 

@@ -50,6 +50,9 @@ use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, ReceiptResult};
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
 const CACHE_SIZE: usize = 100;
@@ -2045,6 +2048,8 @@ impl<'a> ChainStoreUpdate<'a> {
         mut block_hash: CryptoHash,
         gc_mode: GCMode,
     ) -> Result<(), Error> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("clear_block_data".into());
         let mut store_update = self.store().store_update();
         let header = self.get_block_header(&block_hash).expect("block header must exist").clone();
 

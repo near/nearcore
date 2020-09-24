@@ -507,7 +507,7 @@ impl Chain {
         gc_blocks_limit: NumBlocks,
     ) -> Result<(), Error> {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("GC".into());
+        let mut d = DelayDetector::new("GC".into());
 
         let head = self.store.head()?;
         let tail = self.store.tail()?;
@@ -532,6 +532,9 @@ impl Chain {
             fork_tail = gc_stop_height;
         }
         let mut gc_blocks_remaining = gc_blocks_limit;
+        debug!(target: "client", "GC head {} tail {} gc_stop_height {} fork_tail {}", head.height, tail, gc_stop_height, fork_tail);
+
+        d.snapshot("before forks cleaning");
 
         // Forks Cleaning
         let stop_height = std::cmp::max(tail, fork_tail.saturating_sub(GC_FORK_CLEAN_STEP));
@@ -544,6 +547,8 @@ impl Chain {
             chain_store_update.update_fork_tail(height);
             chain_store_update.commit()?;
         }
+
+        d.snapshot("after forks cleaning");
 
         // Canonical Chain Clearing
         for height in tail + 1..gc_stop_height {
@@ -587,6 +592,8 @@ impl Chain {
         height: BlockHeight,
         gc_blocks_remaining: &mut NumBlocks,
     ) -> Result<(), Error> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("clear_forks_data".into());
         if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
             let blocks_current_height =
                 blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();

@@ -14,6 +14,9 @@ use crate::version::{ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_U
 use reed_solomon_erasure::ReconstructShard;
 use std::sync::Arc;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1055,6 +1058,8 @@ pub struct ReedSolomonWrapper {
 
 impl ReedSolomonWrapper {
     pub fn new(data_shards: usize, parity_shards: usize) -> Self {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("ReedSolomonWrapper new".into());
         ReedSolomonWrapper {
             rs: ReedSolomon::new(data_shards, parity_shards).unwrap(),
             ttl: RS_TTL,
@@ -1065,9 +1070,12 @@ impl ReedSolomonWrapper {
         &mut self,
         slices: &mut [T],
     ) -> Result<(), reed_solomon_erasure::Error> {
+        #[cfg(feature = "delay_detector")]
+        let mut d = DelayDetector::new("reconstruct".into());
         let res = self.rs.reconstruct(slices);
         self.ttl -= 1;
         if self.ttl == 0 {
+            d.snapshot("before reinitialize");
             *self =
                 ReedSolomonWrapper::new(self.rs.data_shard_count(), self.rs.parity_shard_count());
         }

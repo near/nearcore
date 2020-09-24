@@ -30,6 +30,8 @@ near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
+delay-detector = { path = "../../tools/delay_detector", optional = true }
+
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
@@ -39,6 +41,7 @@ costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting
 no_cpu_compatibility_checks = [ "near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = ["near-vm-runner/no_cache", "near-store/no_cache"]
+delay_detector = ["near-vm-runner/delay_detector", "near-store/delay_detector", "delay-detector"]
 
 [dev-dependencies]
 tempfile = "3"

@@ -1497,6 +1497,26 @@ pub enum NetworkViewClientMessages {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
+impl std::fmt::Display for NetworkViewClientMessages {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        match self {
+            NetworkViewClientMessages::BlockRequest(h) => write!(f, "block request {}", h),
+            NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
+                write!(f, "header requests {}", hashes.len())
+            }
+            NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
+                write!(f, "state sync request for shard {}, sync hash {}", shard_id, sync_hash)
+            }
+            NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => write!(
+                f,
+                "state request part for shard {}, sync hash {}, part id {}",
+                shard_id, sync_hash, part_id
+            ),
+            _ => write!(f, "other"),
+        }
+    }
+}
+
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(Box<FinalExecutionOutcomeView>),

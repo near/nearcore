@@ -2520,6 +2520,7 @@ dependencies = [
  "borsh",
  "cached",
  "chrono",
+ "delay-detector",
  "futures",
  "log",
  "near-chain",
@@ -2755,6 +2756,7 @@ dependencies = [
  "bs58",
  "byteorder",
  "chrono",
+ "delay-detector",
  "derive_more",
  "easy-ext",
  "hex",
@@ -2867,6 +2869,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "cached",
+ "delay-detector",
  "derive_more",
  "elastic-array",
  "lazy_static",
@@ -2917,7 +2920,7 @@ dependencies = [
  "near-vm-errors",
  "serde",
  "serde_json",
- "sha2 0.9.1",
+ "sha2 0.8.1",
  "sha3",
 ]
 
@@ -2929,6 +2932,7 @@ dependencies = [
  "assert_matches",
  "bencher",
  "borsh",
+ "delay-detector",
  "log",
  "near-primitives",
  "near-runtime-fees",
@@ -3061,6 +3065,7 @@ dependencies = [
  "base64 0.11.0",
  "borsh",
  "byteorder",
+ "delay-detector",
  "hex",
  "indicatif 0.13.0",
  "lazy_static",
@@ -3165,9 +3170,9 @@ dependencies = [
 
 [[package]]
 name = "num-traits"
-version = "0.2.11"
+version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c62be47e61d1842b9170f0fdeec8eba98e60e90e5446449a0545e5152acd7096"
+checksum = "9a64b1ec5cda2586e284722486d802acf1f7dbdc623e2bfc57e65ca1cd099290"
 dependencies = [
  "autocfg 1.0.0",
 ]

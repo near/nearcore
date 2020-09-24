@@ -32,6 +32,8 @@ near-crypto = { path = "../crypto" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
+delay-detector = { path = "../../tools/delay_detector", optional = true}
+
 [features]
 default = ["jemallocator"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
@@ -40,6 +42,7 @@ protocol_feature_rectify_inflation = []
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation"]
 nightly_protocol = []
 
+delay_detector = ["delay-detector"]
 
 [dev-dependencies]
 bencher = "0.1.5"
