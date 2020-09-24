@@ -48,6 +48,9 @@ mod chunk_cache;
 pub mod test_utils;
 mod types;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
 pub const CHUNK_REQUEST_RETRY_MS: u64 = 100;
 pub const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
@@ -446,6 +449,8 @@ impl ShardsManager {
         request_own_parts_from_others: bool,
         request_from_archival: bool,
     ) -> Result<(), near_chain::Error> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("request_partial_encoded_chunk".into());
         let mut bp_to_parts = HashMap::new();
 
         let cache_entry = self.encoded_chunks.get(chunk_hash);
@@ -675,6 +680,8 @@ impl ShardsManager {
 
     /// Resends chunk requests if haven't received it within expected time.
     pub fn resend_chunk_requests(&mut self, header_head: &Tip) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("resend_chunk_requests".into());
         // Process chunk one part requests.
         let requests = self.requested_partial_encoded_chunks.fetch();
         for (chunk_hash, chunk_request) in requests {
@@ -937,9 +944,14 @@ impl ShardsManager {
         chunk: &mut EncodedShardChunk,
         rs: &mut ReedSolomonWrapper,
     ) -> ChunkStatus {
+        #[cfg(feature = "delay_detector")]
+        let mut d = DelayDetector::new("check_chunk_complete".into());
+        d.snapshot("start");
         let data_parts = rs.data_shard_count();
         if chunk.content().num_fetched_parts() >= data_parts {
+            d.snapshot("before reconstruct");
             if let Ok(_) = chunk.content_mut().reconstruct(rs) {
+                d.snapshot("after reconstruct");
                 let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
                 if merkle_root == chunk.encoded_merkle_root() {
                     ChunkStatus::Complete(merkle_paths)
@@ -978,8 +990,12 @@ impl ShardsManager {
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
     ) -> Result<bool, Error> {
+        let mut d = DelayDetector::new("decode_and_persist_encoded_chunk_if_complete".into());
+        d.snapshot("before check chunk complete");
         match ShardsManager::check_chunk_complete(&mut encoded_chunk, rs) {
             ChunkStatus::Complete(merkle_paths) => {
+                #[cfg(feature = "delay_detector")]
+                d.snapshot("after check chunk complete");
                 self.decode_and_persist_encoded_chunk(encoded_chunk, chain_store, merkle_paths)?;
                 Ok(true)
             }

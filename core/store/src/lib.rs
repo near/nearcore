@@ -44,6 +44,9 @@ pub mod migrations;
 pub mod test_utils;
 mod trie;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 #[derive(Clone)]
 pub struct Store {
     storage: Pin<Arc<dyn Database>>,
@@ -55,6 +58,8 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("store_get".into());
         self.storage.get(column, key).map_err(|e| e.into())
     }
 

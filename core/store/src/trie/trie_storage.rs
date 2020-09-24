@@ -13,6 +13,9 @@ use near_primitives::types::ShardId;
 use std::convert::{TryFrom, TryInto};
 use std::io::ErrorKind;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 #[derive(Clone)]
 pub struct TrieCache(Arc<Mutex<SizedCache<CryptoHash, Vec<u8>>>>);
 
@@ -144,15 +147,24 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+        #[cfg(feature = "delay_detector")]
+        let mut d = DelayDetector::new("retrieve_raw_bytes".into());
+        d.snapshot("begin");
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
+        #[cfg(feature = "delay_detector")]
+        d.snapshot("after acquiring lock");
         if let Some(val) = guard.cache_get(hash) {
             Ok(val.clone())
         } else {
             let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
+            #[cfg(feature = "delay_detector")]
+            d.snapshot("after getting key");
             let val = self
                 .store
                 .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
+            #[cfg(feature = "delay_detector")]
+            d.snapshot("after getting val");
             if let Some(val) = val {
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.cache_set(*hash, val.clone());

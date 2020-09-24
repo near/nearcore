@@ -6,6 +6,9 @@ use tokio_util::codec::{Decoder, Encoder};
 
 use crate::types::{PeerMessage, ReasonForBan};
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 << 20; // 512MB
 
 pub struct Codec {
@@ -24,12 +27,24 @@ impl Encoder for Codec {
     type Error = Error;
 
     fn encode(&mut self, item: Self::Item, buf: &mut BytesMut) -> Result<(), Error> {
+        #[cfg(feature = "delay_detector")]
+        let mut d = DelayDetector::new(
+            format!(
+                "encode {} bytes, buf capacity {}, len {}",
+                item.len(),
+                buf.capacity(),
+                buf.len()
+            )
+            .into(),
+        );
         if item.len() > self.max_length as usize {
             Err(Error::new(ErrorKind::InvalidInput, "Input is too long"))
         } else {
+            d.snapshot("begin");
             // First four bytes is the length of the buffer.
             buf.reserve(item.len() + 4);
             buf.put_u32_le(item.len() as u32);
+            d.snapshot("before put");
             buf.put(&item[..]);
             Ok(())
         }
@@ -49,6 +64,8 @@ impl Decoder for Codec {
         let mut len_bytes: [u8; 4] = [0; 4];
         len_bytes.copy_from_slice(&buf[0..4]);
         let len = u32::from_le_bytes(len_bytes);
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(format!("decode {} bytes", len).into());
 
         if len > self.max_length {
             // If this point is reached, abusive peer is banned.

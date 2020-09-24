@@ -54,6 +54,9 @@ use node_runtime::{
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_runtime_configs::RuntimeConfig;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -365,6 +368,8 @@ impl NightshadeRuntime {
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("process_state_update".into());
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
             debug!(target: "runtime",
