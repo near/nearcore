@@ -193,16 +193,17 @@ fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
             )],
             false,
         );
+        // println!("deploy evm code");
 
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id,
+            account_id.to_owned(),
             &signer,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "deploy_code".to_string(),
-                args: code.into(),
+                args: hex::decode(code).unwrap(),
                 gas: 10u64.pow(18),
                 deposit: 0,
             })],
@@ -223,6 +224,7 @@ fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
             let cost = end_count(config.metric, &start);
             total_cost += cost;
             evm_gas = reset_evm_gas_counter();
+            println!("+++ evm_gas {}", evm_gas);
         }
     }
 

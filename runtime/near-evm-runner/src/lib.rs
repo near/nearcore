@@ -362,6 +362,7 @@ impl<'a> EvmContext<'a> {
     fn pay_gas_from_evm_gas(&mut self, op: EvmOpForGas) -> Result<()> {
         let fee_cfg = &self.fees_config.evm_config;
         let evm_gas = self.evm_gas_counter.used_gas.as_u64();
+        println!("============== evm_gas {}", evm_gas);
         self.gas_counter.inc_evm_gas_counter(evm_gas);
         let gas = match op {
             EvmOpForGas::Deploy => {
@@ -428,6 +429,8 @@ pub fn run_evm(
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let evm_gas_result =
         max_evm_gas_from_near_gas(prepaid_gas, &fees_config.evm_config, &method_name);
+    // println!("evm_gas_result: {:?}", evm_gas_result);
+    // let evm_gas_result = Some(1_000_000_000_000u64.into());
     if evm_gas_result.is_none() {
         return (
             None,

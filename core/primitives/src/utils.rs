@@ -28,7 +28,8 @@ lazy_static! {
 fn code_hash(num: u8) -> CryptoHash {
     let mut buf = [0; 32];
     buf[0] = num;
-    return CryptoHash(Digest(buf));
+    return hash(&buf);
+    // return CryptoHash(Digest(buf));
 }
 
 pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {

@@ -50,9 +50,9 @@ pub(crate) fn execute_function_call(
     is_last_action: bool,
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    println!("account.code_hash {:?} EVM_CODE_HASH {:?}", account.code_hash, *EVM_CODE_HASH);
+    // println!("account.code_hash {:?} EVM_CODE_HASH {:?}", account.code_hash, *EVM_CODE_HASH);
     if account.code_hash == *EVM_CODE_HASH {
-        println!("evm!!!!");
+        // println!("evm!!!!");
         near_evm_runner::run_evm(
             runtime_ext,
             &config.wasm_config,
@@ -67,7 +67,7 @@ pub(crate) fn execute_function_call(
             is_view,
         )
     } else {
-        println!("wasm!!!!");
+        // println!("wasm!!!!");
         let code = match runtime_ext.get_code(account.code_hash) {
             Ok(Some(code)) => code,
             Ok(None) => {
