@@ -440,6 +440,7 @@ fn invalid_blocks_common(is_requested: bool) {
             // Send block with invalid chunk mask
             let mut block = valid_block.clone();
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
+            block.mut_header().get_mut().init();
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
