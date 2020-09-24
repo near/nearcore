@@ -109,7 +109,6 @@ mod test {
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::account::{AccessKey, Account};
     use near_primitives::types::AccountInfo;
-    use std::convert::TryInto;
 
     const VALID_ED25519_RISTRETTO_KEY: &str = "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7";
 
@@ -119,7 +118,7 @@ mod test {
         let mut genesis = Genesis::default();
         genesis.config.validators = vec![AccountInfo {
             account_id: "test".to_string(),
-            public_key: VALID_ED25519_RISTRETTO_KEY.try_into().unwrap(),
+            public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 10,
         }];
         genesis.records = GenesisRecords(vec![StateRecord::Account {
@@ -161,7 +160,7 @@ mod test {
         let mut genesis = Genesis::default();
         genesis.config.validators = vec![AccountInfo {
             account_id: "test".to_string(),
-            public_key: VALID_ED25519_RISTRETTO_KEY.try_into().unwrap(),
+            public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 100,
         }];
         genesis.config.total_supply = 110;
@@ -190,7 +189,7 @@ mod test {
         let mut genesis = Genesis::default();
         genesis.config.validators = vec![AccountInfo {
             account_id: "test".to_string(),
-            public_key: VALID_ED25519_RISTRETTO_KEY.try_into().unwrap(),
+            public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 10,
         }];
         genesis.config.total_supply = 110;
@@ -219,7 +218,7 @@ mod test {
         let mut genesis = Genesis::default();
         genesis.config.validators = vec![AccountInfo {
             account_id: "test".to_string(),
-            public_key: VALID_ED25519_RISTRETTO_KEY.try_into().unwrap(),
+            public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 10,
         }];
         genesis.config.total_supply = 110;

@@ -296,8 +296,7 @@ impl<'de> serde::Deserialize<'de> for PublicKey {
         D: serde::Deserializer<'de>,
     {
         let s = <String as serde::Deserialize>::deserialize(deserializer)?;
-        s.try_into()
-            .map_err(|err: Box<dyn std::error::Error>| serde::de::Error::custom(err.to_string()))
+        s.parse().map_err(|err: crate::ParseKeyError| serde::de::Error::custom(err.to_string()))
     }
 }
 
@@ -316,33 +315,29 @@ impl From<&PublicKey> for String {
     }
 }
 
-impl TryFrom<String> for PublicKey {
-    type Error = Box<dyn std::error::Error>;
+impl FromStr for PublicKey {
+    type Err = crate::ParseKeyError;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from(value.as_str())
-    }
-}
-
-impl TryFrom<&str> for PublicKey {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         let (key_type, key_data) = split_key_type_data(&value)?;
         match key_type {
             KeyType::ED25519 => {
                 let mut array = [0; ed25519_dalek::PUBLIC_KEY_LENGTH];
-                let length = bs58::decode(key_data).into(&mut array)?;
+                let length = bs58::decode(key_data)
+                    .into(&mut array)
+                    .map_err(|err| Self::Err::InvalidData(err.to_string()))?;
                 if length != ed25519_dalek::PUBLIC_KEY_LENGTH {
-                    return Err(format!("Invalid length {} of ED25519 public key", length).into());
+                    return Err(crate::ParseKeyError::InvalidLength(length));
                 }
                 Ok(PublicKey::ED25519(ED25519PublicKey(array)))
             }
             KeyType::SECP256K1 => {
                 let mut array = [0; 64];
-                let length = bs58::decode(key_data).into(&mut array[..])?;
+                let length = bs58::decode(key_data)
+                    .into(&mut array[..])
+                    .map_err(|err| Self::Err::InvalidData(err.to_string()))?;
                 if length != 64 {
-                    return Err(format!("Invalid length {} of SECP256K1 public key", length).into());
+                    return Err(crate::ParseKeyError::InvalidLength(length));
                 }
                 Ok(PublicKey::SECP256K1(Secp256K1PublicKey(array)))
             }
@@ -779,8 +774,7 @@ mod tests {
             pk,
             serde_json::from_str("\"DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"").unwrap()
         );
-        let pk_str: String = pk.to_string();
-        let pk2: PublicKey = pk_str.try_into().unwrap();
+        let pk2: PublicKey = pk.to_string().parse().unwrap();
         assert_eq!(pk, pk2);
 
         let expected = "\"ed25519:3KyUuch8pYP47krBq4DosFEVBMR5wDTMQ8AThzM8kAEcBQEpsPdYTZ2FPX5ZnSoLrerjwg66hwwJaW1wHzprd5k3\"";
@@ -806,8 +800,7 @@ mod tests {
         let expected = "\"secp256k1:BtJtBjukUQbcipnS78adSwUKE38sdHnk7pTNZH7miGXfodzUunaAcvY43y37nm7AKbcTQycvdgUzFNWsd7dgPZZ\"";
         assert_eq!(serde_json::to_string(&pk).unwrap(), expected);
         assert_eq!(pk, serde_json::from_str(expected).unwrap());
-        let pk_str: String = pk.to_string();
-        let pk2: PublicKey = pk_str.try_into().unwrap();
+        let pk2: PublicKey = pk.to_string().parse().unwrap();
         assert_eq!(pk, pk2);
 
         let expected = "\"secp256k1:9ZNzLxNff6ohoFFGkbfMBAFpZgD7EPoWeiuTpPAeeMRV\"";
