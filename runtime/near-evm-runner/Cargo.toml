@@ -40,3 +40,5 @@ ethabi-contract = "8.0.0"
 ethabi-derive = "8.0.0"
 lazy_static = "1.4"
 lazy-static-include = "2.2.2"
+
+near-crypto = { path = "../../core/crypto" }

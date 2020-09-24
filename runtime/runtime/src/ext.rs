@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use borsh::BorshDeserialize;
 use log::debug;
 
@@ -11,12 +13,12 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_nonce_with_nonce;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
+use near_vm_errors::InconsistentStateError;
 use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
-use std::sync::Arc;
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -150,6 +152,37 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_has_key(&mut self, key: &[u8]) -> ExtResult<bool> {
         let storage_key = self.create_storage_key(key);
         self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_storage_error)
+    }
+
+    fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {
+        let data_keys = self
+            .trie_update
+            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&self.account_id, prefix))
+            .map_err(|err| {
+                VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(
+                    err.to_string(),
+                ))
+            })?
+            .map(|raw_key| {
+                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, self.account_id)
+                    .map_err(|_e| {
+                        StorageError::StorageInconsistentState(
+                            "Can't parse data key from raw key for ContractData".to_string(),
+                        )
+                    })
+                    .map(Vec::from)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| {
+                VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(
+                    err.to_string(),
+                ))
+            })?;
+        for key in data_keys {
+            self.trie_update
+                .remove(TrieKey::ContractData { account_id: self.account_id.clone(), key });
+        }
+        Ok(())
     }
 
     fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> ExtResult<u64> {

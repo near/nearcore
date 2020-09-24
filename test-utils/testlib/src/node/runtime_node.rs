@@ -3,9 +3,9 @@ use std::sync::{Arc, RwLock};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::account::Account;
+use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::AccountId;
-use near_primitives::utils::EVM_CODE_HASH;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
 
 use crate::node::Node;
@@ -31,7 +31,7 @@ impl RuntimeNode {
             account: Account {
                 amount: TESTING_INIT_BALANCE,
                 locked: 0,
-                code_hash: *EVM_CODE_HASH,
+                code_hash: CryptoHash::default(),
                 storage_usage: 0,
             },
         });

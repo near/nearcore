@@ -111,12 +111,36 @@ pub trait External {
     ///
     /// # let mut external = MockedExternal::new();
     /// external.storage_set(b"key42", b"value1337").unwrap();
-    /// // Returns value if exists
+    /// // Returns Ok if exists
     /// assert_eq!(external.storage_remove(b"key42"), Ok(()));
-    /// // Returns None if there was no value
+    /// // Returns Ok if there was no value
     /// assert_eq!(external.storage_remove(b"no_value_key"), Ok(()));
     /// ```
     fn storage_remove(&mut self, key: &[u8]) -> Result<()>;
+
+    /// Removes all keys under given suffix in the storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - a prefix for all keys to remove
+    ///
+    /// # Errors
+    ///
+    /// This function could return HostErrorOrStorageError::StorageError on underlying DB failure
+    ///
+    /// # Example
+    /// ```
+    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
+    /// # use near_vm_logic::External;
+    ///
+    /// # let mut external = MockedExternal::new();
+    /// external.storage_set(b"key1", b"value1337").unwrap();
+    /// external.storage_set(b"key2", b"value1337").unwrap();
+    /// assert_eq!(external.storage_remove_subtree(b"key"), Ok(()));
+    /// assert!(!external.storage_has_key(b"key1").unwrap());
+    /// assert!(!external.storage_has_key(b"key2").unwrap());
+    /// ```
+    fn storage_remove_subtree(&mut self, prefix: &[u8]) -> Result<()>;
 
     /// Check whether key exists. Returns Ok(true) if key exists or Ok(false) otherwise
     ///

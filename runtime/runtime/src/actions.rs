@@ -12,7 +12,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::{
-    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id, EVM_CODE_HASH,
+    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
 };
 use near_primitives::version::{
     ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION,
@@ -50,13 +50,14 @@ pub(crate) fn execute_function_call(
     is_last_action: bool,
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    // println!("account.code_hash {:?} EVM_CODE_HASH {:?}", account.code_hash, *EVM_CODE_HASH);
-    if account.code_hash == *EVM_CODE_HASH {
-        // println!("evm!!!!");
+    let account_id = runtime_ext.account_id();
+    if account_id == "evm" || account_id.ends_with(".evm") {
         near_evm_runner::run_evm(
             runtime_ext,
             &config.wasm_config,
             &config.transaction_costs,
+            &account_id,
+            &action_receipt.signer_id,
             predecessor_id,
             account.amount,
             function_call.deposit,

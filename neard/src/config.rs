@@ -28,7 +28,7 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
     NumShards, ShardId,
 };
-use near_primitives::utils::{generate_random_string, get_num_seats_per_shard, EVM_CODE_HASH};
+use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
@@ -822,7 +822,7 @@ pub fn init_configs(
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 0,
-                *EVM_CODE_HASH,
+                CryptoHash::default(),
             );
             add_protocol_account(&mut records);
 
