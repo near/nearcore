@@ -395,14 +395,14 @@ fn invalid_blocks_common(is_requested: bool) {
                         } else {
                             assert_eq!(block.header().height(), 1);
                             assert_eq!(block.header().chunk_mask().len(), 1);
-                            assert_eq!(ban_counter, 1);
+                            assert_eq!(ban_counter, 2);
                             System::current().stop();
                         }
                     }
                     NetworkRequests::BanPeer { ban_reason, .. } => {
                         assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
                         ban_counter += 1;
-                        if ban_counter == 2 && is_requested {
+                        if ban_counter == 3 && is_requested {
                             System::current().stop();
                         }
                     }
@@ -414,8 +414,8 @@ fn invalid_blocks_common(is_requested: bool) {
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
-            // Send block with invalid chunk mask
-            let mut block = Block::produce(
+            block_merkle_tree.insert(last_block.header.hash);
+            let valid_block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -435,8 +435,10 @@ fn invalid_blocks_common(is_requested: bool) {
                 vec![],
                 &signer,
                 last_block.header.next_bp_hash,
-                CryptoHash::default(),
+                block_merkle_tree.root(),
             );
+            // Send block with invalid chunk mask
+            let mut block = valid_block.clone();
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
@@ -444,30 +446,18 @@ fn invalid_blocks_common(is_requested: bool) {
                 is_requested,
             ));
 
+            // Send block with invalid chunk signature
+            let mut block = valid_block.clone();
+            block.get_mut().chunks[0].signature =
+                Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                is_requested,
+            ));
+
             // Send proper block.
-            block_merkle_tree.insert(last_block.header.hash);
-            let block2 = Block::produce(
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                last_block.chunks.into_iter().map(Into::into).collect(),
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
-                },
-                vec![],
-                Rational::from_integer(0),
-                0,
-                100,
-                Some(0),
-                vec![],
-                vec![],
-                &signer,
-                last_block.header.next_bp_hash,
-                block_merkle_tree.root(),
-            );
+            let block2 = valid_block.clone();
             client.do_send(NetworkClientMessages::Block(
                 block2.clone(),
                 PeerInfo::random().id,
