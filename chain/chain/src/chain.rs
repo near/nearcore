@@ -387,12 +387,14 @@ impl Chain {
     }
 
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
-        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
-
-        if let Err(e) = block.check_validity() {
+        if let Err(e) =
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
+        {
             byzantine_assert!(false);
             return Err(e.into());
         }
+
+        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
         chain_store_update.save_block(block.clone());
         // We don't need to increase refcount for `prev_hash` at this point
