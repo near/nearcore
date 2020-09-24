@@ -22,9 +22,12 @@ near-network = { path = "../network" }
 near-chain = { path = "../chain" }
 near-pool = { path = "../pool" }
 
+delay-detector = { path = "../../tools/delay_detector", optional = true}
+
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
 
 [features]
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
+delay_detector = ["near-primitives/delay_detector", "delay-detector"]

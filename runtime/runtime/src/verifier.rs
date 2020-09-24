@@ -21,6 +21,9 @@ use near_vm_logic::VMLimitConfig;
 use crate::config::{total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost};
 use crate::VerificationResult;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
 pub fn validate_transaction(
@@ -75,6 +78,8 @@ pub fn verify_and_charge_transaction(
     verify_signature: bool,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
+    #[cfg(feature = "delay_detector")]
+    let mut d = DelayDetector::new("verify_and_charge_transaction".into());
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         validate_transaction(
             config,
@@ -83,6 +88,8 @@ pub fn verify_and_charge_transaction(
             verify_signature,
             current_protocol_version,
         )?;
+    #[cfg(feature = "delay_detector")]
+    d.snapshot("after validator transaction");
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
 
@@ -136,6 +143,9 @@ pub fn verify_and_charge_transaction(
             })?;
         }
     }
+
+    #[cfg(feature = "delay_detector")]
+    d.snapshot("after permission check");
 
     match get_insufficient_storage_stake(&signer, &config) {
         Ok(None) => {}
@@ -194,6 +204,9 @@ pub fn verify_and_charge_transaction(
             .into());
         }
     };
+
+    #[cfg(feature = "delay_detector")]
+    d.snapshot("before writing to state update");
 
     set_access_key(state_update, signer_id.clone(), transaction.public_key.clone(), &access_key);
     set_account(state_update, signer_id.clone(), &signer);

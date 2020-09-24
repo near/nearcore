@@ -2430,6 +2430,7 @@ dependencies = [
  "borsh",
  "cached",
  "chrono",
+ "delay-detector",
  "futures",
  "log",
  "near-chain",
@@ -2665,6 +2666,7 @@ dependencies = [
  "bs58",
  "byteorder",
  "chrono",
+ "delay-detector",
  "derive_more",
  "easy-ext",
  "hex",
@@ -2776,6 +2778,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "cached",
+ "delay-detector",
  "derive_more",
  "elastic-array",
  "lazy_static",
@@ -2837,6 +2840,7 @@ dependencies = [
  "assert_matches",
  "bencher",
  "cached",
+ "delay-detector",
  "near-runtime-fees",
  "near-vm-errors",
  "near-vm-logic",
@@ -2890,7 +2894,7 @@ dependencies = [
 
 [[package]]
 name = "neard"
-version = "1.16.2"
+version = "1.16.2-rc.2"
 dependencies = [
  "actix",
  "actix-web",
@@ -2967,6 +2971,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "cached",
+ "delay-detector",
  "hex",
  "indicatif 0.13.0",
  "lazy_static",

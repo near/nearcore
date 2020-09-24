@@ -8,6 +8,9 @@ use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::Module;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
     use wasmer_runtime_core::module::ExportIndex::Func;
@@ -191,6 +194,8 @@ pub fn run_wasmer<'a>(
             "Execution of smart contracts is only supported for x86 and x86_64 CPU architectures."
         );
     }
+    #[cfg(feature = "delay_detector")]
+    let mut d = DelayDetector::new("run_wasmer".into());
     #[cfg(not(feature = "no_cpu_compatibility_checks"))]
     if !is_x86_feature_detected!("avx") {
         panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
@@ -204,10 +209,17 @@ pub fn run_wasmer<'a>(
         );
     }
 
+    #[cfg(feature = "delay_detector")]
+    d.snapshot("before compiling module");
+
     let module = match cache::compile_module(code_hash, code, wasm_config) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
+
+    #[cfg(feature = "delay_detector")]
+    d.snapshot("after compiling module");
+
     let mut memory = WasmerMemory::new(
         wasm_config.limit_config.initial_memory_pages,
         wasm_config.limit_config.max_memory_pages,
@@ -236,6 +248,9 @@ pub fn run_wasmer<'a>(
         );
     }
 
+    #[cfg(feature = "delay_detector")]
+    d.snapshot("after adding compile fee");
+
     let import_object = imports::build_wasmer(memory_copy, &mut logic);
 
     let method_name = match std::str::from_utf8(method_name) {
@@ -253,11 +268,18 @@ pub fn run_wasmer<'a>(
         return (None, Some(e));
     }
 
+    #[cfg(feature = "delay_detector")]
+    d.snapshot("before instantiating module");
+
     match module.instantiate(&import_object) {
-        Ok(instance) => match instance.call(&method_name, &[]) {
-            Ok(_) => (Some(logic.outcome()), None),
-            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-        },
+        Ok(instance) => {
+            #[cfg(feature = "delay_detector")]
+            d.snapshot("after instantiating module");
+            match instance.call(&method_name, &[]) {
+                Ok(_) => (Some(logic.outcome()), None),
+                Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+            }
+        }
         Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
     }
 }

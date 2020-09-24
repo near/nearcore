@@ -32,9 +32,12 @@ near-crypto = { path = "../crypto" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
+delay-detector = { path = "../../tools/delay_detector", optional = true}
+
 [features]
 default = ["jemallocator"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
+delay_detector = ["delay-detector"]
 
 [dev-dependencies]
 bencher = "0.1.5"

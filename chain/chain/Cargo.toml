@@ -39,6 +39,6 @@ near-logger-utils = {path = "../../test-utils/logger"}
 byzantine_asserts = []
 expensive_tests = []
 adversarial = []
-delay_detector = ["delay-detector"]
+delay_detector = ["near-primitives/delay_detector", "delay-detector"]
 no_cache = ["near-store/no_cache"]
 

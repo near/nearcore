@@ -23,6 +23,8 @@ borsh = "0.7.1"
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
 
+delay-detector = { path = "../../tools/delay_detector", optional = true }
+
 [dev-dependencies]
 tempfile = "3"
 bencher = "0.1.5"
@@ -37,3 +39,4 @@ default = []
 no_cache = []
 adversarial = []
 single_thread_rocksdb = []
+delay_detector = ["delay-detector"]

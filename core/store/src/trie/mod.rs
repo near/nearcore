@@ -34,6 +34,9 @@ pub mod update;
 #[cfg(test)]
 mod trie_tests;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// For fraud proofs
@@ -664,11 +667,15 @@ impl Trie {
         root: &CryptoHash,
         key: &[u8],
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("trie_get_ref".into());
         let key = NibbleSlice::new(key);
         self.lookup(root, key)
     }
 
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("trie_get".into());
         match self.get_ref(root, key)? {
             Some((_length, hash)) => self.retrieve_raw_bytes(&hash).map(Some),
             None => Ok(None),

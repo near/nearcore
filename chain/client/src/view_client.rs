@@ -48,6 +48,9 @@ use crate::{
 };
 use near_primitives::sharding::ShardChunk;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
 /// Waiting time between requests, in ms
@@ -773,6 +776,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
     type Result = NetworkViewClientResponses;
 
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("handle view client message".into());
         match msg {
             #[cfg(feature = "adversarial")]
             NetworkViewClientMessages::Adversarial(adversarial_msg) => {

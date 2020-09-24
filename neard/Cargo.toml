@@ -56,7 +56,7 @@ adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-sto
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache"]
-delay_detector = ["near-client/delay_detector"]
+delay_detector = ["near-client/delay_detector", "node-runtime/delay_detector", "delay-detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
 
 [[bin]]
