@@ -36,15 +36,11 @@ pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 const MAX_BLOCK_REQUEST: usize = 100;
 
 /// Maximum number of blocks to ask from single peer.
-const MAX_PEER_BLOCK_REQUEST: usize = 10;
+const MAX_PEER_BLOCK_REQUEST: usize = 20;
 
 const BLOCK_REQUEST_TIMEOUT: i64 = 6;
 const BLOCK_SOME_RECEIVED_TIMEOUT: i64 = 2;
 const BLOCK_REQUEST_BROADCAST_OFFSET: u64 = 2;
-
-/// If the number of hashes in the cache is below this number, we should
-/// refill the cache to request more blocks.
-const BLOCK_SYNC_CACHE_LOWER_LIMIT: usize = 10;
 
 /// Sync state download timeout in seconds.
 pub const STATE_SYNC_TIMEOUT: i64 = 10;
@@ -486,9 +482,7 @@ impl BlockSync {
         if header_head.height <= head.height {
             return Ok(vec![]);
         }
-        let close_to_header_head =
-            last_header.height() > header_head.height.saturating_sub(self.block_fetch_horizon);
-        if self.cache.len() < BLOCK_SYNC_CACHE_LOWER_LIMIT || close_to_header_head {
+        if (self.cache.len() as u64) < self.block_fetch_horizon {
             self.cache.clear();
             let mut hashes_to_request = vec![];
 
@@ -1174,7 +1168,7 @@ mod test {
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
     use near_network::test_utils::MockNetworkAdapter;
-    use near_network::types::PeerChainInfo;
+    use near_network::types::PeerChainInfoV2;
     use near_network::PeerInfo;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
@@ -1239,13 +1233,14 @@ mod test {
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: PeerChainInfo {
+            chain_info: PeerChainInfoV2 {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
                     hash: *chain.genesis().hash(),
                 },
                 height: chain2.head().unwrap().height,
                 tracked_shards: vec![],
+                archival: false,
             },
             edge_info: EdgeInfo::default(),
         };
@@ -1488,7 +1483,9 @@ mod test {
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
-        let expected_request_hashes = blocks[4..].iter().map(|b| *b.hash()).collect::<HashSet<_>>();
+        let mut expected_request_hashes =
+            blocks[4..].iter().map(|b| *b.hash()).collect::<HashSet<_>>();
+        expected_request_hashes.remove(blocks[6].hash());
         assert_eq!(requested_block_hashes, expected_request_hashes);
         assert_eq!(block_sync.cache.len() as u64, last_block_header.height() - 4);
         assert_eq!(block_sync.cache.last_header, Some(last_block_header.clone()));

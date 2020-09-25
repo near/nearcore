@@ -23,15 +23,15 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkWithArcReceipts,
+    ReceiptProof,
 };
 use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::version::{
-    ProtocolVersion, NETWORK_PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-    PROTOCOL_VERSION,
+    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
@@ -114,7 +114,7 @@ impl FromStr for PeerInfo {
                 format!("Invalid PeerInfo format: {:?}", chunks),
             )));
         }
-        Ok(PeerInfo { id: PeerId(chunks[0].try_into()?), addr, account_id })
+        Ok(PeerInfo { id: PeerId(chunks[0].parse()?), addr, account_id })
     }
 }
 
@@ -127,14 +127,39 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 /// Peer chain information.
+/// TODO: Remove in next version
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockHeight,
-    /// Shards that the peer is tracking
+    /// Shards that the peer is tracking.
     pub tracked_shards: Vec<ShardId>,
+}
+
+/// Peer chain information.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
+pub struct PeerChainInfoV2 {
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Last known chain height of the peer.
+    pub height: BlockHeight,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
+}
+
+impl From<PeerChainInfo> for PeerChainInfoV2 {
+    fn from(peer_chain_info: PeerChainInfo) -> Self {
+        Self {
+            genesis_id: peer_chain_info.genesis_id,
+            height: peer_chain_info.height,
+            tracked_shards: peer_chain_info.tracked_shards,
+            archival: false,
+        }
+    }
 }
 
 /// Peer type.
@@ -174,8 +199,9 @@ impl std::error::Error for HandshakeFailureReason {}
 
 #[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
-    /// Protocol version.
     pub version: u32,
+    /// Oldest supported protocol version.
+    pub oldest_supported_version: u32,
     /// Sender's peer id.
     pub peer_id: PeerId,
     /// Receiver's peer id.
@@ -183,17 +209,21 @@ pub struct Handshake {
     /// Sender's listening addr.
     pub listen_port: Option<u16>,
     /// Peer's chain information.
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     /// Info for new edge.
     pub edge_info: EdgeInfo,
 }
 
 /// Struct describing the layout for Handshake.
 /// It is used to automatically derive BorshDeserialize.
+/// Struct describing the layout for Handshake.
+/// It is used to automatically derive BorshDeserialize.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct HandshakeAutoDes {
     /// Protocol version.
     pub version: u32,
+    /// Oldest supported protocol version.
+    pub oldest_supported_version: u32,
     /// Sender's peer id.
     pub peer_id: PeerId,
     /// Receiver's peer id.
@@ -201,21 +231,23 @@ pub struct HandshakeAutoDes {
     /// Sender's listening addr.
     pub listen_port: Option<u16>,
     /// Peer's chain information.
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     /// Info for new edge.
     pub edge_info: EdgeInfo,
 }
 
 impl Handshake {
     pub fn new(
+        version: ProtocolVersion,
         peer_id: PeerId,
         target_peer_id: PeerId,
         listen_port: Option<u16>,
-        chain_info: PeerChainInfo,
+        chain_info: PeerChainInfoV2,
         edge_info: EdgeInfo,
     ) -> Self {
         Handshake {
-            version: NETWORK_PROTOCOL_VERSION,
+            version,
+            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
             peer_id,
             target_peer_id,
             listen_port,
@@ -258,6 +290,7 @@ impl From<HandshakeAutoDes> for Handshake {
     fn from(handshake: HandshakeAutoDes) -> Self {
         Self {
             version: handshake.version,
+            oldest_supported_version: handshake.oldest_supported_version,
             peer_id: handshake.peer_id,
             target_peer_id: handshake.target_peer_id,
             listen_port: handshake.listen_port,
@@ -267,6 +300,7 @@ impl From<HandshakeAutoDes> for Handshake {
     }
 }
 
+// TODO: Remove Handshake V2 in next iteration
 #[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct HandshakeV2 {
     pub version: u32,
@@ -344,25 +378,6 @@ impl BorshDeserialize for HandshakeV2 {
     }
 }
 
-impl From<Handshake> for HandshakeV2 {
-    fn from(handshake_old: Handshake) -> Self {
-        Self {
-            // In previous version of handshake, nodes usually sent the oldest supported version instead of their current version.
-            // Computing the current version of the other as the oldest version plus 1, but keeping it smaller than current version.
-            version: std::cmp::min(
-                NETWORK_PROTOCOL_VERSION,
-                handshake_old.version.saturating_add(1),
-            ),
-            oldest_supported_version: handshake_old.version,
-            peer_id: handshake_old.peer_id,
-            target_peer_id: handshake_old.target_peer_id,
-            listen_port: handshake_old.listen_port,
-            chain_info: handshake_old.chain_info,
-            edge_info: handshake_old.edge_info,
-        }
-    }
-}
-
 impl From<HandshakeV2AutoDes> for HandshakeV2 {
     fn from(handshake: HandshakeV2AutoDes) -> Self {
         Self {
@@ -372,6 +387,20 @@ impl From<HandshakeV2AutoDes> for HandshakeV2 {
             target_peer_id: handshake.target_peer_id,
             listen_port: handshake.listen_port,
             chain_info: handshake.chain_info,
+            edge_info: handshake.edge_info,
+        }
+    }
+}
+
+impl From<HandshakeV2> for Handshake {
+    fn from(handshake: HandshakeV2) -> Self {
+        Self {
+            version: handshake.version,
+            oldest_supported_version: handshake.oldest_supported_version,
+            peer_id: handshake.peer_id,
+            target_peer_id: handshake.target_peer_id,
+            listen_port: handshake.listen_port,
+            chain_info: handshake.chain_info.into(),
             edge_info: handshake.edge_info,
         }
     }
@@ -489,6 +518,20 @@ impl Debug for RoutedMessageBody {
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
+pub enum AccountIdOrPeerTrackingShard {
+    AccountId(AccountId),
+    // The request should be sent to any peer tracking shard.
+    // `fallback_account_id` is the account to sent the message to if no such peer exist. It is used
+    // to provide the block producer owning the part to cover situations when no peer is tracking
+    // shard, but the corresponding block producer is still online.
+    PeerTrackingShard {
+        shard_id: ShardId,
+        only_archival: bool,
+        fallback_account_id: Option<AccountId>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
@@ -946,7 +989,7 @@ pub struct Consolidate {
     pub actor: Addr<Peer>,
     pub peer_info: PeerInfo,
     pub peer_type: PeerType,
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     // Edge information from this node.
     // If this is None it implies we are outbound connection, so we need to create our
     // EdgeInfo part and send it to the other peer.
@@ -972,6 +1015,7 @@ pub enum ConsolidateResponse {
 pub struct Unregister {
     pub peer_id: PeerId,
     pub peer_type: PeerType,
+    pub remove_from_peer_store: bool,
 }
 
 pub struct PeerList {
@@ -1098,7 +1142,7 @@ pub enum NetworkRequests {
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {
-        account_id: AccountId,
+        target: AccountIdOrPeerTrackingShard,
         request: PartialEncodedChunkRequestMsg,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
@@ -1109,7 +1153,7 @@ pub enum NetworkRequests {
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkMessage {
         account_id: AccountId,
-        partial_encoded_chunk: PartialEncodedChunk,
+        partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
     },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
@@ -1165,7 +1209,7 @@ impl Message for EdgeList {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     pub edge_info: EdgeInfo,
 }
 
@@ -1367,7 +1411,12 @@ pub enum NetworkViewClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Chain information.
-    ChainInfo { genesis_id: GenesisId, height: BlockHeight, tracked_shards: Vec<ShardId> },
+    ChainInfo {
+        genesis_id: GenesisId,
+        height: BlockHeight,
+        tracked_shards: Vec<ShardId>,
+        archival: bool,
+    },
     /// Response to state request.
     StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.
@@ -1401,7 +1450,7 @@ pub struct QueryPeerStats {}
 #[derive(Debug)]
 pub struct PeerStatsResult {
     /// Chain info.
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     /// Number of bytes we've received from the peer.
     pub received_bytes_per_sec: u64,
     /// Number of bytes we've sent to the peer.
@@ -1535,7 +1584,7 @@ mod tests {
     #[test]
     fn test_struct_size() {
         assert_size!(PeerInfo);
-        assert_size!(PeerChainInfo);
+        assert_size!(PeerChainInfoV2);
         assert_size!(Handshake);
         assert_size!(AnnounceAccountRoute);
         assert_size!(AnnounceAccount);

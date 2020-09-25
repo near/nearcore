@@ -37,6 +37,7 @@ pytest --timeout=300 sanity/gc_after_sync1.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
 pytest --timeout=300 sanity/large_messages.py
+pytest --timeout=120 sanity/handshake_tie_resolution.py
 pytest sanity/controlled_edge_nonce.py
 pytest sanity/repro_2916.py
 pytest --timeout=240 sanity/switch_node_key.py
@@ -63,6 +64,7 @@ pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
 
 # python spec tests
 pytest spec/network/handshake.py
+pytest spec/network/future_handshake.py
 pytest spec/network/peers_request.py
 
 # python adversarial tests
