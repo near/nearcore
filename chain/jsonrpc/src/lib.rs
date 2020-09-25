@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::fmt::Display;
 use std::string::FromUtf8Error;
 use std::time::Duration;
@@ -21,7 +20,6 @@ use near_client::{
     GetNetworkInfo, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
     GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus, TxStatusError, ViewClientActor,
 };
-use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::message::{Message, Request, RpcError};
 use near_jsonrpc_client::ChunkId;
@@ -519,7 +517,8 @@ impl JsonRpcHandler {
                     None => QueryRequest::ViewAccessKeyList { account_id },
                     Some(pk) => QueryRequest::ViewAccessKey {
                         account_id,
-                        public_key: PublicKey::try_from(pk)
+                        public_key: pk
+                            .parse()
                             .map_err(|_| RpcError::server_error(Some("Invalid public key")))?,
                     },
                 },

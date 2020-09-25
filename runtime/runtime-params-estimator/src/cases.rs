@@ -3,7 +3,7 @@ use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 use std::process;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
@@ -330,8 +330,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of staking.
-    let public_key: PublicKey =
-        "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
+    let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
     measure_actions(
         Metric::ActionStake,
         &mut m,

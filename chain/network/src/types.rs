@@ -114,7 +114,7 @@ impl FromStr for PeerInfo {
                 format!("Invalid PeerInfo format: {:?}", chunks),
             )));
         }
-        Ok(PeerInfo { id: PeerId(chunks[0].try_into()?), addr, account_id })
+        Ok(PeerInfo { id: PeerId(chunks[0].parse()?), addr, account_id })
     }
 }
 
