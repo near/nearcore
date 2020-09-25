@@ -47,6 +47,7 @@ sys.path.append('lib')
 
 from cluster import init_cluster, spin_up_node, load_config
 from populate import genesis_populate_all, copy_genesis
+from utils import LogTracker
 
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
 
@@ -129,9 +130,13 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 wait_for_height(SMALL_HEIGHT, boot_node)
 
 observer = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
+tracker = LogTracker(observer)
 
 # Check that bps is not degraded
 wait_for_height(LARGE_HEIGHT, boot_node)
 
 # Make sure observer2 is able to sync
 wait_for_height(SMALL_HEIGHT, observer)
+
+tracker.reset()
+assert tracker.check("transition to State Sync")
