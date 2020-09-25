@@ -241,6 +241,7 @@ impl Runtime {
             apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
+                // println!("=== a");
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
                 state_update.commit(StateChangeCause::TransactionProcessing {
                     tx_hash: signed_transaction.get_hash(),
@@ -275,6 +276,7 @@ impl Runtime {
                 Ok((receipt, outcome))
             }
             Err(e) => {
+                println!("=== b");
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_FAILED_TOTAL);
                 state_update.rollback();
                 return Err(e);
@@ -297,6 +299,7 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
+        // println!("enter apply_action");
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(
             &self.config.transaction_costs,
@@ -456,6 +459,8 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        // println!("=== apply_action_receipt");
+
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
             _ => unreachable!("given receipt should be an action receipt"),
@@ -789,6 +794,7 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+        // println!("=== process_receipt");
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -1068,12 +1074,14 @@ impl Runtime {
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ApplyResult, RuntimeError> {
+        // println!("=== 1");
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
 
         let mut stats = ApplyStats::default();
 
+        // println!("=== 2");
         if let Some(validator_accounts_update) = validator_accounts_update {
             self.update_validator_accounts(
                 &mut state_update,
@@ -1087,6 +1095,8 @@ impl Runtime {
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
         let mut total_gas_burnt = 0;
+
+        // println!("=== 3");
 
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
@@ -1105,15 +1115,18 @@ impl Runtime {
 
             outcomes.push(outcome_with_id);
         }
+        // println!("=== 4");
 
         let mut delayed_receipts_indices: DelayedReceiptIndices =
             get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
         let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
+        // println!("=== 5");
 
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
+            // println!("=== process_receipt outer");
             self.process_receipt(
                 state_update,
                 apply_state,
@@ -1134,6 +1147,7 @@ impl Runtime {
             )?;
             Ok(())
         };
+        // println!("=== 6");
 
         let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
@@ -1142,11 +1156,16 @@ impl Runtime {
             if total_gas_burnt < gas_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
+                // println!("=== 6.1");
+
                 process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
+                // println!("=== 6.2");
+
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
         }
+        // println!("=== 7");
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
@@ -1174,6 +1193,7 @@ impl Runtime {
             delayed_receipts_indices.first_index += 1;
             process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
         }
+        // println!("=== 8");
 
         // And then we process the new incoming receipts. These are receipts from other shards.
         for receipt in incoming_receipts.iter() {
@@ -1191,6 +1211,7 @@ impl Runtime {
         if delayed_receipts_indices != initial_delayed_receipt_indices {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         }
+        // println!("=== 9");
 
         check_balance(
             &self.config.transaction_costs,
@@ -1207,6 +1228,7 @@ impl Runtime {
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
 
         let (trie_changes, state_changes) = state_update.finalize()?;
+        // println!("=== 10");
 
         // Dedup proposals from the same account.
         // The order is deterministically changed.
@@ -1218,6 +1240,7 @@ impl Runtime {
                 unique_proposals.push(proposal);
             }
         }
+        // println!("=== 11");
 
         let state_root = trie_changes.new_root;
         let proof = trie.recorded_storage();

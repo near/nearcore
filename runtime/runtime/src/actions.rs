@@ -52,6 +52,7 @@ pub(crate) fn execute_function_call(
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
     if account_id == "evm" || account_id.ends_with(".evm") {
+        // println!("evm!!!!!");
         near_evm_runner::run_evm(
             runtime_ext,
             &config.wasm_config,
@@ -68,7 +69,7 @@ pub(crate) fn execute_function_call(
             is_view,
         )
     } else {
-        // println!("wasm!!!!");
+        println!("wasm!!!!");
         let code = match runtime_ext.get_code(account.code_hash) {
             Ok(Some(code)) => code,
             Ok(None) => {
@@ -150,6 +151,7 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
+    // println!("aaaaaaaa");
     if account.amount.checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
             "Account balance integer overflow during function call deposit".to_string(),

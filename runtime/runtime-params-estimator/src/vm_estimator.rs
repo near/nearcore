@@ -18,7 +18,6 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
-use near_primitives::utils::EVM_CODE_HASH;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::gas_counter::reset_evm_gas_counter;
@@ -154,6 +153,7 @@ fn load_and_compile(path: &PathBuf, gas_metric: GasMetric, vm_kind: VMKind) -> O
     }
 }
 
+#[derive(Debug)]
 pub struct EvmCost {
     pub evm_gas: u64,
     pub cost: Ratio<u64>,
@@ -178,28 +178,29 @@ fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
         accounts_deployed.insert(account_idx);
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-        let mut buf = [0; 32];
-        buf[0] = 1;
 
-        testbed.lock().unwrap().process_block(
-            &vec![SignedTransaction::from_actions(
-                nonce as u64,
-                account_id.clone(),
-                account_id.clone(),
-                &signer,
-                vec![Action::DeployContract(DeployContractAction { code: buf.into() })],
-                CryptoHash::default(),
-            )],
-            false,
-        );
+        // let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        // let mut buf = [0; 32];
+        // buf[0] = 1;
+
+        // testbed.lock().unwrap().process_block(
+        //     &vec![SignedTransaction::from_actions(
+        //         nonce as u64,
+        //         account_id.clone(),
+        //         account_id.clone(),
+        //         &signer,
+        //         vec![Action::DeployContract(DeployContractAction { code: buf.into() })],
+        //         CryptoHash::default(),
+        //     )],
+        //     false,
+        // );
         // println!("deploy evm code");
 
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.to_owned(),
+            "evm".to_owned(),
             &signer,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "deploy_code".to_string(),
@@ -216,22 +217,25 @@ fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
     for block_size in config.block_sizes.clone() {
         // [100]
         for _ in 0..config.iter_per_block {
-            // 0..10
+            // 0..1
             let block: Vec<_> = (0..block_size).map(|_| f()).collect();
             let mut testbed = testbed.lock().unwrap();
             let start = start_count(config.metric);
             testbed.process_block(&block, allow_failures);
             let cost = end_count(config.metric, &start);
             total_cost += cost;
-            evm_gas = reset_evm_gas_counter();
-            println!("+++ evm_gas {}", evm_gas);
         }
     }
+    let start = start_count(config.metric);
+    testbed.lock().unwrap().process_blocks_until_no_receipts(allow_failures);
+    let cost = end_count(config.metric, &start);
+    total_cost += cost;
 
-    Some(EvmCost {
-        evm_gas,
-        cost: Ratio::new(total_cost, (config.iter_per_block * config.block_sizes.len()) as u64),
-    })
+    let counts = (config.iter_per_block * config.block_sizes.iter().sum::<usize>()) as u64;
+    evm_gas = reset_evm_gas_counter() / counts;
+
+    // evm_gas is  times gas spent, so does cost
+    Some(EvmCost { evm_gas, cost: Ratio::new(total_cost, counts) })
 }
 
 fn load_and_deploy_evm_contract(path: &PathBuf, config: &Config) -> Option<EvmCost> {
@@ -299,6 +303,7 @@ pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef {
         .filter(|x| x.is_some())
         .map(|x| x.unwrap())
         .collect::<Vec<EvmCost>>();
+    println!("{:?}", measurements);
     measurements_to_coef(measurements, true)
 }
 
@@ -323,6 +328,8 @@ pub fn create_evm_context<'a>(
         vm_config,
         fees_config,
         1000,
+        account_id.to_string(),
+        account_id.to_string(),
         account_id.to_string(),
         attached_deposit,
         0,
@@ -378,6 +385,7 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
             )
         },
     ];
+    println!("{:?}", measurements);
 
     measurements_to_coef(measurements, true)
 }
@@ -389,23 +397,98 @@ pub fn measure_evm_function(
     args: Vec<u8>,
     test_name: &str,
 ) -> EvmCost {
-    let gas_metric = config.metric;
-    let start = start_count(gas_metric);
+    // let gas_metric = config.metric;
+    // let start = start_count(gas_metric);
+    // let mut evm_gas = 0;
+    // for i in 0..NUM_ITERATIONS {
+    //     if i == 0 {
+    //         evm_gas = context.evm_gas_counter.used_gas.as_u64();
+    //     } else if i == 1 {
+    //         evm_gas = context.evm_gas_counter.used_gas.as_u64() - evm_gas;
+    //     }
+    //     let _ = context.call_function(args.clone()).unwrap();
+    // }
+    // let end = end_count(gas_metric, &start);
+    // let cost = Ratio::new(end, NUM_ITERATIONS);
+    // if verbose {
+    //     println!("Testing call {}: ({}, {})", test_name, evm_gas, cost);
+    // }
+    // EvmCost { evm_gas, cost }
+
+    let path = PathBuf::from(config.state_dump_path.as_str());
+    println!("{:?}. Preparing testbed. Loading state.", config.metric);
+    let testbed = Mutex::new(RuntimeTestbed::from_state_dump(&path));
+    let allow_failures = false;
+    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    let mut accounts_deployed = HashSet::new();
+    let code = hex::decode(&TEST).unwrap();
+
+    let mut f = || {
+        let account_idx = loop {
+            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
+            if accounts_deployed.contains(&x) {
+                continue;
+            }
+            break x;
+        };
+        accounts_deployed.insert(account_idx);
+        let account_id = get_account_id(account_idx);
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        testbed.lock().unwrap().process_block(
+            &vec![SignedTransaction::from_actions(
+                nonce as u64,
+                account_id.clone(),
+                account_id.clone(),
+                &signer,
+                vec![Action::DeployContract(DeployContractAction { code: code.clone() })],
+                CryptoHash::default(),
+            )],
+            false,
+        );
+        testbed.lock().unwrap().process_blocks_until_no_receipts(allow_failures);
+
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id.clone(),
+            "evm".to_owned(),
+            &signer,
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "call_function".to_string(),
+                args: args.clone(),
+                gas: 10u64.pow(18),
+                deposit: 0,
+            })],
+            CryptoHash::default(),
+        )
+    };
+
     let mut evm_gas = 0;
-    for i in 0..NUM_ITERATIONS {
-        if i == 0 {
-            evm_gas = context.evm_gas_counter.used_gas.as_u64();
-        } else if i == 1 {
-            evm_gas = context.evm_gas_counter.used_gas.as_u64() - evm_gas;
+    let mut total_cost = 0;
+    for block_size in config.block_sizes.clone() {
+        // [100]
+        for _ in 0..config.iter_per_block {
+            // 0..1
+            let block: Vec<_> = (0..block_size).map(|_| f()).collect();
+            let mut testbed = testbed.lock().unwrap();
+            let start = start_count(config.metric);
+            testbed.process_block(&block, allow_failures);
+            let cost = end_count(config.metric, &start);
+            total_cost += cost;
         }
-        let _ = context.call_function(args.clone()).unwrap();
     }
-    let end = end_count(gas_metric, &start);
-    let cost = Ratio::new(end, NUM_ITERATIONS);
-    if verbose {
-        println!("Testing call {}: ({}, {})", test_name, evm_gas, cost);
-    }
-    EvmCost { evm_gas, cost }
+    let start = start_count(config.metric);
+    testbed.lock().unwrap().process_blocks_until_no_receipts(allow_failures);
+    let cost = end_count(config.metric, &start);
+    total_cost += cost;
+
+    let counts = (config.iter_per_block * config.block_sizes.iter().sum::<usize>()) as u64;
+    evm_gas = reset_evm_gas_counter() / counts;
+
+    // evm_gas is  times gas spent, so does cost
+    EvmCost { evm_gas, cost: Ratio::new(total_cost, counts) }
 }
 
 pub fn measure_evm_precompiled(config: &Config, verbose: bool) -> EvmPrecompiledFunctionCost {
