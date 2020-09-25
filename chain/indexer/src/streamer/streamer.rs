@@ -174,7 +174,18 @@ async fn build_streamer_message(
     block: views::BlockView,
     near_config: &neard::NearConfig,
 ) -> Result<StreamerMessage, FailedToFetchData> {
-    let chunks = fetch_chunks(&client, &block.chunks).await?;
+    let chunks_to_fetch = block
+        .chunks
+        .iter()
+        .filter_map(|c| {
+            if c.height_included == block.header.height {
+                Some(c.chunk_hash)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
 
     let mut local_receipts: Vec<views::ReceiptView> = vec![];
     let mut outcomes = fetch_outcomes(&client, block.header.hash).await?;
@@ -265,12 +276,12 @@ async fn fetch_outcomes(
 /// Returns Chunks as a `Vec`
 async fn fetch_chunks(
     client: &Addr<near_client::ViewClientActor>,
-    chunks: &[views::ChunkHeaderView],
+    chunk_hashes: Vec<CryptoHash>,
 ) -> Result<Vec<views::ChunkView>, FailedToFetchData> {
-    let mut chunks: futures::stream::FuturesUnordered<_> = chunks
-        .iter()
-        .map(|chunk| {
-            fetch_single_chunk(&client, near_client::GetChunk::ChunkHash(chunk.chunk_hash.into()))
+    let mut chunks: futures::stream::FuturesUnordered<_> = chunk_hashes
+        .into_iter()
+        .map(|chunk_hash| {
+            fetch_single_chunk(&client, near_client::GetChunk::ChunkHash(chunk_hash.into()))
         })
         .collect();
     let mut response = Vec::<views::ChunkView>::with_capacity(chunks.len());
