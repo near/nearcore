@@ -34,6 +34,8 @@ near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }
 near-runtime-fees = { path = "../near-runtime-fees", version = "2.1.0" }
 
+derivative = "2.1.1"
+
 [dev-dependencies]
 ethabi = "8.0.0"
 ethabi-contract = "8.0.0"

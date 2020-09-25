@@ -37,6 +37,13 @@ pub struct GasCounter {
     profile: Option<ProfileData>,
 }
 
+use std::fmt;
+impl fmt::Debug for GasCounter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("").finish()
+    }
+}
+
 impl GasCounter {
     pub fn new(
         ext_costs_config: ExtCostsConfig,

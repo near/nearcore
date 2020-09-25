@@ -1163,6 +1163,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derivative"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb582b60359da160a9477ee80f15c8d784c477e69c217ef2cdd4169c24ea380f"
+dependencies = [
+ "proc-macro2 1.0.20",
+ "quote 1.0.3",
+ "syn 1.0.38",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2858,6 +2869,7 @@ dependencies = [
  "bn",
  "borsh",
  "byteorder",
+ "derivative",
  "enum-primitive-derive",
  "ethabi",
  "ethabi-contract",

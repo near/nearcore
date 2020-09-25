@@ -406,7 +406,7 @@ pub fn measure_evm_function(
     //     } else if i == 1 {
     //         evm_gas = context.evm_gas_counter.used_gas.as_u64() - evm_gas;
     //     }
-    //     let _ = context.call_function(args.clone()).unwrap();
+    let _ = context.call_function(args.clone()).unwrap();
     // }
     // let end = end_count(gas_metric, &start);
     // let cost = Ratio::new(end, NUM_ITERATIONS);
@@ -440,9 +440,14 @@ pub fn measure_evm_function(
             &vec![SignedTransaction::from_actions(
                 nonce as u64,
                 account_id.clone(),
-                account_id.clone(),
+                "evm".to_owned(),
                 &signer,
-                vec![Action::DeployContract(DeployContractAction { code: code.clone() })],
+                vec![Action::FunctionCall(FunctionCallAction {
+                    method_name: "deploy_code".to_string(),
+                    args: code.clone(),
+                    gas: 10u64.pow(18),
+                    deposit: 0,
+                })],
                 CryptoHash::default(),
             )],
             false,
