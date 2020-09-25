@@ -300,10 +300,9 @@ fn test_query_access_key() {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "test".to_string(),
-                    public_key: PublicKey::try_from(
-                        "ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2",
-                    )
-                    .unwrap(),
+                    public_key: "ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2"
+                        .parse()
+                        .unwrap(),
                 },
             })
             .await
@@ -584,8 +583,7 @@ fn test_view_access_key_non_existing_account_id_and_public_key_must_return_error
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "\u{0}\u{0}\u{0}\u{0}\u{0}9".to_string(),
-                    public_key: PublicKey::try_from("99999999999999999999999999999999999999999999")
-                        .unwrap(),
+                    public_key: "99999999999999999999999999999999999999999999".parse().unwrap(),
                 },
             })
             .await
