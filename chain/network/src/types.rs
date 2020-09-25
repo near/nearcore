@@ -114,7 +114,7 @@ impl FromStr for PeerInfo {
                 format!("Invalid PeerInfo format: {:?}", chunks),
             )));
         }
-        Ok(PeerInfo { id: PeerId(chunks[0].try_into()?), addr, account_id })
+        Ok(PeerInfo { id: PeerId(chunks[0].parse()?), addr, account_id })
     }
 }
 
@@ -1015,6 +1015,7 @@ pub enum ConsolidateResponse {
 pub struct Unregister {
     pub peer_id: PeerId,
     pub peer_type: PeerType,
+    pub remove_from_peer_store: bool,
 }
 
 pub struct PeerList {

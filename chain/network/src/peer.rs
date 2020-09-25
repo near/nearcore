@@ -601,7 +601,7 @@ impl Actor for Peer {
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
         near_metrics::dec_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
-        debug!(target: "network", "{:?}: Peer {} disconnected.", self.node_info.id, self.peer_info);
+        debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.node_info.id, self.peer_info, self.peer_status);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if let PeerStatus::Banned(ban_reason) = self.peer_status {
                 self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id.clone(), ban_reason });
@@ -609,6 +609,13 @@ impl Actor for Peer {
                 self.peer_manager_addr.do_send(Unregister {
                     peer_id: peer_info.id.clone(),
                     peer_type: self.peer_type,
+                    // If the PeerActor is no longer in the Connecting state this means
+                    // that the connection was consolidated at some point in the past.
+                    // Only if the connection was consolidated try to remove this peer from the
+                    // peer store. This avoids a situation in which both peers are connecting to
+                    // each other, and after resolving the tie, a peer tries to remove the other
+                    // peer from the active connection if it was added in the parallel connection.
+                    remove_from_peer_store: self.peer_status != PeerStatus::Connecting,
                 })
             }
         }

@@ -326,14 +326,27 @@ impl PeerManagerActor {
 
     /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
     /// data from ongoing connection established is removed.
-    fn unregister_peer(&mut self, ctx: &mut Context<Self>, peer_id: PeerId, peer_type: PeerType) {
+    fn unregister_peer(
+        &mut self,
+        ctx: &mut Context<Self>,
+        peer_id: PeerId,
+        peer_type: PeerType,
+        remove_from_peer_store: bool,
+    ) {
+        debug!(target: "network", "Unregister peer: {:?} {:?}", peer_id, peer_type);
         // If this is an unconsolidated peer because failed / connected inbound, just delete it.
         if peer_type == PeerType::Outbound && self.outgoing_peers.contains(&peer_id) {
             self.outgoing_peers.remove(&peer_id);
             return;
         }
-        self.remove_active_peer(ctx, &peer_id, Some(peer_type));
-        unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
+
+        if remove_from_peer_store {
+            self.remove_active_peer(ctx, &peer_id, Some(peer_type));
+            unwrap_or_error!(
+                self.peer_store.peer_disconnected(&peer_id),
+                "Failed to save peer data"
+            );
+        }
     }
 
     /// Add peer to ban list.
@@ -776,7 +789,8 @@ impl PeerManagerActor {
             (10f64 * EXPONENTIAL_BACKOFF_RATIO.powf(self.monitor_peers_attempts as f64)) as u64
         };
 
-        self.monitor_peers_attempts = cmp::min(13, self.monitor_peers_attempts + 1);
+        self.monitor_peers_attempts =
+            cmp::min(EXPONENTIAL_BACKOFF_LIMIT, self.monitor_peers_attempts + 1);
         ctx.run_later(Duration::from_millis(wait), move |act, ctx| {
             act.monitor_peers(ctx);
         });
@@ -1637,7 +1651,7 @@ impl Handler<Unregister> for PeerManagerActor {
     fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("unregister".into());
-        self.unregister_peer(ctx, msg.peer_id, msg.peer_type);
+        self.unregister_peer(ctx, msg.peer_id, msg.peer_type, msg.remove_from_peer_store);
     }
 }
 
