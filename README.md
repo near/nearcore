@@ -58,12 +58,12 @@ NEAR Protocol is built to deliver usability and scalability of modern PaaS like 
 The easiest way to join the network, is by using `nearup` command, which you can install:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSfL https://up.near.dev | python3
+pip3 install --user nearup
 ```
 
 You can join all the active networks:
-* TestNet: `nearup testnet`
-* BetaNet: `nearup betanet`
+* TestNet: `nearup run testnet`
+* BetaNet: `nearup run betanet`
 
 Check `nearup` repository for [more details](https://github.com/near/nearup) how to run with or without docker.
 
