@@ -406,7 +406,7 @@ pub fn measure_evm_function(
     //     } else if i == 1 {
     //         evm_gas = context.evm_gas_counter.used_gas.as_u64() - evm_gas;
     //     }
-    let _ = context.call_function(args.clone()).unwrap();
+    // let _ = context.call_function(args.clone()).unwrap();
     // }
     // let end = end_count(gas_metric, &start);
     // let cost = Ratio::new(end, NUM_ITERATIONS);
