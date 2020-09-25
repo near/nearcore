@@ -410,8 +410,6 @@ pub fn verify_transaction_signature(
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryInto;
-
     use borsh::BorshDeserialize;
 
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
@@ -449,8 +447,7 @@ mod tests {
     /// If it does - you MUST update all of the dependencies: like nearlib and other clients.
     #[test]
     fn test_serialize_transaction() {
-        let public_key: PublicKey =
-            "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
+        let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
         let transaction = Transaction {
             signer_id: "test.near".to_string(),
             public_key: public_key.clone(),

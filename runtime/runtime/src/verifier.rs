@@ -427,7 +427,8 @@ fn validate_delete_account_action(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::sync::Arc;
+
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
     use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
     use near_primitives::hash::{hash, CryptoHash};
@@ -439,9 +440,9 @@ mod tests {
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
-    use std::convert::TryInto;
-    use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
+
+    use super::*;
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -1460,9 +1461,7 @@ mod tests {
             &VMLimitConfig::default(),
             &Action::Stake(StakeAction {
                 stake: 100,
-                public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7"
-                    .try_into()
-                    .unwrap(),
+                public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7".parse().unwrap(),
             }),
         )
         .expect("valid action");

@@ -15,8 +15,8 @@ use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
 use near_store::migrations::{
-    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_6_to_7,
-    migrate_7_to_8, migrate_8_to_9, migration_9_to_10, set_store_version,
+    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
+    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
@@ -60,7 +60,7 @@ pub fn get_default_home() -> String {
 }
 
 /// Function checks current version of the database and applies migrations to the database.
-pub fn apply_store_migrations(path: &String) {
+pub fn apply_store_migrations(path: &String, is_archival: bool) {
     let db_version = get_store_version(path);
     if db_version > near_primitives::version::DB_VERSION {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
@@ -131,20 +131,26 @@ pub fn apply_store_migrations(path: &String) {
     }
     if db_version <= 9 {
         info!(target: "near", "Migrate DB from version 9 to 10");
-        // version 9 => 10
+        // version 9 => 10;
+        // populate partial encoded chunks for chunks that exist in storage
+        migrate_9_to_10(path, is_archival);
+    }
+    if db_version <= 10 {
+        info!(target: "near", "Migrate DB from version 10 to 11");
+        // version 10 => 11
         // Add final head
-        migration_9_to_10(path);
+        migrate_10_to_11(path);
     }
 
     let db_version = get_store_version(path);
     debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
 }
 
-pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {
+pub fn init_and_migrate_store(home_dir: &Path, is_archival: bool) -> Arc<Store> {
     let path = get_store_path(home_dir);
     let store_exists = store_path_exists(&path);
     if store_exists {
-        apply_store_migrations(&path);
+        apply_store_migrations(&path, is_archival);
     }
     let store = create_store(&path);
     if !store_exists {
@@ -157,7 +163,7 @@ pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<Arbiter>) {
-    let store = init_and_migrate_store(home_dir);
+    let store = init_and_migrate_store(home_dir, config.client_config.archive);
     near_actix_utils::init_stop_on_panic();
 
     let runtime = Arc::new(NightshadeRuntime::new(

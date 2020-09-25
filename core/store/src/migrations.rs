@@ -2,22 +2,28 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::sharding::{
+    EncodedShardChunk, PartialEncodedChunk, ReceiptList, ReceiptProof, ReedSolomonWrapper,
+    ShardChunk, ShardProof,
+};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
-use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColStateParts};
+use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts};
 use crate::db::{DBCol, RocksDB, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
 use crate::migrations::v8_to_v9::{repair_col_receipt_id_to_shard_id, repair_col_transactions};
 use crate::{create_store, Store, StoreUpdate, FINAL_HEAD_KEY, HEAD_KEY};
+use near_crypto::KeyType;
 use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
+use near_primitives::merkle::merklize;
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 
 pub mod v6_to_v7;
 pub mod v8_to_v9;
@@ -128,7 +134,80 @@ pub fn migrate_8_to_9(path: &String) {
     set_store_version(&store, 9);
 }
 
-pub fn migration_9_to_10(path: &String) {
+pub fn migrate_9_to_10(path: &String, is_archival: bool) {
+    let store = create_store(path);
+    if is_archival {
+        // Hard code the number of parts there. These numbers are only used for this migration.
+        let num_total_parts = 100;
+        let num_data_parts = (num_total_parts - 1) / 3;
+        let num_parity_parts = num_total_parts - num_data_parts;
+        let mut rs = ReedSolomonWrapper::new(num_data_parts, num_parity_parts);
+        let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+        let mut store_update = store.store_update();
+        let batch_size_limit = 10_000_000;
+        let mut batch_size = 0;
+        for (key, value) in store.iter_without_rc_logic(ColChunks) {
+            if let Ok(Some(partial_chunk)) =
+                store.get_ser::<PartialEncodedChunk>(ColPartialChunks, &key)
+            {
+                if partial_chunk.parts.len() == num_total_parts {
+                    continue;
+                }
+            }
+            batch_size += key.len() + value.len() + 8;
+            let chunk: ShardChunk = BorshDeserialize::try_from_slice(&value)
+                .expect("Borsh deserialization should not fail");
+            let ShardChunk { chunk_hash, header, transactions, receipts } = chunk;
+            let (mut encoded_chunk, merkle_paths) = EncodedShardChunk::new(
+                header.inner.prev_block_hash,
+                header.inner.prev_state_root,
+                header.inner.outcome_root,
+                header.inner.height_created,
+                header.inner.shard_id,
+                &mut rs,
+                header.inner.gas_used,
+                header.inner.gas_limit,
+                header.inner.balance_burnt,
+                header.inner.tx_root,
+                header.inner.validator_proposals.clone(),
+                transactions,
+                &receipts,
+                header.inner.outgoing_receipts_root,
+                &signer,
+            )
+            .expect("create encoded chunk should not fail");
+            encoded_chunk.header = header;
+            let outgoing_receipt_hashes =
+                vec![hash(&ReceiptList(0, &receipts).try_to_vec().unwrap())];
+            let (_, outgoing_receipt_proof) = merklize(&outgoing_receipt_hashes);
+
+            let partial_encoded_chunk = encoded_chunk.create_partial_encoded_chunk(
+                (0..num_total_parts as u64).collect(),
+                vec![ReceiptProof(
+                    receipts,
+                    ShardProof {
+                        from_shard_id: 0,
+                        to_shard_id: 0,
+                        proof: outgoing_receipt_proof[0].clone(),
+                    },
+                )],
+                &merkle_paths,
+            );
+            store_update
+                .set_ser(ColPartialChunks, chunk_hash.as_ref(), &partial_encoded_chunk)
+                .expect("storage update should not fail");
+            if batch_size > batch_size_limit {
+                store_update.commit().expect("storage update should not fail");
+                store_update = store.store_update();
+                batch_size = 0;
+            }
+        }
+        store_update.commit().expect("storage update should not fail");
+    }
+    set_store_version(&store, 10);
+}
+
+pub fn migrate_10_to_11(path: &String) {
     let store = create_store(path);
     let mut store_update = store.store_update();
     let head = store.get_ser::<Tip>(ColBlockMisc, HEAD_KEY).unwrap().expect("head must exist");
