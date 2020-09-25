@@ -178,6 +178,11 @@ fn default_peer_recent_time_window() -> Duration {
 fn default_safe_set_size() -> u32 {
     20
 }
+/// Lower bound of the number of connections to archival peers to keep
+/// if we are an archival node.
+fn default_archival_peer_connections_lower_bound() -> u32 {
+    10
+}
 /// Time to persist Accounts Id in the router without removing them in seconds.
 fn default_ttl_account_id_router() -> Duration {
     Duration::from_secs(TTL_ACCOUNT_ID_ROUTER)
@@ -215,6 +220,10 @@ pub struct Network {
     /// Used to avoid disconnecting from peers we have been connected since long time.
     #[serde(default = "default_safe_set_size")]
     pub safe_set_size: u32,
+    /// Lower bound of the number of connections to archival peers to keep
+    /// if we are an archival node.
+    #[serde(default = "default_archival_peer_connections_lower_bound")]
+    pub archival_peer_connections_lower_bound: u32,
     /// Handshake timeout.
     pub handshake_timeout: Duration,
     /// Duration before trying to reconnect to a peer.
@@ -247,6 +256,7 @@ impl Default for Network {
             ideal_connections_hi: default_ideal_connections_hi(),
             peer_recent_time_window: default_peer_recent_time_window(),
             safe_set_size: default_safe_set_size(),
+            archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
             handshake_timeout: Duration::from_secs(20),
             reconnect_delay: Duration::from_secs(60),
             skip_sync_wait: false,
@@ -613,6 +623,9 @@ impl NearConfig {
                 ideal_connections_hi: config.network.ideal_connections_hi,
                 peer_recent_time_window: config.network.peer_recent_time_window,
                 safe_set_size: config.network.safe_set_size,
+                archival_peer_connections_lower_bound: config
+                    .network
+                    .archival_peer_connections_lower_bound,
                 ban_window: config.network.ban_window,
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
@@ -624,6 +637,7 @@ impl NearConfig {
                 push_info_period: Duration::from_millis(100),
                 blacklist: blacklist_from_iter(config.network.blacklist),
                 outbound_disabled: false,
+                archive: config.archive,
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,

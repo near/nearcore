@@ -39,7 +39,7 @@ pub fn connect_at_max_capacity(
 
     // Wait until all running nodes have expected connections
     for node_id in 0..num_node {
-        runner.push_action(check_expected_connections(node_id, expected_connections));
+        runner.push_action(check_expected_connections(node_id, Some(expected_connections), None));
     }
 
     // Restart stopped nodes
@@ -49,7 +49,7 @@ pub fn connect_at_max_capacity(
 
     // Wait until all nodes have expected connections
     for node_id in 0..total_nodes {
-        runner.push_action(check_expected_connections(node_id, expected_connections));
+        runner.push_action(check_expected_connections(node_id, Some(expected_connections), None));
     }
 
     start_test(runner);
