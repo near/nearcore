@@ -112,5 +112,5 @@ def prepare_ab_test(other_branch):
     try:
         download_binary(uname, other_branch)
     except Exception:
-        compile_binary(other_branch)
+        compile_binary(str(other_branch))
     return '../target/debug/', [other_branch, escaped(current_branch())]

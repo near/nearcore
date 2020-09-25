@@ -178,7 +178,7 @@ pub struct Chain {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     blocks_with_missing_chunks: OrphanBlockPool,
-    genesis: BlockHeader,
+    genesis: Block,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
     /// Block economics, relevant to changes when new block must be produced.
@@ -214,7 +214,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: OrphanBlockPool::new(),
-            genesis: genesis.header().clone(),
+            genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
@@ -324,7 +324,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: OrphanBlockPool::new(),
-            genesis: genesis.header().clone(),
+            genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
@@ -387,12 +387,14 @@ impl Chain {
     }
 
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
-        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
-
-        if let Err(e) = block.check_validity() {
+        if let Err(e) =
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
+        {
             byzantine_assert!(false);
             return Err(e.into());
         }
+
+        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
         chain_store_update.save_block(block.clone());
         // We don't need to increase refcount for `prev_hash` at this point
@@ -620,6 +622,31 @@ impl Chain {
     /// and block is well-formed (various roots match).
     pub fn validate_block(&mut self, block: &Block) -> Result<(), Error> {
         self.process_block_header(&block.header(), |_| {})?;
+        Self::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis_block(), block)
+    }
+
+    fn check_block_validity(
+        runtime_adapter: &dyn RuntimeAdapter,
+        genesis_block: &Block,
+        block: &Block,
+    ) -> Result<(), Error> {
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+            if chunk_header.inner.height_created == genesis_block.header().height() {
+                // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
+                // We must verify that content matches and signature is empty.
+                let genesis_chunk = &genesis_block.chunks()[shard_id];
+                if genesis_chunk.hash != chunk_header.hash
+                    || genesis_chunk.signature != chunk_header.signature
+                {
+                    return Err(ErrorKind::InvalidChunk.into());
+                }
+            } else {
+                if !runtime_adapter.verify_chunk_header_signature(chunk_header)? {
+                    byzantine_assert!(false);
+                    return Err(ErrorKind::InvalidChunk.into());
+                }
+            }
+        }
         block.check_validity().map_err(|e| e.into())
     }
 
@@ -633,15 +660,7 @@ impl Chain {
         F: FnMut(ChallengeBody) -> (),
     {
         // We create new chain update, but it's not going to be committed so it's read only.
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         chain_update.process_block_header(header, on_challenge)?;
         Ok(())
     }
@@ -651,15 +670,7 @@ impl Chain {
         block_hash: &CryptoHash,
         challenger_hash: &CryptoHash,
     ) -> Result<(), Error> {
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         chain_update.mark_block_as_challenged(block_hash, Some(challenger_hash))?;
         chain_update.commit()?;
         Ok(())
@@ -712,15 +723,7 @@ impl Chain {
     /// soon as possible and allow next block producer to skip invalid blocks.
     pub fn process_challenge(&mut self, challenge: &Challenge) {
         let head = unwrap_or_return!(self.head());
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         match chain_update.verify_challenges(
             &vec![challenge.clone()],
             &head.epoch_id,
@@ -762,15 +765,7 @@ impl Chain {
         if !all_known {
             // Validate header and then add to the chain.
             for header in headers.iter() {
-                let mut chain_update = ChainUpdate::new(
-                    &mut self.store,
-                    self.runtime_adapter.clone(),
-                    &self.orphans,
-                    &self.blocks_with_missing_chunks,
-                    self.epoch_length,
-                    &self.block_economics_config,
-                    self.doomslug_threshold_mode,
-                );
+                let mut chain_update = self.chain_update();
 
                 match chain_update.check_header_known(header) {
                     Ok(_) => {}
@@ -792,15 +787,7 @@ impl Chain {
             }
         }
 
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
 
         if let Some(header) = headers.last() {
             // Update header_head if it's the new tip
@@ -1007,15 +994,7 @@ impl Chain {
         near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
 
         let prev_head = self.store.head()?;
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
         let block_height = block.header().height();
 
@@ -1726,15 +1705,7 @@ impl Chain {
         self.runtime_adapter.confirm_state(shard_id, &state_root, &parts)?;
 
         // Applying the chunk starts here
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
 
@@ -1742,15 +1713,7 @@ impl Chain {
         // Now we should build a chain up to height of `sync_hash` block.
         loop {
             height += 1;
-            let mut chain_update = ChainUpdate::new(
-                &mut self.store,
-                self.runtime_adapter.clone(),
-                &self.orphans,
-                &self.blocks_with_missing_chunks,
-                self.epoch_length,
-                &self.block_economics_config,
-                self.doomslug_threshold_mode,
-            );
+            let mut chain_update = self.chain_update();
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
             if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
@@ -1795,15 +1758,7 @@ impl Chain {
         let block = self.store.get_block(&epoch_first_block)?.clone();
         let prev_block = self.store.get_block(block.header().prev_hash())?.clone();
 
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
         chain_update.commit()?;
 
@@ -1826,15 +1781,7 @@ impl Chain {
                 saw_one = true;
                 let block = self.store.get_block(&next_block_hash).unwrap().clone();
 
-                let mut chain_update = ChainUpdate::new(
-                    &mut self.store,
-                    self.runtime_adapter.clone(),
-                    &self.orphans,
-                    &self.blocks_with_missing_chunks,
-                    self.epoch_length,
-                    &self.block_economics_config,
-                    self.doomslug_threshold_mode,
-                );
+                let mut chain_update = self.chain_update();
 
                 chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
 
@@ -2005,6 +1952,19 @@ impl Chain {
             }
             _ => None,
         }
+    }
+
+    fn chain_update(&mut self) -> ChainUpdate {
+        ChainUpdate::new(
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+            &self.blocks_with_missing_chunks,
+            self.epoch_length,
+            &self.block_economics_config,
+            self.doomslug_threshold_mode,
+            &self.genesis,
+        )
     }
 
     /// Get node at given position (index, level). If the node does not exist, return `None`.
@@ -2311,10 +2271,16 @@ impl Chain {
         self.runtime_adapter.clone()
     }
 
+    /// Returns genesis block.
+    #[inline]
+    pub fn genesis_block(&self) -> &Block {
+        &self.genesis
+    }
+
     /// Returns genesis block header.
     #[inline]
     pub fn genesis(&self) -> &BlockHeader {
-        &self.genesis
+        &self.genesis.header()
     }
 
     /// Returns number of orphans currently in the orphan pool.
@@ -2378,6 +2344,7 @@ pub struct ChainUpdate<'a> {
     epoch_length: BlockHeightDelta,
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
+    genesis: &'a Block,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -2389,6 +2356,7 @@ impl<'a> ChainUpdate<'a> {
         epoch_length: BlockHeightDelta,
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
+        genesis: &'a Block,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
@@ -2399,6 +2367,7 @@ impl<'a> ChainUpdate<'a> {
             epoch_length,
             block_economics_config,
             doomslug_threshold_mode,
+            genesis,
         }
     }
 
@@ -2880,7 +2849,9 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
         }
 
-        if let Err(e) = block.check_validity() {
+        if let Err(e) =
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), self.genesis, block)
+        {
             byzantine_assert!(false);
             return Err(e.into());
         }
