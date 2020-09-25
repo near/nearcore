@@ -288,6 +288,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     env.produce_block(0, 1);
     env.clients[0].process_tx(
         SignedTransaction::send_money(
@@ -384,6 +385,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             epoch_length,
             &economics_config,
             DoomslugThresholdMode::NoApprovals,
+            &genesis_block,
         );
 
         chain_update
