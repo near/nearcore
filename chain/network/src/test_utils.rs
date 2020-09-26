@@ -67,6 +67,7 @@ impl NetworkConfig {
             ideal_connections_hi: 35,
             peer_recent_time_window: Duration::from_secs(600),
             safe_set_size: 20,
+            archival_peer_connections_lower_bound: 10,
             ban_window: Duration::from_secs(1),
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
@@ -78,6 +79,7 @@ impl NetworkConfig {
             push_info_period: Duration::from_millis(100),
             blacklist: HashMap::new(),
             outbound_disabled: false,
+            archive: false,
         }
     }
 }
