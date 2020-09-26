@@ -85,10 +85,6 @@ pub fn _create<T: EvmState>(
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
 
-    // println!("========= code: {}", code.len());
-    // println!("========= gas: {}", gas);
-    // println!("========= {:?}", evm_gas_config);
-
     let params = ActionParams {
         code_address: *address,
         address: *address,
@@ -103,7 +99,6 @@ pub fn _create<T: EvmState>(
         call_type: CallType::None,
         params_type: vm::ParamsType::Embedded,
     };
-    // println!("========= {:?}", params);
 
     sub_state.transfer_balance(sender, address, value)?;
 
@@ -122,14 +117,7 @@ pub fn _create<T: EvmState>(
 
     // Run the code
     let result = instance.exec(&mut ext);
-    match result.ok().unwrap() {
-        Ok(a) => Ok((Some(a), Some(store))),
-        Err(e) => {
-            println!("============= {:?}", e);
-            Ok((None, Some(store)))
-        }
-    }
-    // Ok((result.ok().unwrap().ok(), Some(store)))
+    Ok((result.ok().unwrap().ok(), Some(store)))
 }
 
 #[allow(clippy::too_many_arguments)]

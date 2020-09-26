@@ -179,23 +179,6 @@ fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
 
-        // let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-        // let mut buf = [0; 32];
-        // buf[0] = 1;
-
-        // testbed.lock().unwrap().process_block(
-        //     &vec![SignedTransaction::from_actions(
-        //         nonce as u64,
-        //         account_id.clone(),
-        //         account_id.clone(),
-        //         &signer,
-        //         vec![Action::DeployContract(DeployContractAction { code: buf.into() })],
-        //         CryptoHash::default(),
-        //     )],
-        //     false,
-        // );
-        // println!("deploy evm code");
-
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
@@ -222,14 +205,11 @@ fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
             let mut testbed = testbed.lock().unwrap();
             let start = start_count(config.metric);
             testbed.process_block(&block, allow_failures);
+            testbed.process_blocks_until_no_receipts(allow_failures);
             let cost = end_count(config.metric, &start);
             total_cost += cost;
         }
     }
-    let start = start_count(config.metric);
-    testbed.lock().unwrap().process_blocks_until_no_receipts(allow_failures);
-    let cost = end_count(config.metric, &start);
-    total_cost += cost;
 
     let counts = (config.iter_per_block * config.block_sizes.iter().sum::<usize>()) as u64;
     evm_gas = reset_evm_gas_counter() / counts;
@@ -273,6 +253,7 @@ pub struct EvmCostCoef {
 
 pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef {
     let globbed_files = glob("./**/*.bin").expect("Failed to read glob pattern for bin files");
+    let fees = RuntimeFeesConfig::default();
     let paths = globbed_files
         .filter_map(|x| match x {
             Ok(p) => Some(p),
@@ -302,8 +283,8 @@ pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef {
         })
         .filter(|x| x.is_some())
         .map(|x| x.unwrap())
+        .map(|measure| deduct_action_receipt_fee(&fees, &measure))
         .collect::<Vec<EvmCost>>();
-    println!("{:?}", measurements);
     measurements_to_coef(measurements, true)
 }
 
@@ -346,7 +327,8 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
 
     let mut context =
         create_evm_context(&mut fake_external, &vm_config, &fees, "alice".to_string(), 100);
-    let sol_test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
+    // TODO: this is wrong, figure out the correct addr from deploy step returned.
+    // let sol_test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
 
     let measurements = vec![
         measure_evm_function(
@@ -384,10 +366,23 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
                 "emit_it(8)",
             )
         },
-    ];
+    ]
+    .iter()
+    .map(|measure| deduct_action_receipt_fee(&fees, measure))
+    .collect::<Vec<_>>();
     println!("{:?}", measurements);
-
     measurements_to_coef(measurements, true)
+}
+
+fn deduct_action_receipt_fee(fees: &RuntimeFeesConfig, evm_cost: &EvmCost) -> EvmCost {
+    // Because run --only-evm, don't have aggreggated metrics of Metric::noop and Metric::Receipt, so just deduct
+    // ReceiptFees::ActionFunctionCallBase from last run without --only-evm
+    EvmCost {
+        evm_gas: evm_cost.evm_gas,
+        cost: evm_cost.cost
+            - fees.action_creation_config.function_call_cost.execution
+            - fees.action_creation_config.function_call_cost.send_not_sir,
+    }
 }
 
 pub fn measure_evm_function(
@@ -397,24 +392,6 @@ pub fn measure_evm_function(
     args: Vec<u8>,
     test_name: &str,
 ) -> EvmCost {
-    // let gas_metric = config.metric;
-    // let start = start_count(gas_metric);
-    // let mut evm_gas = 0;
-    // for i in 0..NUM_ITERATIONS {
-    //     if i == 0 {
-    //         evm_gas = context.evm_gas_counter.used_gas.as_u64();
-    //     } else if i == 1 {
-    //         evm_gas = context.evm_gas_counter.used_gas.as_u64() - evm_gas;
-    //     }
-    // let _ = context.call_function(args.clone()).unwrap();
-    // }
-    // let end = end_count(gas_metric, &start);
-    // let cost = Ratio::new(end, NUM_ITERATIONS);
-    // if verbose {
-    //     println!("Testing call {}: ({}, {})", test_name, evm_gas, cost);
-    // }
-    // EvmCost { evm_gas, cost }
-
     let path = PathBuf::from(config.state_dump_path.as_str());
     println!("{:?}. Preparing testbed. Loading state.", config.metric);
     let testbed = Mutex::new(RuntimeTestbed::from_state_dump(&path));
@@ -470,6 +447,7 @@ pub fn measure_evm_function(
         )
     };
 
+    reset_evm_gas_counter();
     let mut evm_gas = 0;
     let mut total_cost = 0;
     for block_size in config.block_sizes.clone() {
@@ -480,20 +458,20 @@ pub fn measure_evm_function(
             let mut testbed = testbed.lock().unwrap();
             let start = start_count(config.metric);
             testbed.process_block(&block, allow_failures);
+            testbed.process_blocks_until_no_receipts(allow_failures);
             let cost = end_count(config.metric, &start);
             total_cost += cost;
         }
     }
-    let start = start_count(config.metric);
-    testbed.lock().unwrap().process_blocks_until_no_receipts(allow_failures);
-    let cost = end_count(config.metric, &start);
-    total_cost += cost;
 
     let counts = (config.iter_per_block * config.block_sizes.iter().sum::<usize>()) as u64;
     evm_gas = reset_evm_gas_counter() / counts;
 
-    // evm_gas is  times gas spent, so does cost
-    EvmCost { evm_gas, cost: Ratio::new(total_cost, counts) }
+    let cost = Ratio::new(total_cost, counts);
+    if verbose {
+        println!("Testing call {}: ({}, {})", test_name, evm_gas, cost);
+    }
+    EvmCost { evm_gas, cost }
 }
 
 pub fn measure_evm_precompiled(config: &Config, verbose: bool) -> EvmPrecompiledFunctionCost {
@@ -609,7 +587,7 @@ pub fn cost_to_compile(
     let base = Ratio::new(u64::MAX, 1);
     if verbose {
         println!(
-            "Abount to compile {}",
+            "About to compile {}",
             match vm_kind {
                 VMKind::Wasmer => "wasmer",
                 VMKind::Wasmtime => {

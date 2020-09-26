@@ -214,7 +214,6 @@ impl<'a> EvmContext<'a> {
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
-        // println!("gas attached: {}", &self.evm_gas_counter.gas_left());
         let rd = interpreter::call(
             self,
             &sender,
@@ -229,12 +228,10 @@ impl<'a> EvmContext<'a> {
         )?;
         match rd {
             MessageCallResult::Success(gas_left, data) => {
-                // println!("success, gas left: {}", gas_left);
                 self.evm_gas_counter.set_gas_left(gas_left);
                 Ok(data.to_vec())
             }
             MessageCallResult::Reverted(gas_left, data) => {
-                println!("reverted, gas left: {}", gas_left);
                 self.evm_gas_counter.set_gas_left(gas_left);
                 Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
             }
@@ -437,7 +434,6 @@ impl<'a> EvmContext<'a> {
     fn pay_gas_from_evm_gas(&mut self, op: EvmOpForGas) -> Result<()> {
         let fee_cfg = &self.fees_config.evm_config;
         let evm_gas = self.evm_gas_counter.used_gas.as_u64();
-        // println!("============== evm_gas {}", evm_gas);
         self.gas_counter.inc_evm_gas_counter(evm_gas);
         let gas = match op {
             EvmOpForGas::Deploy => {
@@ -506,8 +502,7 @@ pub fn run_evm(
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let evm_gas_result =
         max_evm_gas_from_near_gas(prepaid_gas, &fees_config.evm_config, &method_name);
-    // println!("evm_gas_result: {:?}", evm_gas_result);
-    // let evm_gas_result = Some(1_000_000_000_000u64.into());
+
     if evm_gas_result.is_none() {
         return (
             None,
