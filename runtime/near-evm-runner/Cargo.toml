@@ -44,3 +44,7 @@ lazy_static = "1.4"
 lazy-static-include = "2.2.2"
 
 near-crypto = { path = "../../core/crypto" }
+
+[features]
+default = []
+costs_counting = []

@@ -7,11 +7,12 @@ use crate::testbed_runners::start_count;
 use crate::testbed_runners::Config;
 use crate::testbed_runners::GasMetric;
 use ethabi_contract::use_contract;
+use ethereum_types::H160;
 use glob::glob;
 use lazy_static_include::lazy_static_include_str;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_evm_runner::utils::encode_call_function_args;
-use near_evm_runner::{run_evm, EvmContext};
+use near_evm_runner::{evm_last_deployed_addr, run_evm, EvmContext};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
@@ -283,9 +284,8 @@ pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef {
         })
         .filter(|x| x.is_some())
         .map(|x| x.unwrap())
-        .map(|measure| deduct_action_receipt_fee(&fees, &measure))
         .collect::<Vec<EvmCost>>();
-    measurements_to_coef(measurements, true)
+    deduct_action_receipt_fee(&fees, measurements_to_coef(measurements, true))
 }
 
 use_contract!(soltest, "../near-evm-runner/tests/build/SolTests.abi");
@@ -328,31 +328,40 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
     let mut context =
         create_evm_context(&mut fake_external, &vm_config, &fees, "alice".to_string(), 100);
     // TODO: this is wrong, figure out the correct addr from deploy step returned.
-    // let sol_test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
+    let sol_test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
 
     let measurements = vec![
         measure_evm_function(
             config,
             verbose,
             &mut context,
-            encode_call_function_args(sol_test_addr, soltest::functions::deploy_new_guy::call(8).0),
+            |sol_test_addr| {
+                encode_call_function_args(
+                    sol_test_addr,
+                    soltest::functions::deploy_new_guy::call(8).0,
+                )
+            },
             "deploy_new_guy(8)",
         ),
         measure_evm_function(
             config,
             verbose,
             &mut context,
-            encode_call_function_args(sol_test_addr, soltest::functions::pay_new_guy::call(8).0),
+            |sol_test_addr| {
+                encode_call_function_args(sol_test_addr, soltest::functions::pay_new_guy::call(8).0)
+            },
             "pay_new_guy(8)",
         ),
         measure_evm_function(
             config,
             verbose,
             &mut context,
-            encode_call_function_args(
-                sol_test_addr,
-                soltest::functions::return_some_funds::call().0,
-            ),
+            |sol_test_addr| {
+                encode_call_function_args(
+                    sol_test_addr,
+                    soltest::functions::return_some_funds::call().0,
+                )
+            },
             "return_some_funds()",
         ),
         {
@@ -362,34 +371,33 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
                 config,
                 verbose,
                 &mut context,
-                encode_call_function_args(sol_test_addr, soltest::functions::emit_it::call(8).0),
+                |sol_test_addr| {
+                    encode_call_function_args(sol_test_addr, soltest::functions::emit_it::call(8).0)
+                },
                 "emit_it(8)",
             )
         },
-    ]
-    .iter()
-    .map(|measure| deduct_action_receipt_fee(&fees, measure))
-    .collect::<Vec<_>>();
+    ];
     println!("{:?}", measurements);
-    measurements_to_coef(measurements, true)
+    deduct_action_receipt_fee(&fees, measurements_to_coef(measurements, true))
 }
 
-fn deduct_action_receipt_fee(fees: &RuntimeFeesConfig, evm_cost: &EvmCost) -> EvmCost {
+fn deduct_action_receipt_fee(fees: &RuntimeFeesConfig, evm_cost: Coef) -> Coef {
     // Because run --only-evm, don't have aggreggated metrics of Metric::noop and Metric::Receipt, so just deduct
     // ReceiptFees::ActionFunctionCallBase from last run without --only-evm
-    EvmCost {
-        evm_gas: evm_cost.evm_gas,
-        cost: evm_cost.cost
+    (
+        evm_cost.0,
+        evm_cost.1
             - fees.action_creation_config.function_call_cost.execution
             - fees.action_creation_config.function_call_cost.send_not_sir,
-    }
+    )
 }
 
-pub fn measure_evm_function(
+pub fn measure_evm_function<F: FnOnce(H160) -> Vec<u8> + Copy>(
     config: &Config,
     verbose: bool,
     context: &mut EvmContext,
-    args: Vec<u8>,
+    args_encoder: F,
     test_name: &str,
 ) -> EvmCost {
     let path = PathBuf::from(config.state_dump_path.as_str());
@@ -430,6 +438,7 @@ pub fn measure_evm_function(
             false,
         );
         testbed.lock().unwrap().process_blocks_until_no_receipts(allow_failures);
+        let addr = evm_last_deployed_addr();
 
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
@@ -439,7 +448,7 @@ pub fn measure_evm_function(
             &signer,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "call_function".to_string(),
-                args: args.clone(),
+                args: args_encoder(addr),
                 gas: 10u64.pow(18),
                 deposit: 0,
             })],
@@ -481,68 +490,78 @@ pub fn measure_evm_precompiled(config: &Config, verbose: bool) -> EvmPrecompiled
 
     let mut context =
         create_evm_context(&mut fake_external, &vm_config, &fees, "alice".to_string(), 0);
-    let precompiled_function_addr =
-        context.deploy_code(hex::decode(&PRECOMPILED_TEST).unwrap()).unwrap();
 
     let measurements = vec![
         measure_evm_function(
             config,
             verbose,
             &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::noop::call().0,
-            ),
+            |precompiled_function_addr| {
+                encode_call_function_args(
+                    precompiled_function_addr,
+                    precompiled_function::functions::noop::call().0,
+                )
+            },
             "noop()",
         ),
         measure_evm_function(
             config,
             verbose,
             &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_ecrecover::call().0,
-            ),
+            |precompiled_function_addr| {
+                encode_call_function_args(
+                    precompiled_function_addr,
+                    precompiled_function::functions::test_ecrecover::call().0,
+                )
+            },
             "test_ecrecover()",
         ),
         measure_evm_function(
             config,
             verbose,
             &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_sha256::call().0,
-            ),
+            |precompiled_function_addr| {
+                encode_call_function_args(
+                    precompiled_function_addr,
+                    precompiled_function::functions::test_sha256::call().0,
+                )
+            },
             "test_sha256()",
         ),
         measure_evm_function(
             config,
             verbose,
             &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_ripemd160::call().0,
-            ),
+            |precompiled_function_addr| {
+                encode_call_function_args(
+                    precompiled_function_addr,
+                    precompiled_function::functions::test_ripemd160::call().0,
+                )
+            },
             "test_ripemd160()",
         ),
         measure_evm_function(
             config,
             verbose,
             &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_identity::call().0,
-            ),
+            |precompiled_function_addr| {
+                encode_call_function_args(
+                    precompiled_function_addr,
+                    precompiled_function::functions::test_identity::call().0,
+                )
+            },
             "test_identity()",
         ),
         measure_evm_function(
             config,
             verbose,
             &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_mod_exp::call().0,
-            ),
+            |precompiled_function_addr| {
+                encode_call_function_args(
+                    precompiled_function_addr,
+                    precompiled_function::functions::test_mod_exp::call().0,
+                )
+            },
             "test_mod_exp()",
         ),
     ];

@@ -61,6 +61,11 @@ fn address_to_key(prefix: KeyPrefix, address: &H160) -> Vec<u8> {
     result
 }
 
+#[cfg(feature = "costs_counting")]
+thread_local! {
+    static EVM_LAST_DEPLOYED: std::cell::RefCell<H160> = Default::default();
+}
+
 impl<'a> EvmState for EvmContext<'a> {
     fn code_at(&self, address: &H160) -> Result<Option<Vec<u8>>> {
         self.ext
@@ -485,6 +490,15 @@ fn max_evm_gas_from_near_gas(
     }
 }
 
+#[cfg(feature = "costs_counting")]
+pub fn evm_last_deployed_addr() -> H160 {
+    let mut ret = Default::default();
+    EVM_LAST_DEPLOYED.with(|addr| {
+        ret = addr.borrow().clone();
+    });
+    ret
+}
+
 pub fn run_evm(
     ext: &mut dyn External,
     config: &VMConfig,
@@ -531,7 +545,13 @@ pub fn run_evm(
 
     let result = match method_name.as_str() {
         // Change the state methods.
-        "deploy_code" => context.deploy_code(args).map(|address| utils::address_to_vec(&address)),
+        "deploy_code" => context.deploy_code(args).map(|address| {
+            #[cfg(feature = "costs_counting")]
+            EVM_LAST_DEPLOYED.with(|addr| {
+                *addr.borrow_mut() = address.clone();
+            });
+            utils::address_to_vec(&address)
+        }),
         "call_function" => context.call_function(args),
         "call" => context.call_function(args),
         "meta_call" => context.meta_call_function(args),

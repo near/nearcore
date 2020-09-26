@@ -76,10 +76,10 @@ neard = { path = "./neard"}
 
 testlib = { path = "./test-utils/testlib" }
 
-# [profile.release]
+[profile.release]
 # lto = true        # Enable full link-time optimization.
 # codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
-# overflow-checks = true
+overflow-checks = true
 
 [profile.bench]
 lto = true
