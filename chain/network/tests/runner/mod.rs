@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::default::Default;
 use std::iter::Iterator;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
