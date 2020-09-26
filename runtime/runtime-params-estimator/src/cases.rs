@@ -20,7 +20,9 @@ use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use crate::vm_estimator::{cost_of_evm, cost_per_op, cost_to_compile, near_cost_to_evm_gas};
+use crate::vm_estimator::{
+    action_receipt_fee, cost_of_evm, cost_per_op, cost_to_compile, near_cost_to_evm_gas,
+};
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
@@ -164,13 +166,13 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         let cost = cost_of_evm(&config, true);
         println!(
             "EVM base deploy (and init evm instance) cost: {}, deploy cost per EVM gas: {}",
-            ratio_to_gas(config.metric, cost.deploy_cost.1),
-            ratio_to_gas(config.metric, cost.deploy_cost.0)
+            ratio_to_gas(config.metric, cost.deploy_cost.1) - action_receipt_fee(),
+            ratio_to_gas(config.metric, cost.deploy_cost.0),
         );
         println!(
-            "EVM function call cost: {}, function call cost per EVM gas: {}",
-            ratio_to_gas(config.metric, cost.funcall_cost.1),
-            ratio_to_gas(config.metric, cost.funcall_cost.0)
+            "EVM base function call cost: {}, function call cost per EVM gas: {}",
+            ratio_to_gas(config.metric, cost.funcall_cost.1) - action_receipt_fee(),
+            ratio_to_gas(config.metric, cost.funcall_cost.0),
         );
         println!("EVM precompiled function evm gas:");
         println!(
