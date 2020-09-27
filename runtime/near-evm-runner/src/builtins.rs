@@ -394,7 +394,7 @@ impl Bn128PairingImpl {
         use bn::{pairing, AffineG1, AffineG2, Fq, Fq2, Group, Gt, G1, G2};
 
         let elements = input.len() / 192; // (a, b_a, b_b - each 64-byte affine coordinates)
-        let ret_val = if input.is_empty() {
+        let ret_val = if elements == 0 {
             U256::one()
         } else {
             let mut vals = Vec::new();

@@ -78,9 +78,11 @@ impl<'a> EvmState for EvmContext<'a> {
     }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Result<Option<[u8; 32]>> {
-        self.ext
-            .storage_get(&key)
-            .map(|value| value.map(|x| utils::vec_to_arr_32(x.deref().expect("Failed to deref"))))
+        self.ext.storage_get(&key).map(|value| {
+            value.map(|x| {
+                utils::vec_to_arr_32(x.deref().expect("Failed to deref")).expect("Must be 32 bytes")
+            })
+        })
     }
 
     fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Result<()> {

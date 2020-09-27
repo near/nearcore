@@ -92,6 +92,11 @@ pub(crate) fn execute_function_call(
         } else {
             vec![]
         };
+        let random_seed = create_random_seed(
+            apply_state.current_protocol_version,
+            *action_hash,
+            apply_state.random_seed,
+        );
         let context = VMContext {
             current_account_id: runtime_ext.account_id().clone(),
             signer_account_id: action_receipt.signer_id.clone(),
@@ -109,13 +114,7 @@ pub(crate) fn execute_function_call(
             storage_usage: account.storage_usage,
             attached_deposit: function_call.deposit,
             prepaid_gas: function_call.gas,
-            random_seed: if apply_state.current_protocol_version
-                < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
-            {
-                action_hash.as_ref().to_vec()
-            } else {
-                apply_state.random_seed.as_ref().to_vec()
-            },
+            random_seed,
             is_view,
             output_data_receivers,
         };

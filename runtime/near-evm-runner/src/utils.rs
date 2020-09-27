@@ -89,11 +89,13 @@ pub fn address_to_vec(val: &Address) -> Vec<u8> {
     val.to_fixed_bytes().to_vec()
 }
 
-pub fn vec_to_arr_32(v: Vec<u8>) -> [u8; 32] {
-    assert_eq!(v.len(), 32);
+pub fn vec_to_arr_32(v: Vec<u8>) -> Option<[u8; 32]> {
+    if v.len() != 32 {
+        return None;
+    }
     let mut result = [0; 32];
     result.copy_from_slice(&v);
-    result
+    Some(result)
 }
 
 /// Returns new address created from address, nonce, and code hash
