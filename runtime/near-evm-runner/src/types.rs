@@ -1,8 +1,9 @@
+use std::convert::TryInto;
 use std::io::{Read, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_vm_errors::VMLogicError;
+use near_vm_errors::{EvmError, InconsistentStateError, VMLogicError};
 use near_vm_logic::types::AccountId;
 
 pub type RawAddress = [u8; 20];
@@ -66,6 +67,43 @@ impl BorshDeserialize for ViewCallArgs {
         let mut args = Vec::with_capacity(buf.len());
         buf.read_to_end(&mut args)?;
         Ok(Self { sender, address, amount, args })
+    }
+}
+
+pub fn convert_vm_error(err: vm::Error) -> VMLogicError {
+    match err {
+        vm::Error::OutOfGas => VMLogicError::EvmError(EvmError::OutOfGas),
+        vm::Error::BadJumpDestination { destination } => {
+            VMLogicError::EvmError(EvmError::BadJumpDestination {
+                destination: destination.try_into().unwrap_or(0),
+            })
+        }
+        vm::Error::BadInstruction { instruction } => {
+            VMLogicError::EvmError(EvmError::BadInstruction { instruction })
+        }
+        vm::Error::StackUnderflow { instruction, wanted, on_stack } => {
+            VMLogicError::EvmError(EvmError::StackUnderflow {
+                instruction: instruction.to_string(),
+                wanted: wanted.try_into().unwrap_or(0),
+                on_stack: on_stack.try_into().unwrap_or(0),
+            })
+        }
+        vm::Error::OutOfStack { instruction, wanted, limit } => {
+            VMLogicError::EvmError(EvmError::OutOfStack {
+                instruction: instruction.to_string(),
+                wanted: wanted.try_into().unwrap_or(0),
+                limit: limit.try_into().unwrap_or(0),
+            })
+        }
+        vm::Error::BuiltIn(msg) => VMLogicError::EvmError(EvmError::BuiltIn(msg.to_string())),
+        vm::Error::MutableCallInStaticContext => VMLogicError::EvmError(EvmError::OutOfBounds),
+        vm::Error::Internal(err) => {
+            VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(err))
+        }
+        // This should not happen ever, because NEAR EVM is not using WASM.
+        vm::Error::Wasm(_) => unreachable!(),
+        vm::Error::OutOfBounds => VMLogicError::EvmError(EvmError::OutOfBounds),
+        vm::Error::Reverted => VMLogicError::EvmError(EvmError::Reverted),
     }
 }
 

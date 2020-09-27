@@ -221,6 +221,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                     VMLogicError::EvmError(EvmError::Revert(encoded_message)) => {
                         hex::decode(encoded_message).unwrap_or(vec![])
                     }
+                    // TODO: this is potentially error prone if there are non runtime errors here, but we can only return vector here.
                     _ => format!("{:?}", err).as_bytes().to_vec(),
                 };
                 let message_len = message.len();

@@ -219,6 +219,17 @@ fn test_view_call() {
 
     let sub_addr = raw[12..32].to_vec();
     assert_eq!(context.get_code(sub_addr).unwrap().len(), 0);
+
+    let (input, _) = soltest::functions::return_some_funds::call();
+    let raw = context
+        .view_call_function(encode_view_call_function_args(
+            test_addr,
+            test_addr,
+            U256::from(10u128.pow(27)),
+            input,
+        ))
+        .unwrap();
+    assert_eq!(raw[12..32], test_addr.0);
 }
 
 #[test]

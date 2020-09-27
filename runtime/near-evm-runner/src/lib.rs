@@ -235,17 +235,21 @@ impl<'a> EvmContext<'a> {
         let args = ViewCallArgs::try_from_slice(&args)
             .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
         let sender = Address::from(&args.sender);
-        interpreter::call(
+        let attached_amount = U256::from(args.amount);
+        self.add_balance(&sender, attached_amount)?;
+        let result = interpreter::call(
             self,
             &sender,
             &sender,
-            Some(U256::from(args.amount)),
+            Some(attached_amount),
             0,
             &Address::from(&args.address),
             &args.args,
             false,
         )
-        .map(|rd| rd.to_vec())
+        .map(|rd| rd.to_vec());
+        self.sub_balance(&sender, attached_amount)?;
+        result
     }
 
     pub fn get_code(&self, args: Vec<u8>) -> Result<Vec<u8>> {

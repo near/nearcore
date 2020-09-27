@@ -2,13 +2,16 @@ use std::sync::Arc;
 
 use ethereum_types::{Address, U256};
 use evm::{CreateContractAddress, Factory};
-use vm::{ActionParams, ActionValue, CallType, Ext, GasLeft, ParamsType, ReturnData, Schedule};
+use vm::{
+    ActionParams, ActionValue, CallType, ExecTrapResult, Ext, GasLeft, ParamsType, ReturnData,
+    Schedule,
+};
 
 use near_vm_errors::{EvmError, VMLogicError};
 
 use crate::evm_state::{EvmState, StateStore, SubState};
 use crate::near_ext::NearExt;
-use crate::types::Result;
+use crate::types::{convert_vm_error, Result};
 use crate::utils;
 
 pub fn deploy_code<T: EvmState>(
@@ -30,7 +33,7 @@ pub fn deploy_code<T: EvmState>(
     if recreate {
         state.recreate(address.0);
     } else if state.code_at(&address)?.is_some() {
-        return Err(VMLogicError::EvmError(EvmError::DuplicateContract(hex::encode(address.0))));
+        return Err(VMLogicError::EvmError(EvmError::DuplicateContract(address.0.to_vec())));
     }
 
     let (result, state_updates) =
@@ -40,18 +43,17 @@ pub fn deploy_code<T: EvmState>(
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
     let (return_data, apply) = match result {
-        Some(GasLeft::Known(_)) => (ReturnData::empty(), true),
-        Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state }) => (data, apply_state),
-        _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
+        Ok(Ok(GasLeft::Known(_))) => (ReturnData::empty(), true),
+        Ok(Ok(GasLeft::NeedsReturn { gas_left: _, data, apply_state })) => (data, apply_state),
+        Ok(Err(err)) => return Err(convert_vm_error(err)),
+        Err(_) => return Err(VMLogicError::EvmError(EvmError::Reverted)),
     };
 
     if apply {
         state.commit_changes(&state_updates.unwrap())?;
         state.set_code(&address, &return_data.to_vec())?;
     } else {
-        return Err(VMLogicError::EvmError(EvmError::DeployFail(hex::encode(
-            return_data.to_vec(),
-        ))));
+        return Err(VMLogicError::EvmError(EvmError::DeployFail(return_data.to_vec())));
     }
     Ok(address)
 }
@@ -64,7 +66,7 @@ pub fn _create<T: EvmState>(
     call_stack_depth: usize,
     address: &Address,
     code: &[u8],
-) -> Result<(Option<GasLeft>, Option<StateStore>)> {
+) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
 
@@ -96,7 +98,7 @@ pub fn _create<T: EvmState>(
     // Run the code
     let result = instance.exec(&mut ext);
 
-    Ok((result.ok().unwrap().ok(), Some(store)))
+    Ok((result, Some(store)))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -204,12 +206,13 @@ fn run_and_commit_if_success<T: EvmState>(
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
     let return_data = match result {
-        Some(GasLeft::Known(_)) => Ok(ReturnData::empty()),
-        Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state: true }) => Ok(data),
-        Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state: false }) => {
-            Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
+        Ok(Ok(GasLeft::Known(_))) => Ok(ReturnData::empty()),
+        Ok(Ok(GasLeft::NeedsReturn { gas_left: _, data, apply_state: true })) => Ok(data),
+        Ok(Ok(GasLeft::NeedsReturn { gas_left: _, data, apply_state: false })) => {
+            Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
         }
-        _ => Err(VMLogicError::EvmError(EvmError::UnknownError)),
+        Ok(Err(err)) => Err(convert_vm_error(err)),
+        Err(_) => Err(VMLogicError::EvmError(EvmError::Reverted)),
     };
 
     // Don't apply changes from a static context (these _should_ error in the ext)
@@ -233,8 +236,14 @@ fn run_against_state<T: EvmState>(
     code_address: &Address,
     input: &[u8],
     is_static: bool,
-) -> Result<(Option<GasLeft>, Option<StateStore>)> {
+) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let code = state.code_at(code_address)?.unwrap_or_else(Vec::new);
+
+    // Check that if there are arguments this is contract call.
+    // Otherwise, this is just transfer call.
+    if code.len() == 0 && input.len() > 0 {
+        return Err(VMLogicError::EvmError(EvmError::ContractNotFound));
+    }
 
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
@@ -271,5 +280,5 @@ fn run_against_state<T: EvmState>(
 
     // Run the code
     let result = instance.exec(&mut ext);
-    Ok((result.ok().unwrap().ok(), Some(store)))
+    Ok((result, Some(store)))
 }
