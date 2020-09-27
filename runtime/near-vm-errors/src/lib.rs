@@ -196,6 +196,8 @@ pub enum EvmError {
     MethodNotFound,
     /// Invalid signature when recovering.
     InvalidEcRecoverSignature,
+    /// Invalid nonce.
+    InvalidNonce,
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]

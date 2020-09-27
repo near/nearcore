@@ -1,8 +1,9 @@
+use std::io::{Read, Write};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_vm_errors::VMLogicError;
 use near_vm_logic::types::AccountId;
-use std::io::{Read, Write};
 
 pub type RawAddress = [u8; 20];
 pub type RawHash = [u8; 32];
@@ -13,14 +14,6 @@ pub type Result<T> = std::result::Result<T, VMLogicError>;
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct AddressArg {
     pub address: RawAddress,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct ViewCallArgs {
-    pub sender: RawAddress,
-    pub address: RawAddress,
-    pub amount: RawU256,
-    pub args: Vec<u8>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -39,6 +32,14 @@ pub struct WithdrawArgs {
 pub struct TransferArgs {
     pub address: RawAddress,
     pub amount: RawU256,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct ViewCallArgs {
+    pub sender: RawAddress,
+    pub address: RawAddress,
+    pub amount: RawU256,
+    pub args: Vec<u8>,
 }
 
 impl BorshSerialize for ViewCallArgs {
@@ -62,7 +63,7 @@ impl BorshDeserialize for ViewCallArgs {
         let sender = RawAddress::deserialize(buf)?;
         let address = RawAddress::deserialize(buf)?;
         let amount = RawU256::deserialize(buf)?;
-        let mut args = Vec::new();
+        let mut args = Vec::with_capacity(buf.len());
         buf.read_to_end(&mut args)?;
         Ok(Self { sender, address, amount, args })
     }

@@ -199,18 +199,22 @@ impl<'a> EvmContext<'a> {
     /// 96..115: contract_id: address for contract to call
     /// 116..: RLP encoded arguments.
     pub fn meta_call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
-        if args.len() <= 116 {
+        if args.len() <= 148 {
             return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
         }
         let mut signature: [u8; 96] = [0; 96];
         signature.copy_from_slice(&args[..96]);
-        let args = &args[96..];
+        let nonce = U256::from_big_endian(&args[96..128]);
+        let args = &args[128..];
         let sender = ecrecover_address(
-            &prepare_meta_call_args(&self.domain_separator, &self.account_id, args),
+            &prepare_meta_call_args(&self.domain_separator, &self.account_id, nonce, args),
             &signature,
         )?;
         if sender == Address::zero() {
             return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
+        }
+        if self.next_nonce(&sender)? != nonce {
+            return Err(VMLogicError::EvmError(EvmError::InvalidNonce));
         }
         let contract_address = Address::from_slice(&args[..20]);
         let input = &args[20..];
@@ -385,6 +389,7 @@ pub fn run_evm(
     let result = match method_name.as_str() {
         // Change the state methods.
         "deploy_code" => context.deploy_code(args).map(|address| utils::address_to_vec(&address)),
+        // TODO: remove this function name if no one is using it.
         "call_function" => context.call_function(args),
         "call" => context.call_function(args),
         "meta_call" => context.meta_call_function(args),
@@ -392,6 +397,7 @@ pub fn run_evm(
         "withdraw" => context.withdraw(args).map(|_| vec![]),
         "transfer" => context.transfer(args).map(|_| vec![]),
         // View methods.
+        // TODO: remove this function name if no one is using it.
         "view_function_call" => context.view_call_function(args),
         "view" => context.view_call_function(args),
         "get_code" => context.get_code(args),

@@ -250,10 +250,13 @@ fn test_meta_call() {
     let mut context =
         create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
     let (input, _) = soltest::functions::return_some_funds::call();
-    let _ = context
-        .meta_call_function(encode_meta_call_function_args(&signer, test_addr, input))
-        .unwrap();
+    let meta_tx = encode_meta_call_function_args(&signer, test_addr, U256::from(0), input);
+    let _ = context.meta_call_function(meta_tx.clone()).unwrap();
     let signer_addr = public_key_to_address(signer.public_key);
     assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(150));
     assert_eq!(context.get_balance(signer_addr.0.to_vec()).unwrap(), U256::from(50));
+    assert_eq!(
+        context.meta_call_function(meta_tx).unwrap_err().to_string(),
+        "EvmError(InvalidNonce)"
+    );
 }

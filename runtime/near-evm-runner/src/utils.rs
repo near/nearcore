@@ -197,6 +197,7 @@ pub fn near_erc721_domain(chain_id: U256) -> [u8; 32] {
 pub fn prepare_meta_call_args(
     domain_separator: &[u8; 32],
     account_id: &AccountId,
+    nonce: U256,
     args: &[u8],
 ) -> [u8; 32] {
     let mut bytes = Vec::with_capacity(32 + account_id.len() + args.len());
@@ -208,6 +209,7 @@ pub fn prepare_meta_call_args(
         .as_bytes(),
     );
     bytes.extend_from_slice(account_id.as_bytes());
+    bytes.extend_from_slice(&u256_to_arr(&nonce));
     bytes.extend_from_slice(args);
     let message: [u8; 32] = keccak(&bytes).into();
     let mut bytes = Vec::with_capacity(2 + 32 + 32);
