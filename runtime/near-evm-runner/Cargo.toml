@@ -32,7 +32,8 @@ ethereum-types = "0.6.0"
 
 near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }
-near-runtime-fees = { path = "../near-runtime-fees", version = "2.1.0" }
+near-runtime-utils = { path = "../near-runtime-utils" }
+near-runtime-fees = { path = "../near-runtime-fees" }
 
 [dev-dependencies]
 ethabi = "8.0.0"

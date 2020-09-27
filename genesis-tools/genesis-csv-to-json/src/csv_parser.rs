@@ -15,7 +15,8 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
-use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id};
+use near_primitives::utils::create_nonce_with_nonce;
+use near_runtime_utils::is_valid_account_id;
 
 /// Methods that can be called by a non-privileged access key.
 const REGULAR_METHOD_NAMES: &[&str] = &["stake", "transfer"];

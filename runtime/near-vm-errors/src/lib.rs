@@ -198,6 +198,10 @@ pub enum EvmError {
     InvalidEcRecoverSignature,
     /// Invalid nonce.
     InvalidNonce,
+    /// Invalid sub EVM account.
+    InvalidSubAccount,
+    /// Too small NEAR deposit.
+    InsufficientDeposit,
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]

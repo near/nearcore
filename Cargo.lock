@@ -2871,6 +2871,7 @@ dependencies = [
  "libsecp256k1",
  "near-crypto",
  "near-runtime-fees",
+ "near-runtime-utils",
  "near-vm-errors",
  "near-vm-logic",
  "num-bigint 0.3.0",
@@ -2919,6 +2920,7 @@ dependencies = [
  "near-network",
  "near-primitives",
  "near-rpc-error-macro",
+ "near-runtime-utils",
  "prometheus",
  "serde",
  "serde_json",
@@ -3027,7 +3029,6 @@ dependencies = [
  "easy-ext",
  "hex",
  "jemallocator",
- "lazy_static",
  "near-crypto",
  "near-rpc-error-macro",
  "near-vm-errors",
@@ -3123,6 +3124,10 @@ dependencies = [
 [[package]]
 name = "near-runtime-utils"
 version = "2.2.0"
+dependencies = [
+ "lazy_static",
+ "regex",
+]
 
 [[package]]
 name = "near-store"

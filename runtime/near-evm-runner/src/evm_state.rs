@@ -64,7 +64,7 @@ pub trait EvmState {
     fn next_nonce(&mut self, address: &Address) -> Result<U256> {
         let mut account = self.get_account(address)?.unwrap_or_default();
         let nonce = account.nonce;
-        account.nonce += account.nonce.saturating_add(U256::from(1));
+        account.nonce = account.nonce.saturating_add(U256::from(1));
         self.set_account(address, &account)?;
         Ok(nonce)
     }

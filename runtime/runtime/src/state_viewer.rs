@@ -12,10 +12,10 @@ use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, EpochInfoProvider};
-use near_primitives::utils::is_valid_account_id;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_configs::RuntimeConfig;
+use near_runtime_utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_logic::ReturnData;
 

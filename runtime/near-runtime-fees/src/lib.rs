@@ -6,6 +6,7 @@
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
+pub type Balance = u128;
 pub type Gas = u64;
 
 /// Costs associated with an object that can only be sent over the network (and executed
@@ -63,6 +64,9 @@ pub struct RuntimeFeesConfig {
 
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational,
+
+    /// New EVM deposit.
+    pub evm_deposit: Balance,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -228,6 +232,8 @@ impl Default for RuntimeFeesConfig {
             },
             burnt_gas_reward: Rational::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
+            // The amount is 1000 * 10e24 = 1000 NEAR.
+            evm_deposit: 1_000_000_000_000_000_000_000_000_000,
         }
     }
 }
@@ -263,6 +269,7 @@ impl RuntimeFeesConfig {
             },
             burnt_gas_reward: Rational::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational::from_integer(0),
+            evm_deposit: 0,
         }
     }
 

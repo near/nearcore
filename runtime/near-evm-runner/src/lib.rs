@@ -6,6 +6,7 @@ use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
 
 use near_runtime_fees::RuntimeFeesConfig;
+use near_runtime_utils::is_valid_sub_account_id;
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
 use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
@@ -308,7 +309,7 @@ impl<'a> EvmContext<'a> {
             false,
             ActionCosts::transfer,
         )?;
-        self.ext.append_action_transfer(receipt_index, amount).map_err(|err| err.into())
+        self.ext.append_action_transfer(receipt_index, amount)
     }
 
     /// Transfer tokens from sender to given EVM address.
@@ -321,6 +322,39 @@ impl<'a> EvmContext<'a> {
             return Err(VMLogicError::EvmError(EvmError::InsufficientFunds));
         }
         self.transfer_balance(&sender, &Address::from(args.address), amount)
+    }
+
+    /// Creates new EVM under given sub account and sends attached balance to it.
+    /// If account id given is not a valid subaccount of the current account, will return InvalidSubAccount.
+    /// If balance attached was not enough, will return InsufficientDeposit.
+    pub fn create_evm(&mut self, args: Vec<u8>) -> Result<()> {
+        let new_account_id = std::str::from_utf8(&args)
+            .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?
+            .to_string();
+        if !is_valid_sub_account_id(&self.account_id, &new_account_id) {
+            return Err(VMLogicError::EvmError(EvmError::InvalidSubAccount));
+        }
+        if self.attached_deposit < self.fees_config.evm_deposit {
+            return Err(VMLogicError::EvmError(EvmError::InsufficientDeposit));
+        }
+        self.current_amount = self
+            .current_amount
+            .checked_sub(self.attached_deposit)
+            .ok_or_else(|| VMLogicError::EvmError(EvmError::InsufficientFunds))?;
+        let receipt_index = self.ext.create_receipt(vec![], new_account_id)?;
+        self.pay_gas_for_new_receipt(false, &[])?;
+        self.gas_counter.pay_action_base(
+            &self.fees_config.action_creation_config.create_account_cost,
+            false,
+            ActionCosts::create_account,
+        )?;
+        self.ext.append_action_create_account(receipt_index)?;
+        self.gas_counter.pay_action_base(
+            &self.fees_config.action_creation_config.transfer_cost,
+            false,
+            ActionCosts::transfer,
+        )?;
+        self.ext.append_action_transfer(receipt_index, self.attached_deposit)
     }
 
     /// A helper function to pay gas fee for creating a new receipt without actions.
@@ -396,6 +430,7 @@ pub fn run_evm(
         "deposit" => context.deposit(args).map(|balance| utils::u256_to_arr(&balance).to_vec()),
         "withdraw" => context.withdraw(args).map(|_| vec![]),
         "transfer" => context.transfer(args).map(|_| vec![]),
+        "create" => context.create_evm(args).map(|_| vec![]),
         // View methods.
         // TODO: remove this function name if no one is using it.
         "view_function_call" => context.view_call_function(args),
