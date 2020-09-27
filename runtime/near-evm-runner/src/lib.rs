@@ -257,7 +257,10 @@ impl<'a> EvmContext<'a> {
     pub fn get_code(&self, args: Vec<u8>) -> Result<Vec<u8>> {
         let args = AddressArg::try_from_slice(&args)
             .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
-        Ok(self.code_at(&Address::from_slice(&args.address)).unwrap_or(None).unwrap_or(vec![]))
+        Ok(self
+            .code_at(&Address::from_slice(&args.address))
+            .unwrap_or(None)
+            .unwrap_or_else(|| Vec::new()))
     }
 
     pub fn get_storage_at(&self, args: Vec<u8>) -> Result<Vec<u8>> {

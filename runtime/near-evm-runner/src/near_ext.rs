@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ethereum_types::{Address, H160, H256, U256};
+use ethereum_types::{Address, H256, U256};
 use evm::ActionParams;
 use keccak_hash::keccak;
 use parity_bytes::Bytes;
@@ -105,9 +105,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     }
 
     fn origin_balance(&self) -> EvmResult<U256> {
-        // self.balance(&utils::predecessor_as_evm())
-        // TODO: ??
-        self.balance(&H160([0; 20]))
+        self.balance(&self.origin)
     }
 
     fn balance(&self, address: &Address) -> EvmResult<U256> {

@@ -24,7 +24,7 @@ pub fn deploy_code<T: EvmState>(
     recreate: bool,
     code: &[u8],
 ) -> Result<Address> {
-    let mut nonce = U256::default();
+    let mut nonce = U256::zero();
     if address_type == CreateContractAddress::FromSenderAndNonce {
         nonce = state.next_nonce(&sender)?;
     };
