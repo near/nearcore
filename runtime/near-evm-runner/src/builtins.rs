@@ -4,13 +4,16 @@ use std::{
     mem::size_of,
 };
 
+use bn::arith::U256;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
-use ethereum_types::{Address, H256, U256};
+use ethereum_types::Address;
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
 use parity_bytes::BytesRef;
 use ripemd160::Digest;
 use vm::{MessageCallResult, ReturnData};
+
+use crate::utils::ecrecover_address;
 
 #[derive(Primitive)]
 enum Precompile {
@@ -139,38 +142,18 @@ impl Impl for Identity {
 
 impl Impl for EcRecover {
     fn execute(&self, i: &[u8], output: &mut BytesRef) -> Result<(), Error> {
-        use sha3::Digest;
-
         let len = min(i.len(), 128);
 
         let mut input = [0; 128];
         input[..len].copy_from_slice(&i[..len]);
+        let mut hash = [0; 32];
+        hash.copy_from_slice(&input[..32]);
+        let mut signature = [0; 96];
+        signature.copy_from_slice(&input[32..]);
 
-        let hash = secp256k1::Message::parse(&H256::from_slice(&input[0..32]).0);
-        let v = &input[32..64];
-        let r = &input[64..96];
-        let s = &input[96..128];
-
-        let bit = match v[31] {
-            27..=30 => v[31] - 27,
-            _ => {
-                return Ok(());
-            }
-        };
-
-        let mut sig = [0u8; 64];
-        sig[..32].copy_from_slice(&r);
-        sig[32..].copy_from_slice(&s);
-        let s = secp256k1::Signature::parse(&sig);
-
-        if let Ok(rec_id) = secp256k1::RecoveryId::parse(bit) {
-            if let Ok(p) = secp256k1::recover(&hash, &s, &rec_id) {
-                // recover returns the 65-byte key, but addresses come from the raw 64-byte key
-                let r = sha3::Keccak256::digest(&p.serialize()[1..]);
-                output.write(0, &[0; 12]);
-                output.write(12, &r[12..]);
-            }
-        }
+        let result = ecrecover_address(&hash, &signature);
+        output.write(0, &[0, 12]);
+        output.write(12, &result.0);
 
         Ok(())
     }
@@ -448,7 +431,7 @@ impl Bn128PairingImpl {
         };
 
         let mut buf = [0u8; 32];
-        ret_val.to_big_endian(&mut buf);
+        ret_val.to_big_endian(&mut buf).expect("Can't fail");
         output.write(0, &buf);
 
         Ok(())

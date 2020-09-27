@@ -212,7 +212,7 @@ impl<'a> EvmContext<'a> {
         let sender = ecrecover_address(
             &prepare_meta_call_args(&self.domain_separator, &self.account_id, nonce, args),
             &signature,
-        )?;
+        );
         if sender == Address::zero() {
             return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
         }
