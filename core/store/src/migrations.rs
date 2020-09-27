@@ -12,7 +12,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
-use crate::db::DBCol::{ColChunks, ColPartialChunks, ColStateParts};
+use crate::db::DBCol::{ColChunks, ColPartialChunks, ColReceipts, ColStateParts};
 use crate::db::{DBCol, RocksDB, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
@@ -203,4 +203,26 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
         store_update.commit().expect("storage update should not fail");
     }
     set_store_version(&store, 10);
+}
+
+pub fn migrate_10_to_11(path: &String) {
+    let store = create_store(path);
+    let batch_size_limit = 100_000_000;
+    let mut store_update = store.store_update();
+    let mut batch_size = 0;
+    for (key, value) in store.iter_without_rc_logic(ColChunks) {
+        batch_size += key.len() + value.len() + 8;
+        let chunk: ShardChunk =
+            BorshDeserialize::try_from_slice(&value).expect("Borsh should not fail");
+        for receipt in chunk.receipts {
+            let bytes = receipt.try_to_vec().expect("Borsh should not fail");
+            store_update.update_refcount(ColReceipts, receipt.receipt_id.as_ref(), &bytes, 1);
+        }
+        if batch_size > batch_size_limit {
+            store_update.commit().unwrap();
+            store_update = store.store_update();
+            batch_size = 0;
+        }
+    }
+    set_store_version(&store, 11);
 }

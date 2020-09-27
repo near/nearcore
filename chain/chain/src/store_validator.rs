@@ -38,6 +38,7 @@ pub struct StoreValidatorCache {
     block_heights_less_tail: Vec<CryptoHash>,
     gc_col: Vec<u64>,
     tx_refcount: HashMap<CryptoHash, u64>,
+    receipt_refcount: HashMap<CryptoHash, u64>,
     block_refcount: HashMap<CryptoHash, u64>,
     genesis_blocks: Vec<CryptoHash>,
 }
@@ -52,6 +53,7 @@ impl StoreValidatorCache {
             block_heights_less_tail: vec![],
             gc_col: vec![0; NUM_COLS],
             tx_refcount: HashMap::new(),
+            receipt_refcount: HashMap::new(),
             block_refcount: HashMap::new(),
             genesis_blocks: vec![],
         }
@@ -289,6 +291,11 @@ impl StoreValidator {
                     let tx_hash = CryptoHash::try_from(key_ref)?;
                     self.check(&validate::tx_refcount, &tx_hash, &(rc as u64), col);
                 }
+                DBCol::ColReceipts => {
+                    let (_value, rc) = decode_value_with_rc(value_ref);
+                    let receipt_id = CryptoHash::try_from(key_ref)?;
+                    self.check(&validate::receipt_refcount, &receipt_id, &(rc as u64), col);
+                }
                 DBCol::ColBlockRefCount => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
                     let refcount = u64::try_from_slice(value_ref)?;
@@ -348,6 +355,9 @@ impl StoreValidator {
         // Check that all refs are counted
         if let Err(e) = validate::tx_refcount_final(self) {
             self.process_error(e, "TX_REFCOUNT", DBCol::ColTransactions)
+        }
+        if let Err(e) = validate::receipt_refcount_final(self) {
+            self.process_error(e, "RECEIPT_REFCOUNT", DBCol::ColReceipts)
         }
         // Check that all Block Refcounts are counted
         if let Err(e) = validate::block_refcount_final(self) {

@@ -912,6 +912,8 @@ pub struct FinalExecutionOutcomeView {
     pub transaction_outcome: ExecutionOutcomeWithIdView,
     /// The execution outcome of receipts.
     pub receipts_outcome: Vec<ExecutionOutcomeWithIdView>,
+    /// Receipts generated from the transaction
+    pub receipts: Vec<ReceiptView>,
 }
 
 impl fmt::Debug for FinalExecutionOutcomeView {
@@ -920,6 +922,7 @@ impl fmt::Debug for FinalExecutionOutcomeView {
             .field("status", &self.status)
             .field("transaction", &self.transaction)
             .field("transaction_outcome", &self.transaction_outcome)
+            .field("receipts", &format_args!("{}", logging::pretty_vec(&self.receipts)))
             .field(
                 "receipts_outcome",
                 &format_args!("{}", logging::pretty_vec(&self.receipts_outcome)),
@@ -948,7 +951,7 @@ impl From<ValidatorStakeView> for ValidatorStake {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
@@ -957,13 +960,13 @@ pub struct ReceiptView {
     pub receipt: ReceiptEnumView,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DataReceiverView {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,

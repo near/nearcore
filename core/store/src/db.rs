@@ -110,10 +110,12 @@ pub enum DBCol {
     _ColTransactionRefCount = 43,
     /// Heights of blocks that have been processed
     ColProcessedBlockHeights = 44,
+    /// Receipts
+    ColReceipts = 45,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 45;
+pub const NUM_COLS: usize = 46;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -163,6 +165,7 @@ impl std::fmt::Display for DBCol {
             Self::ColOutcomesByBlockHash => "outcomes by block hash",
             Self::_ColTransactionRefCount => "refcount per transaction (deprecated)",
             Self::ColProcessedBlockHeights => "processed block heights",
+            Self::ColReceipts => "receipts",
         };
         write!(formatter, "{}", desc)
     }
@@ -216,6 +219,7 @@ lazy_static! {
         let mut col_rc = vec![false; NUM_COLS];
         col_rc[DBCol::ColState as usize] = true;
         col_rc[DBCol::ColTransactions as usize] = true;
+        col_rc[DBCol::ColReceipts as usize] = true;
         col_rc[DBCol::ColReceiptIdToShardId as usize] = true;
         col_rc
     };

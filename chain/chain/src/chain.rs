@@ -49,7 +49,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
-    FinalExecutionStatus, LightClientBlockView,
+    FinalExecutionStatus, LightClientBlockView, SignedTransactionView,
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
@@ -1876,18 +1876,39 @@ impl Chain {
                 }
             })
             .expect("results should resolve to a final outcome");
-        let receipts = outcomes.split_off(1);
-        let transaction = self
+        let receipts_outcome = outcomes.split_off(1);
+        let transaction: SignedTransactionView = self
             .store
             .get_transaction(hash)?
             .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("Transaction {} is not found", hash)))?
             .clone()
             .into();
+        let transaction_outcome = outcomes.pop().unwrap();
+        let receipt_id_from_transaction = transaction_outcome.outcome.receipt_ids.get(0).cloned();
+        let is_local_receipt = transaction.signer_id == transaction.receiver_id;
+
+        let receipts = receipts_outcome
+            .iter()
+            .filter_map(|outcome| {
+                if Some(outcome.id) == receipt_id_from_transaction && is_local_receipt {
+                    None
+                } else {
+                    Some(self.store.get_receipt(&outcome.id).and_then(|r| {
+                        r.cloned().map(Into::into).ok_or_else(|| {
+                            ErrorKind::DBNotFoundErr(format!("Receipt {} is not found", outcome.id))
+                                .into()
+                        })
+                    }))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(FinalExecutionOutcomeView {
             status,
             transaction,
-            transaction_outcome: outcomes.pop().unwrap(),
-            receipts_outcome: receipts,
+            transaction_outcome,
+            receipts_outcome,
+            receipts,
         })
     }
 
