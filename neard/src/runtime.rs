@@ -127,7 +127,7 @@ impl NightshadeRuntime {
     pub fn new(
         home_dir: &Path,
         store: Arc<Store>,
-        genesis: Arc<Genesis>,
+        genesis: &Genesis,
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
     ) -> Self {
@@ -160,7 +160,7 @@ impl NightshadeRuntime {
             max_inflation_rate: genesis.config.max_inflation_rate,
             num_blocks_per_year: genesis.config.num_blocks_per_year,
             epoch_length: genesis.config.epoch_length,
-            protocol_reward_percentage: genesis.config.protocol_reward_rate,
+            protocol_reward_rate: genesis.config.protocol_reward_rate,
             protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
             online_max_threshold: genesis.config.online_max_threshold,
             online_min_threshold: genesis.config.online_min_threshold,
@@ -232,7 +232,7 @@ impl NightshadeRuntime {
 
     fn genesis_state_from_records(
         store: Arc<Store>,
-        genesis: Arc<Genesis>,
+        genesis: &Genesis,
     ) -> (Arc<Store>, ShardTries, Vec<StateRoot>) {
         let mut store_update = store.store_update();
         let mut state_roots = vec![];
@@ -284,7 +284,7 @@ impl NightshadeRuntime {
     fn initialize_genesis_state(
         store: Arc<Store>,
         home_dir: &Path,
-        genesis: Arc<Genesis>,
+        genesis: &Genesis,
     ) -> (Arc<Store>, ShardTries, Vec<StateRoot>) {
         let has_records = !genesis.records.as_ref().is_empty();
         let has_dump = {
@@ -1285,6 +1285,29 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
     }
+
+    fn chunk_needs_to_be_fetched_from_archival(
+        &self,
+        chunk_prev_block_hash: &CryptoHash,
+        header_head: &CryptoHash,
+    ) -> Result<bool, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let head_epoch_id = epoch_manager.get_epoch_id(header_head)?;
+        let head_next_epoch_id = epoch_manager.get_next_epoch_id(header_head)?;
+        let chunk_epoch_id = epoch_manager.get_epoch_id_from_prev_block(chunk_prev_block_hash)?;
+        let chunk_next_epoch_id =
+            epoch_manager.get_next_epoch_id_from_prev_block(chunk_prev_block_hash)?;
+
+        // `chunk_epoch_id != head_epoch_id && chunk_next_epoch_id != head_epoch_id` covers the
+        // common case: the chunk is in the current epoch, or in the previous epoch, relative to the
+        // header head. The third condition (`chunk_epoch_id != head_next_epoch_id`) covers a
+        // corner case, in which the `header_head` is the last block of an epoch, and the chunk is
+        // for the next block. In this case the `chunk_epoch_id` will be one epoch ahead of the
+        // `header_head`.
+        Ok(chunk_epoch_id != head_epoch_id
+            && chunk_next_epoch_id != head_epoch_id
+            && chunk_epoch_id != head_next_epoch_id)
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1507,7 +1530,7 @@ mod test {
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,
-                Arc::new(genesis),
+                &genesis,
                 initial_tracked_accounts,
                 initial_tracked_shards,
             );

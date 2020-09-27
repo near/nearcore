@@ -33,7 +33,10 @@ class BinarySerializer:
                 for (v, t) in zip(value, fieldType):
                     self.serialize_field(v, t)
         elif type(fieldType) == str:
-            if fieldType[0] == 'u':
+            if fieldType == 'bool':
+                assert isinstance(value, bool), str(type(value))
+                self.serialize_num(int(value), 1)
+            elif fieldType[0] == 'u':
                 self.serialize_num(value, int(fieldType[1:]) // 8)
             elif fieldType == 'string':
                 b = value.encode('utf8')
@@ -74,7 +77,11 @@ class BinarySerializer:
                 return tuple(self.deserialize_field(t) for t in fieldType)
 
         elif type(fieldType) == str:
-            if fieldType[0] == 'u':
+            if fieldType == 'bool':
+                value = self.deserialize_num(1)
+                assert 0 <= value <= 1, f"Fail to deserialize bool: {value}"
+                return bool(value)
+            elif fieldType[0] == 'u':
                 return self.deserialize_num(int(fieldType[1:]) // 8)
             elif fieldType == 'string':
                 len_ = self.deserialize_num(4)

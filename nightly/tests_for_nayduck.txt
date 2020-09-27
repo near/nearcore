@@ -18,6 +18,7 @@ pytest --timeout=240 sanity/state_sync5.py
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115
 pytest --timeout=300 sanity/state_sync_late.py notx
 pytest --timeout=900 sanity/state_sync_massive.py
+pytest sanity/sync_chunks_from_archival.py
 pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/one_val.py
@@ -76,6 +77,9 @@ pytest adversarial/start_from_genesis.py
 pytest adversarial/start_from_genesis.py overtake
 pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py overtake doomslug_off
+
+# python test for enable inflation
+pytest sanity/enable_inflation.py
 
 # python upgradable test
 # upgradable.py moves `near` binary, and must be the last python test in the set

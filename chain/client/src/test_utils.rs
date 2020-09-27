@@ -21,8 +21,8 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfo,
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages,
+    NetworkViewClientResponses, PeerChainInfoV2,
 };
 use near_network::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
@@ -86,7 +86,6 @@ pub fn setup(
         min_gas_price: 100,
         max_gas_price: 1_000_000_000,
         total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        max_inflation_rate: Rational::from_integer(0),
         gas_price_adjustment_rate: Rational::from_integer(0),
         transaction_validity_period,
         epoch_length,
@@ -434,13 +433,14 @@ pub fn setup_mock_all_validators(
                             .enumerate()
                             .map(|(i, peer_info)| FullPeerInfo {
                                 peer_info: peer_info.clone(),
-                                chain_info: PeerChainInfo {
+                                chain_info: PeerChainInfoV2 {
                                     genesis_id: GenesisId {
                                         chain_id: "unittest".to_string(),
                                         hash: Default::default(),
                                     },
                                     height: last_height2[i],
                                     tracked_shards: vec![],
+                                    archival: false,
                                 },
                                 edge_info: EdgeInfo::default(),
                             })
@@ -487,12 +487,14 @@ pub fn setup_mock_all_validators(
                                 .unwrap()
                                 .insert(*block.header().hash(), block.header().height());
                         }
-                        NetworkRequests::PartialEncodedChunkRequest {
-                            account_id: their_account_id,
-                            request,
-                        } => {
+                        NetworkRequests::PartialEncodedChunkRequest { target, request } => {
+                            if let AccountIdOrPeerTrackingShard::PeerTrackingShard { .. } = target {
+                                assert!(false); // Currently is not possible in client tests
+                            }
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if name == their_account_id {
+                                if &AccountIdOrPeerTrackingShard::AccountId(name.to_string())
+                                    == target
+                                {
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
                                             NetworkClientMessages::PartialEncodedChunkRequest(
@@ -526,7 +528,7 @@ pub fn setup_mock_all_validators(
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
                                             NetworkClientMessages::PartialEncodedChunk(
-                                                partial_encoded_chunk.clone(),
+                                                partial_encoded_chunk.clone().into(),
                                             ),
                                         );
                                     }

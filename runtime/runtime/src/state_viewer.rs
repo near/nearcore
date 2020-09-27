@@ -122,6 +122,7 @@ impl TrieViewer {
             epoch_id,
             last_block_hash,
             epoch_info_provider,
+            current_protocol_version,
         );
         let config = RuntimeConfig::default();
         let apply_state = ApplyState {

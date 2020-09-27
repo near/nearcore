@@ -49,6 +49,7 @@ pub fn make_peer_manager(
                     genesis_id: GenesisId::default(),
                     height: 1,
                     tracked_shards: vec![],
+                    archival: false,
                 }))
             }
             _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),

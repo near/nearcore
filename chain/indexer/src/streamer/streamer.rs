@@ -1,5 +1,7 @@
 //! Streamer watches the network and collects all the blocks and related chunks
 //! into one struct and pushes in in to the given queue
+use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
@@ -12,6 +14,7 @@ use tracing::{debug, info};
 use near_client;
 pub use near_primitives::hash::CryptoHash;
 pub use near_primitives::{types, views};
+use node_runtime::config::tx_cost;
 
 use crate::IndexerConfig;
 
@@ -31,24 +34,31 @@ impl From<MailboxError> for FailedToFetchData {
     }
 }
 
-struct FetchBlockResponse {
-    block_response: StreamerMessage,
-    new_outcomes_to_get: Vec<types::TransactionOrReceiptId>,
-}
-
 /// Resulting struct represents block with chunks
 #[derive(Debug)]
 pub struct StreamerMessage {
     pub block: views::BlockView,
-    pub chunks: Vec<views::ChunkView>,
-    pub outcomes: Vec<Outcome>,
+    pub chunks: Vec<IndexerChunkView>,
+    pub receipt_execution_outcomes: HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>,
     pub state_changes: views::StateChangesKindsView,
+    /// Transaction where signer is receiver produces so called "local receipt"
+    /// these receipts will never get to chunks' `receipts` field. Anyway they can
+    /// contain actions that is necessary to handle in Indexers
+    pub local_receipts: Vec<views::ReceiptView>,
+}
+
+#[derive(Debug)]
+pub struct IndexerChunkView {
+    pub author: types::AccountId,
+    pub header: views::ChunkHeaderView,
+    pub transactions: Vec<IndexerTransactionWithOutcome>,
+    pub receipts: Vec<views::ReceiptView>,
 }
 
 #[derive(Clone, Debug)]
-pub enum Outcome {
-    Receipt(views::ExecutionOutcomeWithIdView),
-    Transaction(views::ExecutionOutcomeWithIdView),
+pub struct IndexerTransactionWithOutcome {
+    pub transaction: views::SignedTransactionView,
+    pub outcome: views::ExecutionOutcomeWithIdView,
 }
 
 async fn fetch_status(
@@ -84,38 +94,145 @@ async fn fetch_block_by_height(
         .map_err(|err| FailedToFetchData::String(err))
 }
 
-/// This function supposed to return the entire `BlockResponse`.
-/// It fetches the block and fetches all the chunks for the block
+/// Fetches specific block by it's hash
+async fn fetch_block_by_hash(
+    client: &Addr<near_client::ViewClientActor>,
+    hash: CryptoHash,
+) -> Result<views::BlockView, FailedToFetchData> {
+    client
+        .send(near_client::GetBlock(near_primitives::types::BlockId::Hash(hash).into()))
+        .await?
+        .map_err(|err| FailedToFetchData::String(err))
+}
+
+async fn convert_transactions_sir_into_local_receipts(
+    client: &Addr<near_client::ViewClientActor>,
+    near_config: &neard::NearConfig,
+    txs: Vec<&IndexerTransactionWithOutcome>,
+    block: &views::BlockView,
+) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
+    let prev_block = fetch_block_by_hash(&client, block.header.prev_hash.clone()).await?;
+    let prev_block_gas_price = prev_block.header.gas_price;
+
+    let local_receipts: Vec<views::ReceiptView> = txs
+        .into_iter()
+        .map(|tx| {
+            let cost = tx_cost(
+                &near_config.genesis.config.runtime_config.transaction_costs,
+                &near_primitives::transaction::Transaction {
+                    signer_id: tx.transaction.signer_id.clone(),
+                    public_key: tx.transaction.public_key.clone(),
+                    nonce: tx.transaction.nonce,
+                    receiver_id: tx.transaction.receiver_id.clone(),
+                    block_hash: block.header.hash,
+                    actions: tx
+                        .transaction
+                        .actions
+                        .clone()
+                        .into_iter()
+                        .map(|action| {
+                            near_primitives::transaction::Action::try_from(action).unwrap()
+                        })
+                        .collect(),
+                },
+                prev_block_gas_price,
+                true,
+                near_config.genesis.config.protocol_version,
+            );
+            views::ReceiptView {
+                predecessor_id: tx.transaction.signer_id.clone(),
+                receiver_id: tx.transaction.receiver_id.clone(),
+                receipt_id: tx
+                    .outcome
+                    .outcome
+                    .receipt_ids
+                    .first()
+                    .expect("The transaction ExecutionOutcome should have one receipt id in vec")
+                    .clone(),
+                receipt: views::ReceiptEnumView::Action {
+                    signer_id: tx.transaction.signer_id.clone(),
+                    signer_public_key: tx.transaction.public_key.clone(),
+                    gas_price: cost
+                        .expect("TransactionCost returned IntegerOverflowError")
+                        .receipt_gas_price,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: tx.transaction.actions.clone(),
+                },
+            }
+        })
+        .collect();
+
+    Ok(local_receipts)
+}
+
+/// This function supposed to return the entire `StreamerMessage`.
+/// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
 /// and returns everything together in one struct
-async fn fetch_block_response(
+async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
-    outcomes_to_get: impl Iterator<Item = types::TransactionOrReceiptId>,
-) -> Result<FetchBlockResponse, FailedToFetchData> {
-    let chunks = fetch_chunks(&client, &block.chunks).await?;
-    let (outcomes, mut outcomes_to_retry) = fetch_outcomes(&client, outcomes_to_get).await;
-
-    for chunk in &chunks {
-        outcomes_to_retry.extend(chunk.transactions.iter().map(|transaction| {
-            types::TransactionOrReceiptId::Transaction {
-                transaction_hash: transaction.hash.clone(),
-                sender_id: transaction.signer_id.to_string(),
+    near_config: &neard::NearConfig,
+) -> Result<StreamerMessage, FailedToFetchData> {
+    let chunks_to_fetch = block
+        .chunks
+        .iter()
+        .filter_map(|c| {
+            if c.height_included == block.header.height {
+                Some(c.chunk_hash)
+            } else {
+                None
             }
-        }));
+        })
+        .collect::<Vec<_>>();
+    let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
 
-        outcomes_to_retry.extend(chunk.receipts.iter().map(|receipt| {
-            types::TransactionOrReceiptId::Receipt {
-                receipt_id: receipt.receipt_id,
-                receiver_id: receipt.receiver_id.to_string(),
-            }
-        }));
+    let mut local_receipts: Vec<views::ReceiptView> = vec![];
+    let mut outcomes = fetch_outcomes(&client, block.header.hash).await?;
+    let mut indexer_chunks: Vec<IndexerChunkView> = vec![];
+
+    for chunk in chunks {
+        let views::ChunkView { transactions, author, header, receipts } = chunk;
+
+        let indexer_transactions = transactions
+        .into_iter()
+        .map(|transaction| {
+            IndexerTransactionWithOutcome {
+            outcome: outcomes.remove(&transaction.hash).expect("The transaction execution outcome should always present in the same block as the transaction itself"),
+            transaction,
+        }
+        })
+        .collect::<Vec<IndexerTransactionWithOutcome>>();
+
+        local_receipts.extend(
+            convert_transactions_sir_into_local_receipts(
+                &client,
+                near_config,
+                indexer_transactions
+                    .iter()
+                    .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
+                    .collect::<Vec<&IndexerTransactionWithOutcome>>(),
+                &block,
+            )
+            .await?,
+        );
+
+        indexer_chunks.push(IndexerChunkView {
+            author,
+            header,
+            transactions: indexer_transactions,
+            receipts,
+        });
     }
 
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
-    Ok(FetchBlockResponse {
-        block_response: StreamerMessage { block, chunks, outcomes, state_changes },
-        new_outcomes_to_get: outcomes_to_retry,
+    Ok(StreamerMessage {
+        block,
+        chunks: indexer_chunks,
+        receipt_execution_outcomes: outcomes,
+        state_changes,
+        local_receipts,
     })
 }
 
@@ -137,35 +254,21 @@ async fn fetch_single_chunk(
     client.send(get_chunk).await?.map_err(|err| FailedToFetchData::String(err))
 }
 
-/// Fetch ExecutionOutcomeWithId for receipts and transactions from previous block
-/// Returns fetched Outcomes and Vec of failed to fetch outcome which should be retried to fetch
-/// in the next block
+/// Fetch all ExecutionOutcomeWithId for current block
+/// Returns a HashMap where the key is Receipt id or Transaction hash and the value is ExecutionOutcome wth id and proof
 async fn fetch_outcomes(
     client: &Addr<near_client::ViewClientActor>,
-    mut outcomes_drain: impl Iterator<Item = types::TransactionOrReceiptId>,
-) -> (Vec<Outcome>, Vec<types::TransactionOrReceiptId>) {
-    let mut outcomes: Vec<Outcome> = vec![];
-    let mut outcomes_to_retry: Vec<types::TransactionOrReceiptId> = vec![];
-    while let Some(transaction_or_receipt_id) = outcomes_drain.next() {
-        match client
-            .send(near_client::GetExecutionOutcome { id: transaction_or_receipt_id.clone() })
-            .await
-            .map_err(|err| FailedToFetchData::MailboxError(err))
-        {
-            Ok(Ok(outcome)) => match &transaction_or_receipt_id {
-                types::TransactionOrReceiptId::Transaction { .. } => {
-                    outcomes.push(Outcome::Transaction(outcome.outcome_proof));
-                }
-                types::TransactionOrReceiptId::Receipt { .. } => {
-                    outcomes.push(Outcome::Receipt(outcome.outcome_proof));
-                }
-            },
-            _ => {
-                outcomes_to_retry.push(transaction_or_receipt_id);
-            }
-        }
-    }
-    (outcomes, outcomes_to_retry)
+    block_hash: CryptoHash,
+) -> Result<HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>, FailedToFetchData> {
+    let outcomes = client
+        .send(near_client::GetExecutionOutcomesForBlock { block_hash })
+        .await?
+        .map_err(|err| FailedToFetchData::String(err))?;
+
+    Ok(outcomes
+        .into_iter()
+        .map(|outcome| (outcome.id, outcome))
+        .collect::<HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>>())
 }
 
 /// Fetches all the chunks by their hashes.
@@ -173,12 +276,12 @@ async fn fetch_outcomes(
 /// Returns Chunks as a `Vec`
 async fn fetch_chunks(
     client: &Addr<near_client::ViewClientActor>,
-    chunks: &[views::ChunkHeaderView],
+    chunk_hashes: Vec<CryptoHash>,
 ) -> Result<Vec<views::ChunkView>, FailedToFetchData> {
-    let mut chunks: futures::stream::FuturesUnordered<_> = chunks
-        .iter()
-        .map(|chunk| {
-            fetch_single_chunk(&client, near_client::GetChunk::ChunkHash(chunk.chunk_hash.into()))
+    let mut chunks: futures::stream::FuturesUnordered<_> = chunk_hashes
+        .into_iter()
+        .map(|chunk_hash| {
+            fetch_single_chunk(&client, near_client::GetChunk::ChunkHash(chunk_hash.into()))
         })
         .collect();
     let mut response = Vec::<views::ChunkView>::with_capacity(chunks.len());
@@ -197,6 +300,7 @@ async fn fetch_chunks(
 pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,
+    near_config: neard::NearConfig,
     indexer_config: IndexerConfig,
     mut blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
@@ -206,14 +310,8 @@ pub(crate) async fn start(
 
     // TODO: implement proper error handling
     let db = DB::open_default(indexer_db_path).unwrap();
-    let mut outcomes_to_get = Vec::<types::TransactionOrReceiptId>::new();
     let mut last_synced_block_height: Option<types::BlockHeight> = None;
 
-    info!(
-        target: INDEXER,
-        "Last synced block height in db is {}",
-        last_synced_block_height.unwrap_or(0)
-    );
     'main: loop {
         time::delay_for(INTERVAL).await;
         let status = fetch_status(&client).await;
@@ -255,18 +353,15 @@ pub(crate) async fn start(
         );
         for block_height in start_syncing_block_height..=latest_block_height {
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response =
-                    fetch_block_response(&view_client, block, outcomes_to_get.drain(..)).await;
+                let response = build_streamer_message(&view_client, block, &near_config).await;
 
                 match response {
-                    Ok(fetch_block_response) => {
-                        outcomes_to_get = fetch_block_response.new_outcomes_to_get;
-                        debug!(target: INDEXER, "{:#?}", &fetch_block_response.block_response);
-                        if let Err(_) = blocks_sink.send(fetch_block_response.block_response).await
-                        {
+                    Ok(streamer_message) => {
+                        debug!(target: INDEXER, "{:#?}", &streamer_message);
+                        if let Err(_) = blocks_sink.send(streamer_message).await {
                             info!(
                                         target: INDEXER,
-                                        "Unable to send BlockResponse to listener, listener doesn't listen. terminating..."
+                                        "Unable to send StreamerMessage to listener, listener doesn't listen. terminating..."
                                     );
                             break 'main;
                         }

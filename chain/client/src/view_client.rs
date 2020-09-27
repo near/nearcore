@@ -30,14 +30,14 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView,
-    StateChangesView, ValidatorStakeView,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    FinalExecutionOutcomeView, FinalExecutionStatus, GasPriceView, LightClientBlockView,
+    QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView, ValidatorStakeView,
 };
 
 use crate::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetExecutionOutcome, GetGasPrice, Query, TxStatus, TxStatusError,
+    GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, Query, TxStatus, TxStatusError,
 };
 use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
@@ -698,6 +698,26 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
     }
 }
 
+/// Extract the list of execution outcomes that were produced in a given block
+/// (including those created for local receipts).
+///
+/// NOTE: The order of execution outcomes is NOT preserved (that would require
+/// data migration), so the order should be recovered from the transactions
+/// and receipts.
+impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
+    type Result = Result<Vec<ExecutionOutcomeWithIdView>, String>;
+
+    fn handle(&mut self, msg: GetExecutionOutcomesForBlock, _: &mut Self::Context) -> Self::Result {
+        Ok(self
+            .chain
+            .get_block_execution_outcomes(&msg.block_hash)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+}
+
 impl Handler<GetBlockProof> for ViewClientActor {
     type Result = Result<GetBlockProofResponse, String>;
 
@@ -865,6 +885,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         },
                         height,
                         tracked_shards: self.config.tracked_shards.clone(),
+                        archival: self.config.archive,
                     }
                 }
                 Err(err) => {

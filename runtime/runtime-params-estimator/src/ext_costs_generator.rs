@@ -17,9 +17,10 @@ impl ExtCostsGenerator {
 
     fn extract_value(&mut self, metric: Metric, ext_cost: ExtCosts) -> Ratio<u64> {
         let Self { agg, result: _ } = self;
+        let base = &agg[&Metric::noop];
         let agg = &agg[&metric];
         let multiplier = agg.ext_costs[&ext_cost];
-        Ratio::<u64>::new(agg.upper(), multiplier)
+        Ratio::new(agg.upper_with_base(base), multiplier)
     }
 
     fn extract(&mut self, metric: Metric, ext_cost: ExtCosts) {

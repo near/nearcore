@@ -35,6 +35,10 @@ class PeerChainInfo:
     pass
 
 
+class PeerChainInfoV2:
+    pass
+
+
 class EdgeInfo:
     pass
 
@@ -123,13 +127,14 @@ network_schema = [
                 'struct',
             'fields': [
                 ['version', 'u32'],
+                ['oldest_supported_version', 'u32'],
                 ['peer_id', PublicKey],
                 ['target_peer_id', PublicKey],
                 ['listen_port', {
                     'kind': 'option',
                     'type': 'u16'
                 }],
-                ['chain_info', PeerChainInfo],
+                ['chain_info', PeerChainInfoV2],
                 ['edge_info', EdgeInfo],
             ]
         }
@@ -195,6 +200,18 @@ network_schema = [
                 'struct',
             'fields': [['genesis_id', GenesisId], ['height', 'u64'],
                        ['tracked_shards', ['u64']]]
+        }
+    ],
+    [
+        PeerChainInfoV2, {
+            'kind':
+                'struct',
+            'fields': [
+                ['genesis_id', GenesisId],
+                ['height', 'u64'],
+                ['tracked_shards', ['u64']],
+                ['archival', 'bool']
+            ]
         }
     ],
     [

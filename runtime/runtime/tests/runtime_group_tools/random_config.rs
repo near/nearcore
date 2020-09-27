@@ -46,6 +46,7 @@ pub fn random_config() -> RuntimeConfig {
                 (101 + rng.next_u32() % 10).try_into().unwrap(),
                 100,
             ),
+            evm_deposit: (rng.next_u64() % 10000) as u128 * 10u128.pow(23),
         },
         ..Default::default()
     }

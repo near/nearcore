@@ -11,10 +11,8 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
-use near_primitives::version::{
-    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
-};
+use near_primitives::utils::create_random_seed;
+use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_configs::AccountCreationConfig;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::{
@@ -164,6 +162,7 @@ pub(crate) fn action_function_call(
         &apply_state.epoch_id,
         &apply_state.last_block_hash,
         epoch_info_provider,
+        apply_state.current_protocol_version,
     );
     let (outcome, err) = execute_function_call(
         apply_state,
