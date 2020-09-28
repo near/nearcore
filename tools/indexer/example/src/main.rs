@@ -1,6 +1,6 @@
 use actix;
 
-use clap::derive::Clap;
+use clap::Clap;
 use tokio::sync::mpsc;
 use tracing::info;
 
