@@ -98,24 +98,6 @@ You can choose Indexer Framework sync mode by setting what to stream:
  - `BlockHeight(u64)` - Specific block height to start syncing from
  
  Refer to `main()` function in [Indexer Example](https://github.com/nearprotocol/nearcore/blob/master/tools/indexer/example/src/main.rs)
- 
-
-Another tweak changes the default "fast" sync process to a "full" sync process. When the node gets online and observes that its state is missing or outdated, it will do state sync, and that can be done in two strategies:
-
-1. ("fast" / default) sync enough information (only block headers) to ensure that the chain is valid; that means that the node won't have transactions, receipts, and execution outcomes, only the proofs, so Indexer will skip these blocks
-2. (very slow / full sync) sync all the blocks, chunks, transactions, receipts, and execution outcomes starting from the genesis.
-
-To force full sync (don't forget to track shards [see the previous tweak]), make the following change to your `config.json`:
-
-```
-...
-"consensus": {
-  ...
-  "block_fetch_horizon": 18446744073709551615,
-  ...
-},
-...
-```
 
 Indexer Framework also exposes access to the internal APIs (see `Indexer::client_actors` method), so you can fetch data about any block, transaction, etc, yet by default, nearcore is configured to remove old data (garbage collection [GC]), so querying the data that was observed a few epochs before may return an error saying that the data is not found. If you only need blocks streaming, you don't need this tweak, but if you need access to the historical data right from your Indexer, consider updating `"archive"` setting in `config.json` to `true`:
 
@@ -128,7 +110,7 @@ Indexer Framework also exposes access to the internal APIs (see `Indexer::client
 
 ## Who is using NEAR Indexer?
 
-*This list is not exclusive, feel free to submit your project by sending a pull request.*
+*This list is not exhaustive, feel free to submit your project by sending a pull request.*
 
 * [Indexer for NEAR Wallet](https://github.com/near/near-indexer-for-wallet)
 * [Indexer for NEAR Explorer](https://github.com/near/near-indexer-for-explorer)
