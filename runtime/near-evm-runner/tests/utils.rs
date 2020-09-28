@@ -10,6 +10,8 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::Balance;
 use near_vm_logic::VMConfig;
 
+pub const CHAIN_ID: u128 = 0x99;
+
 pub fn accounts(num: usize) -> String {
     ["evm", "alice", "bob", "chad"][num].to_string()
 }
@@ -30,6 +32,7 @@ pub fn create_context<'a>(
 ) -> EvmContext<'a> {
     EvmContext::new(
         external,
+        CHAIN_ID,
         vm_config,
         fees_config,
         1000,
@@ -58,11 +61,12 @@ pub fn public_key_to_address(public_key: PublicKey) -> Address {
 
 pub fn encode_meta_call_function_args(
     signer: &dyn Signer,
+    chain_id: u128,
     address: Address,
     nonce: U256,
     input: Vec<u8>,
 ) -> Vec<u8> {
-    let domain_separator = near_erc721_domain(U256::from(0x4e454152));
+    let domain_separator = near_erc721_domain(U256::from(chain_id));
     let call_args = encode_call_function_args(address, input);
     let args = prepare_meta_call_args(&domain_separator, &"evm".to_string(), nonce, &call_args);
     match signer.sign(&args) {

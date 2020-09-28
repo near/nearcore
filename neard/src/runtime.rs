@@ -407,6 +407,7 @@ impl NightshadeRuntime {
             gas_limit: Some(gas_limit),
             random_seed,
             current_protocol_version,
+            evm_chain_id: self.evm_chain_id(),
         };
 
         let apply_result = self
@@ -1091,6 +1092,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &mut logs,
                     &self.epoch_manager,
                     current_protocol_version,
+                    self.evm_chain_id(),
                 ) {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::CallResult(CallResult { result, logs }),
@@ -1308,6 +1310,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             && chunk_next_epoch_id != head_epoch_id
             && chunk_epoch_id != head_next_epoch_id)
     }
+
+    fn evm_chain_id(&self) -> u128 {
+        self.genesis_config.evm_chain_id
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1336,6 +1342,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        evm_chain_id: u128,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         self.trie_viewer.call_function(
@@ -1351,6 +1358,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             logs,
             epoch_info_provider,
             current_protocol_version,
+            evm_chain_id,
         )
     }
 

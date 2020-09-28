@@ -24,6 +24,8 @@ use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 
 const DEFAULT_EPOCH_LENGTH: u64 = 3;
 
+const CHAIN_ID: u128 = 0x99;
+
 pub fn init_runtime_and_signer(root_account_id: &AccountId) -> (RuntimeStandalone, InMemorySigner) {
     let mut genesis = GenesisConfig::default();
     let signer = genesis.init_root_signer(root_account_id);
@@ -216,6 +218,7 @@ impl RuntimeStandalone {
             last_block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            evm_chain_id: CHAIN_ID,
         };
 
         let apply_result = self.runtime.apply(
@@ -249,7 +252,6 @@ impl RuntimeStandalone {
     /// assert_eq!(runtime.current_block().block_height, 5);
     /// assert_eq!(runtime.current_block().epoch_height, 1);
     ///```
-
     pub fn produce_blocks(&mut self, num_of_blocks: u64) -> Result<(), RuntimeError> {
         for _ in 0..num_of_blocks {
             self.produce_block()?;
@@ -305,6 +307,7 @@ impl RuntimeStandalone {
             &mut logs,
             self.epoch_info_provider.as_ref(),
             PROTOCOL_VERSION,
+            CHAIN_ID,
         )?;
         Ok((result, logs))
     }

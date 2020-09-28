@@ -119,6 +119,7 @@ impl<'a> EvmState for EvmContext<'a> {
 impl<'a> EvmContext<'a> {
     pub fn new(
         ext: &'a mut dyn External,
+        chain_id: u128,
         config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         current_amount: Balance,
@@ -136,7 +137,7 @@ impl<'a> EvmContext<'a> {
             config.limit_config.max_gas_burnt
         };
         // TODO: pass chain id from ??? genesis / config.
-        let domain_separator = near_erc721_domain(U256::from(0x4e454152));
+        let domain_separator = near_erc721_domain(U256::from(chain_id));
         Self {
             ext,
             account_id,
@@ -401,6 +402,7 @@ impl<'a> EvmContext<'a> {
 
 pub fn run_evm(
     ext: &mut dyn External,
+    chain_id: u128,
     config: &VMConfig,
     fees_config: &RuntimeFeesConfig,
     account_id: &AccountId,
@@ -416,6 +418,7 @@ pub fn run_evm(
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let mut context = EvmContext::new(
         ext,
+        chain_id,
         config,
         fees_config,
         // This is total amount of all $NEAR inside this EVM.
@@ -479,6 +482,8 @@ mod tests {
 
     use super::*;
 
+    const CHAIN_ID: u128 = 0x99;
+
     fn setup() -> (MockedExternal, VMConfig, RuntimeFeesConfig) {
         let vm_config = VMConfig::default();
         let fees_config = RuntimeFeesConfig::default();
@@ -494,6 +499,7 @@ mod tests {
     ) -> EvmContext<'a> {
         EvmContext::new(
             external,
+            CHAIN_ID,
             vm_config,
             fees_config,
             0,

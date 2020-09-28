@@ -20,6 +20,10 @@ use near_primitives::types::{
 use near_primitives::version::ProtocolVersion;
 use near_runtime_configs::RuntimeConfig;
 
+const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
+
+const TEST_EVM_CHAIN_ID: u128 = 0x99;
+
 fn default_online_min_threshold() -> Rational {
     Rational::new(90, 100)
 }
@@ -36,7 +40,9 @@ fn default_protocol_upgrade_stake_threshold() -> Rational {
     Rational::new(8, 10)
 }
 
-const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
+fn default_evm_chain_id() -> u128 {
+    TEST_EVM_CHAIN_ID
+}
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
@@ -48,6 +54,10 @@ pub struct GenesisConfig {
     /// ID of the blockchain. This must be unique for every blockchain.
     /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
     pub chain_id: String,
+    /// ID of the EVM chain: https://github.com/ethereum-lists/chains
+    #[default(TEST_EVM_CHAIN_ID)]
+    #[serde(with = "u128_dec_format_compatible", default = "default_evm_chain_id")]
+    pub evm_chain_id: u128,
     /// Height of genesis block.
     pub genesis_height: BlockHeight,
     /// Number of block producer seats at genesis.

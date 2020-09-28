@@ -361,12 +361,10 @@ pub(crate) async fn query_accounts(
     crate::errors::ErrorKind,
 > {
     account_ids
-        .map(|account_id| {
-            async move {
-                let (_, _, account_info) =
-                    query_account(block_id.clone(), account_id.clone(), &view_client_addr).await?;
-                Ok((account_id.clone(), account_info))
-            }
+        .map(|account_id| async move {
+            let (_, _, account_info) =
+                query_account(block_id.clone(), account_id.clone(), &view_client_addr).await?;
+            Ok((account_id.clone(), account_info))
         })
         .collect::<futures::stream::FuturesUnordered<_>>()
         .collect::<Vec<

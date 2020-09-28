@@ -129,6 +129,8 @@ pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 /// Number of epochs before protocol upgrade.
 pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
 
+pub const TEST_EVM_CHAIN_ID: u128 = 0x99;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";

@@ -66,6 +66,7 @@ impl StandaloneRuntime {
             gas_limit: None,
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            evm_chain_id: 0x99,
         };
 
         Self {

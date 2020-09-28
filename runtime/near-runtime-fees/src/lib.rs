@@ -9,6 +9,13 @@ use serde::{Deserialize, Serialize};
 pub type Balance = u128;
 pub type Gas = u64;
 
+/// The amount is 1000 * 10e24 = 1000 NEAR.
+const EVM_DEPOSIT: Balance = 1_000_000_000_000_000_000_000_000_000;
+
+fn default_evm_deposit() -> Balance {
+    EVM_DEPOSIT
+}
+
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
 /// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
@@ -66,6 +73,7 @@ pub struct RuntimeFeesConfig {
     pub pessimistic_gas_price_inflation_ratio: Rational,
 
     /// New EVM deposit.
+    #[serde(with = "u128_dec_format", default = "default_evm_deposit")]
     pub evm_deposit: Balance,
 }
 
@@ -232,8 +240,7 @@ impl Default for RuntimeFeesConfig {
             },
             burnt_gas_reward: Rational::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
-            // The amount is 1000 * 10e24 = 1000 NEAR.
-            evm_deposit: 1_000_000_000_000_000_000_000_000_000,
+            evm_deposit: EVM_DEPOSIT,
         }
     }
 }
@@ -280,6 +287,30 @@ impl RuntimeFeesConfig {
     pub fn min_receipt_with_function_call_gas(&self) -> Gas {
         self.action_receipt_creation_config.min_send_and_exec_fee()
             + self.action_creation_config.function_call_cost.min_send_and_exec_fee()
+    }
+}
+
+/// Serde serializer for u128 to integer.
+/// This is copy from core/primitives/src/serialize.rs
+/// It is required as this module doesn't depend on primitives.
+/// TODO(3384): move basic primitives into a separate module and use in runtime.
+pub mod u128_dec_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(num: &u128, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{}", num))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u128, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        u128::from_str_radix(&s, 10).map_err(de::Error::custom)
     }
 }
 

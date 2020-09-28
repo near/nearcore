@@ -18,6 +18,7 @@ use near_vm_logic::VMConfig;
 
 use crate::utils::{
     accounts, create_context, encode_meta_call_function_args, public_key_to_address, setup,
+    CHAIN_ID,
 };
 
 mod utils;
@@ -261,7 +262,8 @@ fn test_meta_call() {
     let mut context =
         create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
     let (input, _) = soltest::functions::return_some_funds::call();
-    let meta_tx = encode_meta_call_function_args(&signer, test_addr, U256::from(0), input);
+    let meta_tx =
+        encode_meta_call_function_args(&signer, CHAIN_ID, test_addr, U256::from(0), input);
     let _ = context.meta_call_function(meta_tx.clone()).unwrap();
     let signer_addr = public_key_to_address(signer.public_key);
     assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(150));

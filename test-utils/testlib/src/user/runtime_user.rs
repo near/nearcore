@@ -17,7 +17,7 @@ use near_primitives::views::{
     FinalExecutionStatus, ViewStateResult,
 };
 use near_store::{ShardTries, TrieUpdate};
-use neard::config::MIN_GAS_PRICE;
+use neard::config::{MIN_GAS_PRICE, TEST_EVM_CHAIN_ID};
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -129,6 +129,7 @@ impl RuntimeUser {
             random_seed: Default::default(),
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            evm_chain_id: TEST_EVM_CHAIN_ID,
         }
     }
 
@@ -232,6 +233,7 @@ impl User for RuntimeUser {
                 &mut result.logs,
                 &self.epoch_info_provider,
                 PROTOCOL_VERSION,
+                TEST_EVM_CHAIN_ID,
             )
             .map_err(|err| err.to_string())?;
         Ok(result)

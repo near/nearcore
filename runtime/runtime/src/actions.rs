@@ -52,6 +52,7 @@ pub(crate) fn execute_function_call(
     if is_account_evm(&account_id) {
         near_evm_runner::run_evm(
             runtime_ext,
+            apply_state.evm_chain_id,
             &config.wasm_config,
             &config.transaction_costs,
             &account_id,

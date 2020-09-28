@@ -79,6 +79,8 @@ pub struct ApplyState {
     pub random_seed: CryptoHash,
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
+    /// Ethereum chain id.
+    pub evm_chain_id: u128,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -1521,6 +1523,7 @@ mod tests {
             gas_limit: Some(gas_limit),
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            evm_chain_id: 0x99,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
