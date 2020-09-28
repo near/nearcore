@@ -62,6 +62,10 @@ pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
 
 # pytest stress/network_stress.py
 
+# Reverse backward compatible test. Check that if the new node is starts
+# stable node can boot from it.
+pytest --timeout=900 sanity/backward_compatible.py master rc rc
+
 # python spec tests
 pytest spec/network/handshake.py
 pytest spec/network/future_handshake.py

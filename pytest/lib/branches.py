@@ -1,5 +1,6 @@
 import os
 import subprocess
+import functools
 
 import semver
 from github import Github
@@ -13,6 +14,7 @@ def current_branch():
     ]).strip().decode()
 
 
+@functools.lru_cache(None)
 def get_releases():
     git = Github(None)
     repo = git.get_repo("nearprotocol/nearcore")
@@ -119,6 +121,10 @@ def compile_current():
 
 def download_binary(uname, branch):
     """Download binary for given platform and branch."""
+    PRECOMPILED = ['rc', 'beta', 'stable']
+    if branch not in PRECOMPILED:
+        raise NameError(f'Branch {branch} is not precompiled. Precompiled branches are {PRECOMPILED}')
+
     url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/near'
     print(f'Downloading near & state-viewer for {branch}@{uname}')
     subprocess.check_output([
