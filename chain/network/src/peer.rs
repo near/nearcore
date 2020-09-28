@@ -721,7 +721,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
         }
 
         match (self.peer_type, self.peer_status, peer_msg) {
-            (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
+            (_, _, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
                         warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
@@ -756,10 +756,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
+                let target_version = std::cmp::min(handshake.version, PROTOCOL_VERSION);
+
                 debug_assert!(
                     OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= handshake.version
                         && handshake.version <= PROTOCOL_VERSION
                 );
+
+                self.protocol_version = target_version;
 
                 if handshake.chain_info.genesis_id != self.genesis_id {
                     debug!(target: "network", "Received connection from node with different genesis.");

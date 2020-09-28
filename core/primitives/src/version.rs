@@ -19,9 +19,6 @@ pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
 pub const PROTOCOL_VERSION: ProtocolVersion = 39;
-/// TODO: Remove in next release. This is to allow nodes with initial version 34
-/// to be compatible with nodes at version 35
-pub const NETWORK_PROTOCOL_VERSION: ProtocolVersion = 34;
 /// Oldest supported version by this client.
 pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
 
