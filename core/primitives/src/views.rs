@@ -939,26 +939,16 @@ impl fmt::Debug for FinalExecutionOutcomeView {
 /// the generated receipt.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FinalExecutionOutcomeWithReceiptView {
-    /// Execution status. Contains the result in case of successful execution.
-    pub status: FinalExecutionStatus,
-    /// Signed Transaction
-    pub transaction: SignedTransactionView,
-    /// The execution outcome of the signed transaction.
-    pub transaction_outcome: ExecutionOutcomeWithIdView,
-    /// The execution outcome of receipts.
-    pub receipts_outcome: Vec<ExecutionOutcomeWithIdView>,
+    /// Final outcome view without receipts
+    #[serde(flatten)]
+    pub final_outcome: FinalExecutionOutcomeView,
     /// Receipts generated from the transaction
     pub receipts: Vec<ReceiptView>,
 }
 
 impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
-    fn from(final_outcome: FinalExecutionOutcomeWithReceiptView) -> Self {
-        Self {
-            status: final_outcome.status,
-            transaction: final_outcome.transaction,
-            transaction_outcome: final_outcome.transaction_outcome,
-            receipts_outcome: final_outcome.receipts_outcome,
-        }
+    fn from(final_outcome_view: FinalExecutionOutcomeWithReceiptView) -> Self {
+        final_outcome_view.final_outcome
     }
 }
 

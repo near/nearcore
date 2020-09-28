@@ -305,19 +305,11 @@ impl ViewClientActor {
             target_shard_id,
             true,
         ) {
-            match self.chain.get_final_transaction_result(&tx_hash, fetch_receipt) {
+            match self.chain.get_final_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
-                    let (status, receipt_outcomes) = match &tx_result {
-                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => {
-                            (&outcome.status, &outcome.receipts_outcome)
-                        }
-                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
-                            outcome,
-                        ) => (&outcome.status, &outcome.receipts_outcome),
-                    };
-                    match status {
+                    match &tx_result.status {
                         FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
-                            for receipt_view in receipt_outcomes.iter() {
+                            for receipt_view in tx_result.receipts_outcome.iter() {
                                 self.request_receipt_outcome(
                                     receipt_view.id,
                                     &head.last_block_hash,
@@ -327,7 +319,20 @@ impl ViewClientActor {
                         FinalExecutionStatus::SuccessValue(_)
                         | FinalExecutionStatus::Failure(_) => {}
                     }
-                    return Ok(Some(tx_result));
+                    if fetch_receipt {
+                        let final_result = self
+                            .chain
+                            .get_final_transaction_result_with_receipt(tx_result)
+                            .map_err(|e| TxStatusError::ChainError(e))?;
+                        return Ok(Some(
+                            FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
+                                final_result,
+                            ),
+                        ));
+                    }
+                    return Ok(Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
+                        tx_result,
+                    )));
                 }
                 Err(e) => match e.kind() {
                     ErrorKind::DBNotFoundErr(_) => {
