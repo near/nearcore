@@ -234,5 +234,5 @@ pub fn migrate_10_to_11(path: &String) {
     let final_head = Tip::from_header(&last_final_header);
     store_update.set_ser(ColBlockMisc, FINAL_HEAD_KEY, &final_head).unwrap();
     store_update.commit().unwrap();
-    set_store_version(&store, 10);
+    set_store_version(&store, 11);
 }
