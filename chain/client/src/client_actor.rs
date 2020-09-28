@@ -890,6 +890,7 @@ impl ClientActor {
                     if (head.height < block.header().height()
                         || &head.epoch_id == block.header().epoch_id())
                         && provenance == Provenance::NONE
+                        && !self.client.sync_status.is_syncing()
                     {
                         self.client.rebroadcast_block(block.clone());
                     }
