@@ -42,8 +42,8 @@ use near_store::{
     ColReceiptIdToShardId, ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders,
     ColStateParts, ColTransactionResult, ColTransactions, ColTrieChanges, DBCol,
     KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges, WrappedTrieChanges,
-    CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, SHOULD_COL_GC, TAIL_KEY,
+    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, TAIL_KEY,
 };
 
 use crate::error::{Error, ErrorKind};
@@ -91,6 +91,8 @@ pub trait ChainStoreAccess {
     fn header_head(&self) -> Result<Tip, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error>;
+    /// The chain final head. It is guaranteed to be monotonically increasing.
+    fn final_head(&self) -> Result<Tip, Error>;
     /// Larget approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
@@ -583,6 +585,11 @@ impl ChainStoreAccess for ChainStore {
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(ColBlockMisc, HEADER_HEAD_KEY), "HEADER_HEAD")
+    }
+
+    /// Final head of the chain.
+    fn final_head(&self) -> Result<Tip, Error> {
+        option_to_not_found(self.store.get_ser(ColBlockMisc, FINAL_HEAD_KEY), "FINAL HEAD")
     }
 
     /// Get full block.
@@ -1165,7 +1172,7 @@ pub struct ChainStoreUpdate<'a> {
     chunk_tail: Option<BlockHeight>,
     fork_tail: Option<BlockHeight>,
     header_head: Option<Tip>,
-    sync_head: Option<Tip>,
+    final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1189,7 +1196,7 @@ impl<'a> ChainStoreUpdate<'a> {
             chunk_tail: None,
             fork_tail: None,
             header_head: None,
-            sync_head: None,
+            final_head: None,
             largest_target_height: None,
             trie_changes: vec![],
             add_blocks_to_catchup: vec![],
@@ -1291,6 +1298,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(header_head.clone())
         } else {
             self.chain_store.header_head()
+        }
+    }
+
+    fn final_head(&self) -> Result<Tip, Error> {
+        if let Some(final_head) = self.final_head.as_ref() {
+            Ok(final_head.clone())
+        } else {
+            self.chain_store.final_head()
         }
     }
 
@@ -1653,6 +1668,11 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
+    pub fn save_final_head(&mut self, t: &Tip) -> Result<(), Error> {
+        self.final_head = Some(t.clone());
+        Ok(())
+    }
+
     fn update_height_if_not_challenged(
         &mut self,
         height: BlockHeight,
@@ -1717,11 +1737,6 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert(t.prev_block_hash, t.last_block_hash);
         self.header_head = Some(t.clone());
         Ok(())
-    }
-
-    /// Save "sync" head.
-    pub fn save_sync_head(&mut self, t: &Tip) {
-        self.sync_head = Some(t.clone());
     }
 
     pub fn save_largest_target_height(&mut self, height: BlockHeight) {
@@ -2398,6 +2413,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail)?;
         Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.fork_tail)?;
         Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head)?;
+        Self::write_col_misc(&mut store_update, FINAL_HEAD_KEY, &mut self.final_head)?;
         Self::write_col_misc(
             &mut store_update,
             LARGEST_TARGET_HEIGHT_KEY,

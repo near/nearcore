@@ -313,3 +313,11 @@ pub fn block_info(
         total_supply,
     }
 }
+
+pub fn record_with_block_info(
+    epoch_manager: &mut EpochManager,
+    cur_hash: CryptoHash,
+    block_info: BlockInfo,
+) {
+    epoch_manager.record_block_info(&cur_hash, block_info, [0; 32]).unwrap().commit().unwrap();
+}
