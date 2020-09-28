@@ -18,7 +18,7 @@ pub const DB_VERSION: DbVersion = 11;
 pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 38;
+pub const PROTOCOL_VERSION: ProtocolVersion = 39;
 /// TODO: Remove in next release. This is to allow nodes with initial version 34
 /// to be compatible with nodes at version 35
 pub const NETWORK_PROTOCOL_VERSION: ProtocolVersion = 34;

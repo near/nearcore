@@ -803,6 +803,9 @@ pub struct NetworkConfig {
     /// Number of peers to keep while removing a connection.
     /// Used to avoid disconnecting from peers we have been connected since long time.
     pub safe_set_size: u32,
+    /// Lower bound of the number of connections to archival peers to keep
+    /// if we are an archival node.
+    pub archival_peer_connections_lower_bound: u32,
     /// Duration of the ban for misbehaving peers.
     pub ban_window: Duration,
     /// Remove expired peers.
@@ -833,6 +836,8 @@ pub struct NetworkConfig {
     /// are satisfied.
     /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
     pub outbound_disabled: bool,
+    /// Not clear old data, set `true` for archive nodes.
+    pub archive: bool,
 }
 
 impl NetworkConfig {
