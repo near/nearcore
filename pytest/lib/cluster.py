@@ -563,7 +563,7 @@ class AzureNode(BaseNode):
             self.signer_key = Key.from_json_file(
                 os.path.join(node_dir, "validator_key.json"))
 
-        def start(self, boot_key, boot_node_addr):
+        def start(self, boot_key, boot_node_addr, skip_starting_proxy):
             cmd = ('RUST_BACKTRACE=1 ADVERSARY_CONSENT=1 ' + ' '.join(
                 self._get_command_line(self.near_root,
                                        '.near', boot_key, boot_node_addr)).
