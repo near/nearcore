@@ -901,9 +901,44 @@ impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FinalExecutionOutcomeViewEnum {
+    FinalExecutionOutcome(FinalExecutionOutcomeView),
+    FinalExecutionOutcomeWithReceipt(FinalExecutionOutcomeWithReceiptView),
+}
+
 /// Final execution outcome of the transaction and all of subsequent the receipts.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FinalExecutionOutcomeView {
+    /// Execution status. Contains the result in case of successful execution.
+    pub status: FinalExecutionStatus,
+    /// Signed Transaction
+    pub transaction: SignedTransactionView,
+    /// The execution outcome of the signed transaction.
+    pub transaction_outcome: ExecutionOutcomeWithIdView,
+    /// The execution outcome of receipts.
+    pub receipts_outcome: Vec<ExecutionOutcomeWithIdView>,
+}
+
+impl fmt::Debug for FinalExecutionOutcomeView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FinalExecutionOutcome")
+            .field("status", &self.status)
+            .field("transaction", &self.transaction)
+            .field("transaction_outcome", &self.transaction_outcome)
+            .field(
+                "receipts_outcome",
+                &format_args!("{}", logging::pretty_vec(&self.receipts_outcome)),
+            )
+            .finish()
+    }
+}
+
+/// Final execution outcome of the transaction and all of subsequent the receipts. Also includes
+/// the generated receipt.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub struct FinalExecutionOutcomeWithReceiptView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: FinalExecutionStatus,
     /// Signed Transaction
@@ -916,18 +951,14 @@ pub struct FinalExecutionOutcomeView {
     pub receipts: Vec<ReceiptView>,
 }
 
-impl fmt::Debug for FinalExecutionOutcomeView {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FinalExecutionOutcome")
-            .field("status", &self.status)
-            .field("transaction", &self.transaction)
-            .field("transaction_outcome", &self.transaction_outcome)
-            .field("receipts", &format_args!("{}", logging::pretty_vec(&self.receipts)))
-            .field(
-                "receipts_outcome",
-                &format_args!("{}", logging::pretty_vec(&self.receipts_outcome)),
-            )
-            .finish()
+impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
+    fn from(final_outcome: FinalExecutionOutcomeWithReceiptView) -> Self {
+        Self {
+            status: final_outcome.status,
+            transaction: final_outcome.transaction,
+            transaction_outcome: final_outcome.transaction_outcome,
+            receipts_outcome: final_outcome.receipts_outcome,
+        }
     }
 }
 

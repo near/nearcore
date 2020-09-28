@@ -187,7 +187,6 @@ impl RuntimeUser {
             transaction,
             transaction_outcome: outcomes.pop().unwrap(),
             receipts_outcome: receipts,
-            receipts: vec![],
         }
     }
 }

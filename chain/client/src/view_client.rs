@@ -31,8 +31,9 @@ use near_primitives::types::{
 };
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeView, FinalExecutionStatus, GasPriceView, LightClientBlockView,
-    QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView, ValidatorStakeView,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
+    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView,
+    ValidatorStakeView,
 };
 
 use crate::types::{
@@ -285,12 +286,13 @@ impl ViewClientActor {
         &mut self,
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
-    ) -> Result<Option<FinalExecutionOutcomeView>, TxStatusError> {
+        fetch_receipt: bool,
+    ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
         {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if let Some(res) = request_manager.tx_status_response.cache_remove(&tx_hash) {
                 request_manager.tx_status_requests.cache_remove(&tx_hash);
-                return Ok(Some(res));
+                return Ok(Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res)));
             }
         }
 
@@ -303,11 +305,19 @@ impl ViewClientActor {
             target_shard_id,
             true,
         ) {
-            match self.chain.get_final_transaction_result(&tx_hash) {
+            match self.chain.get_final_transaction_result(&tx_hash, fetch_receipt) {
                 Ok(tx_result) => {
-                    match tx_result.status {
+                    let (status, receipt_outcomes) = match &tx_result {
+                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => {
+                            (&outcome.status, &outcome.receipts_outcome)
+                        }
+                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
+                            outcome,
+                        ) => (&outcome.status, &outcome.receipts_outcome),
+                    };
+                    match status {
                         FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
-                            for receipt_view in tx_result.receipts_outcome.iter() {
+                            for receipt_view in receipt_outcomes.iter() {
                                 self.request_receipt_outcome(
                                     receipt_view.id,
                                     &head.last_block_hash,
@@ -522,10 +532,10 @@ impl Handler<GetChunk> for ViewClientActor {
 }
 
 impl Handler<TxStatus> for ViewClientActor {
-    type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
+    type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
 
     fn handle(&mut self, msg: TxStatus, _: &mut Self::Context) -> Self::Result {
-        self.get_tx_status(msg.tx_hash, msg.signer_account_id)
+        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
     }
 }
 
@@ -774,7 +784,14 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::TxStatus { tx_hash, signer_account_id } => {
-                if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id) {
+                if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false) {
+                    // TODO: remove this legacy support in #3204
+                    let result = match result {
+                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
+                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
+                            outcome,
+                        ) => outcome.into(),
+                    };
                     NetworkViewClientResponses::TxStatus(Box::new(result))
                 } else {
                     NetworkViewClientResponses::NoResponse

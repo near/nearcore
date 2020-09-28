@@ -1177,12 +1177,12 @@ fn test_gc_execution_outcome() {
     for i in 1..epoch_length {
         env.produce_block(0, i);
     }
-    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_ok());
+    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash, false).is_ok());
 
     for i in epoch_length..=epoch_length * 6 + 1 {
         env.produce_block(0, i);
     }
-    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_err());
+    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash, false).is_err());
 }
 
 #[cfg(feature = "expensive_tests")]

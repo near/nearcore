@@ -39,7 +39,9 @@ use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId};
 use near_primitives::utils::is_valid_account_id;
-use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest};
+use near_primitives::views::{
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest,
+};
 mod metrics;
 
 /// Max size of the query path (soft-deprecated)
@@ -231,7 +233,8 @@ impl JsonRpcHandler {
             "health" => self.health().await,
             "status" => self.status().await,
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
-            "tx" => self.tx_status(request.params).await,
+            "tx" => self.tx_status_common(request.params, false).await,
+            "EXPERIMENTAL_tx_status" => self.tx_status_common(request.params, true).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
             "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
@@ -269,7 +272,11 @@ impl JsonRpcHandler {
                 // status without the information about execution outcomes.
                 match self
                     .view_client_addr
-                    .send(TxStatus { tx_hash, signer_account_id: signer_account_id.clone() })
+                    .send(TxStatus {
+                        tx_hash,
+                        signer_account_id: signer_account_id.clone(),
+                        fetch_receipt: false,
+                    })
                     .await
                 {
                     Ok(Ok(Some(_))) => {
@@ -294,7 +301,8 @@ impl JsonRpcHandler {
     async fn tx_status_fetch(
         &self,
         tx_info: TransactionInfo,
-    ) -> Result<FinalExecutionOutcomeView, TxStatusError> {
+        fetch_receipt: bool,
+    ) -> Result<FinalExecutionOutcomeViewEnum, TxStatusError> {
         let (tx_hash, account_id) = match &tx_info {
             TransactionInfo::Transaction(tx) => (tx.get_hash(), tx.transaction.signer_id.clone()),
             TransactionInfo::TransactionId { hash, account_id } => (*hash, account_id.clone()),
@@ -303,7 +311,11 @@ impl JsonRpcHandler {
             loop {
                 let tx_status_result = self
                     .view_client_addr
-                    .send(TxStatus { tx_hash, signer_account_id: account_id.clone() })
+                    .send(TxStatus {
+                        tx_hash,
+                        signer_account_id: account_id.clone(),
+                        fetch_receipt,
+                    })
                     .await;
                 match tx_status_result {
                     Ok(Ok(Some(outcome))) => break Ok(outcome),
@@ -334,7 +346,7 @@ impl JsonRpcHandler {
     async fn tx_polling(&self, tx_info: TransactionInfo) -> Result<Value, RpcError> {
         timeout(self.polling_config.polling_timeout, async {
             loop {
-                match self.tx_status_fetch(tx_info.clone()).await {
+                match self.tx_status_fetch(tx_info.clone(), false).await {
                     Ok(tx_status) => break jsonify(Ok(Ok(tx_status))),
                     // If transaction is missing, keep polling.
                     Err(TxStatusError::MissingTransaction(_)) => {}
@@ -441,7 +453,7 @@ impl JsonRpcHandler {
 
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
-        match self.tx_status_fetch(TransactionInfo::Transaction(tx.clone())).await {
+        match self.tx_status_fetch(TransactionInfo::Transaction(tx.clone()), false).await {
             Ok(outcome) => {
                 return jsonify(Ok(Ok(outcome)));
             }
@@ -569,7 +581,11 @@ impl JsonRpcHandler {
         })?
     }
 
-    async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
+    async fn tx_status_common(
+        &self,
+        params: Option<Value>,
+        fetch_receipt: bool,
+    ) -> Result<Value, RpcError> {
         let tx_status_request =
             if let Ok((hash, account_id)) = parse_params::<(CryptoHash, String)>(params.clone()) {
                 if !is_valid_account_id(&account_id) {
@@ -584,7 +600,10 @@ impl JsonRpcHandler {
                 TransactionInfo::Transaction(tx)
             };
 
-        jsonify(Ok(self.tx_status_fetch(tx_status_request).await.map_err(|err| err.into())))
+        jsonify(Ok(self
+            .tx_status_fetch(tx_status_request, fetch_receipt)
+            .await
+            .map_err(|err| err.into())))
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {

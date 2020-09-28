@@ -13,7 +13,7 @@ def submit_tx_and_check(node, tx):
     assert 'error' not in res, res
 
     tx_hash = res['result']['transaction']['hash']
-    query_res = nodes[0].json_rpc('tx', [tx_hash, 'test0'])
+    query_res = nodes[0].json_rpc('EXPERIMENTAL_tx_status', [tx_hash, 'test0'])
     assert 'error' not in query_res, query_res
     receipt_id_from_outcomes = set(map(lambda x: x['id'], query_res['result']['receipts_outcome']))
     receipt_id_from_receipts = set(map(lambda x: x['receipt_id'], query_res['result']['receipts']))

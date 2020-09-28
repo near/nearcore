@@ -49,7 +49,8 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
-    FinalExecutionStatus, LightClientBlockView, SignedTransactionView,
+    FinalExecutionOutcomeViewEnum, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
+    LightClientBlockView, SignedTransactionView,
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
@@ -1847,7 +1848,8 @@ impl Chain {
     pub fn get_final_transaction_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<FinalExecutionOutcomeView, Error> {
+        fetch_receipt: bool,
+    ) -> Result<FinalExecutionOutcomeViewEnum, Error> {
         let mut outcomes = self.get_recursive_transaction_results(hash)?;
         let mut looking_for_id = (*hash).into();
         let num_outcomes = outcomes.len();
@@ -1884,6 +1886,16 @@ impl Chain {
             .clone()
             .into();
         let transaction_outcome = outcomes.pop().unwrap();
+        if !fetch_receipt {
+            return Ok(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
+                FinalExecutionOutcomeView {
+                    status,
+                    transaction,
+                    transaction_outcome,
+                    receipts_outcome,
+                },
+            ));
+        };
         let receipt_id_from_transaction = transaction_outcome.outcome.receipt_ids.get(0).cloned();
         let is_local_receipt = transaction.signer_id == transaction.receiver_id;
 
@@ -1903,13 +1915,15 @@ impl Chain {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(FinalExecutionOutcomeView {
-            status,
-            transaction,
-            transaction_outcome,
-            receipts_outcome,
-            receipts,
-        })
+        Ok(FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
+            FinalExecutionOutcomeWithReceiptView {
+                status,
+                transaction,
+                transaction_outcome,
+                receipts_outcome,
+                receipts,
+            },
+        ))
     }
 
     /// Find a validator to forward transactions to

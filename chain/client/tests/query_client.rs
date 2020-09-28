@@ -14,7 +14,7 @@ use near_primitives::types::{BlockReference, EpochId};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest, QueryResponseKind};
 use num_rational::Rational;
 use std::time::Duration;
 
@@ -130,21 +130,31 @@ fn test_execution_outcome_for_chunk() {
             actix::clock::delay_for(Duration::from_millis(500)).await;
 
             let execution_outcome = view_client
-                .send(TxStatus { tx_hash, signer_account_id: "test".to_string() })
+                .send(TxStatus {
+                    tx_hash,
+                    signer_account_id: "test".to_string(),
+                    fetch_receipt: false,
+                })
                 .await
                 .unwrap()
                 .unwrap()
                 .unwrap();
+            let feo = match execution_outcome {
+                FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
+                FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(outcome) => {
+                    outcome.into()
+                }
+            };
 
             let execution_outcomes_in_block = view_client
                 .send(GetExecutionOutcomesForBlock {
-                    block_hash: execution_outcome.transaction_outcome.block_hash,
+                    block_hash: feo.transaction_outcome.block_hash,
                 })
                 .await
                 .unwrap()
                 .unwrap();
             assert_eq!(execution_outcomes_in_block.len(), 1);
-            assert!(execution_outcomes_in_block[0].id == tx_hash);
+            assert_eq!(execution_outcomes_in_block[0].id, tx_hash);
             System::current().stop();
         });
         near_network::test_utils::wait_or_panic(5000);
