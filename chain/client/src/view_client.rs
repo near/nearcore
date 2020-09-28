@@ -150,12 +150,15 @@ impl ViewClientActor {
         need_request
     }
 
-    fn get_block_hash_by_finality(&mut self, finality: &Finality) -> Result<CryptoHash, Error> {
+    fn get_block_hash_by_finality(
+        &mut self,
+        finality: &Finality,
+    ) -> Result<CryptoHash, near_chain::Error> {
         let head_header = self.chain.head_header()?;
         match finality {
             Finality::None => Ok(*head_header.hash()),
             Finality::DoomSlug => Ok(*head_header.last_ds_final_block()),
-            Finality::Final => Ok(*head_header.last_final_block()),
+            Finality::Final => self.chain.final_head().map(|t| t.last_block_hash),
         }
     }
 
