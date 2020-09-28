@@ -4,6 +4,8 @@ import subprocess
 import semver
 from github import Github
 
+NEAR_ROOT = '../target/debug/'
+
 
 def current_branch():
     return os.environ.get('BUILDKITE_BRANCH') or subprocess.check_output([
@@ -38,7 +40,42 @@ def latest_rc_branch():
     if not releases:
         return None
 
-    return semver.VersionInfo.parse(releases[0].title).finalize_version()
+    return str(semver.VersionInfo.parse(releases[0].title).finalize_version())
+
+
+def latest_beta_branch():
+    releases = list(
+        filter(
+            lambda release: (semver.VersionInfo.parse(release.title).prerelease
+                             or "").startswith("beta"), get_releases()))
+
+    if not releases:
+        return None
+
+    return str(semver.VersionInfo.parse(releases[0].title).finalize_version())
+
+
+def latest_stable_branch():
+    releases = list(
+        filter(
+            lambda release: not semver.VersionInfo.parse(release.title).prerelease, get_releases()))
+
+    if not releases:
+        return None
+
+    return str(semver.VersionInfo.parse(releases[0].title).finalize_version())
+
+
+def get_branch(branch):
+    if branch == 'rc':
+        return latest_rc_branch()
+    elif branch == 'beta':
+        return latest_beta_branch()
+    elif branch == 'stable':
+        return latest_stable_branch()
+    else:
+        return branch
+
 
 
 def compile_binary(branch):
@@ -98,19 +135,17 @@ def download_binary(uname, branch):
         ['chmod', '+x', f'../target/debug/state-viewer-{branch}'])
 
 
-def prepare_ab_test(other_branch):
-    # Use NEAR_AB_BINARY_EXISTS to avoid rebuild / re-download when testing locally.
-    #if not os.environ.get('NEAR_AB_BINARY_EXISTS'):
-    #    compile_current()
-    #    uname = os.uname()[0]
-    #    if other_branch in ['master', 'beta', 'stable'] and uname in ['Linux', 'Darwin']:
-    #        download_binary(uname, other_branch)
-    #    else:
-    # TODO: re-enable caching
-    compile_current()
-    uname = os.uname()[0]
+def prepare_binary(branch):
     try:
-        download_binary(uname, other_branch)
+        uname = os.uname()[0]
+        download_binary(uname, branch)
     except Exception:
-        compile_binary(str(other_branch))
-    return '../target/debug/', [other_branch, escaped(current_branch())]
+        compile_binary(str(branch))
+
+
+def prepare_ab_test(other_branch):
+    # TODO: re-enable caching
+    current_branch_ = current_branch()
+    prepare_binary(current_branch_)
+    prepare_binary(other_branch)
+    return NEAR_ROOT, [other_branch, escaped(current_branch_)]
