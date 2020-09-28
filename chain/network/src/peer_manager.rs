@@ -458,6 +458,13 @@ impl PeerManagerActor {
             .count()
     }
 
+    fn num_archival_peers(&self) -> usize {
+        self.active_peers
+            .values()
+            .filter(|active_peer| active_peer.full_peer_info.chain_info.archival)
+            .count()
+    }
+
     /// Check if it is needed to create a new outbound connection.
     /// If the number of active connections is less than `ideal_connections_lo` or
     /// (the number of outgoing connections is less than `minimum_outbound_peers`
@@ -663,6 +670,8 @@ impl PeerManagerActor {
     ///             find the one we connected earlier and add it to the safe set.
     ///         else break
     fn try_stop_active_connection(&self) {
+        debug!(target: "network", "Trying to stop an active connection. Number of active connections: {}", self.active_peers.len());
+
         // Build safe set
         let mut safe_set = HashSet::new();
 
@@ -671,6 +680,17 @@ impl PeerManagerActor {
         {
             for (peer, active) in self.active_peers.iter() {
                 if active.peer_type == PeerType::Outbound {
+                    safe_set.insert(peer.clone());
+                }
+            }
+        }
+
+        if self.config.archive
+            && self.num_archival_peers()
+                <= self.config.archival_peer_connections_lower_bound as usize
+        {
+            for (peer, active) in self.active_peers.iter() {
+                if active.full_peer_info.chain_info.archival {
                     safe_set.insert(peer.clone());
                 }
             }
