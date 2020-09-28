@@ -39,8 +39,8 @@ use near_store::{
     ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColGCCount, ColIncomingReceipts,
     ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes, ColNextBlockWithNewChunk,
     ColOutcomesByBlockHash, ColOutgoingReceipts, ColPartialChunks, ColProcessedBlockHeights,
-    ColReceiptIdToShardId, ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders,
-    ColStateParts, ColTransactionResult, ColTransactions, ColTrieChanges, DBCol,
+    ColReceiptIdToShardId, ColReceipts, ColState, ColStateChanges, ColStateDlInfos,
+    ColStateHeaders, ColStateParts, ColTransactionResult, ColTransactions, ColTrieChanges, DBCol,
     KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges, WrappedTrieChanges,
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, TAIL_KEY,
@@ -278,6 +278,8 @@ pub trait ChainStoreAccess {
         tx_hash: &CryptoHash,
     ) -> Result<Option<&SignedTransaction>, Error>;
 
+    fn get_receipt(&mut self, receipt_id: &CryptoHash) -> Result<Option<&Receipt>, Error>;
+
     fn get_state_changes_in_block(
         &self,
         block_hash: &CryptoHash,
@@ -364,6 +366,8 @@ pub struct ChainStore {
     last_block_with_new_chunk: SizedCache<Vec<u8>, CryptoHash>,
     /// Transactions
     transactions: SizedCache<Vec<u8>, SignedTransaction>,
+    /// Receipts
+    receipts: SizedCache<Vec<u8>, Receipt>,
     /// Cache with Block Refcounts
     block_refcounts: SizedCache<Vec<u8>, u64>,
     /// Cache of block hash -> block merkle tree at the current block
@@ -411,6 +415,7 @@ impl ChainStore {
             next_block_with_new_chunk: SizedCache::with_size(CHUNK_CACHE_SIZE),
             last_block_with_new_chunk: SizedCache::with_size(CHUNK_CACHE_SIZE),
             transactions: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            receipts: SizedCache::with_size(CHUNK_CACHE_SIZE),
             block_merkle_tree: SizedCache::with_size(CACHE_SIZE),
             block_ordinal_to_hash: SizedCache::with_size(CACHE_SIZE),
             processed_block_heights: SizedCache::with_size(CACHE_SIZE),
@@ -955,6 +960,11 @@ impl ChainStoreAccess for ChainStore {
             .map_err(|e| e.into())
     }
 
+    fn get_receipt(&mut self, receipt_id: &CryptoHash) -> Result<Option<&Receipt>, Error> {
+        read_with_cache(&*self.store, ColReceipts, &mut self.receipts, receipt_id.as_ref())
+            .map_err(|e| e.into())
+    }
+
     /// Retrieve the kinds of state changes occurred in a given block.
     ///
     /// We store different types of data, so we prefer to only expose minimal information about the
@@ -1147,17 +1157,12 @@ struct ChainStoreCacheUpdate {
     next_block_with_new_chunk: HashMap<(CryptoHash, ShardId), CryptoHash>,
     last_block_with_new_chunk: HashMap<ShardId, CryptoHash>,
     transactions: HashSet<SignedTransaction>,
+    receipts: HashMap<CryptoHash, Receipt>,
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, PartialMerkleTree>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     gc_count: HashMap<DBCol, GCCount>,
     processed_block_heights: HashSet<BlockHeight>,
-}
-
-impl ChainStoreCacheUpdate {
-    pub fn new() -> Self {
-        Self::default()
-    }
 }
 
 /// Provides layer to update chain without touching the underlying database.
@@ -1190,7 +1195,7 @@ impl<'a> ChainStoreUpdate<'a> {
         ChainStoreUpdate {
             chain_store,
             store_updates: vec![],
-            chain_store_cache_update: ChainStoreCacheUpdate::new(),
+            chain_store_cache_update: ChainStoreCacheUpdate::default(),
             head: None,
             tail: None,
             chunk_tail: None,
@@ -1602,6 +1607,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
+    fn get_receipt(&mut self, receipt_id: &CryptoHash) -> Result<Option<&Receipt>, Error> {
+        if let Some(receipt) = self.chain_store_cache_update.receipts.get(receipt_id) {
+            Ok(Some(receipt))
+        } else {
+            self.chain_store.get_receipt(&receipt_id)
+        }
+    }
+
     fn get_state_changes_in_block(
         &self,
         block_hash: &CryptoHash,
@@ -1784,6 +1797,9 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
         for transaction in &chunk.transactions {
             self.chain_store_cache_update.transactions.insert(transaction.clone());
+        }
+        for receipt in &chunk.receipts {
+            self.chain_store_cache_update.receipts.insert(receipt.receipt_id, receipt.clone());
         }
         self.chain_store_cache_update.chunks.insert(chunk.chunk_hash.clone(), chunk);
     }
@@ -2006,6 +2022,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 debug_assert_eq!(chunk.header.inner.height_created, height);
                 for transaction in chunk.transactions {
                     self.gc_col(ColTransactions, &transaction.get_hash().into());
+                }
+                for receipt in chunk.receipts {
+                    self.gc_col(ColReceipts, &receipt.get_hash().into());
                 }
 
                 // 2. Delete chunk_hash-indexed data
@@ -2314,6 +2333,10 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.update_refcount(col, key, &[], -1);
                 self.chain_store.transactions.cache_remove(key);
             }
+            DBCol::ColReceipts => {
+                store_update.update_refcount(col, key, &[], -1);
+                self.chain_store.receipts.cache_remove(key);
+            }
             DBCol::ColChunks => {
                 store_update.delete(col, key);
                 self.chain_store.chunks.cache_remove(key);
@@ -2486,7 +2509,13 @@ impl<'a> ChainStoreUpdate<'a> {
             // Increase transaction refcounts for all included txs
             for tx in chunk.transactions.iter() {
                 let bytes = tx.try_to_vec().expect("Borsh cannot fail");
-                store_update.update_refcount(ColTransactions, tx.get_hash().as_ref(), &bytes, 1)
+                store_update.update_refcount(ColTransactions, tx.get_hash().as_ref(), &bytes, 1);
+            }
+
+            // Increase receipt refcounts for all included receipts
+            for receipt in chunk.receipts.iter() {
+                let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+                store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
             }
 
             store_update.set_ser(ColChunks, chunk_hash.as_ref(), chunk)?;
@@ -2714,6 +2743,7 @@ impl<'a> ChainStoreUpdate<'a> {
             next_block_with_new_chunk,
             last_block_with_new_chunk,
             transactions,
+            receipts,
             block_refcounts,
             block_merkle_tree,
             block_ordinal_to_hash,
@@ -2799,6 +2829,9 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for transaction in transactions {
             self.chain_store.transactions.cache_set(transaction.get_hash().into(), transaction);
+        }
+        for (receipt_id, receipt) in receipts {
+            self.chain_store.receipts.cache_set(receipt_id.into(), receipt);
         }
         for (block_hash, refcount) in block_refcounts {
             self.chain_store.block_refcounts.cache_set(block_hash.into(), refcount);
