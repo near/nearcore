@@ -901,6 +901,13 @@ impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FinalExecutionOutcomeViewEnum {
+    FinalExecutionOutcome(FinalExecutionOutcomeView),
+    FinalExecutionOutcomeWithReceipt(FinalExecutionOutcomeWithReceiptView),
+}
+
 /// Final execution outcome of the transaction and all of subsequent the receipts.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FinalExecutionOutcomeView {
@@ -928,6 +935,23 @@ impl fmt::Debug for FinalExecutionOutcomeView {
     }
 }
 
+/// Final execution outcome of the transaction and all of subsequent the receipts. Also includes
+/// the generated receipt.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub struct FinalExecutionOutcomeWithReceiptView {
+    /// Final outcome view without receipts
+    #[serde(flatten)]
+    pub final_outcome: FinalExecutionOutcomeView,
+    /// Receipts generated from the transaction
+    pub receipts: Vec<ReceiptView>,
+}
+
+impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
+    fn from(final_outcome_view: FinalExecutionOutcomeWithReceiptView) -> Self {
+        final_outcome_view.final_outcome
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
@@ -948,7 +972,7 @@ impl From<ValidatorStakeView> for ValidatorStake {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
@@ -957,13 +981,13 @@ pub struct ReceiptView {
     pub receipt: ReceiptEnumView,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DataReceiverView {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
