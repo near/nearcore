@@ -330,12 +330,12 @@ impl EvmGasCounter {
     }
 
     pub fn pay_gas(&mut self, amount: U256) {
-        // TODO: return error if gas not sufficient
+        debug_assert!(self.used_gas + amount <= self.max_gas);
         self.used_gas += amount;
     }
 
     pub fn set_gas_left(&mut self, left: U256) {
-        self.used_gas = self.max_gas - left;
+        self.used_gas = self.max_gas.saturating_sub(left);
     }
 
     pub fn gas_left(&self) -> U256 {
