@@ -203,9 +203,6 @@ async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, brid
         while 0 == global_stopped.value and 0 >= local_stopped.value and 0 == error.value and 0 == bridge_stopped[0]:
             header = await reader.read(4)
             if not header:
-                writer.close()
-                await writer.wait_closed()
-                bridge_stopped[0] = 1
                 logging.debug(
                     f"Endpoint closed (Reader). port={_MY_PORT} bridge_id={bridge_id}")
                 break
@@ -228,6 +225,10 @@ async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, brid
                 writer.write(struct.pack('I', len(raw_message)))
                 writer.write(raw_message)
                 await writer.drain()
+
+        bridge_stopped[0] = 1
+        writer.close()
+        await writer.wait_closed()
 
         logging.debug(
             f"Gracefully close bridge. port={_MY_PORT} bridge_id={bridge_id}")
