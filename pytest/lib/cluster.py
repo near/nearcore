@@ -614,7 +614,7 @@ class PreexistingCluster():
         self.ips = []
         atexit.register(self.atexit_cleanup_preexist, None)
         signal.signal(signal.SIGTERM, self.atexit_cleanup_preexist)
-        #signal.signal(signal.SIGINT, self.atexit_cleanup_preexist)
+        signal.signal(signal.SIGINT, self.atexit_cleanup_preexist)
         
         while True:
             post = {'num_nodes': num_nodes, 'request_id': self.request_id,
@@ -668,6 +668,7 @@ class PreexistingCluster():
                     with open(fl, 'w') as f:
                         f.write(res.text)
                     print(f"Logs are available in {fl}")
+        sys.exit(0)
 
 def spin_up_node(config,
                  near_root,

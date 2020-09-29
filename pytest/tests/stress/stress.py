@@ -516,8 +516,6 @@ def doit(s, n, N, k, monkeys, timeout):
     assert 2 <= n <= N
 
     config = load_config()
-    config['local'] = False
-    config['preexist'] = True
     local_config_changes = {}
 
     for i in range(N, N + k + 1):
