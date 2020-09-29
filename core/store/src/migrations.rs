@@ -12,14 +12,14 @@ use near_primitives::sharding::{
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
-use crate::db::DBCol::{
-    ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColReceipts, ColStateParts,
-};
+use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts};
 use crate::db::{DBCol, RocksDB, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
-use crate::migrations::v8_to_v9::{repair_col_receipt_id_to_shard_id, repair_col_transactions};
+use crate::migrations::v8_to_v9::{
+    recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
+};
 use crate::{create_store, Store, StoreUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 use near_crypto::KeyType;
 use near_primitives::block::Tip;
@@ -241,22 +241,16 @@ pub fn migrate_10_to_11(path: &String) {
 
 pub fn migrate_11_to_12(path: &String) {
     let store = create_store(path);
-    let batch_size_limit = 100_000_000;
-    let mut store_update = store.store_update();
-    let mut batch_size = 0;
-    for (key, value) in store.iter_without_rc_logic(ColChunks) {
-        batch_size += key.len() + value.len() + 8;
-        let chunk: ShardChunk =
-            BorshDeserialize::try_from_slice(&value).expect("Borsh should not fail");
-        for receipt in chunk.receipts {
-            let bytes = receipt.try_to_vec().expect("Borsh should not fail");
-            store_update.update_refcount(ColReceipts, receipt.receipt_id.as_ref(), &bytes, 1);
-        }
-        if batch_size > batch_size_limit {
-            store_update.commit().unwrap();
-            store_update = store.store_update();
-            batch_size = 0;
-        }
-    }
+    recompute_col_rc(
+        &store,
+        DBCol::ColReceipts,
+        store
+            .iter(DBCol::ColChunks)
+            .map(|(_key, value)| {
+                ShardChunk::try_from_slice(&value).expect("BorshDeserialize should not fail")
+            })
+            .flat_map(|chunk: ShardChunk| chunk.receipts)
+            .map(|rx| (rx.receipt_id, rx.try_to_vec().unwrap())),
+    );
     set_store_version(&store, 12);
 }
