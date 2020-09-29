@@ -1,24 +1,19 @@
-use crate::cases::Metric;
-use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::end_count;
 use crate::testbed_runners::get_account_id;
 use crate::testbed_runners::start_count;
+use crate::testbed_runners::total_transactions;
 use crate::testbed_runners::Config;
 use crate::testbed_runners::GasMetric;
 use ethabi_contract::use_contract;
 use ethereum_types::H160;
 use glob::glob;
 use lazy_static_include::lazy_static_include_str;
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::utils::encode_call_function_args;
-use near_evm_runner::{evm_last_deployed_addr, run_evm, EvmContext};
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_evm_runner::{evm_last_deployed_addr, EvmContext};
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
-};
+use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::gas_counter::reset_evm_gas_counter;
@@ -26,8 +21,7 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
-use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
+use rand::Rng;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
@@ -196,12 +190,19 @@ fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
         )
     };
 
+    for _ in 0..config.warmup_iters_per_block {
+        for block_size in config.block_sizes.clone() {
+            let block: Vec<_> = (0..block_size).map(|_| f()).collect();
+            let mut testbed = testbed.lock().unwrap();
+            testbed.process_block(&block, allow_failures);
+            testbed.process_blocks_until_no_receipts(allow_failures);
+        }
+    }
+    reset_evm_gas_counter();
     let mut evm_gas = 0;
     let mut total_cost = 0;
-    for block_size in config.block_sizes.clone() {
-        // [100]
-        for _ in 0..config.iter_per_block {
-            // 0..1
+    for _ in 0..config.iter_per_block {
+        for block_size in config.block_sizes.clone() {
             let block: Vec<_> = (0..block_size).map(|_| f()).collect();
             let mut testbed = testbed.lock().unwrap();
             let start = start_count(config.metric);
@@ -209,11 +210,12 @@ fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
             testbed.process_blocks_until_no_receipts(allow_failures);
             let cost = end_count(config.metric, &start);
             total_cost += cost;
+            evm_gas += reset_evm_gas_counter();
         }
     }
 
-    let counts = (config.iter_per_block * config.block_sizes.iter().sum::<usize>()) as u64;
-    evm_gas = reset_evm_gas_counter() / counts;
+    let counts = total_transactions(config) as u64;
+    evm_gas /= counts;
 
     // evm_gas is  times gas spent, so does cost
     Some(EvmCost { evm_gas, cost: Ratio::new(total_cost, counts) })
@@ -254,7 +256,6 @@ pub struct EvmCostCoef {
 
 pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef {
     let globbed_files = glob("./**/*.bin").expect("Failed to read glob pattern for bin files");
-    let fees = RuntimeFeesConfig::default();
     let paths = globbed_files
         .filter_map(|x| match x {
             Ok(p) => Some(p),
@@ -321,10 +322,6 @@ pub fn create_evm_context<'a>(
 }
 
 pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
-    let mut fake_external = MockedExternal::new();
-    let vm_config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
-
     let measurements = vec![
         measure_evm_function(
             config,
@@ -468,13 +465,19 @@ pub fn measure_evm_function<F: FnOnce(H160) -> Vec<u8> + Copy>(
         )
     };
 
+    for _ in 0..config.warmup_iters_per_block {
+        for block_size in config.block_sizes.clone() {
+            let block: Vec<_> = (0..block_size).map(|_| f()).collect();
+            let mut testbed = testbed.lock().unwrap();
+            testbed.process_block(&block, allow_failures);
+            testbed.process_blocks_until_no_receipts(allow_failures);
+        }
+    }
     reset_evm_gas_counter();
     let mut evm_gas = 0;
     let mut total_cost = 0;
-    for block_size in config.block_sizes.clone() {
-        // [100]
-        for _ in 0..config.iter_per_block {
-            // 0..1
+    for _ in 0..config.iter_per_block {
+        for block_size in config.block_sizes.clone() {
             let block: Vec<_> = (0..block_size).map(|_| f()).collect();
             let mut testbed = testbed.lock().unwrap();
             let start = start_count(config.metric);
@@ -482,11 +485,12 @@ pub fn measure_evm_function<F: FnOnce(H160) -> Vec<u8> + Copy>(
             testbed.process_blocks_until_no_receipts(allow_failures);
             let cost = end_count(config.metric, &start);
             total_cost += cost;
+            evm_gas += reset_evm_gas_counter();
         }
     }
 
-    let counts = (config.iter_per_block * config.block_sizes.iter().sum::<usize>()) as u64;
-    evm_gas = reset_evm_gas_counter() / counts;
+    let counts = total_transactions(config) as u64;
+    evm_gas /= counts;
 
     let cost = Ratio::new(total_cost, counts);
     if verbose {
