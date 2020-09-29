@@ -6,6 +6,7 @@ import os
 import sys
 import signal
 import atexit
+import signal
 import shutil
 import requests
 import time
@@ -611,17 +612,22 @@ class PreexistingCluster():
             return
         self.request_id = json_res['request_id']
         self.ips = []
-        atexit.register(self.atexit_cleanup_preexist)
+        atexit.register(self.atexit_cleanup_preexist, None)
+        signal.signal(signal.SIGTERM, self.atexit_cleanup_preexist)
+        #signal.signal(signal.SIGINT, self.atexit_cleanup_preexist)
+        
         while True:
             post = {'num_nodes': num_nodes, 'request_id': self.request_id,
                     'token': self.token}
             res = requests.post('http://40.112.59.229:5000/get_instances', json=post)
             json_res = json.loads(res.text)
             self.ips = json_res['ips']
+            print('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
+            if len(self.ips) != num_nodes:
+                continue
             for i in range(0, num_nodes):
                 node = AzureNode(json_res['ips'][i], self.token, node_dirs[i])
                 self.nodes.append(node)
-            print('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
             if len(self.nodes) == num_nodes:
                 break
             time.sleep(10)
@@ -646,7 +652,8 @@ class PreexistingCluster():
     def get_one_node(self, i):
         return self.nodes[i]
 
-    def atexit_cleanup_preexist(self):
+    def atexit_cleanup_preexist(self, *args):
+        print()
         post = {'request_id': self.request_id, 'token': self.token} 
         print("Starting cleaning up remote instances.")
         res = requests.post('http://40.112.59.229:5000/cancel_the_run', json=post)
@@ -870,7 +877,8 @@ def load_config():
     if config_file:
         try:
             with open(config_file) as f:
-                config = json.load(f)
+                new_config = json.load(f)
+                config.update(new_config)
                 print(f"Load config from {config_file}, config {config}")
         except FileNotFoundError:
             print(f"Failed to load config file, use default config {config}")
