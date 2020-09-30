@@ -6,6 +6,7 @@ import os
 import sys
 import signal
 import atexit
+import signal
 import shutil
 import requests
 import time
@@ -563,7 +564,7 @@ class AzureNode(BaseNode):
             self.signer_key = Key.from_json_file(
                 os.path.join(node_dir, "validator_key.json"))
 
-        def start(self, boot_key, boot_node_addr):
+        def start(self, boot_key, boot_node_addr, skip_starting_proxy):
             cmd = ('RUST_BACKTRACE=1 ADVERSARY_CONSENT=1 ' + ' '.join(
                 self._get_command_line(self.near_root,
                                        '.near', boot_key, boot_node_addr)).
@@ -594,6 +595,7 @@ class AzureNode(BaseNode):
 class PreexistingCluster():
         
     def __init__(self, num_nodes, node_dirs):
+        self.already_cleaned_up = False
         if os.path.isfile(os.path.expanduser('~/.nayduck')):
             with open(os.path.expanduser('~/.nayduck'), 'r') as f:
                 self.token = f.read().strip()
@@ -611,20 +613,25 @@ class PreexistingCluster():
             return
         self.request_id = json_res['request_id']
         self.ips = []
-        atexit.register(self.atexit_cleanup_preexist)
+        atexit.register(self.atexit_cleanup_preexist, None)
+        signal.signal(signal.SIGTERM, self.atexit_cleanup_preexist)
+        signal.signal(signal.SIGINT, self.atexit_cleanup_preexist)
+        
         while True:
             post = {'num_nodes': num_nodes, 'request_id': self.request_id,
                     'token': self.token}
             res = requests.post('http://40.112.59.229:5000/get_instances', json=post)
             json_res = json.loads(res.text)
             self.ips = json_res['ips']
+            print('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
+            if len(self.ips) != num_nodes:
+                time.sleep(10)
+                continue
             for i in range(0, num_nodes):
                 node = AzureNode(json_res['ips'][i], self.token, node_dirs[i])
                 self.nodes.append(node)
-            print('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
             if len(self.nodes) == num_nodes:
                 break
-            time.sleep(10)
         print()
         while True:
             status = {'BUILDING': 0, 'READY': 0, 'BUILD FAILED': 0}
@@ -646,7 +653,10 @@ class PreexistingCluster():
     def get_one_node(self, i):
         return self.nodes[i]
 
-    def atexit_cleanup_preexist(self):
+    def atexit_cleanup_preexist(self, *args):
+        if self.already_cleaned_up:
+            sys.exit(0)
+        print()
         post = {'request_id': self.request_id, 'token': self.token} 
         print("Starting cleaning up remote instances.")
         res = requests.post('http://40.112.59.229:5000/cancel_the_run', json=post)
@@ -661,6 +671,8 @@ class PreexistingCluster():
                     with open(fl, 'w') as f:
                         f.write(res.text)
                     print(f"Logs are available in {fl}")
+        self.already_cleaned_up = True
+        sys.exit(0)
 
 def spin_up_node(config,
                  near_root,
@@ -870,7 +882,8 @@ def load_config():
     if config_file:
         try:
             with open(config_file) as f:
-                config = json.load(f)
+                new_config = json.load(f)
+                config.update(new_config)
                 print(f"Load config from {config_file}, config {config}")
         except FileNotFoundError:
             print(f"Failed to load config file, use default config {config}")
