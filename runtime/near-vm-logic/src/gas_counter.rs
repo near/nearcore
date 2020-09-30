@@ -11,6 +11,7 @@ thread_local! {
     pub static EVM_GAS_COUNTER: std::cell::RefCell<EvmGas> = Default::default();
 }
 
+#[cfg(feature = "costs_counting")]
 pub fn reset_evm_gas_counter() -> u64 {
     let mut ret = 0;
     EVM_GAS_COUNTER.with(|f| {
