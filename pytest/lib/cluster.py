@@ -625,13 +625,13 @@ class PreexistingCluster():
             self.ips = json_res['ips']
             print('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
             if len(self.ips) != num_nodes:
+                time.sleep(10)
                 continue
             for i in range(0, num_nodes):
                 node = AzureNode(json_res['ips'][i], self.token, node_dirs[i])
                 self.nodes.append(node)
             if len(self.nodes) == num_nodes:
                 break
-            time.sleep(10)
         print()
         while True:
             status = {'BUILDING': 0, 'READY': 0, 'BUILD FAILED': 0}
