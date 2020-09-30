@@ -595,6 +595,7 @@ class AzureNode(BaseNode):
 class PreexistingCluster():
         
     def __init__(self, num_nodes, node_dirs):
+        self.already_cleaned_up = False
         if os.path.isfile(os.path.expanduser('~/.nayduck')):
             with open(os.path.expanduser('~/.nayduck'), 'r') as f:
                 self.token = f.read().strip()
@@ -653,6 +654,8 @@ class PreexistingCluster():
         return self.nodes[i]
 
     def atexit_cleanup_preexist(self, *args):
+        if self.already_cleaned_up:
+            sys.exit(0)
         print()
         post = {'request_id': self.request_id, 'token': self.token} 
         print("Starting cleaning up remote instances.")
@@ -668,6 +671,7 @@ class PreexistingCluster():
                     with open(fl, 'w') as f:
                         f.write(res.text)
                     print(f"Logs are available in {fl}")
+        self.already_cleaned_up = True
         sys.exit(0)
 
 def spin_up_node(config,
