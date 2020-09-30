@@ -4,8 +4,8 @@ use ethereum_types::{Address, U256};
 use evm::{CreateContractAddress, Factory};
 use near_runtime_fees::EvmCostConfig;
 use vm::{
-    ActionParams, ActionValue, CallType, ContractCreateResult, ExecTrapResult, Ext, GasLeft, MessageCallResult,
-    ParamsType, ReturnData, Schedule,
+    ActionParams, ActionValue, CallType, ContractCreateResult, ExecTrapResult, Ext, GasLeft,
+    MessageCallResult, ParamsType, ReturnData, Schedule,
 };
 
 use near_vm_errors::{EvmError, VMLogicError};
@@ -59,8 +59,7 @@ pub fn deploy_code<T: EvmState>(
         Some(GasLeft::NeedsReturn { gas_left: left, data, apply_state }) => {
             (data, apply_state, left)
         }
-        Ok(Err(err)) => return Err(convert_vm_error(err)),
-        Err(_) => return Err(VMLogicError::EvmError(EvmError::Reverted)),
+        None => return Err(VMLogicError::EvmError(EvmError::Reverted)),
     };
 
     if apply {

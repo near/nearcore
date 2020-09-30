@@ -185,7 +185,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 // Is not used.
                 return Err(TrapKind::Call(ActionParams::default()));
             }
-            CallType::Call => iPrelnterpreter::call(
+            CallType::Call => interpreter::call(
                 self.sub_state,
                 &self.origin,
                 sender_address,

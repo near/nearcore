@@ -4,7 +4,6 @@ use std::{
     mem::size_of,
 };
 
-// use bn::arith::U256;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 use ethereum_types::{Address, H256, U256};
 use near_runtime_fees::EvmCostConfig;
@@ -463,7 +462,7 @@ impl Bn128PairingImpl {
         };
 
         let mut buf = [0u8; 32];
-        ret_val.to_big_endian(&mut buf).expect("Can't fail");
+        ret_val.to_big_endian(&mut buf);
         output.write(0, &buf);
 
         Ok(())
