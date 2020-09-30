@@ -9,7 +9,7 @@ use crate::{DBCol, Store};
 
 /// Clear all data in the column, insert keys and values from iterator.
 /// Uses multiple writes.
-fn recompute_col_rc<Iter>(store: &Store, column: DBCol, values: Iter)
+pub(crate) fn recompute_col_rc<Iter>(store: &Store, column: DBCol, values: Iter)
 where
     Iter: Iterator<Item = (CryptoHash, Vec<u8>)>,
 {

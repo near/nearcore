@@ -49,7 +49,8 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
-    FinalExecutionStatus, LightClientBlockView,
+    FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
+    SignedTransactionView,
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
@@ -309,6 +310,7 @@ impl Chain {
 
                     head = Tip::from_header(genesis.header());
                     store_update.save_head(&head)?;
+                    store_update.save_final_head(&head)?;
 
                     info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_roots);
                 }
@@ -929,13 +931,15 @@ impl Chain {
         let new_chunk_tail =
             prev_block.chunks().iter().map(|x| x.inner.height_created).min().unwrap();
         let tip = Tip::from_header(prev_block.header());
+        let final_head = Tip::from_header(self.genesis.header());
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.save_body_head(&tip)?;
+        // Reset final head to genesis since at this point we don't have the last final block.
+        chain_store_update.save_final_head(&final_head)?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
         chain_store_update.update_tail(new_tail);
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
-        println!("resetting chunk tail to {}", new_chunk_tail);
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
@@ -1876,19 +1880,44 @@ impl Chain {
                 }
             })
             .expect("results should resolve to a final outcome");
-        let receipts = outcomes.split_off(1);
-        let transaction = self
+        let receipts_outcome = outcomes.split_off(1);
+        let transaction: SignedTransactionView = self
             .store
             .get_transaction(hash)?
             .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("Transaction {} is not found", hash)))?
             .clone()
             .into();
-        Ok(FinalExecutionOutcomeView {
-            status,
-            transaction,
-            transaction_outcome: outcomes.pop().unwrap(),
-            receipts_outcome: receipts,
-        })
+        let transaction_outcome = outcomes.pop().unwrap();
+        Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
+    }
+
+    pub fn get_final_transaction_result_with_receipt(
+        &mut self,
+        final_outcome: FinalExecutionOutcomeView,
+    ) -> Result<FinalExecutionOutcomeWithReceiptView, Error> {
+        let receipt_id_from_transaction =
+            final_outcome.transaction_outcome.outcome.receipt_ids.get(0).cloned();
+        let is_local_receipt =
+            final_outcome.transaction.signer_id == final_outcome.transaction.receiver_id;
+
+        let receipts = final_outcome
+            .receipts_outcome
+            .iter()
+            .filter_map(|outcome| {
+                if Some(outcome.id) == receipt_id_from_transaction && is_local_receipt {
+                    None
+                } else {
+                    Some(self.store.get_receipt(&outcome.id).and_then(|r| {
+                        r.cloned().map(Into::into).ok_or_else(|| {
+                            ErrorKind::DBNotFoundErr(format!("Receipt {} is not found", outcome.id))
+                                .into()
+                        })
+                    }))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(FinalExecutionOutcomeWithReceiptView { final_outcome, receipts })
     }
 
     /// Find a validator to forward transactions to
@@ -2140,6 +2169,12 @@ impl Chain {
     #[inline]
     pub fn head_header(&mut self) -> Result<&BlockHeader, Error> {
         self.store.head_header()
+    }
+
+    /// Get final head of the chain.
+    #[inline]
+    pub fn final_head(&self) -> Result<Tip, Error> {
+        self.store.final_head()
     }
 
     /// Gets a block by hash.
@@ -3165,11 +3200,31 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
+    fn update_final_head_from_block(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+        let final_head = self.chain_store_update.final_head()?;
+        let last_final_block_header =
+            match self.chain_store_update.get_block_header(block.header().last_final_block()) {
+                Ok(header) => header,
+                Err(e) => match e.kind() {
+                    ErrorKind::DBNotFoundErr(_) => return Ok(None),
+                    _ => return Err(e),
+                },
+            };
+        if last_final_block_header.height() > final_head.height {
+            let tip = Tip::from_header(last_final_block_header);
+            self.chain_store_update.save_final_head(&tip)?;
+            Ok(Some(tip))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Directly updates the head if we've just appended a new block to it or handle
     /// the situation where the block has higher height to have a fork
     fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
         // if we made a fork with higher height than the head (which should also be true
         // when extending the head), update it
+        self.update_final_head_from_block(block)?;
         let head = self.chain_store_update.head()?;
         if block.header().height() > head.height {
             let tip = Tip::from_header(&block.header());
@@ -3233,9 +3288,13 @@ impl<'a> ChainUpdate<'a> {
             } else {
                 &prev_header
             };
+            let last_final_block = *new_head_header.last_final_block();
 
             let tip = Tip::from_header(new_head_header);
             self.chain_store_update.save_head(&tip)?;
+            let new_final_header =
+                self.chain_store_update.get_block_header(&last_final_block)?.clone();
+            self.chain_store_update.save_final_head(&Tip::from_header(&new_final_header))?;
         }
 
         Ok(())

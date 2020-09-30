@@ -223,7 +223,7 @@ impl GenesisBuilder {
 
         let head = Tip::from_header(&genesis.header());
         store_update.save_head(&head).unwrap();
-        store_update.save_sync_head(&head);
+        store_update.save_final_head(&head).unwrap();
         store_update.commit().unwrap();
 
         Ok(())

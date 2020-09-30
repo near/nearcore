@@ -31,8 +31,9 @@ use near_primitives::types::{
 };
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeView, FinalExecutionStatus, GasPriceView, LightClientBlockView,
-    QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView, ValidatorStakeView,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
+    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView,
+    ValidatorStakeView,
 };
 
 use crate::types::{
@@ -150,12 +151,15 @@ impl ViewClientActor {
         need_request
     }
 
-    fn get_block_hash_by_finality(&mut self, finality: &Finality) -> Result<CryptoHash, Error> {
+    fn get_block_hash_by_finality(
+        &mut self,
+        finality: &Finality,
+    ) -> Result<CryptoHash, near_chain::Error> {
         let head_header = self.chain.head_header()?;
         match finality {
             Finality::None => Ok(*head_header.hash()),
             Finality::DoomSlug => Ok(*head_header.last_ds_final_block()),
-            Finality::Final => Ok(*head_header.last_final_block()),
+            Finality::Final => self.chain.final_head().map(|t| t.last_block_hash),
         }
     }
 
@@ -285,12 +289,13 @@ impl ViewClientActor {
         &mut self,
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
-    ) -> Result<Option<FinalExecutionOutcomeView>, TxStatusError> {
+        fetch_receipt: bool,
+    ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
         {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if let Some(res) = request_manager.tx_status_response.cache_remove(&tx_hash) {
                 request_manager.tx_status_requests.cache_remove(&tx_hash);
-                return Ok(Some(res));
+                return Ok(Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res)));
             }
         }
 
@@ -305,7 +310,7 @@ impl ViewClientActor {
         ) {
             match self.chain.get_final_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
-                    match tx_result.status {
+                    match &tx_result.status {
                         FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
                             for receipt_view in tx_result.receipts_outcome.iter() {
                                 self.request_receipt_outcome(
@@ -317,7 +322,20 @@ impl ViewClientActor {
                         FinalExecutionStatus::SuccessValue(_)
                         | FinalExecutionStatus::Failure(_) => {}
                     }
-                    return Ok(Some(tx_result));
+                    if fetch_receipt {
+                        let final_result = self
+                            .chain
+                            .get_final_transaction_result_with_receipt(tx_result)
+                            .map_err(|e| TxStatusError::ChainError(e))?;
+                        return Ok(Some(
+                            FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
+                                final_result,
+                            ),
+                        ));
+                    }
+                    return Ok(Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
+                        tx_result,
+                    )));
                 }
                 Err(e) => match e.kind() {
                     ErrorKind::DBNotFoundErr(_) => {
@@ -522,10 +540,10 @@ impl Handler<GetChunk> for ViewClientActor {
 }
 
 impl Handler<TxStatus> for ViewClientActor {
-    type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
+    type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
 
     fn handle(&mut self, msg: TxStatus, _: &mut Self::Context) -> Self::Result {
-        self.get_tx_status(msg.tx_hash, msg.signer_account_id)
+        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
     }
 }
 
@@ -774,7 +792,14 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::TxStatus { tx_hash, signer_account_id } => {
-                if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id) {
+                if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false) {
+                    // TODO: remove this legacy support in #3204
+                    let result = match result {
+                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
+                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
+                            outcome,
+                        ) => outcome.into(),
+                    };
                     NetworkViewClientResponses::TxStatus(Box::new(result))
                 } else {
                     NetworkViewClientResponses::NoResponse

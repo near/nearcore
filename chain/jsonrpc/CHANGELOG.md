@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+* Added `EXPERIMENTAL_tx_status` endpoint exposing receipts in addition to all
+  the rest data available in `tx` endpoint
+  ([#3383](https://github.com/nearprotocol/nearcore/pull/3383))
+
 ## 0.2.0
 
 * Started tracking all the JSON-RPC API changes.
