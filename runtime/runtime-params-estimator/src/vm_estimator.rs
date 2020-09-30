@@ -302,6 +302,8 @@ lazy_static_include_str!(
     "../near-evm-runner/tests/build/PrecompiledFunction.bin"
 );
 
+const CHAIN_ID: u128 = 0x99;
+
 pub fn create_evm_context<'a>(
     external: &'a mut MockedExternal,
     vm_config: &'a VMConfig,
@@ -311,6 +313,7 @@ pub fn create_evm_context<'a>(
 ) -> EvmContext<'a> {
     EvmContext::new(
         external,
+        CHAIN_ID,
         vm_config,
         fees_config,
         1000,

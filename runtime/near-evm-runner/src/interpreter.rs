@@ -55,11 +55,12 @@ pub fn deploy_code<T: EvmState>(
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
     let (return_data, apply, gas_left) = match result {
-        Some(GasLeft::Known(left)) => (ReturnData::empty(), true, left),
-        Some(GasLeft::NeedsReturn { gas_left: left, data, apply_state }) => {
+        Ok(Ok(GasLeft::Known(left))) => (ReturnData::empty(), true, left),
+        Ok(Ok(GasLeft::NeedsReturn { gas_left: left, data, apply_state })) => {
             (data, apply_state, left)
         }
-        None => return Err(VMLogicError::EvmError(EvmError::Reverted)),
+        Ok(Err(err)) => return Err(convert_vm_error(err)),
+        Err(_) => return Err(VMLogicError::EvmError(EvmError::Reverted)),
     };
 
     if apply {
@@ -81,7 +82,7 @@ pub fn _create<T: EvmState>(
     code: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-) -> Result<(Option<GasLeft>, Option<StateStore>)> {
+) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
 
@@ -117,7 +118,7 @@ pub fn _create<T: EvmState>(
 
     // Run the code
     let result = instance.exec(&mut ext);
-    Ok((result.ok().unwrap().ok(), Some(store)))
+    Ok((result, Some(store)))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -242,18 +243,20 @@ fn run_and_commit_if_success<T: EvmState>(
     // Return the result unmodified
     let mut should_apply_state = true;
     let return_data = match result {
-        Some(GasLeft::Known(gas_left)) => {
+        Ok(Ok(GasLeft::Known(gas_left))) => {
             Ok(MessageCallResult::Success(gas_left, ReturnData::empty()))
         }
-        Some(GasLeft::NeedsReturn { gas_left, data, apply_state: true }) => {
+        Ok(Ok(GasLeft::NeedsReturn { gas_left, data, apply_state: true })) => {
             Ok(MessageCallResult::Success(gas_left, data))
         }
-        Some(GasLeft::NeedsReturn { gas_left, data, apply_state: false }) => {
+        Ok(Ok(GasLeft::NeedsReturn { gas_left, data, apply_state: false })) => {
             should_apply_state = false;
             Ok(MessageCallResult::Reverted(gas_left, data))
         }
-        _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
+        Ok(Err(err)) => Err(convert_vm_error(err)),
+        Err(_) => Err(VMLogicError::EvmError(EvmError::Reverted)),
     };
+
     // Don't apply changes from a static context (these _should_ error in the ext)
     if !is_static && return_data.is_ok() && should_apply_state && should_commit {
         state.commit_changes(&state_updates.unwrap())?;
@@ -276,7 +279,7 @@ fn run_against_state<T: EvmState>(
     is_static: bool,
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-) -> Result<(Option<GasLeft>, Option<StateStore>)> {
+) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let code = state.code_at(code_address)?.unwrap_or_else(Vec::new);
 
     // Check that if there are arguments this is contract call.
@@ -325,6 +328,5 @@ fn run_against_state<T: EvmState>(
 
     // Run the code
     let result = instance.exec(&mut ext);
-    let r = result.ok();
-    Ok((r.unwrap().ok(), Some(store)))
+    Ok((result, Some(store)))
 }
