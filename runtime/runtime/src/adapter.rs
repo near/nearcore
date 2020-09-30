@@ -31,6 +31,7 @@ pub trait ViewRuntimeAdapter {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        evm_chain_id: u128,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 
     fn view_access_key(

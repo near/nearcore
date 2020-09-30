@@ -19,3 +19,14 @@ fn test_invalid_input() {
     assert!(context.withdraw(vec![]).is_err());
     assert!(context.transfer(vec![]).is_err());
 }
+
+#[test]
+fn test_invalid_view_args() {
+    let args = vec![vec![1u8; 20], vec![2u8; 20], vec![0u8; 32], vec![1]].concat();
+    let (mut fake_external, vm_config, fees_config) = setup();
+    let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
+    assert_eq!(
+        context.view_call_function(args).unwrap_err().to_string(),
+        "EvmError(ContractNotFound)"
+    );
+}

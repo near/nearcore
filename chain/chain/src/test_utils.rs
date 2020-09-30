@@ -906,6 +906,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
+    fn chunk_needs_to_be_fetched_from_archival(
+        &self,
+        _chunk_prev_block_hash: &CryptoHash,
+        _header_head: &CryptoHash,
+    ) -> Result<bool, Error> {
+        Ok(false)
+    }
+
     fn verify_validator_or_fisherman_signature(
         &self,
         _epoch_id: &EpochId,
@@ -940,6 +948,10 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<(ValidatorStake, bool), Error> {
         Err(ErrorKind::NotAValidator.into())
     }
+
+    fn evm_chain_id(&self) -> u128 {
+        0x99
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
@@ -960,7 +972,6 @@ pub fn setup_with_tx_validity_period(
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            max_inflation_rate: Rational::from_integer(0),
             gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: tx_validity_period,
             epoch_length: 10,
@@ -1001,7 +1012,6 @@ pub fn setup_with_validators(
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            max_inflation_rate: Rational::from_integer(0),
             gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: tx_validity_period,
             epoch_length,
@@ -1121,7 +1131,6 @@ impl ChainGenesis {
             min_gas_price: 0,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            max_inflation_rate: Rational::from_integer(0),
             gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: 100,
             epoch_length: 5,
@@ -1133,11 +1142,11 @@ impl ChainGenesis {
 #[cfg(test)]
 mod test {
     use super::KeyValueRuntime;
-    use crate::types::ReceiptList;
     use crate::RuntimeAdapter;
     use borsh::BorshSerialize;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
+    use near_primitives::sharding::ReceiptList;
     use near_primitives::types::NumShards;
     use near_store::test_utils::create_test_store;
     use rand::Rng;

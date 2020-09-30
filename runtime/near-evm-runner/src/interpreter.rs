@@ -4,7 +4,7 @@ use ethereum_types::{Address, U256};
 use evm::{CreateContractAddress, Factory};
 use near_runtime_fees::EvmCostConfig;
 use vm::{
-    ActionParams, ActionValue, CallType, ContractCreateResult, Ext, GasLeft, MessageCallResult,
+    ActionParams, ActionValue, CallType, ContractCreateResult, ExecTrapResult, Ext, GasLeft, MessageCallResult,
     ParamsType, ReturnData, Schedule,
 };
 
@@ -12,7 +12,7 @@ use near_vm_errors::{EvmError, VMLogicError};
 
 use crate::evm_state::{EvmState, StateStore, SubState};
 use crate::near_ext::NearExt;
-use crate::types::Result;
+use crate::types::{convert_vm_error, Result};
 use crate::utils;
 
 pub fn deploy_code<T: EvmState>(
@@ -27,7 +27,7 @@ pub fn deploy_code<T: EvmState>(
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
 ) -> Result<ContractCreateResult> {
-    let mut nonce = U256::default();
+    let mut nonce = U256::zero();
     if address_type == CreateContractAddress::FromSenderAndNonce {
         nonce = state.next_nonce(&sender)?;
     };
@@ -36,7 +36,7 @@ pub fn deploy_code<T: EvmState>(
     if recreate {
         state.recreate(address.0);
     } else if state.code_at(&address)?.is_some() {
-        return Err(VMLogicError::EvmError(EvmError::DuplicateContract(hex::encode(address.0))));
+        return Err(VMLogicError::EvmError(EvmError::DuplicateContract(address.0.to_vec())));
     }
 
     let (result, state_updates) = _create(
@@ -59,7 +59,8 @@ pub fn deploy_code<T: EvmState>(
         Some(GasLeft::NeedsReturn { gas_left: left, data, apply_state }) => {
             (data, apply_state, left)
         }
-        _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
+        Ok(Err(err)) => return Err(convert_vm_error(err)),
+        Err(_) => return Err(VMLogicError::EvmError(EvmError::Reverted)),
     };
 
     if apply {
@@ -278,6 +279,12 @@ fn run_against_state<T: EvmState>(
     evm_gas_config: &EvmCostConfig,
 ) -> Result<(Option<GasLeft>, Option<StateStore>)> {
     let code = state.code_at(code_address)?.unwrap_or_else(Vec::new);
+
+    // Check that if there are arguments this is contract call.
+    // Otherwise, this is just transfer call.
+    if code.len() == 0 && input.len() > 0 {
+        return Err(VMLogicError::EvmError(EvmError::ContractNotFound));
+    }
 
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);

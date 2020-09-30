@@ -20,7 +20,7 @@ use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use neard::config::{GenesisExt, TESTING_INIT_STAKE};
-use neard::{load_test_config, start_with_config};
+use neard::{load_test_config, start_with_config, NearConfig};
 use testlib::{genesis_block, test_helpers::heavy_test};
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
@@ -89,24 +89,28 @@ fn add_blocks(
     blocks
 }
 
+fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
+    let mut genesis = Genesis::test(vec!["other"], 1);
+    genesis.config.epoch_length = 5;
+    let genesis_block = genesis_block(&genesis);
+
+    let (port1, port2) = (open_port(), open_port());
+    let mut near1 = load_test_config("test1", port1, genesis.clone());
+    near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+    near1.client_config.min_num_peers = 1;
+    let mut near2 = load_test_config("test2", port2, genesis.clone());
+    near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
+    near2.client_config.min_num_peers = 1;
+    (genesis, genesis_block, near1, near2)
+}
+
 /// One client is in front, another must sync to it before they can produce blocks.
 #[test]
 fn sync_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis = Genesis::test(vec!["other"], 1);
-        genesis.config.epoch_length = 5;
-        let genesis = Arc::new(genesis);
-        let genesis_block = genesis_block(Arc::clone(&genesis));
-
-        let (port1, port2) = (open_port(), open_port());
-        let mut near1 = load_test_config("test1", port1, Arc::clone(&genesis));
-        near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
-        near1.client_config.min_num_peers = 1;
-        let mut near2 = load_test_config("test2", port2, Arc::clone(&genesis));
-        near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
-        near2.client_config.min_num_peers = 1;
+        let (genesis, genesis_block, near1, near2) = setup_configs();
 
         let system = System::new("NEAR");
 
@@ -147,18 +151,7 @@ fn sync_after_sync_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis = Genesis::test(vec!["other"], 1);
-        genesis.config.epoch_length = 5;
-        let genesis = Arc::new(genesis);
-        let genesis_block = genesis_block(Arc::clone(&genesis));
-
-        let (port1, port2) = (open_port(), open_port());
-        let mut near1 = load_test_config("test1", port1, Arc::clone(&genesis));
-        near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
-        near1.client_config.min_num_peers = 1;
-        let mut near2 = load_test_config("test2", port2, Arc::clone(&genesis));
-        near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
-        near2.client_config.min_num_peers = 1;
+        let (genesis, genesis_block, near1, near2) = setup_configs();
 
         let system = System::new("NEAR");
 
@@ -221,14 +214,13 @@ fn sync_state_stake_change() {
         let mut genesis = Genesis::test(vec!["test1"], 1);
         genesis.config.epoch_length = 5;
         genesis.config.block_producer_kickout_threshold = 80;
-        let genesis = Arc::new(genesis);
 
         let (port1, port2) = (open_port(), open_port());
-        let mut near1 = load_test_config("test1", port1, Arc::clone(&genesis));
+        let mut near1 = load_test_config("test1", port1, genesis.clone());
         near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
         near1.client_config.min_num_peers = 0;
         near1.client_config.min_block_production_delay = Duration::from_millis(200);
-        let mut near2 = load_test_config("test2", port2, Arc::clone(&genesis));
+        let mut near2 = load_test_config("test2", port2, genesis.clone());
         near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
         near2.client_config.min_block_production_delay = Duration::from_millis(200);
         near2.client_config.min_num_peers = 1;
@@ -240,7 +232,7 @@ fn sync_state_stake_change() {
         let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
         let (client1, view_client1, arbiters) = start_with_config(dir1.path(), near1.clone());
 
-        let genesis_hash = *genesis_block(genesis).hash();
+        let genesis_hash = *genesis_block(&genesis).hash();
         let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
         let unstake_transaction = SignedTransaction::stake(
             1,

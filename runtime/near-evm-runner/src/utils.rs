@@ -6,9 +6,6 @@ use keccak_hash::keccak;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vm::CreateContractAddress;
 
-use near_vm_errors::{EvmError, VMLogicError};
-
-use crate::types;
 use near_vm_logic::types::AccountId;
 
 pub fn safe_next_address(addr: &[u8; 20]) -> [u8; 20] {
@@ -89,11 +86,13 @@ pub fn address_to_vec(val: &Address) -> Vec<u8> {
     val.to_fixed_bytes().to_vec()
 }
 
-pub fn vec_to_arr_32(v: Vec<u8>) -> [u8; 32] {
-    assert_eq!(v.len(), 32);
+pub fn vec_to_arr_32(v: Vec<u8>) -> Option<[u8; 32]> {
+    if v.len() != 32 {
+        return None;
+    }
     let mut result = [0; 32];
     result.copy_from_slice(&v);
-    result
+    Some(result)
 }
 
 /// Returns new address created from address, nonce, and code hash
@@ -197,6 +196,7 @@ pub fn near_erc721_domain(chain_id: U256) -> [u8; 32] {
 pub fn prepare_meta_call_args(
     domain_separator: &[u8; 32],
     account_id: &AccountId,
+    nonce: U256,
     args: &[u8],
 ) -> [u8; 32] {
     let mut bytes = Vec::with_capacity(32 + account_id.len() + args.len());
@@ -208,6 +208,7 @@ pub fn prepare_meta_call_args(
         .as_bytes(),
     );
     bytes.extend_from_slice(account_id.as_bytes());
+    bytes.extend_from_slice(&u256_to_arr(&nonce));
     bytes.extend_from_slice(args);
     let message: [u8; 32] = keccak(&bytes).into();
     let mut bytes = Vec::with_capacity(2 + 32 + 32);
@@ -218,7 +219,8 @@ pub fn prepare_meta_call_args(
 }
 
 /// Given signature and data, validates that signature is valid for given data and returns ecrecover address.
-pub fn ecrecover_address(hash: &[u8; 32], signature: &[u8; 96]) -> types::Result<Address> {
+/// If signature is invalid or doesn't match, returns 0x0 address.
+pub fn ecrecover_address(hash: &[u8; 32], signature: &[u8; 96]) -> Address {
     use sha3::Digest;
 
     let hash = secp256k1::Message::parse(&H256::from_slice(hash).0);
@@ -230,7 +232,7 @@ pub fn ecrecover_address(hash: &[u8; 32], signature: &[u8; 96]) -> types::Result
         27..=30 => v[31] - 27,
         _ => {
             // ??
-            return Ok(Address::zero());
+            return Address::zero();
         }
     };
 
@@ -243,8 +245,8 @@ pub fn ecrecover_address(hash: &[u8; 32], signature: &[u8; 96]) -> types::Result
         if let Ok(p) = secp256k1::recover(&hash, &s, &rec_id) {
             // recover returns the 65-byte key, but addresses come from the raw 64-byte key
             let r = sha3::Keccak256::digest(&p.serialize()[1..]);
-            return Ok(address_from_arr(&r[12..]));
+            return address_from_arr(&r[12..]);
         }
     }
-    Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature))
+    Address::zero()
 }

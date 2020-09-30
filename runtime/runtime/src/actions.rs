@@ -11,16 +11,14 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
-use near_primitives::utils::{
-    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
-};
-use near_primitives::version::{
-    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
-};
+use near_primitives::utils::create_random_seed;
+use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_configs::AccountCreationConfig;
 use near_runtime_fees::RuntimeFeesConfig;
-use near_runtime_utils::is_account_id_64_len_hex;
+use near_runtime_utils::{
+    is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
+    is_valid_top_level_account_id,
+};
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
@@ -51,10 +49,10 @@ pub(crate) fn execute_function_call(
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
-    if account_id == "evm" || account_id.ends_with(".evm") {
-        // println!("evm!!!!!");
+    if is_account_evm(&account_id) {
         near_evm_runner::run_evm(
             runtime_ext,
+            apply_state.evm_chain_id,
             &config.wasm_config,
             &config.transaction_costs,
             &account_id,
@@ -94,6 +92,11 @@ pub(crate) fn execute_function_call(
         } else {
             vec![]
         };
+        let random_seed = create_random_seed(
+            apply_state.current_protocol_version,
+            *action_hash,
+            apply_state.random_seed,
+        );
         let context = VMContext {
             current_account_id: runtime_ext.account_id().clone(),
             signer_account_id: action_receipt.signer_id.clone(),
@@ -111,13 +114,7 @@ pub(crate) fn execute_function_call(
             storage_usage: account.storage_usage,
             attached_deposit: function_call.deposit,
             prepaid_gas: function_call.gas,
-            random_seed: if apply_state.current_protocol_version
-                < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
-            {
-                action_hash.as_ref().to_vec()
-            } else {
-                apply_state.random_seed.as_ref().to_vec()
-            },
+            random_seed,
             is_view,
             output_data_receivers,
         };
@@ -168,6 +165,7 @@ pub(crate) fn action_function_call(
         &apply_state.epoch_id,
         &apply_state.last_block_hash,
         epoch_info_provider,
+        apply_state.current_protocol_version,
     );
     let (outcome, err) = execute_function_call(
         apply_state,

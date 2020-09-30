@@ -425,8 +425,7 @@ pub struct Trie {
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
 #[derive(BorshSerialize, BorshDeserialize, Clone)]
 pub struct TrieChanges {
-    #[allow(dead_code)]
-    old_root: StateRoot,
+    pub old_root: StateRoot,
     pub new_root: StateRoot,
     insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
     deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
@@ -435,11 +434,6 @@ pub struct TrieChanges {
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
-    }
-
-    #[cfg(feature = "adversarial")]
-    pub fn adv_get_old_root(&self) -> StateRoot {
-        self.old_root
     }
 }
 

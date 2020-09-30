@@ -13,6 +13,7 @@ Error that can occur inside Near Runtime encapsulated in a separate crate. Might
 """
 
 [dependencies]
+hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 
 borsh = "0.7.1"

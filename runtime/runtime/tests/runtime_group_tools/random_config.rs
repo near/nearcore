@@ -57,6 +57,7 @@ pub fn random_config() -> RuntimeConfig {
                 identity_cost: rng.next_u64() % 1000,
                 modexp_cost: rng.next_u64() % 1000,
             },
+            evm_deposit: (rng.next_u64() % 10000) as u128 * 10u128.pow(23),
         },
         ..Default::default()
     }

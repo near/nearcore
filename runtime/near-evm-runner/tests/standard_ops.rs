@@ -18,6 +18,7 @@ use near_vm_logic::VMConfig;
 
 use crate::utils::{
     accounts, create_context, encode_meta_call_function_args, public_key_to_address, setup,
+    CHAIN_ID,
 };
 
 mod utils;
@@ -219,6 +220,17 @@ fn test_view_call() {
 
     let sub_addr = raw[12..32].to_vec();
     assert_eq!(context.get_code(sub_addr).unwrap().len(), 0);
+
+    let (input, _) = soltest::functions::return_some_funds::call();
+    let raw = context
+        .view_call_function(encode_view_call_function_args(
+            test_addr,
+            test_addr,
+            U256::from(10u128.pow(27)),
+            input,
+        ))
+        .unwrap();
+    assert_eq!(raw[12..32], test_addr.0);
 }
 
 #[test]
@@ -250,10 +262,14 @@ fn test_meta_call() {
     let mut context =
         create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
     let (input, _) = soltest::functions::return_some_funds::call();
-    let _ = context
-        .meta_call_function(encode_meta_call_function_args(&signer, test_addr, input))
-        .unwrap();
+    let meta_tx =
+        encode_meta_call_function_args(&signer, CHAIN_ID, test_addr, U256::from(0), input);
+    let _ = context.meta_call_function(meta_tx.clone()).unwrap();
     let signer_addr = public_key_to_address(signer.public_key);
     assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(150));
     assert_eq!(context.get_balance(signer_addr.0.to_vec()).unwrap(), U256::from(50));
+    assert_eq!(
+        context.meta_call_function(meta_tx).unwrap_err().to_string(),
+        "EvmError(InvalidNonce)"
+    );
 }

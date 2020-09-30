@@ -26,35 +26,30 @@ async def main():
     my_key_pair_nacl = nacl.signing.SigningKey.generate()
 
     conn = await connect(nodes[0].addr())
-
-    # First handshake attempt. Should fail with Genesis Mismatch
     handshake = create_handshake(my_key_pair_nacl, nodes[0].node_key.pk, 12345)
     handshake.Handshake.edge_info.nonce = 1505
-    sign_handshake(my_key_pair_nacl, handshake.Handshake)
 
+    # First handshake attempt. Should fail with Genesis Mismatch
+    sign_handshake(my_key_pair_nacl, handshake.Handshake)
     await conn.send(handshake)
     response = await conn.recv()
-
     assert response.enum == 'HandshakeFailure', response.enum
-    assert response.HandshakeFailure[1].enum == 'GenesisMismatch', response.HandshakeFailure[1].enum
+    assert response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch', response.HandshakeFailure[1].enum
+    pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
+    handshake.Handshake.version = pvm
 
     # Second handshake attempt. Should fail with Protocol Version Mismatch
+    sign_handshake(my_key_pair_nacl, handshake.Handshake)
+    await conn.send(handshake)
+    response = await conn.recv()
+    assert response.enum == 'HandshakeFailure', response.enum
+    assert response.HandshakeFailure[1].enum == 'GenesisMismatch', response.HandshakeFailure[1].enum
     gm = response.HandshakeFailure[1].GenesisMismatch
     handshake.Handshake.chain_info.genesis_id.chain_id = gm.chain_id
     handshake.Handshake.chain_info.genesis_id.hash = gm.hash
-    sign_handshake(my_key_pair_nacl, handshake.Handshake)
-
-    await conn.send(handshake)
-    response = await conn.recv()
-
-    assert response.enum == 'HandshakeFailure', response.enum
-    assert response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch', response.HandshakeFailure[1].enum
 
     # Third handshake attempt.
-    pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
-    handshake.Handshake.version = pvm
     sign_handshake(my_key_pair_nacl, handshake.Handshake)
-
     await conn.send(handshake)
     response = await conn.recv()
 

@@ -7,6 +7,7 @@ use evm::CreateContractAddress;
 use vm::{ContractCreateResult, MessageCallResult};
 
 use near_runtime_fees::{EvmCostConfig, RuntimeFeesConfig};
+use near_runtime_utils::is_valid_sub_account_id;
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
 use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
@@ -93,9 +94,11 @@ impl<'a> EvmState for EvmContext<'a> {
     }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Result<Option<[u8; 32]>> {
-        self.ext
-            .storage_get(&key)
-            .map(|value| value.map(|x| utils::vec_to_arr_32(x.deref().expect("Failed to deref"))))
+        self.ext.storage_get(&key).map(|value| {
+            value.map(|x| {
+                utils::vec_to_arr_32(x.deref().expect("Failed to deref")).expect("Must be 32 bytes")
+            })
+        })
     }
 
     fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Result<()> {
@@ -132,6 +135,7 @@ impl<'a> EvmState for EvmContext<'a> {
 impl<'a> EvmContext<'a> {
     pub fn new(
         ext: &'a mut dyn External,
+        chain_id: u128,
         config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         current_amount: Balance,
@@ -150,7 +154,7 @@ impl<'a> EvmContext<'a> {
             config.limit_config.max_gas_burnt
         };
         // TODO: pass chain id from ??? genesis / config.
-        let domain_separator = near_erc721_domain(U256::from(0x4e454152));
+        let domain_separator = near_erc721_domain(U256::from(chain_id));
         Self {
             ext,
             account_id,
@@ -199,7 +203,7 @@ impl<'a> EvmContext<'a> {
             }
             ContractCreateResult::Reverted(gas_left, return_data) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
-                Err(VMLogicError::EvmError(EvmError::DeployFail(hex::encode(return_data.to_vec()))))
+                Err(VMLogicError::EvmError(EvmError::DeployFail(return_data.to_vec())))
             }
             _ => unreachable!(),
         }
@@ -238,7 +242,7 @@ impl<'a> EvmContext<'a> {
             }
             MessageCallResult::Reverted(gas_left, data) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
-                Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
+                Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
             }
             _ => unreachable!(),
         }
@@ -251,18 +255,22 @@ impl<'a> EvmContext<'a> {
     /// 96..115: contract_id: address for contract to call
     /// 116..: RLP encoded arguments.
     pub fn meta_call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
-        if args.len() <= 116 {
+        if args.len() <= 148 {
             return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
         }
         let mut signature: [u8; 96] = [0; 96];
         signature.copy_from_slice(&args[..96]);
-        let args = &args[96..];
+        let nonce = U256::from_big_endian(&args[96..128]);
+        let args = &args[128..];
         let sender = ecrecover_address(
-            &prepare_meta_call_args(&self.domain_separator, &self.account_id, args),
+            &prepare_meta_call_args(&self.domain_separator, &self.account_id, nonce, args),
             &signature,
-        )?;
+        );
         if sender == Address::zero() {
             return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
+        }
+        if self.next_nonce(&sender)? != nonce {
+            return Err(VMLogicError::EvmError(EvmError::InvalidNonce));
         }
         let contract_address = Address::from_slice(&args[..20]);
         let input = &args[20..];
@@ -288,7 +296,7 @@ impl<'a> EvmContext<'a> {
             }
             MessageCallResult::Reverted(gas_left, data) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
-                Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
+                Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
             }
             _ => unreachable!(),
         }
@@ -303,11 +311,13 @@ impl<'a> EvmContext<'a> {
         let args = ViewCallArgs::try_from_slice(&args)
             .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
         let sender = Address::from(&args.sender);
+        let attached_amount = U256::from(args.amount);
+        self.add_balance(&sender, attached_amount)?;
         let rd = interpreter::call(
             self,
             &sender,
             &sender,
-            Some(U256::from(args.amount)),
+            Some(attached_amount),
             0,
             &Address::from(&args.address),
             &args.args,
@@ -315,23 +325,28 @@ impl<'a> EvmContext<'a> {
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
         )?;
-        match rd {
+        let result = match rd {
             MessageCallResult::Success(gas_left, data) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
                 Ok(data.to_vec())
             }
             MessageCallResult::Reverted(gas_left, data) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
-                Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
+                Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
             }
             _ => unreachable!(),
-        }
+        };
+        self.sub_balance(&sender, attached_amount)?;
+        result
     }
 
     pub fn get_code(&self, args: Vec<u8>) -> Result<Vec<u8>> {
         let args = AddressArg::try_from_slice(&args)
             .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
-        Ok(self.code_at(&Address::from_slice(&args.address)).unwrap_or(None).unwrap_or(vec![]))
+        Ok(self
+            .code_at(&Address::from_slice(&args.address))
+            .unwrap_or(None)
+            .unwrap_or_else(|| Vec::new()))
     }
 
     pub fn get_storage_at(&self, args: Vec<u8>) -> Result<Vec<u8>> {
@@ -389,7 +404,7 @@ impl<'a> EvmContext<'a> {
             false,
             ActionCosts::transfer,
         )?;
-        self.ext.append_action_transfer(receipt_index, amount).map_err(|err| err.into())
+        self.ext.append_action_transfer(receipt_index, amount)
     }
 
     /// Transfer tokens from sender to given EVM address.
@@ -402,6 +417,39 @@ impl<'a> EvmContext<'a> {
             return Err(VMLogicError::EvmError(EvmError::InsufficientFunds));
         }
         self.transfer_balance(&sender, &Address::from(args.address), amount)
+    }
+
+    /// Creates new EVM under given sub account and sends attached balance to it.
+    /// If account id given is not a valid subaccount of the current account, will return InvalidSubAccount.
+    /// If balance attached was not enough, will return InsufficientDeposit.
+    pub fn create_evm(&mut self, args: Vec<u8>) -> Result<()> {
+        let new_account_id = std::str::from_utf8(&args)
+            .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?
+            .to_string();
+        if !is_valid_sub_account_id(&self.account_id, &new_account_id) {
+            return Err(VMLogicError::EvmError(EvmError::InvalidSubAccount));
+        }
+        if self.attached_deposit < self.fees_config.evm_deposit {
+            return Err(VMLogicError::EvmError(EvmError::InsufficientDeposit));
+        }
+        self.current_amount = self
+            .current_amount
+            .checked_sub(self.attached_deposit)
+            .ok_or_else(|| VMLogicError::EvmError(EvmError::InsufficientFunds))?;
+        let receipt_index = self.ext.create_receipt(vec![], new_account_id)?;
+        self.pay_gas_for_new_receipt(false, &[])?;
+        self.gas_counter.pay_action_base(
+            &self.fees_config.action_creation_config.create_account_cost,
+            false,
+            ActionCosts::create_account,
+        )?;
+        self.ext.append_action_create_account(receipt_index)?;
+        self.gas_counter.pay_action_base(
+            &self.fees_config.action_creation_config.transfer_cost,
+            false,
+            ActionCosts::transfer,
+        )?;
+        self.ext.append_action_transfer(receipt_index, self.attached_deposit)
     }
 
     /// A helper function to pay gas fee for creating a new receipt without actions.
@@ -501,6 +549,7 @@ pub fn evm_last_deployed_addr() -> H160 {
 
 pub fn run_evm(
     ext: &mut dyn External,
+    chain_id: u128,
     config: &VMConfig,
     fees_config: &RuntimeFeesConfig,
     account_id: &AccountId,
@@ -521,13 +570,14 @@ pub fn run_evm(
         return (
             None,
             Some(VMError::FunctionCallError(FunctionCallError::EvmError(EvmError::Revert(
-                "Not enough to run EVM".to_string(),
+                "Not enough to run EVM".as_bytes().to_vec(),
             )))),
         );
     }
     let evm_gas = evm_gas_result.unwrap();
     let mut context = EvmContext::new(
         ext,
+        chain_id,
         config,
         fees_config,
         // This is total amount of all $NEAR inside this EVM.
@@ -552,13 +602,16 @@ pub fn run_evm(
             });
             utils::address_to_vec(&address)
         }),
+        // TODO: remove this function name if no one is using it.
         "call_function" => context.call_function(args),
         "call" => context.call_function(args),
         "meta_call" => context.meta_call_function(args),
         "deposit" => context.deposit(args).map(|balance| utils::u256_to_arr(&balance).to_vec()),
         "withdraw" => context.withdraw(args).map(|_| vec![]),
         "transfer" => context.transfer(args).map(|_| vec![]),
+        "create" => context.create_evm(args).map(|_| vec![]),
         // View methods.
+        // TODO: remove this function name if no one is using it.
         "view_function_call" => context.view_call_function(args),
         "view" => context.view_call_function(args),
         "get_code" => context.get_code(args),
@@ -606,6 +659,8 @@ mod tests {
 
     use super::*;
 
+    const CHAIN_ID: u128 = 0x99;
+
     fn setup() -> (MockedExternal, VMConfig, RuntimeFeesConfig) {
         let vm_config = VMConfig::default();
         let fees_config = RuntimeFeesConfig::default();
@@ -621,6 +676,7 @@ mod tests {
     ) -> EvmContext<'a> {
         EvmContext::new(
             external,
+            CHAIN_ID,
             vm_config,
             fees_config,
             0,

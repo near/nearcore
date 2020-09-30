@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ethereum_types::{Address, H160, H256, U256};
+use ethereum_types::{Address, H256, U256};
 use evm::ActionParams;
 use keccak_hash::keccak;
 use near_runtime_fees::EvmCostConfig;
@@ -108,9 +108,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     }
 
     fn origin_balance(&self) -> EvmResult<U256> {
-        // self.balance(&utils::predecessor_as_evm())
-        // TODO: ??
-        self.balance(&H160([0; 20]))
+        self.balance(&self.origin)
     }
 
     fn balance(&self, address: &Address) -> EvmResult<U256> {
@@ -187,7 +185,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 // Is not used.
                 return Err(TrapKind::Call(ActionParams::default()));
             }
-            CallType::Call => interpreter::call(
+            CallType::Call => iPrelnterpreter::call(
                 self.sub_state,
                 &self.origin,
                 sender_address,

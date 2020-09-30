@@ -39,13 +39,17 @@
 # ```
 #
 
-import sys, time, requests, os
+import sys, time, requests, logging
+from subprocess import check_output
 from queue import Queue
 
 sys.path.append('lib')
 
 from cluster import init_cluster, spin_up_node, load_config
 from populate import genesis_populate_all, copy_genesis
+from utils import LogTracker
+
+logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
 
 if len(sys.argv) >= 2:
     genesis_data = sys.argv[1]
@@ -56,14 +60,14 @@ else:
 config = load_config()
 near_root, node_dirs = init_cluster(
     1, 2, 1, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 20],
+    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 300],
      ["block_producer_kickout_threshold", 80]], {1: {
          "tracked_shards": [0]
      }, 2: {
          "tracked_shards": [0]
      }})
 
-print("Populating genesis")
+logging.info("Populating genesis")
 
 if genesis_data is None:
     genesis_populate_all(near_root, additional_accounts, node_dirs)
@@ -71,11 +75,17 @@ else:
     for node_dir in node_dirs:
         copy_genesis(genesis_data, node_dir)
 
-print("Genesis generated")
+logging.info("Genesis generated")
 
-SMALL_HEIGHT = 40
-LARGE_HEIGHT = 100
-TIMEOUT = 300 + SMALL_HEIGHT + LARGE_HEIGHT
+for node_dir in node_dirs:
+    result = check_output(['ls', '-la', node_dir]).decode()
+    logging.info(f'Node directory: {node_dir}')
+    for line in result.split('\n'):
+        logging.info(line)
+
+SMALL_HEIGHT = 600
+LARGE_HEIGHT = 660
+TIMEOUT = 1450
 start = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
@@ -90,12 +100,12 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 
         # Check current height
         try:
-            status = rpc_node.get_status()
+            status = rpc_node.get_status(False)
             new_height = status['sync_info']['latest_block_height']
-            print(f"Height: {latest_height} => {new_height}")
+            logging.info(f"Height: {latest_height} => {new_height}")
             latest_height = new_height
         except requests.ReadTimeout:
-            print("Timeout Error")
+            logging.info("Timeout Error")
 
         # Computing bps
         cur_time = time.time()
@@ -112,7 +122,7 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
             bps = (head[1] - tail[1]) / (head[0] - tail[0])
 
 
-        print(f"bps: {bps} queue length: {len(queue)}")
+        logging.info(f"bps: {bps} queue length: {len(queue)}")
         time.sleep(sleep_time)
         assert bps is None or bps >= bps_threshold
 
@@ -120,9 +130,13 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 wait_for_height(SMALL_HEIGHT, boot_node)
 
 observer = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
+tracker = LogTracker(observer)
 
 # Check that bps is not degraded
 wait_for_height(LARGE_HEIGHT, boot_node)
 
 # Make sure observer2 is able to sync
 wait_for_height(SMALL_HEIGHT, observer)
+
+tracker.reset()
+assert tracker.check("transition to State Sync")

@@ -387,6 +387,7 @@ impl Block {
         self.header().hash()
     }
 
+    /// Checks that block content matches block hash, with the possible exception of chunk signatures
     pub fn check_validity(&self) -> Result<(), BlockValidityError> {
         // Check that state root stored in the header matches the state root of the chunks
         let state_root = Block::compute_state_root(self.chunks());

@@ -10,8 +10,8 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
+use near_primitives::rpc::RpcQueryRequest;
 use near_primitives::rpc::RpcValidatorsOrderedRequest;
-use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::types::{BlockId, BlockReference, Finality, ShardId, SyncCheckpoint};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
@@ -300,10 +300,9 @@ fn test_query_access_key() {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "test".to_string(),
-                    public_key: PublicKey::try_from(
-                        "ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2",
-                    )
-                    .unwrap(),
+                    public_key: "ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2"
+                        .parse()
+                        .unwrap(),
                 },
             })
             .await
@@ -486,67 +485,6 @@ fn test_genesis_config() {
     });
 }
 
-/// Retrieve genesis records via JSON RPC.
-#[test]
-fn test_genesis_records() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let genesis_records = client
-            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
-                pagination: Default::default(),
-            })
-            .await
-            .unwrap();
-        assert_eq!(genesis_records.records.len(), 100);
-        let first100_records = genesis_records.records.to_vec();
-
-        let second_genesis_record = client
-            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
-                pagination: RpcPagination { offset: 1, limit: 1 },
-            })
-            .await
-            .unwrap();
-        assert_eq!(second_genesis_record.records.len(), 1);
-
-        assert_eq!(
-            serde_json::to_value(&first100_records[1]).unwrap(),
-            serde_json::to_value(&second_genesis_record.records[0]).unwrap()
-        );
-    });
-}
-
-/// Check invalid arguments to genesis records via JSON RPC.
-#[test]
-fn test_invalid_genesis_records_arguments() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let genesis_records_response = client
-            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
-                pagination: RpcPagination { offset: 1, limit: 101 },
-            })
-            .await;
-        let validation_error = genesis_records_response.err().unwrap();
-        assert_eq!(validation_error.code, -32_602);
-        assert_eq!(validation_error.message, "Invalid params");
-        assert_eq!(
-            validation_error.data.unwrap(),
-            serde_json::json!({
-                "pagination": {
-                    "limit": [
-                        {
-                            "code": "range",
-                            "message": null,
-                            "params": {
-                                "max": 100.0,
-                                "value": 101,
-                                "min": 1.0,
-                            }
-                        }
-                    ]
-                }
-            })
-        );
-    });
-}
-
 /// Retrieve gas price
 #[test]
 fn test_gas_price_by_height() {
@@ -645,8 +583,7 @@ fn test_view_access_key_non_existing_account_id_and_public_key_must_return_error
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "\u{0}\u{0}\u{0}\u{0}\u{0}9".to_string(),
-                    public_key: PublicKey::try_from("99999999999999999999999999999999999999999999")
-                        .unwrap(),
+                    public_key: "99999999999999999999999999999999999999999999".parse().unwrap(),
                 },
             })
             .await

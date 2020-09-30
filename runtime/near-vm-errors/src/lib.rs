@@ -176,14 +176,14 @@ pub enum HostError {
 /// Errors specifically from EVM pre-compile.
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum EvmError {
-    /// Unknown error, catch all for unexpected things.
-    UnknownError,
+    /// Contract not found.
+    ContractNotFound,
     /// Fatal failure due conflicting addresses on contract deployment.
-    DuplicateContract(String),
+    DuplicateContract(#[serde(with = "hex_format")] Vec<u8>),
     /// Contract deployment failure.
-    DeployFail(String),
+    DeployFail(#[serde(with = "hex_format")] Vec<u8>),
     /// Contract execution failed, revert the state.
-    Revert(String),
+    Revert(#[serde(with = "hex_format")] Vec<u8>),
     /// Failed to parse arguments.
     ArgumentParseError,
     /// No deposit when expected.
@@ -196,6 +196,55 @@ pub enum EvmError {
     MethodNotFound,
     /// Invalid signature when recovering.
     InvalidEcRecoverSignature,
+    /// Invalid nonce.
+    InvalidNonce,
+    /// Invalid sub EVM account.
+    InvalidSubAccount,
+    /// Too small NEAR deposit.
+    InsufficientDeposit,
+    /// `OutOfGas` is returned when transaction execution runs out of gas.
+    /// The state should be reverted to the state from before the
+    /// transaction execution. But it does not mean that transaction
+    /// was invalid. Balance still should be transfered and nonce
+    /// should be increased.
+    OutOfGas,
+    /// `BadJumpDestination` is returned when execution tried to move
+    /// to position that wasn't marked with JUMPDEST instruction
+    BadJumpDestination {
+        /// Position the code tried to jump to.
+        destination: u64,
+    },
+    /// `BadInstructions` is returned when given instruction is not supported
+    BadInstruction {
+        /// Unrecognized opcode
+        instruction: u8,
+    },
+    /// `StackUnderflow` when there is not enough stack elements to execute instruction
+    StackUnderflow {
+        /// Invoked instruction
+        instruction: String,
+        /// How many stack elements was requested by instruction
+        wanted: u64,
+        /// How many elements were on stack
+        on_stack: u64,
+    },
+    /// When execution would exceed defined Stack Limit
+    OutOfStack {
+        /// Invoked instruction
+        instruction: String,
+        /// How many stack elements instruction wanted to push
+        wanted: u64,
+        /// What was the stack limit
+        limit: u64,
+    },
+    /// Built-in contract failed on given input
+    BuiltIn(String),
+    /// When execution tries to modify the state in static context
+    MutableCallInStaticContext,
+    /// Out of bounds access in RETURNDATACOPY.
+    OutOfBounds,
+    /// Execution has been reverted with REVERT.
+    Reverted,
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
@@ -374,6 +423,30 @@ impl std::fmt::Display for HostError {
             ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
             Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
         }
+    }
+}
+
+pub mod hex_format {
+    use hex::{decode, encode};
+
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S, T>(data: T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: AsRef<[u8]>,
+    {
+        serializer.serialize_str(&encode(data))
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: From<Vec<u8>>,
+    {
+        let s = String::deserialize(deserializer)?;
+        decode(&s).map_err(|err| de::Error::custom(err.to_string())).map(Into::into)
     }
 }
 

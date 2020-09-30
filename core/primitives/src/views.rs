@@ -3,7 +3,6 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
-use std::borrow::Cow;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
@@ -25,13 +24,11 @@ use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
-use crate::rpc::RpcPagination;
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
     u128_dec_format, u64_dec_format,
 };
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
-use crate::state_record::StateRecord;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
@@ -149,12 +146,6 @@ impl From<AccessKeyView> for AccessKey {
     fn from(view: AccessKeyView) -> Self {
         Self { nonce: view.nonce, permission: view.permission.into() }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GenesisRecordsView<'a> {
-    pub pagination: RpcPagination,
-    pub records: Cow<'a, [StateRecord]>,
 }
 
 /// Set of serialized TrieNodes that are encoded in base64. Represent proof of inclusion of some TrieNode in the MerkleTrie.

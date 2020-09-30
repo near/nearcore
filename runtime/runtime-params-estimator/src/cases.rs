@@ -3,7 +3,7 @@ use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 use std::process;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
@@ -21,7 +21,7 @@ use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
 use crate::vm_estimator::{
-    action_receipt_fee, cost_of_evm, cost_per_op, cost_to_compile, near_cost_to_evm_gas,
+    action_receipt_fee, cost_of_evm, cost_per_op, cost_to_compile, near_cost_to_evm_gas, load_and_compile
 };
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
@@ -85,6 +85,7 @@ macro_rules! calls_helper(
 #[allow(non_camel_case_types)]
 pub enum Metric {
     Receipt,
+    SirReceipt,
     ActionTransfer,
     ActionCreateAccount,
     ActionDeleteAccount,
@@ -93,6 +94,7 @@ pub enum Metric {
     ActionAddFunctionAccessKey1000Methods,
     ActionDeleteAccessKey,
     ActionStake,
+    ActionDeploySmallest,
     ActionDeploy10K,
     ActionDeploy100K,
     ActionDeploy1M,
@@ -142,6 +144,7 @@ pub enum Metric {
     promise_return_100k,
     data_producer_10b,
     data_producer_100kib,
+    data_receipt_base_10b_1000,
     data_receipt_10b_1000,
     data_receipt_100kib_1000,
     cpu_ram_soak_test,
@@ -199,8 +202,12 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         process::exit(0);
     }
     config.block_sizes = vec![100];
+    // Warmup for receipts
+    measure_actions(Metric::warmup, &mut m, &config, None, vec![], false, false);
     // Measure the speed of processing empty receipts.
     measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
+    // Measure the speed of processing a sir receipt (where sender is receiver).
+    measure_actions(Metric::SirReceipt, &mut m, &config, None, vec![], true, false);
 
     // Measure the speed of processing simple transfers.
     measure_actions(
@@ -218,7 +225,8 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     let mut f = || {
         let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
         let account_id = get_account_id(account_idx);
-        let other_account_id = format!("random_account_{}", rand::thread_rng().gen::<usize>());
+        let other_account_id =
+            format!("near_{}_{}", account_idx, rand::thread_rng().gen::<usize>());
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
@@ -362,25 +370,27 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of staking.
-    let public_key: PublicKey =
-        "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
+    let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
     measure_actions(
         Metric::ActionStake,
         &mut m,
         &config,
         None,
-        vec![Action::Stake(StakeAction { stake: 1, public_key: public_key })],
+        vec![Action::Stake(StakeAction { stake: 1, public_key })],
         true,
         true,
     );
 
     // Measure the speed of deploying some code.
+    let smallest_code = include_bytes!("../test-contract/res/smallest_contract.wasm");
     let code_10k = include_bytes!("../test-contract/res/small_contract.wasm");
     let code_100k = include_bytes!("../test-contract/res/medium_contract.wasm");
     let code_1m = include_bytes!("../test-contract/res/large_contract.wasm");
-    let curr_code = RefCell::new(code_10k.to_vec());
+    let curr_code = RefCell::new(smallest_code.to_vec());
     let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut accounts_deployed = HashSet::new();
+    let mut good_code_accounts = HashSet::new();
+    let good_account = RefCell::new(false);
     let mut f = || {
         let account_idx = loop {
             let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
@@ -390,6 +400,9 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
             break x;
         };
         accounts_deployed.insert(account_idx);
+        if *good_account.borrow() {
+            good_code_accounts.insert(account_idx);
+        }
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
@@ -403,7 +416,28 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         )
     };
     let mut testbed =
-        measure_transactions(Metric::ActionDeploy10K, &mut m, &config, None, &mut f, false);
+        measure_transactions(Metric::ActionDeploySmallest, &mut m, &config, None, &mut f, false);
+
+    *good_account.borrow_mut() = true;
+    *curr_code.borrow_mut() = code_10k.to_vec();
+
+    testbed = measure_transactions(
+        Metric::ActionDeploy10K,
+        &mut m,
+        &config,
+        Some(testbed),
+        &mut f,
+        false,
+    );
+
+    // Deploying more small code accounts. It's important that they are the same size to correctly
+    // deduct base
+    for _ in 0..2 {
+        testbed =
+            measure_transactions(Metric::warmup, &mut m, &config, Some(testbed), &mut f, false);
+    }
+
+    *good_account.borrow_mut() = false;
     *curr_code.borrow_mut() = code_100k.to_vec();
     testbed = measure_transactions(
         Metric::ActionDeploy100K,
@@ -417,7 +451,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     testbed =
         measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
 
-    let ad: Vec<_> = accounts_deployed.into_iter().collect();
+    let ad: Vec<_> = good_code_accounts.into_iter().collect();
 
     testbed = measure_function(
         Metric::warmup,
@@ -501,6 +535,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     promise_return_100k => promise_return_100k,
     data_producer_10b => data_producer_10b,
     data_producer_100kib => data_producer_100kib,
+    data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
     data_receipt_10b_1000 => data_receipt_10b_1000,
     data_receipt_100kib_1000 => data_receipt_100kib_1000
         };
@@ -563,11 +598,21 @@ fn measured_to_gas(
     }
 }
 
-fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
+fn get_runtime_fees_config(
+    measurement: &Measurements,
+    test_contract_compilation_cost: u64,
+) -> RuntimeFeesConfig {
     use crate::runtime_fees_generator::ReceiptFees::*;
     let generator = RuntimeFeesGenerator::new(measurement);
     let measured = generator.compute();
     let metric = measurement.gas_metric;
+    let function_call_total_cost =
+        ratio_to_gas(metric, measured[&ActionFunctionCallBase]) - test_contract_compilation_cost;
+    let function_call_cost = Fee {
+        send_sir: function_call_total_cost / 2,
+        send_not_sir: function_call_total_cost / 2,
+        execution: function_call_total_cost / 2,
+    };
     RuntimeFeesConfig {
         action_receipt_creation_config: measured_to_fee(metric, measured[&ActionReceiptCreation]),
         data_receipt_creation_config: DataReceiptCreationConfig {
@@ -581,7 +626,7 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
                 metric,
                 measured[&ActionDeployContractPerByte],
             ),
-            function_call_cost: measured_to_fee(metric, measured[&ActionFunctionCallBase]),
+            function_call_cost,
             function_call_cost_per_byte: measured_to_fee(
                 metric,
                 measured[&ActionFunctionCallPerByte],
@@ -688,8 +733,19 @@ fn get_vm_config(measurement: &Measurements, config: &Config) -> VMConfig {
 
 fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeConfig {
     let mut runtime_config = RuntimeConfig::default();
-    runtime_config.transaction_costs = get_runtime_fees_config(measurement);
     runtime_config.wasm_config = get_vm_config(measurement, config);
+
+    // Compiling small test contract that was used for `noop` function call estimation.
+    let compile_cost = load_and_compile(
+        &"./test-contract/res/small_contract.wasm".into(),
+        config.metric,
+        config.vm_kind,
+    )
+    .unwrap();
+    let test_contract_compilation_cost = ratio_to_gas(config.metric, compile_cost.1);
+
+    runtime_config.transaction_costs =
+        get_runtime_fees_config(measurement, test_contract_compilation_cost);
     runtime_config
 }
 fn get_compile_cost(config: &Config, verbose: bool) -> (u64, u64) {

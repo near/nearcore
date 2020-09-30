@@ -744,7 +744,10 @@ impl ClientActor {
             );
             delay = core::cmp::min(
                 delay,
-                self.doomslug_timer_next_attempt.signed_duration_since(now).to_std().unwrap_or(delay),
+                self.doomslug_timer_next_attempt
+                    .signed_duration_since(now)
+                    .to_std()
+                    .unwrap_or(delay),
             )
         }
         if self.block_production_started {
@@ -761,18 +764,28 @@ impl ClientActor {
 
             delay = core::cmp::min(
                 delay,
-                self.block_production_next_attempt.signed_duration_since(now).to_std().unwrap_or(delay),
+                self.block_production_next_attempt
+                    .signed_duration_since(now)
+                    .to_std()
+                    .unwrap_or(delay),
             )
         }
         self.chunk_request_retry_next_attempt = self.run_timer(
             self.client.config.chunk_request_retry_period,
             self.chunk_request_retry_next_attempt,
             ctx,
-            |act, _ctx| act.client.shards_mgr.resend_chunk_requests(),
+            |act, _ctx| {
+                if let Ok(header_head) = act.client.chain.header_head() {
+                    act.client.shards_mgr.resend_chunk_requests(&header_head.last_block_hash)
+                }
+            },
         );
         core::cmp::min(
             delay,
-            self.chunk_request_retry_next_attempt.signed_duration_since(now).to_std().unwrap_or(delay),
+            self.chunk_request_retry_next_attempt
+                .signed_duration_since(now)
+                .to_std()
+                .unwrap_or(delay),
         )
     }
 
@@ -829,7 +842,10 @@ impl ClientActor {
                                 missing_chunks,
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
-                            self.client.shards_mgr.request_chunks(missing_chunks);
+                            self.client.shards_mgr.request_chunks(
+                                missing_chunks,
+                                &self.client.chain.header_head().expect("header_head must be available when processing newly produced block").last_block_hash,
+                            );
                             Ok(())
                         }
                         _ => {
@@ -883,6 +899,7 @@ impl ClientActor {
                     if (head.height < block.header().height()
                         || &head.epoch_id == block.header().epoch_id())
                         && provenance == Provenance::NONE
+                        && !self.client.sync_status.is_syncing()
                     {
                         self.client.rebroadcast_block(block.clone());
                     }
@@ -945,7 +962,15 @@ impl ClientActor {
                         missing_chunks,
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.client.shards_mgr.request_chunks(missing_chunks);
+                    self.client.shards_mgr.request_chunks(
+                        missing_chunks,
+                        &self
+                            .client
+                            .chain
+                            .header_head()
+                            .expect("header_head should always be available when block is received")
+                            .last_block_hash,
+                    );
                 }
                 _ => {
                     debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
@@ -1266,6 +1291,12 @@ impl ClientActor {
                                 .unwrap()
                                 .drain(..)
                                 .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                            &self
+                                .client
+                                .chain
+                                .header_head()
+                                .expect("header_head must be available during sync")
+                                .last_block_hash,
                         );
 
                         self.client.sync_status =

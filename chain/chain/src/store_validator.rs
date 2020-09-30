@@ -373,9 +373,10 @@ impl StoreValidator {
 mod tests {
     use near_store::test_utils::create_test_store;
 
-    use super::*;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
+
+    use super::*;
 
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
