@@ -24,6 +24,7 @@ use near_store::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
 
+use crate::cache::RocksDBWasmCompileCache;
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
@@ -32,7 +33,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, Runti
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
-use near_vm_runner::VMError;
+use near_vm_runner::{VMError, WasmCompileCache};
 
 pub(crate) fn get_code_with_cache(
     state_update: &TrieUpdate,
@@ -80,6 +81,7 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
+    let store = state_update.get_store();
 
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -127,6 +129,13 @@ pub(crate) fn action_function_call(
         output_data_receivers,
     };
 
+    let cache: Box<dyn WasmCompileCache> = if let Some(store) = store {
+        Box::new(RocksDBWasmCompileCache { store })
+    } else {
+        // If we're validating a challenge, there is no Store. For now just don't use cache.
+        Box::new(())
+    };
+
     let (outcome, err) = near_vm_runner::run(
         code.hash.as_ref().to_vec(),
         &code.code,
@@ -137,6 +146,7 @@ pub(crate) fn action_function_call(
         &config.transaction_costs,
         promise_results,
         apply_state.current_protocol_version,
+        cache.as_ref(),
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {
