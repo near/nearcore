@@ -615,6 +615,7 @@ class PreexistingCluster():
             print(json_res['err'])
             return
         self.request_id = json_res['request_id']
+        print("GG request id: %s" % self.request_id)
         self.ips = []
         atexit.register(self.atexit_cleanup_preexist, None)
         signal.signal(signal.SIGTERM, self.atexit_cleanup_preexist)
