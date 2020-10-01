@@ -637,6 +637,7 @@ class PreexistingCluster():
             if len(self.nodes) == num_nodes:
                 break
         print()
+        print("ips: %s" % self.ips)
         while True:
             status = {'BUILDING': 0, 'READY': 0, 'BUILD FAILED': 0}
             post = {'ips': self.ips, 'token': self.token}
