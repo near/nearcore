@@ -578,6 +578,7 @@ class AzureNode(BaseNode):
             if json_res['stderr'] != '':
                 print(json_res['stderr'])
                 sys.exit()
+            self.wait_for_rpc(timeout=30)
 
         def kill(self):
             cmd = ('killall -9 neard')
