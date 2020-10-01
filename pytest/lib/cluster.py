@@ -644,9 +644,11 @@ class PreexistingCluster():
             post = {'ips': self.ips, 'token': self.token}
             res = requests.post('http://40.112.59.229:5000/get_instances_status', json=post)
             json_res = json.loads(res.text)
-            for _, v in json_res.items():
+            for k, v in json_res.items():
                 if v in status:
                     status[v] += 1
+                else:
+                    print("Unexpected status %s for %s" % (v, k))
             print('%s nodes are building and %s nodes are ready' % (status['BUILDING'], status['READY']),  end='\r')
             if status['BUILD FAILED'] > 0:
                 print('Build failed for at least one instance')
