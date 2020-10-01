@@ -41,6 +41,7 @@ for i in range(4):
     def fix_result(result):
         result["result"]["block_hash"] = None
         result["result"]["block_height"] = None
+        result["result"]["locked"] = None
         return result
 
     query_result1 = fix_result(nodes[-2].get_account("test%s" % i))
