@@ -10,7 +10,7 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
-use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, VersionedShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce};
 use near_store::PartialStorage;
@@ -197,15 +197,15 @@ fn validate_header_authorship(
 
 fn validate_chunk_authorship(
     runtime_adapter: &dyn RuntimeAdapter,
-    chunk_header: &ShardChunkHeader,
+    chunk_header: &VersionedShardChunkHeader,
 ) -> Result<AccountId, Error> {
     if runtime_adapter.verify_chunk_header_signature(chunk_header)? {
         let epoch_id =
-            runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.inner.prev_block_hash)?;
+            runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
         let chunk_producer = runtime_adapter.get_chunk_producer(
             &epoch_id,
-            chunk_header.inner.height_created,
-            chunk_header.inner.shard_id,
+            chunk_header.height_created(),
+            chunk_header.shard_id(),
         )?;
         Ok(chunk_producer)
     } else {
@@ -223,7 +223,7 @@ fn validate_chunk_proofs_challenge(
         MaybeEncodedShardChunk::Encoded(encoded_chunk) => &encoded_chunk.header,
         MaybeEncodedShardChunk::Decoded(chunk) => &chunk.header,
     };
-    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header)?;
+    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header.clone().lift())?;
     let account_to_slash_for_valid_challenge = Ok((*block_header.hash(), vec![chunk_producer]));
     if !Block::validate_chunk_header_proof(
         &chunk_header,
@@ -274,7 +274,7 @@ fn validate_chunk_state_challenge(
 
     // Validate previous chunk and block header.
     validate_header_authorship(runtime_adapter, &prev_block_header)?;
-    let _ = validate_chunk_authorship(runtime_adapter, &chunk_state.prev_chunk.header)?;
+    let _ = validate_chunk_authorship(runtime_adapter, &chunk_state.prev_chunk.header.clone().lift())?;
     if !Block::validate_chunk_header_proof(
         &chunk_state.prev_chunk.header,
         &prev_block_header.chunk_headers_root(),
@@ -285,7 +285,7 @@ fn validate_chunk_state_challenge(
 
     // Validate current chunk and block header.
     validate_header_authorship(runtime_adapter, &block_header)?;
-    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header)?;
+    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header.clone().lift())?;
     if !Block::validate_chunk_header_proof(
         &chunk_state.chunk_header,
         &block_header.chunk_headers_root(),

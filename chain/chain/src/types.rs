@@ -13,7 +13,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReceiptList, ShardChunkHeader};
+use near_primitives::sharding::{ReceiptList, ShardChunkHeader, VersionedShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
@@ -299,7 +299,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 
     /// Verify chunk header signature.
-    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
+    fn verify_chunk_header_signature(&self, header: &VersionedShardChunkHeader) -> Result<bool, Error>;
 
     /// Verify aggregated bls signature
     fn verify_approval(

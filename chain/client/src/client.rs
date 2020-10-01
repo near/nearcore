@@ -26,9 +26,7 @@ use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
-};
+use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader, VersionedPartialEncodedChunk, PartialEncodedChunkV2};
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
@@ -395,8 +393,8 @@ impl Client {
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
-            chunk_header.height_included = next_height;
-            chunks[shard_id as usize] = chunk_header;
+            *chunk_header.height_included_mut() = next_height;
+            chunks[shard_id as usize] = chunk_header.downgrade();
         }
 
         let prev_header = &prev_block.header();
@@ -680,7 +678,7 @@ impl Client {
                 .write()
                 .unwrap()
                 .drain(..)
-                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                .flat_map(|missing_chunks| missing_chunks.into_iter().map(ShardChunkHeader::lift)),
             &self
                 .chain
                 .header_head()
@@ -705,17 +703,31 @@ impl Client {
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
         let partial_chunk =
-            PartialEncodedChunk { header, parts: response.parts, receipts: response.receipts };
-        self.process_partial_encoded_chunk(partial_chunk)
+            PartialEncodedChunkV2 { header, parts: response.parts, receipts: response.receipts };
+        self.process_partial_encoded_chunk(VersionedPartialEncodedChunk::V2(partial_chunk))
     }
     pub fn process_partial_encoded_chunk(
         &mut self,
-        partial_encoded_chunk: PartialEncodedChunk,
+        partial_encoded_chunk: VersionedPartialEncodedChunk,
     ) -> Result<Vec<AcceptedBlock>, Error> {
+        let block_hash = partial_encoded_chunk.prev_block();
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(block_hash)?;
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+
+        if !partial_encoded_chunk.version_range().contains(protocol_version) {
+            return Err(Error::Other("Invalid chunk version".to_string()));
+        }
+
+        let partial_encoded_chunk: PartialEncodedChunkV2 = match partial_encoded_chunk {
+            VersionedPartialEncodedChunk::V1(chunk) => chunk.into(),
+            VersionedPartialEncodedChunk::V2(chunk) => chunk,
+        };
+
         let process_result = self.shards_mgr.process_partial_encoded_chunk(
             partial_encoded_chunk.clone(),
             self.chain.mut_store(),
             &mut self.rs,
+            protocol_version,
         )?;
 
         match process_result {
@@ -961,7 +973,7 @@ impl Client {
         let mut partial_encoded_chunks =
             self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
         for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
-            if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(partial_encoded_chunk) {
+            if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(VersionedPartialEncodedChunk::V2(partial_encoded_chunk)) {
                 // Executing process_partial_encoded_chunk can unlock some blocks.
                 // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
                 // for which we track shards will be unblocked here.
@@ -998,7 +1010,7 @@ impl Client {
                 .write()
                 .unwrap()
                 .drain(..)
-                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                .flat_map(|missing_chunks| missing_chunks.into_iter().map(ShardChunkHeader::lift)),
             &self
                 .chain
                 .header_head()
@@ -1403,7 +1415,7 @@ impl Client {
                             .write()
                             .unwrap()
                             .drain(..)
-                            .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                            .flat_map(|missing_chunks| missing_chunks.into_iter().map(ShardChunkHeader::lift)),
                         &self.chain.header_head()?.last_block_hash,
                     );
 
@@ -1461,6 +1473,7 @@ mod test {
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use neard::config::GenesisExt;
 
@@ -1506,9 +1519,10 @@ mod test {
         // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
         // based on a missing block.
         let result = client.shards_mgr.process_partial_encoded_chunk(
-            mock_chunk,
+            mock_chunk.into(),
             client.chain.mut_store(),
             &mut client.rs,
+            PROTOCOL_VERSION,
         );
         assert!(matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock)));
     }

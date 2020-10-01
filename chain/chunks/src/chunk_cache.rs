@@ -3,9 +3,7 @@ use std::collections::{HashMap, HashSet};
 use cached::{Cached, SizedCache};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
-};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader, PartialEncodedChunkV2, VersionedShardChunkHeader};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
@@ -14,7 +12,7 @@ const CHUNK_HEADER_HEIGHT_HORIZON: BlockHeightDelta = 10;
 const NUM_BLOCK_HASH_TO_CHUNK_HEADER: usize = 30;
 
 pub struct EncodedChunksCacheEntry {
-    pub header: ShardChunkHeader,
+    pub header: VersionedShardChunkHeader,
     pub parts: HashMap<u64, PartialEncodedChunkPart>,
     pub receipts: HashMap<ShardId, ReceiptProof>,
 }
@@ -24,15 +22,15 @@ pub struct EncodedChunksCache {
 
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,
     height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
-    block_hash_to_chunk_headers: SizedCache<CryptoHash, HashMap<ShardId, ShardChunkHeader>>,
+    block_hash_to_chunk_headers: SizedCache<CryptoHash, HashMap<ShardId, VersionedShardChunkHeader>>,
 }
 
 impl EncodedChunksCacheEntry {
-    pub fn from_chunk_header(header: ShardChunkHeader) -> Self {
+    pub fn from_chunk_header(header: VersionedShardChunkHeader) -> Self {
         EncodedChunksCacheEntry { header, parts: HashMap::new(), receipts: HashMap::new() }
     }
 
-    pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunk) {
+    pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunkV2) {
         for part_info in partial_encoded_chunk.parts.iter() {
             let part_ord = part_info.part_ord;
             self.parts.entry(part_ord).or_insert_with(|| part_info.clone());
@@ -65,7 +63,7 @@ impl EncodedChunksCache {
 
     pub fn insert(&mut self, chunk_hash: ChunkHash, entry: EncodedChunksCacheEntry) {
         self.height_map
-            .entry(entry.header.inner.height_created)
+            .entry(entry.header.height_created())
             .or_insert_with(|| HashSet::default())
             .insert(chunk_hash.clone());
         self.encoded_chunks.insert(chunk_hash, entry);
@@ -75,7 +73,7 @@ impl EncodedChunksCache {
     pub fn get_or_insert_from_header(
         &mut self,
         chunk_hash: ChunkHash,
-        chunk_header: ShardChunkHeader,
+        chunk_header: VersionedShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
         self.encoded_chunks
             .entry(chunk_hash)
@@ -94,18 +92,18 @@ impl EncodedChunksCache {
         self.height_within_front_horizon(height) || self.height_within_rear_horizon(height)
     }
 
-    pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunk) {
+    pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunkV2) {
         let chunk_hash = partial_encoded_chunk.header.chunk_hash();
         let entry = self
             .get_or_insert_from_header(chunk_hash.clone(), partial_encoded_chunk.header.clone());
-        let height = entry.header.inner.height_created;
+        let height = entry.header.height_created();
         entry.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
         self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
     }
 
     pub fn remove_from_cache_if_outside_horizon(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
-            let height = entry.header.inner.height_created;
+            let height = entry.header.height_created();
             if !self.height_within_horizon(height) {
                 self.encoded_chunks.remove(chunk_hash);
             }
@@ -132,16 +130,16 @@ impl EncodedChunksCache {
         }
     }
 
-    pub fn insert_chunk_header(&mut self, shard_id: ShardId, header: ShardChunkHeader) {
-        let height = header.inner.height_created;
+    pub fn insert_chunk_header(&mut self, shard_id: ShardId, header: VersionedShardChunkHeader) {
+        let height = header.height_created();
         if height >= self.largest_seen_height.saturating_sub(CHUNK_HEADER_HEIGHT_HORIZON)
             && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
         {
+            let prev_block_hash = header.prev_block_hash();
             let mut block_hash_to_chunk_headers = self
                 .block_hash_to_chunk_headers
-                .cache_remove(&header.inner.prev_block_hash)
+                .cache_remove(&prev_block_hash)
                 .unwrap_or_else(|| HashMap::new());
-            let prev_block_hash = header.inner.prev_block_hash;
             block_hash_to_chunk_headers.insert(shard_id, header);
             self.block_hash_to_chunk_headers
                 .cache_set(prev_block_hash, block_hash_to_chunk_headers);
@@ -151,7 +149,7 @@ impl EncodedChunksCache {
     pub fn get_chunk_headers_for_block(
         &mut self,
         prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, ShardChunkHeader> {
+    ) -> HashMap<ShardId, VersionedShardChunkHeader> {
         self.block_hash_to_chunk_headers
             .cache_remove(prev_block_hash)
             .unwrap_or_else(|| HashMap::new())
@@ -201,7 +199,7 @@ mod tests {
             parts: vec![],
             receipts: vec![],
         };
-        cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
+        cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk.into());
         cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
         assert!(cache.encoded_chunks.is_empty());
         assert!(cache.height_map.is_empty());

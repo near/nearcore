@@ -35,7 +35,7 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, VersionedShardChunkHeader};
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
@@ -109,7 +109,7 @@ fn produce_blocks_with_tx() {
                 } = msg
                 {
                     let header = partial_encoded_chunk.header.clone();
-                    let height = header.inner.height_created as usize;
+                    let height = header.height_created() as usize;
                     assert!(encoded_chunks.len() + 2 >= height);
 
                     // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
@@ -117,7 +117,7 @@ fn produce_blocks_with_tx() {
                     let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
                     if encoded_chunks.len() + 2 == height {
                         encoded_chunks
-                            .push(EncodedShardChunk::from_header(header.clone(), total_parts));
+                            .push(EncodedShardChunk::from_header(header.clone().downgrade(), total_parts));
                     }
                     for part in partial_encoded_chunk.parts.iter() {
                         encoded_chunks[height - 2].content.parts[part.part_ord as usize] =
@@ -1842,7 +1842,7 @@ fn test_validate_chunk_extra() {
         block1.hash(),
         &chunk_extra,
         &block1.chunks()[0],
-        chunks.get(&0).unwrap()
+        &chunks.get(&0).cloned().map(VersionedShardChunkHeader::downgrade).unwrap()
     )
     .is_ok());
 }

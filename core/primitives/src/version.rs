@@ -18,7 +18,7 @@ pub const DB_VERSION: DbVersion = 12;
 pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 39;
+pub const PROTOCOL_VERSION: ProtocolVersion = 40;
 /// Oldest supported version by this client.
 pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
 
@@ -44,3 +44,20 @@ pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
 
 /// Updates the way receipt ID, data ID and random seeds are constructed.
 pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
+
+pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 40;
+
+pub struct ProtocolVersionRange {
+    lower: ProtocolVersion,
+    upper: Option<ProtocolVersion>
+}
+
+impl ProtocolVersionRange {
+    pub fn new(lower: ProtocolVersion, upper: Option<ProtocolVersion>) -> Self {
+        Self {lower, upper}
+    }
+
+    pub fn contains(&self, version: ProtocolVersion) -> bool {
+        self.lower <= version && self.upper.map_or(true, |upper| version < upper)
+    }
+}

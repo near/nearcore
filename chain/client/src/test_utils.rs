@@ -47,7 +47,7 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderV2};
 use num_rational::Rational;
 use std::mem::swap;
 use std::time::Instant;
@@ -1132,8 +1132,8 @@ pub fn create_chunk(
     if let Some(tx_root) = replace_tx_root {
         chunk.header.inner.tx_root = tx_root;
         chunk.header.height_included = 2;
-        let (hash, signature) =
-            client.validator_signer.as_ref().unwrap().sign_chunk_header_inner(&chunk.header.inner);
+        let hash = ShardChunkHeaderV2::compute_hash(&chunk.header.inner);
+        let signature = client.validator_signer.as_ref().unwrap().sign_chunk_hash(&hash);
         chunk.header.hash = hash;
         chunk.header.signature = signature;
     }

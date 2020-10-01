@@ -15,9 +15,7 @@ pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
-use crate::sharding::{
-    ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
-};
+use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader, VersionedShardChunkHeader};
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -52,11 +50,23 @@ pub struct BlockV1 {
     pub vrf_proof: near_crypto::vrf::Proof,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+pub struct BlockV2 {
+    pub header: BlockHeader,
+    pub chunks: Vec<VersionedShardChunkHeader>,
+    pub challenges: Challenges,
+
+    // Data to confirm the correctness of randomness beacon output
+    pub vrf_value: near_crypto::vrf::Value,
+    pub vrf_proof: near_crypto::vrf::Proof,
+}
+
 /// Versioned Block data structure.
 /// For each next version, document what are the changes between versions.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub enum Block {
     BlockV1(Box<BlockV1>),
+    BlockV2(Box<BlockV2>),
 }
 
 pub fn genesis_chunks(
@@ -356,30 +366,35 @@ impl Block {
     pub fn header(&self) -> &BlockHeader {
         match self {
             Block::BlockV1(block) => &block.header,
+            Block::BlockV2(block) => &block.header,
         }
     }
 
     pub fn chunks(&self) -> &Vec<ShardChunkHeader> {
         match self {
             Block::BlockV1(block) => &block.chunks,
+            Block::BlockV2(_) => panic!("TODO"),
         }
     }
 
     pub fn challenges(&self) -> &Challenges {
         match self {
             Block::BlockV1(block) => &block.challenges,
+            Block::BlockV2(block) => &block.challenges,
         }
     }
 
     pub fn vrf_value(&self) -> &near_crypto::vrf::Value {
         match self {
             Block::BlockV1(block) => &block.vrf_value,
+            Block::BlockV2(block) => &block.vrf_value,
         }
     }
 
     pub fn vrf_proof(&self) -> &near_crypto::vrf::Proof {
         match self {
             Block::BlockV1(block) => &block.vrf_proof,
+            Block::BlockV2(block) => &block.vrf_proof,
         }
     }
 

@@ -23,7 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, VersionedPartialEncodedChunk};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -478,12 +478,13 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         &receipts_proofs,
     );
 
+    let partial_encoded_chunk = chunk.create_partial_encoded_chunk(
+        vec![0],
+        one_part_receipt_proofs,
+        &vec![merkle_paths[0].clone()]
+    );
     assert!(env.clients[1]
-        .process_partial_encoded_chunk(chunk.create_partial_encoded_chunk(
-            vec![0],
-            one_part_receipt_proofs,
-            &vec![merkle_paths[0].clone()]
-        ))
+        .process_partial_encoded_chunk(VersionedPartialEncodedChunk::V1(partial_encoded_chunk)) // TODO
         .is_ok());
     env.process_block(1, block.clone(), Provenance::NONE);
 

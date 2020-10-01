@@ -266,12 +266,14 @@ impl Block {
     pub fn mut_header(&mut self) -> &mut BlockHeader {
         match self {
             Block::BlockV1(block) => &mut block.header,
+            Block::BlockV2(block) => &mut block.header,
         }
     }
 
     pub fn get_mut(&mut self) -> &mut BlockV1 {
         match self {
             Block::BlockV1(block) => block.as_mut(),
+            Block::BlockV2(_) => panic!("impossible."), // TODO
         }
     }
 

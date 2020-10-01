@@ -22,10 +22,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkWithArcReceipts,
-    ReceiptProof,
-};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkWithArcReceipts, ReceiptProof, VersionedPartialEncodedChunk, VersionedShardChunkHeader};
 use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
@@ -464,6 +461,21 @@ pub enum RoutedMessageBody {
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
+    VersionedPartialEncodedChunk(VersionedPartialEncodedChunk),
+}
+
+impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
+    fn from(pec: PartialEncodedChunkWithArcReceipts) -> Self {
+        if let VersionedShardChunkHeader::V1(legacy_header) = pec.header {
+            Self::PartialEncodedChunk(PartialEncodedChunk {
+                header: legacy_header,
+                parts: pec.parts,
+                receipts: pec.receipts.into_iter().map(|r| ReceiptProof::clone(&r)).collect(),
+            })
+        } else {
+            Self::VersionedPartialEncodedChunk(pec.into())
+        }
+    }
 }
 
 impl Debug for RoutedMessageBody {
@@ -507,6 +519,9 @@ impl Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::PartialEncodedChunk(chunk) => {
                 write!(f, "PartialChunk({:?})", chunk.header.hash)
+            }
+            RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
+                write!(f, "VersionedPartialChunk(?)")
             }
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
@@ -1325,7 +1340,7 @@ pub enum NetworkClientMessages {
     /// Response to a request for  chunk parts and/or receipts.
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
-    PartialEncodedChunk(PartialEncodedChunk),
+    PartialEncodedChunk(VersionedPartialEncodedChunk),
 
     /// A challenge to invalidate the block.
     Challenge(Challenge),

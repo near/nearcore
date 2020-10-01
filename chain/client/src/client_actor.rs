@@ -54,6 +54,7 @@ use crate::types::{
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
+use near_primitives::sharding::ShardChunkHeader;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -834,7 +835,7 @@ impl ClientActor {
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
                             self.client.shards_mgr.request_chunks(
-                                missing_chunks,
+                                missing_chunks.into_iter().map(ShardChunkHeader::lift),
                                 &self.client.chain.header_head().expect("header_head must be available when processing newly produced block").last_block_hash,
                             );
                             Ok(())
@@ -954,7 +955,7 @@ impl ClientActor {
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
                     self.client.shards_mgr.request_chunks(
-                        missing_chunks,
+                        missing_chunks.into_iter().map(ShardChunkHeader::lift),
                         &self
                             .client
                             .chain
@@ -1281,7 +1282,7 @@ impl ClientActor {
                                 .write()
                                 .unwrap()
                                 .drain(..)
-                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                                .flat_map(|missing_chunks| missing_chunks.into_iter().map(ShardChunkHeader::lift)),
                             &self
                                 .client
                                 .chain

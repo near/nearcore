@@ -1296,7 +1296,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 if self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk.into()),
+                    partial_encoded_chunk.into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {

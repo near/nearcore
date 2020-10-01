@@ -643,7 +643,7 @@ impl Chain {
                     return Err(ErrorKind::InvalidChunk.into());
                 }
             } else {
-                if !runtime_adapter.verify_chunk_header_signature(chunk_header)? {
+                if !runtime_adapter.verify_chunk_header_signature(&chunk_header.clone().lift())? {
                     byzantine_assert!(false);
                     return Err(ErrorKind::InvalidChunk.into());
                 }
