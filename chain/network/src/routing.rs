@@ -24,7 +24,7 @@ use near_store::{
 
 use crate::metrics;
 use crate::{
-    cache::RouteBackCache,
+    cache::{NonAbusableCache, RouteBackCache},
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
@@ -255,7 +255,8 @@ impl Edge {
 
 pub struct RoutingTable {
     /// PeerId associated for every known account id.
-    account_peers: SizedCache<AccountId, AnnounceAccount>,
+    /// Note: There is at most on peer id per account id.
+    account_peers: NonAbusableCache<AccountId, AnnounceAccount, PeerId>,
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
     /// Store last update for known edges.
@@ -294,6 +295,11 @@ pub enum FindRouteError {
     RouteBackNotFound,
 }
 
+pub enum AnnounceAccountVerified {
+    True,
+    False { from: PeerId },
+}
+
 impl RoutingTable {
     pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
@@ -303,7 +309,7 @@ impl RoutingTable {
             .map_or(0, |nonce| nonce + 1);
 
         Self {
-            account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
+            account_peers: NonAbusableCache::with_capacity(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
             route_back: RouteBackCache::new(
@@ -386,18 +392,32 @@ impl RoutingTable {
     }
 
     /// Add (account id, peer id) to routing table.
-    /// Note: There is at most on peer id per account id.
-    pub fn add_account(&mut self, announce_account: AnnounceAccount) {
+    /// It is said to be verified when signature from the announcement was properly validated,
+    /// if it wasn't validated due to unknown signature from the validator (i.e. EpochOutOfBounds)
+    /// verified is false.
+    pub fn add_account(
+        &mut self,
+        announce_account: AnnounceAccount,
+        verified: AnnounceAccountVerified,
+    ) {
         let account_id = announce_account.account_id.clone();
-        self.account_peers.cache_set(account_id.clone(), announce_account.clone());
 
-        // Add account to store
-        let mut update = self.store.store_update();
-        if let Err(e) = update
-            .set_ser(ColAccountAnnouncements, account_id.as_bytes(), &announce_account)
-            .and_then(|_| update.commit())
-        {
-            warn!(target: "network", "Error saving announce account to store: {:?}", e);
+        match verified {
+            AnnounceAccountVerified::True => {
+                self.account_peers.insert_safe(account_id.clone(), announce_account.clone());
+
+                // Add account to store (only verified accounts)
+                let mut update = self.store.store_update();
+                if let Err(e) = update
+                    .set_ser(ColAccountAnnouncements, account_id.as_bytes(), &announce_account)
+                    .and_then(|_| update.commit())
+                {
+                    warn!(target: "network", "Error saving announce account to store: {:?}", e);
+                }
+            }
+            AnnounceAccountVerified::False { from } => {
+                self.account_peers.insert(account_id.clone(), announce_account.clone(), from);
+            }
         }
     }
 
@@ -705,28 +725,28 @@ impl RoutingTable {
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
     }
 
-    /// Public interface for `account_peers`
-    ///
     /// Get keys currently on cache.
+    /// Note: Only from verified announcements.
     pub fn get_accounts_keys(&mut self) -> Vec<AccountId> {
         self.account_peers.key_order().cloned().collect()
     }
 
     /// Get announce accounts on cache.
+    /// Note: Only from verified announcements.
     pub fn get_announce_accounts(&mut self) -> Vec<AnnounceAccount> {
         self.account_peers.value_order().cloned().collect()
     }
 
-    /// Get account announce from
+    /// Get account announce from account id
     pub fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
-        if let Some(announce_account) = self.account_peers.cache_get(&account_id) {
+        if let Some(announce_account) = self.account_peers.get(&account_id) {
             Some(announce_account.clone())
         } else {
             self.store
                 .get_ser(ColAccountAnnouncements, account_id.as_bytes())
                 .and_then(|res: Option<AnnounceAccount>| {
                     if let Some(announce_account) = res {
-                        self.add_account(announce_account.clone());
+                        self.add_account(announce_account.clone(), AnnounceAccountVerified::True);
                         Ok(Some(announce_account))
                     } else {
                         Ok(None)

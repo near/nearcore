@@ -41,7 +41,7 @@ pub fn make_peer_manager(
                     counter1.fetch_add(1, Ordering::SeqCst);
                 }
                 Box::new(Some(NetworkViewClientResponses::AnnounceAccount(
-                    accounts.clone().into_iter().map(|obj| obj.0).collect(),
+                    accounts.clone().into_iter().map(|obj| (obj.0, true)).collect(),
                 )))
             }
             NetworkViewClientMessages::GetChainInfo => {

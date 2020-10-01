@@ -1013,7 +1013,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 
                     match self.check_signature_account_announce(&announce_account) {
                         Ok(true) => {
-                            filtered_announce_accounts.push(announce_account);
+                            filtered_announce_accounts.push((announce_account, true));
                         }
                         Ok(false) => {
                             return NetworkViewClientResponses::Ban {
@@ -1022,7 +1022,14 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         }
                         // Filter this account
                         Err(e) => {
-                            debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
+                            if let Error::Chain(e) = e {
+                                if e.kind() == ErrorKind::EpochOutOfBounds {
+                                    filtered_announce_accounts.push((announce_account, false));
+                                }
+                                debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
+                            } else {
+                                debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
+                            }
                         }
                     }
                 }

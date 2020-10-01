@@ -25,7 +25,6 @@ use near_primitives::types::AccountId;
 use near_primitives::utils::from_timestamp;
 use near_store::Store;
 
-use crate::codec::Codec;
 use crate::metrics;
 use crate::peer::Peer;
 use crate::peer_store::{PeerStore, TrustLevel};
@@ -44,6 +43,7 @@ use crate::types::{
     EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
     NetworkResponses, PeerInfo,
 };
+use crate::{codec::Codec, routing::AnnounceAccountVerified};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
@@ -835,7 +835,7 @@ impl PeerManagerActor {
     fn announce_account(&mut self, ctx: &mut Context<Self>, announce_account: AnnounceAccount) {
         debug!(target: "network", "{:?} Account announce: {:?}", self.config.account_id, announce_account);
         if !self.routing_table.contains_account(&announce_account) {
-            self.routing_table.add_account(announce_account.clone());
+            self.routing_table.add_account(announce_account.clone(), AnnounceAccountVerified::True);
             self.broadcast_message(
                 ctx,
                 SendMessage {
@@ -1431,11 +1431,20 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                         if !accounts.is_empty() {
                                             debug!(target: "network", "{:?} Received new accounts: {:?}", act.config.account_id, accounts);
                                         }
-                                        for account in accounts.iter() {
-                                            act.routing_table.add_account(account.clone());
+
+                                        for (account, verified) in accounts.iter() {
+                                            if *verified {
+                                                act.routing_table.add_account(account.clone(), AnnounceAccountVerified::True);
+                                            } else {
+                                                act.routing_table.add_account(account.clone(), AnnounceAccountVerified::False{ from: peer_id.clone()})
+                                            }
                                         }
 
-                                        let new_data = SyncData { edges: new_edges, accounts };
+                                        let new_data = SyncData { edges: new_edges, accounts: accounts
+                                            .into_iter()
+                                            .filter_map(|(announcement, verified)| { if verified { Some(announcement)} else {None}})
+                                            .collect()
+                                        };
 
                                         if !new_data.is_empty() {
                                             act.broadcast_message(

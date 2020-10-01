@@ -1,3 +1,4 @@
+use cached::{Cached, SizedCache};
 use chrono::Utc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -221,6 +222,95 @@ impl RouteBackCache {
 
         size += 1;
         self.size_per_target.insert((self.capacity - size, target));
+    }
+}
+
+/// Key Value Target Cache.
+/// This is a generalization of the RouteBackCache.
+///
+/// Each entry has associated a key, a value, and the target responsible for this entry.
+/// It behaves similar to a regular cache, but with the addon that a target can't occupy
+/// more than capacity / number_of_different_targets when the cache is full. For this reason
+/// we say that this cache can't be abused.
+///
+/// If the cache is not full new elements are saved. When the cache becomes empty, elements
+/// are removed from the target that has the most number of entries.
+///
+/// TODO: Implement this cache. This is basically the same code from the RouteBackCache (but with templates).
+///       Right now it behave as a regular SizedCache, without protection.
+pub struct KVTCache<K, V, T> {
+    cache: SizedCache<K, (V, T)>,
+}
+
+impl<K: std::cmp::Eq + std::hash::Hash + Clone, V, T> KVTCache<K, V, T> {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self { cache: SizedCache::with_size(capacity) }
+    }
+
+    pub fn get(&mut self, key: &K) -> Option<(&V, &T)> {
+        self.cache.cache_get(&key).map(|(u, v)| (u, v))
+    }
+
+    pub fn insert(&mut self, key: K, value: V, target: T) {
+        self.cache.cache_set(key, (value, target));
+    }
+
+    pub fn remove(&mut self, key: &K) {
+        self.cache.cache_remove(&key);
+    }
+}
+
+/// This cache inherits the properties from the KVTCache, and also has a safe cache,
+/// for elements that doesn't require protection for being abused, i.e. elements that
+/// can be stored disregarding the target.
+pub struct NonAbusableCache<K, V, T> {
+    safe_cache: SizedCache<K, V>,
+    protected_cache: KVTCache<K, V, T>,
+}
+
+impl<K: std::cmp::Eq + std::hash::Hash + Clone, V, T> NonAbusableCache<K, V, T> {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            safe_cache: SizedCache::with_size(capacity),
+            protected_cache: KVTCache::with_capacity(capacity),
+        }
+    }
+
+    pub fn get(&mut self, key: &K) -> Option<&V> {
+        if let Some(value) = self.safe_cache.cache_get(&key) {
+            Some(value)
+        } else {
+            self.protected_cache.get(&key).map(|(value, _target)| value)
+        }
+    }
+
+    /// Insert an element in the cache when the key doesn't require protection from being abused.
+    pub fn insert_safe(&mut self, key: K, value: V) {
+        if self.protected_cache.get(&key).is_some() {
+            self.protected_cache.remove(&key);
+        }
+        self.safe_cache.cache_set(key, value);
+    }
+
+    /// Insert an element in the cache when the key requires protection from being abused by some target.
+    pub fn insert(&mut self, key: K, value: V, target: T) {
+        if !self.safe_cache.cache_get(&key).is_some() {
+            self.protected_cache.insert(key, value, target);
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn remove(&mut self, key: &K) {
+        self.safe_cache.cache_remove(&key);
+        self.protected_cache.remove(&key);
+    }
+
+    pub fn key_order(&self) -> impl Iterator<Item = &K> {
+        self.safe_cache.key_order()
+    }
+
+    pub fn value_order(&self) -> impl Iterator<Item = &V> {
+        self.safe_cache.value_order()
     }
 }
 

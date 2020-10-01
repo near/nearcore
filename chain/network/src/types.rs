@@ -1425,7 +1425,7 @@ pub enum NetworkViewClientResponses {
     /// Response to state request.
     StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.
-    AnnounceAccount(Vec<AnnounceAccount>),
+    AnnounceAccount(Vec<(AnnounceAccount, bool)>),
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed

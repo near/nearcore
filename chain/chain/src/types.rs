@@ -275,7 +275,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<Vec<SignedTransaction>, Error>;
 
     /// Verify validator signature for the given epoch.
-    /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.
+    /// Note: doesn't account for slashed accounts within given epoch. USE WITH CAUTION.
     fn verify_validator_signature(
         &self,
         epoch_id: &EpochId,

@@ -1,5 +1,5 @@
 use near_crypto::Signature;
-use near_network::routing::RoutingTable;
+use near_network::routing::{AnnounceAccountVerified, RoutingTable};
 use near_network::test_utils::{random_epoch_id, random_peer_id};
 use near_primitives::network::AnnounceAccount;
 use near_store::test_utils::create_test_store;
@@ -29,12 +29,12 @@ fn announcement_same_epoch() {
         signature: Signature::default(),
     };
 
-    routing_table.add_account(announce0.clone());
+    routing_table.add_account(announce0.clone(), AnnounceAccountVerified::True);
     assert!(routing_table.contains_account(&announce0));
     assert!(routing_table.contains_account(&announce1));
     assert_eq!(routing_table.get_announce_accounts().len(), 1);
     assert_eq!(routing_table.account_owner(&announce0.account_id).unwrap(), peer_id0);
-    routing_table.add_account(announce1.clone());
+    routing_table.add_account(announce1.clone(), AnnounceAccountVerified::True);
     assert_eq!(routing_table.get_announce_accounts().len(), 1);
     assert_eq!(routing_table.account_owner(&announce1.account_id).unwrap(), peer_id1);
 }
@@ -65,8 +65,8 @@ fn dont_load_on_build() {
         signature: Signature::default(),
     };
 
-    routing_table.add_account(announce0.clone());
-    routing_table.add_account(announce1.clone());
+    routing_table.add_account(announce0.clone(), AnnounceAccountVerified::True);
+    routing_table.add_account(announce1.clone(), AnnounceAccountVerified::True);
     let accounts = routing_table.get_announce_accounts();
     assert!(vec![announce0.clone(), announce1.clone()]
         .iter()
@@ -95,7 +95,7 @@ fn load_from_disk() {
     };
 
     // Announcement is added to cache of the first routing table and to disk
-    routing_table.add_account(announce0.clone());
+    routing_table.add_account(announce0.clone(), AnnounceAccountVerified::True);
     assert_eq!(routing_table.get_announce_accounts().len(), 1);
     // Cache of second routing table is empty
     assert_eq!(routing_table1.get_announce_accounts().len(), 0);
