@@ -607,7 +607,7 @@ class PreexistingCluster():
         self.nodes = []
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], universal_newlines=True).strip()
         requester = subprocess.check_output(['git', 'config', 'user.name'], universal_newlines=True).strip()
-        post = {'sha': sha, 'requester': requester, 
+        post = {'sha': sha, 'requester': requester, 'release': release,
                 'num_nodes': num_nodes, 'token': self.token}
         res = requests.post('http://40.112.59.229:5000/request_a_run', json=post)
         json_res = json.loads(res.text)
