@@ -97,7 +97,7 @@ while True:
             assert height_to_num_approvals[height] == 2
 
             has_prev = height - 1 in height_to_num_approvals
-            has_two_ago = height - 1 in height_to_num_approvals
+            has_two_ago = height - 2 in height_to_num_approvals
 
             if has_prev:
                 assert height_to_num_approvals[height - 1] == 4
