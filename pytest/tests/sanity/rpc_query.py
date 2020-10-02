@@ -38,14 +38,19 @@ for i in range(4):
 time.sleep(2)
 for i in range(4):
 
-    def fix_result(result):
-        result["result"]["block_hash"] = None
-        result["result"]["block_height"] = None
-        result["result"]["locked"] = None
-        return result
+    height1 = nodes[-1].get_status()['sync_info']['latest_block_height']
+    height2 = nodes[-2].get_status()['sync_info']['latest_block_height']
+    height = min(height1, height2)
 
-    query_result1 = fix_result(nodes[-2].get_account("test%s" % i))
-    query_result2 = fix_result(nodes[-1].get_account("test%s" % i))
+    def get_account(node, acc, height):
+        return node.json_rpc('query', {
+            "request_type": "view_account",
+            "account_id": acc,
+            "block_id": height
+        })
+
+    query_result1 = get_account(nodes[-2], ("test%s" % i), height)
+    query_result2 = get_account(nodes[-1], ("test%s" % i), height)
     if query_result1 != query_result2:
         print("query same account suspicious %s, %s", query_result1,
               query_result2)
