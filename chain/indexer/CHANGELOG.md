@@ -7,7 +7,6 @@
 
 * To extended the `receipt_execution_outcomes` with information about the corresponding receipt we had to break the API 
 (the old outcome structure is just one layer deeper now [under `execution_outcome` field])
- `ExecutionOutcomesWithReceipts` type
 
 ## 0.2.0
 
