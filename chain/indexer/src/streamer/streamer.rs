@@ -21,6 +21,8 @@ use crate::IndexerConfig;
 const INTERVAL: Duration = Duration::from_millis(500);
 const INDEXER: &str = "indexer";
 
+pub type ExecutionOutcomesWithReceipts = HashMap<CryptoHash, IndexerExecutionOutcomeWithReceipt>;
+
 /// Error occurs in case of failed data fetch
 #[derive(Debug)]
 pub enum FailedToFetchData {
@@ -39,7 +41,7 @@ impl From<MailboxError> for FailedToFetchData {
 pub struct StreamerMessage {
     pub block: views::BlockView,
     pub chunks: Vec<IndexerChunkView>,
-    pub receipt_execution_outcomes: HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>,
+    pub receipt_execution_outcomes: ExecutionOutcomesWithReceipts,
     pub state_changes: views::StateChangesKindsView,
     /// Transaction where signer is receiver produces so called "local receipt"
     /// these receipts will never get to chunks' `receipts` field. Anyway they can
@@ -58,7 +60,13 @@ pub struct IndexerChunkView {
 #[derive(Clone, Debug)]
 pub struct IndexerTransactionWithOutcome {
     pub transaction: views::SignedTransactionView,
-    pub outcome: views::ExecutionOutcomeWithIdView,
+    pub outcome: IndexerExecutionOutcomeWithReceipt,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerExecutionOutcomeWithReceipt {
+    pub execution_outcome: views::ExecutionOutcomeWithIdView,
+    pub receipt: Option<views::ReceiptView>,
 }
 
 async fn fetch_status(
@@ -144,6 +152,7 @@ async fn convert_transactions_sir_into_local_receipts(
                 receiver_id: tx.transaction.receiver_id.clone(),
                 receipt_id: tx
                     .outcome
+                    .execution_outcome
                     .outcome
                     .receipt_ids
                     .first()
@@ -259,16 +268,35 @@ async fn fetch_single_chunk(
 async fn fetch_outcomes(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: CryptoHash,
-) -> Result<HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>, FailedToFetchData> {
+) -> Result<ExecutionOutcomesWithReceipts, FailedToFetchData> {
     let outcomes = client
         .send(near_client::GetExecutionOutcomesForBlock { block_hash })
         .await?
         .map_err(|err| FailedToFetchData::String(err))?;
 
-    Ok(outcomes
-        .into_iter()
-        .map(|outcome| (outcome.id, outcome))
-        .collect::<HashMap<CryptoHash, views::ExecutionOutcomeWithIdView>>())
+    let mut outcomes_with_receipts = ExecutionOutcomesWithReceipts::new();
+    for outcome in outcomes {
+        let receipt = match fetch_receipt_by_id(&client, outcome.id).await {
+            Ok(res) => res,
+            Err(_) => None,
+        };
+        outcomes_with_receipts.insert(
+            outcome.id,
+            IndexerExecutionOutcomeWithReceipt { execution_outcome: outcome, receipt },
+        );
+    }
+
+    Ok(outcomes_with_receipts)
+}
+
+async fn fetch_receipt_by_id(
+    client: &Addr<near_client::ViewClientActor>,
+    receipt_id: CryptoHash,
+) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
+    client
+        .send(near_client::GetReceipt { receipt_id })
+        .await?
+        .map_err(|err| FailedToFetchData::String(err))
 }
 
 /// Fetches all the chunks by their hashes.
