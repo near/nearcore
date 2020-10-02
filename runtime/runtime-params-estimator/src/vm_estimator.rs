@@ -159,7 +159,7 @@ fn deploy_evm_contract(code: &[u8], gas_metric: GasMetric) -> Option<EvmCost> {
             0u64,
             "deploy_code".to_string(),
             hex::decode(&code).unwrap(),
-            1_000_000_000u64,
+            1_000_000_000_000_000u64,
             false,
         );
         // All iterations use same amount of (evm) gas, it's safe to use any of them as gas_used.
@@ -167,6 +167,7 @@ fn deploy_evm_contract(code: &[u8], gas_metric: GasMetric) -> Option<EvmCost> {
         evm_gas = gas_used.as_u64();
     }
     let end = end_count(gas_metric, &start);
+    println!("=== {}", end);
     Some(EvmCost { evm_gas, cost: Ratio::new(end, NUM_ITERATIONS) })
 }
 
@@ -265,6 +266,7 @@ pub fn create_evm_context<'a>(
         0,
         10u64.pow(14),
         false,
+        1_000_000_000.into()
     )
 }
 
