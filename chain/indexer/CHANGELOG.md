@@ -2,9 +2,11 @@
 
 ## 0.3.0
 
-* Add `ExecutionOutcomesWithReceipts` type
-* Add `IndexerExecutionOutcomeWithReceipt` struct that contains `ExecutionOutomeWithIdView` and corresponding `ReceiptView`
-* `IndexerTransactionWithOutcome` has `outcome` type of `IndexerExecutionOutcomeWithReceipt` now.
+
+### Breaking changes
+
+* To extended the `receipt_execution_outcomes` with information about the corresponding receipt we had to break the API (the old outcome structure is just one layer deeper now [under `execution_outcome` field`])
+ `ExecutionOutcomesWithReceipts` type
 
 ## 0.2.0
 

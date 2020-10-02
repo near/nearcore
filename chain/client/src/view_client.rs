@@ -741,12 +741,7 @@ impl Handler<GetReceipt> for ViewClientActor {
     type Result = Result<Option<ReceiptView>, String>;
 
     fn handle(&mut self, msg: GetReceipt, _: &mut Self::Context) -> Self::Result {
-        let receipt =
-            self.chain.mut_store().get_receipt(&msg.receipt_id).map_err(|e| e.to_string())?;
-        match receipt {
-            Some(value) => Ok(Some(ReceiptView::from(value.clone()))),
-            None => Ok(None),
-        }
+        Ok(self.chain.mut_store().get_receipt(&msg.receipt_id).map_err(|e| e.to_string())?.map(|receipt| receipt.clone().into()))
     }
 }
 
