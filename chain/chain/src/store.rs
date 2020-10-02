@@ -2176,9 +2176,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 6. Canonical Chain only clearing
                 // Delete chunks and chunk-indexed data
                 let mut min_chunk_height = self.tail()?;
-                for chunk_header in block.chunks() {
-                    if min_chunk_height > chunk_header.inner.height_created {
-                        min_chunk_height = chunk_header.inner.height_created;
+                for chunk_header in block.chunks().iter() {
+                    if min_chunk_height > chunk_header.height_created() {
+                        min_chunk_height = chunk_header.height_created();
                     }
                 }
                 self.clear_chunk_data(min_chunk_height)?;

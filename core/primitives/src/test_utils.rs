@@ -16,6 +16,7 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 use std::collections::HashMap;
+use crate::sharding::VersionedShardChunkHeader;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
@@ -270,6 +271,18 @@ impl Block {
         }
     }
 
+    pub fn set_chunks(&mut self, chunks: Vec<VersionedShardChunkHeader>) {
+        match self {
+            Block::BlockV1(block) => {
+                let legacy_chunks = chunks.into_iter().map(|chunk| chunk.downgrade()).collect();
+                block.as_mut().chunks = legacy_chunks;
+            }
+            Block::BlockV2(block) => {
+                block.as_mut().chunks = chunks;
+            }
+        }
+    }
+
     pub fn get_mut(&mut self) -> &mut BlockV1 {
         match self {
             Block::BlockV1(block) => block.as_mut(),
@@ -366,7 +379,7 @@ impl Block {
             PROTOCOL_VERSION,
             prev.header(),
             height,
-            prev.chunks().clone(),
+            prev.chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
             approvals,

@@ -1081,16 +1081,16 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                     let chunk_producer = runtime_adapter
                         .get_chunk_producer(
                             &epoch_id,
-                            chunk_header.inner.height_created,
-                            chunk_header.inner.shard_id,
+                            chunk_header.height_created(),
+                            chunk_header.shard_id(),
                         )
                         .unwrap();
                     if let Ok(chunk) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
                         debug!(
                             "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
-                            chunk_header.inner.height_created,
+                            chunk_header.height_created(),
                             format_hash(chunk_header.chunk_hash().0),
-                            chunk_header.inner.shard_id,
+                            chunk_header.shard_id(),
                             chunk_producer,
                             chunk.transactions.len(),
                             chunk.receipts.len()
@@ -1100,9 +1100,9 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                     {
                         debug!(
                             "    {: >3} {} | {} | {: >10} | parts = {:?} receipts = {:?}",
-                            chunk_header.inner.height_created,
+                            chunk_header.height_created(),
                             format_hash(chunk_header.chunk_hash().0),
-                            chunk_header.inner.shard_id,
+                            chunk_header.shard_id(),
                             chunk_producer,
                             partial_chunk.parts.iter().map(|x| x.part_ord).collect::<Vec<_>>(),
                             partial_chunk

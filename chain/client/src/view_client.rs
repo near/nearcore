@@ -681,7 +681,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                             .map_err(|e| e.to_string())?
                             .chunks()
                             .iter()
-                            .map(|header| header.inner.outcome_root)
+                            .map(|header| header.outcome_root())
                             .collect::<Vec<_>>();
                         if target_shard_id >= (outcome_roots.len() as u64) {
                             return Err(format!("Inconsistent state. Total number of shards is {} but the execution outcome is in shard {}", outcome_roots.len(), target_shard_id));
@@ -857,7 +857,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             if let Ok(block) = self.chain.get_block(&next_block_hash) {
                                 if shard_id < block.chunks().len() as u64 {
                                     if verify_path(
-                                        block.chunks()[shard_id as usize].inner.outcome_root,
+                                        block.chunks()[shard_id as usize].outcome_root(),
                                         &response.proof,
                                         &response.outcome_with_id.to_hashes(),
                                     ) {

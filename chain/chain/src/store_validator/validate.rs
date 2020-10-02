@@ -324,18 +324,18 @@ pub(crate) fn block_chunks_exist(
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
     for chunk_header in block.chunks().iter() {
-        if chunk_header.height_included == block.header().height() {
+        if chunk_header.height_included() == block.header().height() {
             if let Some(me) = &sv.me {
                 let cares_about_shard = sv.runtime_adapter.cares_about_shard(
                     Some(&me),
                     block.header().prev_hash(),
-                    chunk_header.inner.shard_id,
+                    chunk_header.shard_id(),
                     true,
                 );
                 let will_care_about_shard = sv.runtime_adapter.will_care_about_shard(
                     Some(&me),
                     block.header().prev_hash(),
-                    chunk_header.inner.shard_id,
+                    chunk_header.shard_id(),
                     true,
                 );
                 if cares_about_shard || will_care_about_shard {
@@ -347,7 +347,7 @@ pub(crate) fn block_chunks_exist(
                     );
                     if cares_about_shard {
                         let block_shard_id =
-                            get_block_shard_id(block.hash(), chunk_header.inner.shard_id);
+                            get_block_shard_id(block.hash(), chunk_header.shard_id());
                         unwrap_or_err_db!(
                             sv.store.get_ser::<ChunkExtra>(ColChunkExtra, block_shard_id.as_ref()),
                             "Can't get chunk extra for chunk {:?} from storage",
@@ -367,7 +367,7 @@ pub(crate) fn block_chunks_height_validity(
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
     for chunk_header in block.chunks().iter() {
-        if chunk_header.inner.height_created > block.header().height() {
+        if chunk_header.height_created() > block.header().height() {
             err!(
                 "Invalid ShardChunk included, chunk_header = {:?}, block = {:?}",
                 chunk_header,
@@ -491,8 +491,8 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     );
     // 2. There should be ShardChunk with ShardId `shard_id`
     for chunk_header in block.chunks().iter() {
-        if chunk_header.inner.shard_id == *shard_id {
-            let chunk_hash = &chunk_header.hash;
+        if chunk_header.shard_id() == *shard_id {
+            let chunk_hash = chunk_header.chunk_hash();
             // 3. ShardChunk with `chunk_hash` should be available
             unwrap_or_err_db!(
                 sv.store.get_ser::<ShardChunk>(ColChunks, chunk_hash.as_ref()),
@@ -521,9 +521,9 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             }
 
             // 6. Prev State Roots should be equal
-            if chunk_header.height_included == block.header().height() {
+            if chunk_header.height_included() == block.header().height() {
                 check_discrepancy!(
-                    chunk_header.inner.prev_state_root,
+                    chunk_header.prev_state_root(),
                     trie_changes.old_root,
                     "Prev State Root discrepancy, ShardChunk {:?}",
                     chunk_header
@@ -699,7 +699,7 @@ pub(crate) fn last_block_chunk_included(
         "Can't get Block from DB"
     );
     for chunk_header in block.chunks().iter() {
-        if chunk_header.inner.shard_id == *shard_id {
+        if chunk_header.shard_id() == *shard_id {
             // TODO #2893: Some Chunks missing
             /*
             unwrap_or_err_db!(

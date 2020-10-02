@@ -15,11 +15,12 @@ pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
-use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader, VersionedShardChunkHeader};
+use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader, VersionedShardChunkHeader, VersionedEncodedShardChunk, VersionedShardChunk};
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
-use crate::version::ProtocolVersion;
+use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
+use std::ops::Index;
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenesisId {
@@ -74,13 +75,14 @@ pub fn genesis_chunks(
     num_shards: NumShards,
     initial_gas_limit: Gas,
     genesis_height: BlockHeight,
-) -> Vec<ShardChunk> {
+    genesis_protocol_version: ProtocolVersion,
+) -> Vec<VersionedShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
     let mut rs = ReedSolomonWrapper::new(1, 2);
 
     (0..num_shards)
         .map(|i| {
-            let (encoded_chunk, _) = EncodedShardChunk::new(
+            let (encoded_chunk, _) = VersionedEncodedShardChunk::new(
                 CryptoHash::default(),
                 state_roots[i as usize % state_roots.len()].clone(),
                 CryptoHash::default(),
@@ -96,20 +98,46 @@ pub fn genesis_chunks(
                 &vec![],
                 CryptoHash::default(),
                 &EmptyValidatorSigner::default(),
+                genesis_protocol_version,
             )
             .expect("Failed to decode genesis chunk");
             let mut chunk = encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk");
-            chunk.header.height_included = genesis_height;
+            chunk.set_height_included(genesis_height);
             chunk
         })
         .collect()
 }
 
 impl Block {
+    fn block_from_protocol_version(protocol_version: ProtocolVersion, header: BlockHeader, chunks: Vec<VersionedShardChunkHeader>, challenges: Challenges, vrf_value: near_crypto::vrf::Value, vrf_proof: near_crypto::vrf::Proof) -> Block {
+        if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
+            let legacy_chunks = chunks.into_iter().map(|chunk| match chunk {
+                VersionedShardChunkHeader::V1(header) => header,
+                VersionedShardChunkHeader::V2(_) => panic!("Attempted to include VersionedShardChunkHeaderV2 in old protocol version"),
+            }).collect();
+
+            Block::BlockV1(Box::new(BlockV1 {
+                header,
+                chunks: legacy_chunks,
+                challenges,
+                vrf_value,
+                vrf_proof,
+            }))
+        } else {
+            Block::BlockV2(Box::new(BlockV2 {
+                header,
+                chunks,
+                challenges,
+                vrf_value,
+                vrf_proof,
+            }))
+        }
+    }
+
     /// Returns genesis block for given genesis date and state root.
     pub fn genesis(
         genesis_protocol_version: ProtocolVersion,
-        chunks: Vec<ShardChunkHeader>,
+        chunks: Vec<VersionedShardChunkHeader>,
         timestamp: DateTime<Utc>,
         height: BlockHeight,
         initial_gas_price: Balance,
@@ -117,27 +145,24 @@ impl Block {
         next_bp_hash: CryptoHash,
     ) -> Self {
         let challenges = vec![];
-        Block::BlockV1(Box::new(BlockV1 {
-            header: BlockHeader::genesis(
-                genesis_protocol_version,
-                height,
-                Block::compute_state_root(&chunks),
-                Block::compute_chunk_receipts_root(&chunks),
-                Block::compute_chunk_headers_root(&chunks).0,
-                Block::compute_chunk_tx_root(&chunks),
-                Block::compute_chunks_included(&chunks, 0),
-                Block::compute_challenges_root(&challenges),
-                timestamp,
-                initial_gas_price,
-                initial_total_supply,
-                next_bp_hash,
-            ),
-            chunks,
-            challenges,
+        let header = BlockHeader::genesis(
+            genesis_protocol_version,
+            height,
+            Block::compute_state_root(&chunks),
+            Block::compute_chunk_receipts_root(&chunks),
+            Block::compute_chunk_headers_root(&chunks).0,
+            Block::compute_chunk_tx_root(&chunks),
+            Block::compute_chunks_included(&chunks, 0),
+            Block::compute_challenges_root(&challenges),
+            timestamp,
+            initial_gas_price,
+            initial_total_supply,
+            next_bp_hash,
+        );
+        let vrf_value = near_crypto::vrf::Value([0; 32]);
+        let vrf_proof = near_crypto::vrf::Proof([0; 64]);
 
-            vrf_value: near_crypto::vrf::Value([0; 32]),
-            vrf_proof: near_crypto::vrf::Proof([0; 64]),
-        }))
+        Self::block_from_protocol_version(genesis_protocol_version, header, chunks, challenges, vrf_value, vrf_proof)
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
@@ -145,7 +170,7 @@ impl Block {
         protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
-        chunks: Vec<ShardChunkHeader>,
+        chunks: Vec<VersionedShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Option<Signature>>,
@@ -167,11 +192,11 @@ impl Block {
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
         for chunk in chunks.iter() {
-            if chunk.height_included == height {
-                validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
-                gas_used += chunk.inner.gas_used;
-                gas_limit += chunk.inner.gas_limit;
-                balance_burnt += chunk.inner.balance_burnt;
+            if chunk.height_included() == height {
+                validator_proposals.extend_from_slice(chunk.validator_proposals());
+                gas_used += chunk.gas_used();
+                gas_limit += chunk.gas_limit();
+                balance_burnt += chunk.balance_burnt();
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -204,40 +229,35 @@ impl Block {
                 prev.last_final_block()
             };
 
-        Block::BlockV1(Box::new(BlockV1 {
-            header: BlockHeader::new(
-                protocol_version,
-                height,
-                prev.hash().clone(),
-                Block::compute_state_root(&chunks),
-                Block::compute_chunk_receipts_root(&chunks),
-                Block::compute_chunk_headers_root(&chunks).0,
-                Block::compute_chunk_tx_root(&chunks),
-                Block::compute_outcome_root(&chunks),
-                time,
-                Block::compute_chunks_included(&chunks, height),
-                Block::compute_challenges_root(&challenges),
-                random_value,
-                validator_proposals,
-                chunk_mask,
-                epoch_id,
-                next_epoch_id,
-                new_gas_price,
-                new_total_supply,
-                challenges_result,
-                signer,
-                last_final_block.clone(),
-                last_ds_final_block.clone(),
-                approvals,
-                next_bp_hash,
-                block_merkle_root,
-            ),
-            chunks,
-            challenges,
+        let header = BlockHeader::new(
+            protocol_version,
+            height,
+            prev.hash().clone(),
+            Block::compute_state_root(&chunks),
+            Block::compute_chunk_receipts_root(&chunks),
+            Block::compute_chunk_headers_root(&chunks).0,
+            Block::compute_chunk_tx_root(&chunks),
+            Block::compute_outcome_root(&chunks),
+            time,
+            Block::compute_chunks_included(&chunks, height),
+            Block::compute_challenges_root(&challenges),
+            random_value,
+            validator_proposals,
+            chunk_mask,
+            epoch_id,
+            next_epoch_id,
+            new_gas_price,
+            new_total_supply,
+            challenges_result,
+            signer,
+            last_final_block.clone(),
+            last_ds_final_block.clone(),
+            approvals,
+            next_bp_hash,
+            block_merkle_root,
+        );
 
-            vrf_value,
-            vrf_proof,
-        }))
+        Self::block_from_protocol_version(protocol_version, header, chunks, challenges, vrf_value, vrf_proof)
     }
 
     pub fn verify_gas_price(
@@ -247,8 +267,8 @@ impl Block {
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational,
     ) -> bool {
-        let gas_used = Self::compute_gas_used(self.chunks(), self.header().height());
-        let gas_limit = Self::compute_gas_limit(self.chunks(), self.header().height());
+        let gas_used = Self::compute_gas_used(self.chunks().iter(), self.header().height());
+        let gas_limit = Self::compute_gas_limit(self.chunks().iter(), self.header().height());
         let expected_price = Self::compute_new_gas_price(
             prev_gas_price,
             gas_used,
@@ -286,44 +306,44 @@ impl Block {
         }
     }
 
-    pub fn compute_state_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
+    pub fn compute_state_root<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T) -> CryptoHash {
         merklize(
-            &chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<CryptoHash>>(),
+            &chunks.into_iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<CryptoHash>>(),
         )
         .0
     }
 
-    pub fn compute_chunk_receipts_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
+    pub fn compute_chunk_receipts_root<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T) -> CryptoHash {
         merklize(
             &chunks
-                .iter()
-                .map(|chunk| chunk.inner.outgoing_receipts_root)
+                .into_iter()
+                .map(|chunk| chunk.outgoing_receipts_root())
                 .collect::<Vec<CryptoHash>>(),
         )
         .0
     }
 
-    pub fn compute_chunk_headers_root(
-        chunks: &[ShardChunkHeader],
+    pub fn compute_chunk_headers_root<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(
+        chunks: T,
     ) -> (CryptoHash, Vec<MerklePath>) {
         merklize(
             &chunks
-                .iter()
-                .map(|chunk| ChunkHashHeight(chunk.hash.clone(), chunk.height_included))
+                .into_iter()
+                .map(|chunk| ChunkHashHeight(chunk.chunk_hash(), chunk.height_included()))
                 .collect::<Vec<ChunkHashHeight>>(),
         )
     }
 
-    pub fn compute_chunk_tx_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
-        merklize(&chunks.iter().map(|chunk| chunk.inner.tx_root).collect::<Vec<CryptoHash>>()).0
+    pub fn compute_chunk_tx_root<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T) -> CryptoHash {
+        merklize(&chunks.into_iter().map(|chunk| chunk.tx_root()).collect::<Vec<CryptoHash>>()).0
     }
 
-    pub fn compute_chunks_included(chunks: &[ShardChunkHeader], height: BlockHeight) -> u64 {
-        chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
+    pub fn compute_chunks_included<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T, height: BlockHeight) -> u64 {
+        chunks.into_iter().filter(|chunk| chunk.height_included() == height).count() as u64
     }
 
-    pub fn compute_outcome_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
-        merklize(&chunks.iter().map(|chunk| chunk.inner.outcome_root).collect::<Vec<CryptoHash>>())
+    pub fn compute_outcome_root<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T) -> CryptoHash {
+        merklize(&chunks.into_iter().map(|chunk| chunk.outcome_root()).collect::<Vec<CryptoHash>>())
             .0
     }
 
@@ -331,20 +351,20 @@ impl Block {
         merklize(&challenges.iter().map(|challenge| challenge.hash).collect::<Vec<CryptoHash>>()).0
     }
 
-    pub fn compute_gas_used(chunks: &[ShardChunkHeader], height: BlockHeight) -> Gas {
-        chunks.iter().fold(0, |acc, chunk| {
-            if chunk.height_included == height {
-                acc + chunk.inner.gas_used
+    pub fn compute_gas_used<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T, height: BlockHeight) -> Gas {
+        chunks.into_iter().fold(0, |acc, chunk| {
+            if chunk.height_included() == height {
+                acc + chunk.gas_used()
             } else {
                 acc
             }
         })
     }
 
-    pub fn compute_gas_limit(chunks: &[ShardChunkHeader], height: BlockHeight) -> Gas {
-        chunks.iter().fold(0, |acc, chunk| {
-            if chunk.height_included == height {
-                acc + chunk.inner.gas_limit
+    pub fn compute_gas_limit<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T, height: BlockHeight) -> Gas {
+        chunks.into_iter().fold(0, |acc, chunk| {
+            if chunk.height_included() == height {
+                acc + chunk.gas_limit()
             } else {
                 acc
             }
@@ -352,14 +372,14 @@ impl Block {
     }
 
     pub fn validate_chunk_header_proof(
-        chunk: &ShardChunkHeader,
+        chunk: &VersionedShardChunkHeader,
         chunk_root: &CryptoHash,
         merkle_path: &MerklePath,
     ) -> bool {
         verify_path(
             *chunk_root,
             merkle_path,
-            &ChunkHashHeight(chunk.hash.clone(), chunk.height_included),
+            &ChunkHashHeight(chunk.chunk_hash(), chunk.height_included()),
         )
     }
 
@@ -370,10 +390,10 @@ impl Block {
         }
     }
 
-    pub fn chunks(&self) -> &Vec<ShardChunkHeader> {
+    pub fn chunks(&self) -> ChunksCollection {
         match self {
-            Block::BlockV1(block) => &block.chunks,
-            Block::BlockV2(_) => panic!("TODO"),
+            Block::BlockV1(block) => ChunksCollection::V1(block.chunks.iter().map(|h| VersionedShardChunkHeader::V1(h.clone())).collect()),
+            Block::BlockV2(block) => ChunksCollection::V2(&block.chunks),
         }
     }
 
@@ -405,32 +425,32 @@ impl Block {
     /// Checks that block content matches block hash, with the possible exception of chunk signatures
     pub fn check_validity(&self) -> Result<(), BlockValidityError> {
         // Check that state root stored in the header matches the state root of the chunks
-        let state_root = Block::compute_state_root(self.chunks());
+        let state_root = Block::compute_state_root(self.chunks().iter());
         if self.header().prev_state_root() != &state_root {
             return Err(InvalidStateRoot);
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
-        let chunk_receipts_root = Block::compute_chunk_receipts_root(self.chunks());
+        let chunk_receipts_root = Block::compute_chunk_receipts_root(self.chunks().iter());
         if self.header().chunk_receipts_root() != &chunk_receipts_root {
             return Err(InvalidReceiptRoot);
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
-        let chunk_headers_root = Block::compute_chunk_headers_root(self.chunks()).0;
+        let chunk_headers_root = Block::compute_chunk_headers_root(self.chunks().iter()).0;
         if self.header().chunk_headers_root() != &chunk_headers_root {
             return Err(InvalidChunkHeaderRoot);
         }
 
         // Check that chunk tx root stored in the header matches the tx root of the chunks
-        let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks());
+        let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks().iter());
         if self.header().chunk_tx_root() != &chunk_tx_root {
             return Err(InvalidTransactionRoot);
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
         let num_chunks_included =
-            Block::compute_chunks_included(self.chunks(), self.header().height());
+            Block::compute_chunks_included(self.chunks().iter(), self.header().height());
         if self.header().chunks_included() != num_chunks_included {
             return Err(InvalidNumChunksIncluded);
         }
@@ -442,6 +462,75 @@ impl Block {
         }
 
         Ok(())
+    }
+}
+
+pub enum ChunksCollection<'a> {
+    V1(Vec<VersionedShardChunkHeader>),
+    V2(&'a Vec<VersionedShardChunkHeader>),
+}
+
+pub struct VersionedChunksIter<'a> {
+    chunks: &'a [VersionedShardChunkHeader],
+    curr_index: usize,
+    len: usize
+}
+
+impl<'a> VersionedChunksIter<'a> {
+    fn new(chunks: &'a [VersionedShardChunkHeader]) -> Self {
+        Self {
+            chunks,
+            curr_index: 0,
+            len: chunks.len(),
+        }
+    }
+}
+
+impl<'a> Iterator for VersionedChunksIter<'a> {
+    type Item = &'a VersionedShardChunkHeader;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.curr_index < self.len {
+            let item = &self.chunks[self.curr_index];
+            self.curr_index += 1;
+            Some(item)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> Index<usize> for ChunksCollection<'a> {
+    type Output = VersionedShardChunkHeader;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match self {
+            ChunksCollection::V1(chunks) => &chunks[index],
+            ChunksCollection::V2(chunks) => &chunks[index],
+        }
+    }
+}
+
+impl<'a> ChunksCollection<'a> {
+    pub fn len(&self) -> usize {
+        match self {
+            ChunksCollection::V1(chunks) => chunks.len(),
+            ChunksCollection::V2(chunks) => chunks.len(),
+        }
+    }
+
+    pub fn iter<'b: 'a>(&'b self) -> VersionedChunksIter<'b> {
+        match self {
+            ChunksCollection::V1(chunks) => VersionedChunksIter::new(&chunks),
+            ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),
+        }
+    }
+
+    pub fn get(&self, index: usize) -> Option<&VersionedShardChunkHeader> {
+        match self {
+            ChunksCollection::V1(chunks) => chunks.get(index),
+            ChunksCollection::V2(chunks) => chunks.get(index),
+        }
     }
 }
 

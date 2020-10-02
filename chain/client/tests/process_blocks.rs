@@ -35,7 +35,7 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, VersionedShardChunkHeader};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, VersionedShardChunkHeader, VersionedEncodedShardChunk};
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
@@ -94,7 +94,7 @@ fn produce_two_blocks() {
 // TODO: figure out how to re-enable it correctly
 #[ignore]
 fn produce_blocks_with_tx() {
-    let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
+    let mut encoded_chunks: Vec<VersionedEncodedShardChunk> = vec![];
     init_test_logger();
     System::run(|| {
         let (client, view_client) = setup_mock(
@@ -117,10 +117,10 @@ fn produce_blocks_with_tx() {
                     let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
                     if encoded_chunks.len() + 2 == height {
                         encoded_chunks
-                            .push(EncodedShardChunk::from_header(header.clone().downgrade(), total_parts));
+                            .push(VersionedEncodedShardChunk::from_header(header, total_parts, PROTOCOL_VERSION));
                     }
                     for part in partial_encoded_chunk.parts.iter() {
-                        encoded_chunks[height - 2].content.parts[part.part_ord as usize] =
+                        encoded_chunks[height - 2].content_mut().parts[part.part_ord as usize] =
                             Some(part.part.clone());
                     }
 
@@ -132,7 +132,7 @@ fn produce_blocks_with_tx() {
                         &mut rs,
                     ) {
                         let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
-                        if chunk.transactions.len() > 0 {
+                        if chunk.transactions().len() > 0 {
                             System::current().stop();
                         }
                     }
@@ -1636,7 +1636,7 @@ fn test_data_reset_before_state_sync() {
         .runtime_adapter
         .query(
             0,
-            &head_block.chunks()[0].inner.prev_state_root,
+            &head_block.chunks()[0].prev_state_root(),
             head.height,
             0,
             &head.last_block_hash,
@@ -1649,7 +1649,7 @@ fn test_data_reset_before_state_sync() {
     // account should not exist after clearing state
     let response = env.clients[0].runtime_adapter.query(
         0,
-        &head_block.chunks()[0].inner.prev_state_root,
+        &head_block.chunks()[0].prev_state_root(),
         head.height,
         0,
         &head.last_block_hash,
@@ -1795,10 +1795,10 @@ fn test_validate_chunk_extra() {
 
     // Process two blocks on two different forks that contain the same chunk.
     for (i, block) in vec![&mut block1, &mut block2].into_iter().enumerate() {
-        let mut chunk_header = encoded_chunk.header.clone();
-        chunk_header.height_included = i as BlockHeight + next_height;
+        let mut chunk_header = encoded_chunk.cloned_versioned_header();
+        *chunk_header.height_included_mut() = i as BlockHeight + next_height;
         let chunk_headers = vec![chunk_header];
-        block.get_mut().chunks = chunk_headers.clone();
+        block.set_chunks(chunk_headers.clone());
         block.mut_header().get_mut().inner_rest.chunk_headers_root =
             Block::compute_chunk_headers_root(&chunk_headers).0;
         block.mut_header().get_mut().inner_rest.chunk_tx_root =
@@ -1842,7 +1842,7 @@ fn test_validate_chunk_extra() {
         block1.hash(),
         &chunk_extra,
         &block1.chunks()[0],
-        &chunks.get(&0).cloned().map(VersionedShardChunkHeader::downgrade).unwrap()
+        &chunks.get(&0).cloned().unwrap(),
     )
     .is_ok());
 }
@@ -1992,7 +1992,7 @@ fn test_block_execution_outcomes() {
         }
     }
     let block = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
-    let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].hash).unwrap().clone();
+    let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
     assert_eq!(chunk.transactions.len(), 3);
     let execution_outcomes_from_block =
         env.clients[0].chain.get_block_execution_outcomes(block.hash()).unwrap();
@@ -2007,7 +2007,7 @@ fn test_block_execution_outcomes() {
 
     // Make sure the chunk outcomes contain the outcome from the delayed receipt.
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
-    let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].hash).unwrap().clone();
+    let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap().clone();
     assert!(next_chunk.transactions.is_empty());
     assert!(next_chunk.receipts.is_empty());
     let execution_outcomes_from_block =
@@ -2123,7 +2123,7 @@ fn test_query_final_state() {
         let response = runtime_adapter
             .query(
                 0,
-                &last_final_block.chunks()[0].inner.prev_state_root,
+                &last_final_block.chunks()[0].prev_state_root(),
                 last_final_block.header().height(),
                 last_final_block.header().raw_timestamp(),
                 last_final_block.hash(),

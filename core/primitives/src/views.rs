@@ -28,7 +28,7 @@ use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
     u128_dec_format, u64_dec_format,
 };
-use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
+use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, VersionedShardChunkHeader, ShardChunkHeaderV2};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
@@ -547,39 +547,42 @@ pub struct ChunkHeaderView {
     pub signature: Signature,
 }
 
-impl From<ShardChunkHeader> for ChunkHeaderView {
-    fn from(chunk: ShardChunkHeader) -> Self {
+impl From<VersionedShardChunkHeader> for ChunkHeaderView {
+    fn from(chunk: VersionedShardChunkHeader) -> Self {
+        let hash = chunk.chunk_hash();
+        let signature = chunk.signature().clone();
+        let height_included = chunk.height_included();
+        let inner = chunk.take_inner();
         ChunkHeaderView {
-            chunk_hash: chunk.hash.0,
-            prev_block_hash: chunk.inner.prev_block_hash,
-            outcome_root: chunk.inner.outcome_root,
-            prev_state_root: chunk.inner.prev_state_root,
-            encoded_merkle_root: chunk.inner.encoded_merkle_root,
-            encoded_length: chunk.inner.encoded_length,
-            height_created: chunk.inner.height_created,
-            height_included: chunk.height_included,
-            shard_id: chunk.inner.shard_id,
-            gas_used: chunk.inner.gas_used,
-            gas_limit: chunk.inner.gas_limit,
+            chunk_hash: hash.0,
+            prev_block_hash: inner.prev_block_hash,
+            outcome_root: inner.outcome_root,
+            prev_state_root: inner.prev_state_root,
+            encoded_merkle_root: inner.encoded_merkle_root,
+            encoded_length: inner.encoded_length,
+            height_created: inner.height_created,
+            height_included,
+            shard_id: inner.shard_id,
+            gas_used: inner.gas_used,
+            gas_limit: inner.gas_limit,
             rent_paid: 0,
             validator_reward: 0,
-            balance_burnt: chunk.inner.balance_burnt,
-            outgoing_receipts_root: chunk.inner.outgoing_receipts_root,
-            tx_root: chunk.inner.tx_root,
-            validator_proposals: chunk
-                .inner
+            balance_burnt: inner.balance_burnt,
+            outgoing_receipts_root: inner.outgoing_receipts_root,
+            tx_root: inner.tx_root,
+            validator_proposals: inner
                 .validator_proposals
                 .into_iter()
                 .map(Into::into)
                 .collect(),
-            signature: chunk.signature,
+            signature,
         }
     }
 }
 
-impl From<ChunkHeaderView> for ShardChunkHeader {
+impl From<ChunkHeaderView> for VersionedShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
-        let mut header = ShardChunkHeader {
+        let mut header = ShardChunkHeaderV2 {
             inner: ShardChunkHeaderInner {
                 prev_block_hash: view.prev_block_hash,
                 prev_state_root: view.prev_state_root,
@@ -600,7 +603,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
             hash: ChunkHash::default(),
         };
         header.init();
-        header
+        VersionedShardChunkHeader::V2(header)
     }
 }
 
@@ -633,7 +636,7 @@ impl ChunkView {
     pub fn from_author_chunk(author: AccountId, chunk: ShardChunk) -> Self {
         Self {
             author,
-            header: chunk.header.into(),
+            header: VersionedShardChunkHeader::V1(chunk.header).into(),
             transactions: chunk.transactions.into_iter().map(Into::into).collect(),
             receipts: chunk.receipts.into_iter().map(Into::into).collect(),
         }

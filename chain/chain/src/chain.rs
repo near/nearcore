@@ -200,10 +200,11 @@ impl Chain {
             runtime_adapter.num_shards(),
             chain_genesis.gas_limit,
             chain_genesis.height,
+            chain_genesis.protocol_version,
         );
         let genesis = Block::genesis(
             chain_genesis.protocol_version,
-            genesis_chunks.iter().map(|chunk| chunk.header.clone()).collect(),
+            genesis_chunks.into_iter().map(|chunk| chunk.versioned_header()).collect(),
             chain_genesis.time,
             chain_genesis.height,
             chain_genesis.min_gas_price,
@@ -236,10 +237,11 @@ impl Chain {
             runtime_adapter.num_shards(),
             chain_genesis.gas_limit,
             chain_genesis.height,
+            chain_genesis.protocol_version,
         );
         let genesis = Block::genesis(
             chain_genesis.protocol_version,
-            genesis_chunks.iter().map(|chunk| chunk.header.clone()).collect(),
+            genesis_chunks.iter().map(|chunk| chunk.cloned_versioned_header()).collect(),
             chain_genesis.time,
             chain_genesis.height,
             chain_genesis.min_gas_price,
@@ -277,7 +279,7 @@ impl Chain {
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
                     for chunk in genesis_chunks {
-                        store_update.save_chunk(chunk.clone());
+                        store_update.save_chunk(chunk.clone().downgrade());
                     }
                     runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
                         &genesis.header(),
@@ -296,7 +298,7 @@ impl Chain {
                     {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
-                            chunk_header.inner.shard_id,
+                            chunk_header.shard_id(),
                             ChunkExtra::new(
                                 state_root,
                                 CryptoHash::default(),
@@ -633,17 +635,17 @@ impl Chain {
         block: &Block,
     ) -> Result<(), Error> {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            if chunk_header.inner.height_created == genesis_block.header().height() {
+            if chunk_header.height_created() == genesis_block.header().height() {
                 // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
                 // We must verify that content matches and signature is empty.
                 let genesis_chunk = &genesis_block.chunks()[shard_id];
-                if genesis_chunk.hash != chunk_header.hash
-                    || genesis_chunk.signature != chunk_header.signature
+                if genesis_chunk.chunk_hash() != chunk_header.chunk_hash()
+                    || genesis_chunk.signature() != chunk_header.signature()
                 {
                     return Err(ErrorKind::InvalidChunk.into());
                 }
             } else {
-                if !runtime_adapter.verify_chunk_header_signature(&chunk_header.clone().lift())? {
+                if !runtime_adapter.verify_chunk_header_signature(&chunk_header.clone())? {
                     byzantine_assert!(false);
                     return Err(ErrorKind::InvalidChunk.into());
                 }
@@ -929,7 +931,7 @@ impl Chain {
         let prev_block = self.get_block(&hash)?;
         let new_tail = prev_block.header().height();
         let new_chunk_tail =
-            prev_block.chunks().iter().map(|x| x.inner.height_created).min().unwrap();
+            prev_block.chunks().iter().map(|x| x.height_created()).min().unwrap();
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
         // Update related heads now.
@@ -1305,16 +1307,16 @@ impl Chain {
                 .chunks()
                 .iter()
                 .map(|shard_chunk| {
-                    ChunkHashHeight(shard_chunk.hash.clone(), shard_chunk.height_included)
+                    ChunkHashHeight(shard_chunk.chunk_hash(), shard_chunk.height_included())
                 })
                 .collect::<Vec<ChunkHashHeight>>(),
         );
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
-        let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
+        let chunk = self.get_chunk_clone_from_header(&chunk_header.clone().downgrade())?;
         let chunk_proof = chunk_proofs[shard_id as usize].clone();
         let block_header =
-            self.get_header_on_chain_by_height(&sync_hash, chunk_header.height_included)?.clone();
+            self.get_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?.clone();
 
         // Collecting the `prev` state.
         let (prev_chunk_header, prev_chunk_proof, prev_chunk_height_included) = match self
@@ -1332,14 +1334,14 @@ impl Chain {
                         .chunks()
                         .iter()
                         .map(|shard_chunk| {
-                            ChunkHashHeight(shard_chunk.hash.clone(), shard_chunk.height_included)
+                            ChunkHashHeight(shard_chunk.chunk_hash(), shard_chunk.height_included())
                         })
                         .collect::<Vec<ChunkHashHeight>>(),
                 );
                 assert_eq!(&prev_chunk_headers_root, prev_block.header().chunk_headers_root());
 
                 let prev_chunk_proof = prev_chunk_proofs[shard_id as usize].clone();
-                let prev_chunk_height_included = prev_chunk_header.height_included;
+                let prev_chunk_height_included = prev_chunk_header.height_included();
 
                 (Some(prev_chunk_header), Some(prev_chunk_proof), prev_chunk_height_included)
             }
@@ -1369,7 +1371,7 @@ impl Chain {
                 &block
                     .chunks()
                     .iter()
-                    .map(|chunk| chunk.inner.outgoing_receipts_root)
+                    .map(|chunk| chunk.outgoing_receipts_root())
                     .collect::<Vec<CryptoHash>>(),
             );
 
@@ -1381,7 +1383,7 @@ impl Chain {
                 let receipts_hash = hash(&ReceiptList(shard_id, receipts).try_to_vec()?);
                 let from_shard_id = *from_shard_id as usize;
 
-                let root_proof = block.chunks()[from_shard_id].inner.outgoing_receipts_root;
+                let root_proof = block.chunks()[from_shard_id].outgoing_receipts_root();
                 root_proofs_cur
                     .push(RootProof(root_proof, block_receipts_proofs[from_shard_id].clone()));
 
@@ -1399,12 +1401,12 @@ impl Chain {
 
         let state_root_node = self
             .runtime_adapter
-            .get_state_root_node(shard_id, &chunk_header.inner.prev_state_root)?;
+            .get_state_root_node(shard_id, &chunk_header.prev_state_root())?;
 
         let shard_state_header = ShardStateSyncResponseHeader {
             chunk,
             chunk_proof,
-            prev_chunk_header,
+            prev_chunk_header: prev_chunk_header.map(|h| h.downgrade()),
             prev_chunk_proof,
             incoming_receipts_proofs,
             root_proofs,
@@ -1449,7 +1451,7 @@ impl Chain {
         if shard_id as usize >= sync_prev_block.chunks().len() {
             return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
-        let state_root = sync_prev_block.chunks()[shard_id as usize].inner.prev_state_root.clone();
+        let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
         let state_root_node = self
             .runtime_adapter
             .get_state_root_node(shard_id, &state_root)
@@ -1494,7 +1496,7 @@ impl Chain {
         } = &shard_state_header;
 
         // 1-2. Checking chunk validity
-        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter) {
+        if !validate_chunk_proofs(&chunk.clone().lift(), &*self.runtime_adapter) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_shard_state failed: chunk header proofs are invalid".into(),
@@ -2477,9 +2479,9 @@ impl<'a> ChainUpdate<'a> {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             // Check if any chunks are invalid in this block.
             if let Some(encoded_chunk) =
-                self.chain_store_update.is_invalid_chunk(&chunk_header.hash)?
+                self.chain_store_update.is_invalid_chunk(&chunk_header.chunk_hash())?
             {
-                let merkle_paths = Block::compute_chunk_headers_root(&block.chunks()).1;
+                let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
                 let chunk_proof = ChunkProofs {
                     block_header: block.header().try_to_vec().expect("Failed to serialize"),
                     merkle_proof: merkle_paths[shard_id].clone(),
@@ -2488,7 +2490,7 @@ impl<'a> ChainUpdate<'a> {
                 return Err(ErrorKind::InvalidChunkProofs(Box::new(chunk_proof)).into());
             }
             let shard_id = shard_id as ShardId;
-            if chunk_header.height_included == height {
+            if chunk_header.height_included() == height {
                 let chunk_hash = chunk_header.chunk_hash();
 
                 if let Err(_) =
@@ -2513,7 +2515,7 @@ impl<'a> ChainUpdate<'a> {
             }
         }
         if !missing.is_empty() {
-            return Err(ErrorKind::ChunksMissing(missing).into());
+            return Err(ErrorKind::ChunksMissing(missing.into_iter().map(|h| h.downgrade()).collect()).into());
         }
         Ok(())
     }
@@ -2530,7 +2532,7 @@ impl<'a> ChainUpdate<'a> {
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
         for chunk_header in block.chunks().iter() {
-            if chunk_header.height_included == height {
+            if chunk_header.height_included() == height {
                 let partial_encoded_chunk =
                     self.chain_store_update.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
                 for receipt in partial_encoded_chunk.receipts.iter() {
@@ -2562,18 +2564,18 @@ impl<'a> ChainUpdate<'a> {
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkState, Error> {
         let prev_chunk_header = &prev_block.chunks()[chunk_header.inner.shard_id as usize];
-        let prev_merkle_proofs = Block::compute_chunk_headers_root(&prev_block.chunks()).1;
-        let merkle_proofs = Block::compute_chunk_headers_root(&block.chunks()).1;
+        let prev_merkle_proofs = Block::compute_chunk_headers_root(prev_block.chunks().iter()).1;
+        let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
         let prev_chunk = self
             .chain_store_update
             .get_chain_store()
-            .get_chunk_clone_from_header(&prev_block.chunks()[chunk_header.inner.shard_id as usize])
+            .get_chunk_clone_from_header(&prev_block.chunks()[chunk_header.inner.shard_id as usize].clone().downgrade())
             .unwrap();
         let receipt_proof_response: Vec<ReceiptProofResponse> =
             self.chain_store_update.get_incoming_receipts_for_shard(
                 chunk_header.inner.shard_id,
                 *prev_block.hash(),
-                prev_chunk_header.height_included,
+                prev_chunk_header.height_included(),
             )?;
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
@@ -2655,7 +2657,7 @@ impl<'a> ChainUpdate<'a> {
                 }
             };
             if care_about_shard {
-                if chunk_header.height_included == block.header().height() {
+                if chunk_header.height_included() == block.header().height() {
                     // Validate state root.
                     let prev_chunk_extra = self
                         .chain_store_update
@@ -2676,7 +2678,7 @@ impl<'a> ChainUpdate<'a> {
                     .map_err(|e| {
                         debug!(target: "chain", "Failed to validate chunk extra: {:?}", e);
                         byzantine_assert!(false);
-                        match self.create_chunk_state_challenge(&prev_block, &block, chunk_header) {
+                        match self.create_chunk_state_challenge(&prev_block, &block, &chunk_header.clone().downgrade()) {
                             Ok(chunk_state) => {
                                 Error::from(ErrorKind::InvalidChunkState(Box::new(chunk_state)))
                             }
@@ -2688,15 +2690,15 @@ impl<'a> ChainUpdate<'a> {
                         self.chain_store_update.get_incoming_receipts_for_shard(
                             shard_id,
                             *block.hash(),
-                            prev_chunk_header.height_included,
+                            prev_chunk_header.height_included(),
                         )?;
                     let receipts = collect_receipts_from_response(&receipt_proof_response);
 
                     let chunk =
-                        self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
+                        self.chain_store_update.get_chunk_clone_from_header(&chunk_header.clone().downgrade())?;
 
                     if !validate_transactions_order(&chunk.transactions) {
-                        let merkle_paths = Block::compute_chunk_headers_root(&block.chunks()).1;
+                        let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
                         let chunk_proof = ChunkProofs {
                             block_header: block.header().try_to_vec().expect("Failed to serialize"),
                             merkle_proof: merkle_paths[shard_id as usize].clone(),
@@ -2715,9 +2717,9 @@ impl<'a> ChainUpdate<'a> {
                         .apply_transactions(
                             shard_id,
                             &chunk.header.inner.prev_state_root,
-                            chunk_header.height_included,
+                            chunk_header.height_included(),
                             block.header().raw_timestamp(),
-                            &chunk_header.inner.prev_block_hash,
+                            &chunk_header.prev_block_hash(),
                             &block.hash(),
                             &receipts,
                             &chunk.transactions,
@@ -2912,8 +2914,8 @@ impl<'a> ChainUpdate<'a> {
         for (chunk_header, prev_chunk_header) in
             block.chunks().iter().zip(prev_block.chunks().iter())
         {
-            if chunk_header.height_included == block.header().height() {
-                if &chunk_header.inner.prev_block_hash != block.header().prev_hash() {
+            if chunk_header.height_included() == block.header().height() {
+                if &chunk_header.prev_block_hash() != block.header().prev_hash() {
                     return Err(ErrorKind::InvalidChunk.into());
                 }
             } else {
@@ -2937,8 +2939,8 @@ impl<'a> ChainUpdate<'a> {
         // Verify that proposals from chunks match block header proposals.
         let mut all_chunk_proposals = vec![];
         for chunk in block.chunks().iter() {
-            if block.header().height() == chunk.height_included {
-                all_chunk_proposals.extend(chunk.inner.validator_proposals.clone());
+            if block.header().height() == chunk.height_included() {
+                all_chunk_proposals.extend(chunk.validator_proposals().iter().cloned());
             }
         }
         if all_chunk_proposals.as_slice() != block.header().validator_proposals() {
@@ -2961,7 +2963,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_block(block.clone());
         self.chain_store_update.inc_block_refcount(block.header().prev_hash())?;
         for (shard_id, chunk_headers) in block.chunks().iter().enumerate() {
-            if chunk_headers.height_included == block.header().height() {
+            if chunk_headers.height_included() == block.header().height() {
                 self.chain_store_update
                     .save_block_hash_with_new_chunk(*block.hash(), shard_id as ShardId);
             }

@@ -26,7 +26,7 @@ use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader, VersionedPartialEncodedChunk, PartialEncodedChunkV2};
+use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader, VersionedPartialEncodedChunk, PartialEncodedChunkV2, VersionedEncodedShardChunk, VersionedShardChunkHeader};
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
@@ -166,7 +166,7 @@ impl Client {
     pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header().height() == chunk_header.height_included {
+            if block.header().height() == chunk_header.height_included() {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     &block.header().prev_hash(),
@@ -189,7 +189,7 @@ impl Client {
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header().height() == chunk_header.height_included {
+            if block.header().height() == chunk_header.height_included() {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     &block.header().prev_hash(),
@@ -389,12 +389,12 @@ impl Client {
         let block_merkle_root = block_merkle_tree.root();
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunks = prev_block.chunks().clone();
+        let mut chunks: Vec<_> = prev_block.chunks().iter().cloned().collect();
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
             *chunk_header.height_included_mut() = next_height;
-            chunks[shard_id as usize] = chunk_header.downgrade();
+            chunks[shard_id as usize] = chunk_header;
         }
 
         let prev_header = &prev_block.header();
@@ -446,10 +446,10 @@ impl Client {
         &mut self,
         prev_block_hash: CryptoHash,
         epoch_id: &EpochId,
-        last_header: ShardChunkHeader,
+        last_header: VersionedShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
+    ) -> Result<Option<(VersionedEncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
         let validator_signer = self
             .validator_signer
             .as_ref()
@@ -496,7 +496,7 @@ impl Client {
         let ReceiptResponse(_, outgoing_receipts) = self.chain.get_outgoing_receipts_for_shard(
             prev_block_hash,
             shard_id,
-            last_header.height_included,
+            last_header.height_included(),
         )?;
 
         // Receipts proofs root is calculating here
@@ -515,6 +515,7 @@ impl Client {
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(epoch_id)?;
         let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
             chunk_extra.state_root,
@@ -531,6 +532,7 @@ impl Client {
             tx_root,
             &*validator_signer,
             &mut self.rs,
+            protocol_version,
         )?;
 
         debug!(
@@ -718,10 +720,7 @@ impl Client {
             return Err(Error::Other("Invalid chunk version".to_string()));
         }
 
-        let partial_encoded_chunk: PartialEncodedChunkV2 = match partial_encoded_chunk {
-            VersionedPartialEncodedChunk::V1(chunk) => chunk.into(),
-            VersionedPartialEncodedChunk::V2(chunk) => chunk,
-        };
+        let partial_encoded_chunk: PartialEncodedChunkV2 = partial_encoded_chunk.into();
 
         let process_result = self.shards_mgr.process_partial_encoded_chunk(
             partial_encoded_chunk.clone(),
@@ -1478,6 +1477,7 @@ mod test {
     use neard::config::GenesisExt;
 
     use crate::test_utils::TestEnv;
+    use near_primitives::sharding::VersionedShardChunkHeader;
 
     fn create_runtimes() -> Vec<Arc<dyn RuntimeAdapter>> {
         let store = create_test_store();
@@ -1513,13 +1513,21 @@ mod test {
         let chunk_producer = ChunkForwardingTestFixture::default();
         let mut mock_chunk = chunk_producer.make_partial_encoded_chunk(&[0]);
         // change the prev_block to some unknown block
-        mock_chunk.header.inner.prev_block_hash = hash(b"some_prev_block");
-        mock_chunk.header.init();
+        match &mut mock_chunk.header {
+            VersionedShardChunkHeader::V1(ref mut header) => {
+                header.inner.prev_block_hash = hash(b"some_prev_block");
+                header.init();
+            }
+            VersionedShardChunkHeader::V2(ref mut header) => {
+                header.inner.prev_block_hash = hash(b"some_prev_block");
+                header.init();
+            }
+        }
 
         // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
         // based on a missing block.
         let result = client.shards_mgr.process_partial_encoded_chunk(
-            mock_chunk.into(),
+            mock_chunk,
             client.chain.mut_store(),
             &mut client.rs,
             PROTOCOL_VERSION,

@@ -132,7 +132,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
-            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
+            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime =
             NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
         let new_genesis =
@@ -163,7 +163,7 @@ mod test {
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
-            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
+            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime =
             NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
         let new_genesis =
@@ -226,7 +226,7 @@ mod test {
         }
         let last_block = blocks.pop().unwrap();
         let state_roots =
-            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<_>>();
+            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
         let runtime2 = create_runtime(store2);
 
         let _ =
@@ -274,7 +274,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
-            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
+            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime =
             NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
         let new_genesis =

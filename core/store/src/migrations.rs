@@ -5,10 +5,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, ReceiptList, ReceiptProof, ReedSolomonWrapper,
-    ShardChunk, ShardProof,
-};
+use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardProof, VersionedEncodedShardChunk, VersionedPartialEncodedChunk};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
@@ -138,6 +135,7 @@ pub fn migrate_8_to_9(path: &String) {
 
 pub fn migrate_9_to_10(path: &String, is_archival: bool) {
     let store = create_store(path);
+    let protocol_version = 38; // protocol_version at the time this migration was written
     if is_archival {
         // Hard code the number of parts there. These numbers are only used for this migration.
         let num_total_parts = 100;
@@ -160,7 +158,7 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
             let chunk: ShardChunk = BorshDeserialize::try_from_slice(&value)
                 .expect("Borsh deserialization should not fail");
             let ShardChunk { chunk_hash, header, transactions, receipts } = chunk;
-            let (mut encoded_chunk, merkle_paths) = EncodedShardChunk::new(
+            let (encoded_chunk, merkle_paths) = VersionedEncodedShardChunk::new(
                 header.inner.prev_block_hash,
                 header.inner.prev_state_root,
                 header.inner.outcome_root,
@@ -176,14 +174,19 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                 &receipts,
                 header.inner.outgoing_receipts_root,
                 &signer,
+                protocol_version,
             )
             .expect("create encoded chunk should not fail");
+            let mut encoded_chunk = match encoded_chunk {
+                VersionedEncodedShardChunk::V1(chunk) => chunk,
+                VersionedEncodedShardChunk::V2(_) => panic!("Should not have created EncodedShardChunkV2"),
+            };
             encoded_chunk.header = header;
             let outgoing_receipt_hashes =
                 vec![hash(&ReceiptList(0, &receipts).try_to_vec().unwrap())];
             let (_, outgoing_receipt_proof) = merklize(&outgoing_receipt_hashes);
 
-            let partial_encoded_chunk = encoded_chunk.create_partial_encoded_chunk(
+            let partial_encoded_chunk = VersionedEncodedShardChunk::V1(encoded_chunk).create_partial_encoded_chunk(
                 (0..num_total_parts as u64).collect(),
                 vec![ReceiptProof(
                     receipts,
@@ -195,6 +198,10 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                 )],
                 &merkle_paths,
             );
+            let partial_encoded_chunk = match partial_encoded_chunk {
+                VersionedPartialEncodedChunk::V1(chunk) => chunk,
+                VersionedPartialEncodedChunk::V2(_) => panic!("Should not have created PartialEncodedChunkV2"),
+            };
             store_update
                 .set_ser(ColPartialChunks, chunk_hash.as_ref(), &partial_encoded_chunk)
                 .expect("storage update should not fail");

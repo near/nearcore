@@ -140,10 +140,10 @@ fn chunks_produced_and_distributed_common(
                             Instant::now(),
                             block.hash(),
                             block.header().height(),
-                            block.chunks()[0].inner.height_created,
-                            block.chunks()[1].inner.height_created,
-                            block.chunks()[2].inner.height_created,
-                            block.chunks()[3].inner.height_created,
+                            block.chunks()[0].height_created(),
+                            block.chunks()[1].height_created(),
+                            block.chunks()[2].height_created(),
+                            block.chunks()[3].height_created(),
                             block.header().approvals(),
                         );
 
@@ -173,7 +173,7 @@ fn chunks_produced_and_distributed_common(
                                 if !drop_from_1_to_4 || block.header().height() % 4 != 3 {
                                     assert_eq!(
                                         block.header().height(),
-                                        block.chunks()[shard_id].inner.height_created
+                                        block.chunks()[shard_id].height_created()
                                     );
                                 }
                             }

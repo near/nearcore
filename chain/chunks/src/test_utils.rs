@@ -10,9 +10,7 @@ use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle;
-use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReedSolomonWrapper, ShardChunkHeader,
-};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReedSolomonWrapper, ShardChunkHeader, VersionedShardChunkHeader, VersionedPartialEncodedChunk, PartialEncodedChunkV2};
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -138,7 +136,7 @@ pub struct ChunkForwardingTestFixture {
     pub mock_part_ords: Vec<u64>,
     pub mock_chunk_part_owner: AccountId,
     pub mock_shard_tracker: AccountId,
-    pub mock_chunk_header: ShardChunkHeader,
+    pub mock_chunk_header: VersionedShardChunkHeader,
     pub mock_chunk_parts: Vec<PartialEncodedChunkPart>,
     pub rs: ReedSolomonWrapper,
 }
@@ -225,11 +223,12 @@ impl Default for ChunkForwardingTestFixture {
                 MerkleHash::default(),
                 &signer,
                 &mut rs,
+                PROTOCOL_VERSION,
             )
             .unwrap();
 
         let all_part_ords: Vec<u64> =
-            (0..mock_chunk.content.parts.len()).map(|p| p as u64).collect();
+            (0..mock_chunk.content().parts.len()).map(|p| p as u64).collect();
         let mock_part_ords = all_part_ords
             .iter()
             .copied()
@@ -251,22 +250,22 @@ impl Default for ChunkForwardingTestFixture {
             mock_part_ords,
             mock_chunk_part_owner,
             mock_shard_tracker,
-            mock_chunk_header: encoded_chunk.header,
-            mock_chunk_parts: encoded_chunk.parts,
+            mock_chunk_header: encoded_chunk.cloned_versioned_header(),
+            mock_chunk_parts: encoded_chunk.parts().clone(),
             rs,
         }
     }
 }
 
 impl ChunkForwardingTestFixture {
-    pub fn make_partial_encoded_chunk(&self, part_ords: &[u64]) -> PartialEncodedChunk {
+    pub fn make_partial_encoded_chunk(&self, part_ords: &[u64]) -> PartialEncodedChunkV2 {
         let parts = part_ords
             .iter()
             .copied()
             .flat_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
             .cloned()
             .collect();
-        PartialEncodedChunk { header: self.mock_chunk_header.clone(), parts, receipts: Vec::new() }
+        PartialEncodedChunkV2 { header: self.mock_chunk_header.clone(), parts, receipts: Vec::new() }
     }
 }
 

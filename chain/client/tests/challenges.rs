@@ -23,9 +23,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, VersionedPartialEncodedChunk};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, VersionedPartialEncodedChunk, VersionedEncodedShardChunk, VersionedShardChunk};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::StateRoot;
+use near_primitives::types::{StateRoot, ShardId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -49,7 +49,7 @@ fn test_verify_block_double_sign_challenge() {
         PROTOCOL_VERSION,
         genesis.header(),
         2,
-        genesis.chunks().clone(),
+        genesis.chunks().iter().cloned().collect(),
         b1.header().epoch_id().clone(),
         b1.header().next_epoch_id().clone(),
         vec![],
@@ -115,12 +115,19 @@ fn test_verify_block_double_sign_challenge() {
 
 fn create_invalid_proofs_chunk(
     client: &mut Client,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+) -> (VersionedEncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     create_chunk(
         client,
         None,
         Some(CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap()),
     )
+}
+
+fn get_shard_id(chunk: &VersionedEncodedShardChunk) -> ShardId {
+    match chunk {
+        VersionedEncodedShardChunk::V1(chunk) => chunk.header.inner.shard_id,
+        VersionedEncodedShardChunk::V2(chunk) => chunk.header.shard_id(),
+    }
 }
 
 #[test]
@@ -129,10 +136,11 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     env.produce_block(0, 1);
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
+    let shard_id = get_shard_id(&chunk);
     let challenge_result = challenge(
         env,
-        chunk.header.inner.shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
+        shard_id as usize,
+        MaybeEncodedShardChunk::Encoded(chunk.downgrade()),
         &block,
     );
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".to_string()]));
@@ -147,10 +155,14 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
     let chunk =
         encoded_chunk.decode_chunk(env.clients[0].chain.runtime_adapter.num_data_parts()).unwrap();
 
+    let shard_id = match &chunk {
+        VersionedShardChunk::V1(ref chunk) => chunk.header.inner.shard_id,
+        VersionedShardChunk::V2(ref chunk) => chunk.header.shard_id(),
+    };
     let challenge_result = challenge(
         env,
-        chunk.header.inner.shard_id as usize,
-        MaybeEncodedShardChunk::Decoded(chunk),
+        shard_id as usize,
+        MaybeEncodedShardChunk::Decoded(chunk.downgrade()),
         &block,
     );
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".to_string()]));
@@ -163,10 +175,11 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
     // Valid chunk
     let (chunk, _merkle_paths, _receipts, block) = create_chunk(&mut env.clients[0], None, None);
 
+    let shard_id = get_shard_id(&chunk);
     let challenge_result = challenge(
         env,
-        chunk.header.inner.shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
+        shard_id as usize,
+        MaybeEncodedShardChunk::Encoded(chunk.downgrade()),
         &block,
     );
     assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
@@ -202,10 +215,11 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
         ],
     );
 
+    let shard_id = get_shard_id(&chunk);
     let challenge_result = challenge(
         env,
-        chunk.header.inner.shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
+        shard_id as usize,
+        MaybeEncodedShardChunk::Encoded(chunk.downgrade()),
         &block,
     );
     assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
@@ -240,10 +254,12 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
             ),
         ],
     );
+
+    let shard_id = get_shard_id(&chunk);
     let challenge_result = challenge(
         env,
-        chunk.header.inner.shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
+        shard_id as usize,
+        MaybeEncodedShardChunk::Encoded(chunk.downgrade()),
         &block,
     );
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".to_string()]));
@@ -255,7 +271,7 @@ fn challenge(
     chunk: MaybeEncodedShardChunk,
     block: &Block,
 ) -> Result<(CryptoHash, Vec<String>), Error> {
-    let merkle_paths = Block::compute_chunk_headers_root(&block.chunks()).1;
+    let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
     let valid_challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
             block_header: block.header().try_to_vec().unwrap(),
@@ -325,10 +341,11 @@ fn test_verify_chunk_invalid_state_challenge() {
             vec![],
             vec![],
             &vec![],
-            last_block.chunks()[0].inner.outgoing_receipts_root,
+            last_block.chunks()[0].outgoing_receipts_root(),
             CryptoHash::default(),
             &validator_signer,
             &mut rs,
+            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -345,7 +362,14 @@ fn test_verify_chunk_invalid_state_challenge() {
         )
         .unwrap();
 
-    invalid_chunk.header.height_included = last_block.header().height() + 1;
+    match &mut invalid_chunk {
+        VersionedEncodedShardChunk::V1(ref mut chunk) => {
+            chunk.header.height_included = last_block.header().height() + 1;
+        }
+        VersionedEncodedShardChunk::V2(ref mut chunk) => {
+            *chunk.header.height_included_mut() = last_block.header().height() + 1;
+        }
+    }
     let mut block_merkle_tree =
         client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
     block_merkle_tree.insert(*last_block.hash());
@@ -353,7 +377,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         PROTOCOL_VERSION,
         &last_block.header(),
         last_block.header().height() + 1,
-        vec![invalid_chunk.header.clone()],
+        vec![invalid_chunk.cloned_versioned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         vec![],
@@ -389,12 +413,12 @@ fn test_verify_chunk_invalid_state_challenge() {
         );
 
         chain_update
-            .create_chunk_state_challenge(&last_block, &block, &block.chunks()[0].clone())
+            .create_chunk_state_challenge(&last_block, &block, &block.chunks()[0].clone().downgrade())
             .unwrap()
     };
     {
-        let prev_merkle_proofs = Block::compute_chunk_headers_root(&last_block.chunks()).1;
-        let merkle_proofs = Block::compute_chunk_headers_root(&block.chunks()).1;
+        let prev_merkle_proofs = Block::compute_chunk_headers_root(last_block.chunks().iter()).1;
+        let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
         assert_eq!(
@@ -484,7 +508,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         &vec![merkle_paths[0].clone()]
     );
     assert!(env.clients[1]
-        .process_partial_encoded_chunk(VersionedPartialEncodedChunk::V1(partial_encoded_chunk)) // TODO
+        .process_partial_encoded_chunk(partial_encoded_chunk)
         .is_ok());
     env.process_block(1, block.clone(), Provenance::NONE);
 
@@ -495,7 +519,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         ..
     }) = last_message.clone()
     {
-        assert_eq!(chunk_proofs.chunk, MaybeEncodedShardChunk::Encoded(chunk));
+        assert_eq!(chunk_proofs.chunk, MaybeEncodedShardChunk::Encoded(chunk.downgrade()));
     } else {
         assert!(false);
     }
@@ -530,12 +554,13 @@ fn test_block_challenge() {
     env.produce_block(0, 1);
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
-    let merkle_paths = Block::compute_chunk_headers_root(&block.chunks()).1;
+    let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
+    let shard_id = chunk.cloned_versioned_header().shard_id();
     let challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
             block_header: block.header().try_to_vec().unwrap(),
-            chunk: MaybeEncodedShardChunk::Encoded(chunk.clone()),
-            merkle_proof: merkle_paths[chunk.header.inner.shard_id as usize].clone(),
+            chunk: MaybeEncodedShardChunk::Encoded(chunk.clone().downgrade()),
+            merkle_proof: merkle_paths[shard_id as usize].clone(),
         }),
         &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
     );
@@ -585,11 +610,12 @@ fn test_fishermen_challenge() {
 
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
-    let merkle_paths = Block::compute_chunk_headers_root(&block.chunks()).1;
+    let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
+    let shard_id = chunk.cloned_versioned_header().shard_id();
     let challenge_body = ChallengeBody::ChunkProofs(ChunkProofs {
         block_header: block.header().try_to_vec().unwrap(),
-        chunk: MaybeEncodedShardChunk::Encoded(chunk.clone()),
-        merkle_proof: merkle_paths[chunk.header.inner.shard_id as usize].clone(),
+        chunk: MaybeEncodedShardChunk::Encoded(chunk.clone().downgrade()),
+        merkle_proof: merkle_paths[shard_id as usize].clone(),
     });
     let challenge = Challenge::produce(
         challenge_body.clone(),

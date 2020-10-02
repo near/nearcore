@@ -169,7 +169,7 @@ mod tests {
 
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
+    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader, PartialEncodedChunkV2, VersionedShardChunkHeader, ShardChunkHeaderV2};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;
@@ -179,8 +179,8 @@ mod tests {
     fn test_cache_removal() {
         let mut cache = EncodedChunksCache::new();
         let signer = InMemoryValidatorSigner::from_random("test".to_string(), KeyType::ED25519);
-        let partial_encoded_chunk = PartialEncodedChunk {
-            header: ShardChunkHeader::new(
+        let partial_encoded_chunk = PartialEncodedChunkV2 {
+            header: VersionedShardChunkHeader::V2(ShardChunkHeaderV2::new(
                 CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
@@ -195,11 +195,11 @@ mod tests {
                 CryptoHash::default(),
                 vec![],
                 &signer,
-            ),
+            )),
             parts: vec![],
             receipts: vec![],
         };
-        cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk.into());
+        cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
         cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
         assert!(cache.encoded_chunks.is_empty());
         assert!(cache.height_map.is_empty());

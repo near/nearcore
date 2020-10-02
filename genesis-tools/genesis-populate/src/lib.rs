@@ -186,10 +186,11 @@ impl GenesisBuilder {
             self.runtime.num_shards(),
             self.genesis.config.gas_limit,
             self.genesis.config.genesis_height,
+            self.genesis.config.protocol_version,
         );
         let genesis = Block::genesis(
             self.genesis.config.protocol_version,
-            genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+            genesis_chunks.into_iter().map(|chunk| chunk.versioned_header()).collect(),
             self.genesis.config.genesis_time,
             self.genesis.config.genesis_height,
             self.genesis.config.min_gas_price,
@@ -209,7 +210,7 @@ impl GenesisBuilder {
         for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             store_update.save_chunk_extra(
                 &genesis.hash(),
-                chunk_header.inner.shard_id,
+                chunk_header.shard_id(),
                 ChunkExtra::new(
                     state_root,
                     CryptoHash::default(),
