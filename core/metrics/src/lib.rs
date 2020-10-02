@@ -55,7 +55,9 @@
 //! }
 //! ```
 
-pub use prometheus::{Encoder, Histogram, IntCounter, IntGauge, Result, TextEncoder};
+pub use prometheus::{
+    Encoder, Histogram, IntCounter, IntCounterVec, IntGauge, Result, TextEncoder,
+};
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
 use log::error;
@@ -70,6 +72,19 @@ pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
 pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
     let opts = Opts::new(name, help);
     let counter = IntCounter::with_opts(opts)?;
+    prometheus::register(Box::new(counter.clone()))?;
+    Ok(counter)
+}
+
+/// Attempts to crate an `IntCounterVec`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
+pub fn try_create_int_counter_vec(
+    name: &str,
+    help: &str,
+    labels: &[&str],
+) -> Result<IntCounterVec> {
+    let opts = Opts::new(name, help);
+    let counter = IntCounterVec::new(opts, labels)?;
     prometheus::register(Box::new(counter.clone()))?;
     Ok(counter)
 }
@@ -121,6 +136,14 @@ pub fn stop_timer(timer: Option<HistogramTimer>) {
 pub fn inc_counter(counter: &Result<IntCounter>) {
     if let Ok(counter) = counter {
         counter.inc();
+    } else {
+        error!(target: "metrics", "Failed to fetch counter");
+    }
+}
+
+pub fn inc_counter_vec(counter: &Result<IntCounterVec>, label_values: &[&str]) {
+    if let Ok(counter) = counter {
+        counter.with_label_values(label_values).inc();
     } else {
         error!(target: "metrics", "Failed to fetch counter");
     }
