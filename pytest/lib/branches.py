@@ -98,7 +98,7 @@ def download_binary(uname, branch):
         ['chmod', '+x', f'../target/debug/state-viewer-{branch}'])
 
 
-def prepare_ab_test(other_branch):
+def prepare_ab_test(other_branch, self_branch=None):
     # Use NEAR_AB_BINARY_EXISTS to avoid rebuild / re-download when testing locally.
     #if not os.environ.get('NEAR_AB_BINARY_EXISTS'):
     #    compile_current()
@@ -107,10 +107,17 @@ def prepare_ab_test(other_branch):
     #        download_binary(uname, other_branch)
     #    else:
     # TODO: re-enable caching
-    compile_current()
     uname = os.uname()[0]
+    if self_branch is None:
+        compile_current()
+    else:
+        try:
+            download_binary(uname, self_branch)
+        except Exception:
+            compile_binary(str(self_branch))
+
     try:
         download_binary(uname, other_branch)
     except Exception:
         compile_binary(str(other_branch))
-    return '../target/debug/', [other_branch, escaped(current_branch())]
+    return '../target/debug/', [other_branch, escaped(current_branch()) if self_branch is None else self_branch]
