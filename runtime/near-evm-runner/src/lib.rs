@@ -182,7 +182,7 @@ impl<'a> EvmContext<'a> {
     pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
-        let r = interpreter::deploy_code(
+        match interpreter::deploy_code(
             self,
             &sender,
             &sender,
@@ -193,8 +193,7 @@ impl<'a> EvmContext<'a> {
             &bytecode,
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
-        )?;
-        match r {
+        )? {
             ContractCreateResult::Created(address, gas_left) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
                 Ok(address)
