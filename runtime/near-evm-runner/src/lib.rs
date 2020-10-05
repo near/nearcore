@@ -220,7 +220,7 @@ impl<'a> EvmContext<'a> {
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
-        let rd = interpreter::call(
+        let result = interpreter::call(
             self,
             &sender,
             &sender,
@@ -232,7 +232,7 @@ impl<'a> EvmContext<'a> {
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
         )?;
-        match rd {
+        match result {
             MessageCallResult::Success(gas_left, data) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
                 Ok(data.to_vec())
@@ -274,7 +274,7 @@ impl<'a> EvmContext<'a> {
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
-        let rd = interpreter::call(
+        let result = interpreter::call(
             self,
             &sender,
             &sender,
@@ -286,7 +286,7 @@ impl<'a> EvmContext<'a> {
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
         )?;
-        match rd {
+        match result {
             MessageCallResult::Success(gas_left, data) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
                 Ok(data.to_vec())
@@ -310,7 +310,7 @@ impl<'a> EvmContext<'a> {
         let sender = Address::from(&args.sender);
         let attached_amount = U256::from(args.amount);
         self.add_balance(&sender, attached_amount)?;
-        let rd = interpreter::call(
+        let result = interpreter::call(
             self,
             &sender,
             &sender,
@@ -322,7 +322,7 @@ impl<'a> EvmContext<'a> {
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
         )?;
-        let result = match rd {
+        let result = match result {
             MessageCallResult::Success(gas_left, data) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
                 Ok(data.to_vec())
