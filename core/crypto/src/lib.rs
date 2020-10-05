@@ -1,6 +1,8 @@
 pub use errors::{ParseKeyError, ParseSignatureError, TryFromSliceError};
 pub use key_file::KeyFile;
-pub use signature::{KeyType, PublicKey, SecretKey, Signature};
+pub use signature::{
+    ED25519PublicKey, KeyType, PublicKey, Secp256K1PublicKey, SecretKey, Signature,
+};
 pub use signer::{EmptySigner, InMemorySigner, Signer};
 
 #[macro_use]

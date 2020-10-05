@@ -199,6 +199,7 @@ impl JsonRpcHandler {
     }
 
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+        near_metrics::inc_counter_vec(&metrics::HTTP_RPC_REQUEST_COUNT, &[request.method.as_ref()]);
         let _rpc_processing_time = near_metrics::start_timer(&metrics::RPC_PROCESSING_TIME);
 
         #[cfg(feature = "adversarial")]
@@ -854,8 +855,6 @@ fn rpc_handler(
     message: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
-    near_metrics::inc_counter(&metrics::HTTP_RPC_REQUEST_COUNT);
-
     let response = async move {
         let message = handler.process(message.0).await?;
         Ok(HttpResponse::Ok().json(message))

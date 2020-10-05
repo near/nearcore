@@ -13,7 +13,10 @@ use tokio::sync::mpsc;
 pub use neard::{get_default_home, init_configs, NearConfig};
 mod streamer;
 
-pub use self::streamer::{IndexerChunkView, IndexerTransactionWithOutcome, StreamerMessage};
+pub use self::streamer::{
+    ExecutionOutcomesWithReceipts, IndexerChunkView, IndexerExecutionOutcomeWithReceipt,
+    IndexerTransactionWithOutcome, StreamerMessage,
+};
 pub use near_primitives;
 
 /// Enum to define a mode of syncing for NEAR Indexer
