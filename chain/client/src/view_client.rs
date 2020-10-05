@@ -32,13 +32,14 @@ use near_primitives::types::{
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView,
-    ValidatorStakeView,
+    LightClientBlockView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
+    StateChangesView, ValidatorStakeView,
 };
 
 use crate::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, Query, TxStatus, TxStatusError,
+    GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt, Query, TxStatus,
+    TxStatusError,
 };
 use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
@@ -733,6 +734,19 @@ impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+}
+
+impl Handler<GetReceipt> for ViewClientActor {
+    type Result = Result<Option<ReceiptView>, String>;
+
+    fn handle(&mut self, msg: GetReceipt, _: &mut Self::Context) -> Self::Result {
+        Ok(self
+            .chain
+            .mut_store()
+            .get_receipt(&msg.receipt_id)
+            .map_err(|e| e.to_string())?
+            .map(|receipt| receipt.clone().into()))
     }
 }
 
