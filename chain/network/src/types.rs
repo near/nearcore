@@ -23,7 +23,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkWithArcReceipts, ReceiptProof, VersionedPartialEncodedChunk, VersionedShardChunkHeader};
-use near_primitives::syncing::ShardStateSyncResponse;
+use near_primitives::syncing::{ShardStateSyncResponse, VersionedShardStateSyncResponse};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -462,6 +462,7 @@ pub enum RoutedMessageBody {
     Ping(Ping),
     Pong(Pong),
     VersionedPartialEncodedChunk(VersionedPartialEncodedChunk),
+    VersionedStateResponse(VersionedStateResponseInfo),
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
@@ -522,6 +523,9 @@ impl Debug for RoutedMessageBody {
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
                 write!(f, "VersionedPartialChunk(?)")
+            }
+            RoutedMessageBody::VersionedStateResponse(response) => {
+                write!(f, "VersionedStateResponse({}, {})", response.shard_id(), response.sync_hash())
             }
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
@@ -1150,7 +1154,7 @@ pub enum NetworkRequests {
     /// Response to state request.
     StateResponse {
         route_back: CryptoHash,
-        response: StateResponseInfo,
+        response: VersionedStateResponseInfo,
     },
     /// Ban given peer.
     BanPeer {
@@ -1299,6 +1303,42 @@ pub struct StateResponseInfo {
     pub state_response: ShardStateSyncResponse,
 }
 
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct StateResponseInfoV2 {
+    pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
+    pub state_response: VersionedShardStateSyncResponse,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+pub enum VersionedStateResponseInfo {
+    V1(StateResponseInfo),
+    V2(StateResponseInfoV2)
+}
+
+impl VersionedStateResponseInfo {
+    pub fn shard_id(&self) -> ShardId {
+        match self {
+            Self::V1(info) => info.shard_id,
+            Self::V2(info) => info.shard_id,
+        }
+    }
+
+    pub fn sync_hash(&self) -> CryptoHash {
+        match self {
+            Self::V1(info) => info.sync_hash,
+            Self::V2(info) => info.sync_hash,
+        }
+    }
+
+    pub fn take_state_response(self) -> VersionedShardStateSyncResponse {
+        match self {
+            Self::V1(info) => VersionedShardStateSyncResponse::V1(info.state_response),
+            Self::V2(info) => info.state_response,
+        }
+    }
+}
+
 #[cfg(feature = "adversarial")]
 #[derive(Debug)]
 pub enum NetworkAdversarialMessage {
@@ -1333,7 +1373,7 @@ pub enum NetworkClientMessages {
     /// Block approval.
     BlockApproval(Approval, PeerId),
     /// State response.
-    StateResponse(StateResponseInfo),
+    StateResponse(VersionedStateResponseInfo),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
@@ -1438,7 +1478,7 @@ pub enum NetworkViewClientResponses {
         archival: bool,
     },
     /// Response to state request.
-    StateResponse(Box<StateResponseInfo>),
+    StateResponse(Box<VersionedStateResponseInfo>),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// Ban peer for malicious behavior.

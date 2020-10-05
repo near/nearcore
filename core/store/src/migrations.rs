@@ -23,6 +23,7 @@ use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::merkle::merklize;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::syncing::{ShardStateSyncResponseHeader, VersionedShardStateSyncResponseHeader};
 
 pub mod v6_to_v7;
 pub mod v8_to_v9;
@@ -300,6 +301,7 @@ pub fn migrate_12_to_13(path: &String) {
     map_col(&store, DBCol::ColPartialChunks, |pec: PartialEncodedChunk| VersionedPartialEncodedChunk::V1(pec)).unwrap();
     map_col(&store, DBCol::ColInvalidChunks, |chunk: EncodedShardChunk| VersionedEncodedShardChunk::V1(chunk)).unwrap();
     map_col(&store, DBCol::ColChunks, |chunk: ShardChunk| VersionedShardChunk::V1(chunk)).unwrap();
+    map_col(&store, DBCol::ColStateHeaders, |header: ShardStateSyncResponseHeader| VersionedShardStateSyncResponseHeader::V1(header)).unwrap();
 
     set_store_version(&store, 13);
 }

@@ -36,7 +36,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, VersionedShardChunkHeader, VersionedEncodedShardChunk};
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::syncing::{get_num_state_parts, VersionedShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
 };
@@ -1920,7 +1920,15 @@ fn test_catchup_gas_price_change() {
     let sync_hash = *blocks[5].hash();
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
     let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-    let state_root = state_sync_header.chunk.header.inner.prev_state_root;
+    let state_root = match &state_sync_header {
+        VersionedShardStateSyncResponseHeader::V1(header) => {
+            header.chunk.header.inner.prev_state_root
+        }
+        VersionedShardStateSyncResponseHeader::V2(header) => {
+            header.chunk.cloned_versioned_header().take_inner().prev_state_root
+        }
+    };
+    //let state_root = state_sync_header.chunk.header.inner.prev_state_root;
     let state_root_node =
         env.clients[0].runtime_adapter.get_state_root_node(0, &state_root).unwrap();
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
