@@ -2,12 +2,12 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Error, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use ethereum_types::{Address, U256};
+use ethereum_types::{Address, H160, U256};
 
 use near_vm_errors::EvmError;
 use near_vm_logic::VMLogicError;
 
-use crate::types::{RawAddress, Result};
+use crate::types::{DataKey, RawU256, Result};
 use crate::utils;
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -72,18 +72,18 @@ pub trait EvmState {
         Ok(nonce)
     }
 
-    fn _read_contract_storage(&self, key: [u8; 52]) -> Result<Option<[u8; 32]>>;
-    fn read_contract_storage(&self, address: &Address, key: [u8; 32]) -> Result<Option<[u8; 32]>> {
+    fn _read_contract_storage(&self, key: DataKey) -> Result<Option<RawU256>>;
+    fn read_contract_storage(&self, address: &Address, key: RawU256) -> Result<Option<RawU256>> {
         self._read_contract_storage(utils::internal_storage_key(address, key))
     }
 
-    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Result<()>;
+    fn _set_contract_storage(&mut self, key: DataKey, value: RawU256) -> Result<()>;
 
     fn set_contract_storage(
         &mut self,
         address: &Address,
-        key: [u8; 32],
-        value: [u8; 32],
+        key: RawU256,
+        value: RawU256,
     ) -> Result<()> {
         self._set_contract_storage(utils::internal_storage_key(address, key), value)
     }
@@ -118,27 +118,27 @@ pub trait EvmState {
         self.add_balance(recipient, amnt)
     }
 
-    fn recreate(&mut self, address: [u8; 20]);
+    fn recreate(&mut self, address: Address);
 }
 
 #[derive(Default, Debug)]
 pub struct StateStore {
-    pub code: HashMap<RawAddress, Vec<u8>>,
-    pub accounts: HashMap<RawAddress, EvmAccount>,
-    pub storages: BTreeMap<Vec<u8>, [u8; 32]>,
+    pub code: HashMap<Address, Vec<u8>>,
+    pub accounts: HashMap<Address, EvmAccount>,
+    pub storages: BTreeMap<Vec<u8>, RawU256>,
     pub logs: Vec<String>,
-    pub self_destructs: HashSet<[u8; 20]>,
-    pub recreated: HashSet<[u8; 20]>,
+    pub self_destructs: HashSet<Address>,
+    pub recreated: HashSet<Address>,
 }
 
 impl StateStore {
-    fn overwrite_storage(&mut self, addr: [u8; 20]) {
-        let address_key = addr.to_vec();
+    fn overwrite_storage(&mut self, addr: Address) {
+        let address_key = addr.0.to_vec();
         // If address in the last, use RangeFrom to remove all elements until the end.
-        let keys: Vec<_> = if addr == [255; 20] {
+        let keys: Vec<_> = if addr.0 == [255; 20] {
             self.storages.range(std::ops::RangeFrom { start: address_key })
         } else {
-            let next_address = utils::safe_next_address(&addr);
+            let next_address = utils::safe_next_address(&addr.0);
 
             let range = (
                 std::ops::Bound::Excluded(address_key),
@@ -154,63 +154,61 @@ impl StateStore {
         }
     }
 
-    pub fn commit_code(&mut self, other: &HashMap<[u8; 20], Vec<u8>>) {
+    pub fn commit_code(&mut self, other: &HashMap<Address, Vec<u8>>) {
         self.code.extend(other.iter().map(|(k, v)| (*k, v.clone())));
     }
 
-    pub fn commit_accounts(&mut self, other: &HashMap<[u8; 20], EvmAccount>) {
+    pub fn commit_accounts(&mut self, other: &HashMap<Address, EvmAccount>) {
         self.accounts.extend(other.iter().map(|(k, v)| (*k, *v)));
     }
 
-    pub fn commit_storages(&mut self, other: &BTreeMap<Vec<u8>, [u8; 32]>) {
+    pub fn commit_storages(&mut self, other: &BTreeMap<Vec<u8>, RawU256>) {
         self.storages.extend(other.iter().map(|(k, v)| (k.clone(), *v)))
     }
 
-    pub fn commit_self_destructs(&mut self, other: &HashSet<[u8; 20]>) {
+    pub fn commit_self_destructs(&mut self, other: &HashSet<Address>) {
         self.self_destructs.extend(other);
     }
 
-    pub fn commit_recreated(&mut self, other: &HashSet<[u8; 20]>) {
+    pub fn commit_recreated(&mut self, other: &HashSet<Address>) {
         self.recreated.extend(other);
     }
 }
 
 impl EvmState for StateStore {
     fn code_at(&self, address: &Address) -> Result<Option<Vec<u8>>> {
-        let internal_addr = utils::evm_account_to_internal_address(*address);
-        if self.self_destructs.contains(&internal_addr) {
+        if self.self_destructs.contains(address) {
             Ok(None)
         } else {
-            Ok(self.code.get(&internal_addr).cloned())
+            Ok(self.code.get(address).cloned())
         }
     }
 
     fn set_code(&mut self, address: &Address, bytecode: &[u8]) -> Result<()> {
-        let internal_addr = utils::evm_account_to_internal_address(*address);
-        self.code.insert(internal_addr, bytecode.to_vec());
+        self.code.insert(address.clone(), bytecode.to_vec());
         Ok(())
     }
 
     fn get_account(&self, address: &Address) -> Result<Option<EvmAccount>> {
-        Ok(self.accounts.get(&address.0).map(|account| account.clone()))
+        Ok(self.accounts.get(&address).map(|account| account.clone()))
     }
 
     fn set_account(&mut self, address: &Address, account: &EvmAccount) -> Result<()> {
-        self.accounts.insert(address.0, account.clone());
+        self.accounts.insert(address.clone(), account.clone());
         Ok(())
     }
 
-    fn _read_contract_storage(&self, key: [u8; 52]) -> Result<Option<[u8; 32]>> {
+    fn _read_contract_storage(&self, key: DataKey) -> Result<Option<RawU256>> {
         let mut addr = [0u8; 20];
         addr.copy_from_slice(&key[..20]);
-        if self.self_destructs.contains(&addr) {
+        if self.self_destructs.contains(&H160(addr)) {
             Ok(None)
         } else {
             Ok(self.storages.get(&key.to_vec()).cloned())
         }
     }
 
-    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Result<()> {
+    fn _set_contract_storage(&mut self, key: DataKey, value: RawU256) -> Result<()> {
         self.storages.insert(key.to_vec(), value);
         Ok(())
     }
@@ -225,7 +223,7 @@ impl EvmState for StateStore {
         Ok(())
     }
 
-    fn recreate(&mut self, addr: [u8; 20]) {
+    fn recreate(&mut self, addr: Address) {
         self.code.remove(&addr);
         // We do not remove account because balances persist across recreation.
         self.accounts.entry(addr).or_insert(EvmAccount::default()).nonce = U256::from(0);
@@ -251,7 +249,7 @@ impl SubState<'_> {
     }
 
     pub fn self_destruct(&mut self, address: &Address) -> Result<()> {
-        self.state.self_destructs.insert(address.0);
+        self.state.self_destructs.insert(address.clone());
         let mut account = self.get_account(address)?.unwrap_or_default();
         account.nonce = U256::from(0);
         self.state.set_account(address, &account)
@@ -260,20 +258,18 @@ impl SubState<'_> {
 
 impl EvmState for SubState<'_> {
     fn code_at(&self, address: &Address) -> Result<Option<Vec<u8>>> {
-        let internal_addr = utils::evm_account_to_internal_address(*address);
-        if self.state.self_destructs.contains(&internal_addr) {
+        if self.state.self_destructs.contains(address) {
             Ok(None)
         } else {
             self.state
                 .code
-                .get(&internal_addr)
+                .get(&address)
                 .map_or_else(|| self.parent.code_at(address), |k| Ok(Some(k.to_vec())))
         }
     }
 
     fn set_code(&mut self, address: &Address, bytecode: &[u8]) -> Result<()> {
-        let internal_addr = utils::evm_account_to_internal_address(*address);
-        self.state.code.insert(internal_addr, bytecode.to_vec());
+        self.state.code.insert(address.clone(), bytecode.to_vec());
         Ok(())
     }
 
@@ -287,10 +283,10 @@ impl EvmState for SubState<'_> {
         self.state.set_account(address, account)
     }
 
-    fn _read_contract_storage(&self, key: [u8; 52]) -> Result<Option<[u8; 32]>> {
+    fn _read_contract_storage(&self, key: DataKey) -> Result<Option<RawU256>> {
         let mut addr = [0u8; 20];
         addr.copy_from_slice(&key[..20]);
-        if self.state.self_destructs.contains(&addr) {
+        if self.state.self_destructs.contains(&H160(addr)) {
             Ok(None)
         } else {
             self.state
@@ -301,7 +297,7 @@ impl EvmState for SubState<'_> {
         }
     }
 
-    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Result<()> {
+    fn _set_contract_storage(&mut self, key: DataKey, value: RawU256) -> Result<()> {
         self.state.storages.insert(key.to_vec(), value);
         Ok(())
     }
@@ -316,7 +312,7 @@ impl EvmState for SubState<'_> {
         Ok(())
     }
 
-    fn recreate(&mut self, address: [u8; 20]) {
+    fn recreate(&mut self, address: Address) {
         self.state.recreate(address);
     }
 }
@@ -460,8 +456,8 @@ mod test {
         let mut top = StateStore::default();
         let mut address = [0; 20];
         address[19] = 255;
-        top.overwrite_storage(address);
-        top.overwrite_storage([255; 20]);
+        top.overwrite_storage(H160(address));
+        top.overwrite_storage(H160([255; 20]));
     }
 
     #[test]

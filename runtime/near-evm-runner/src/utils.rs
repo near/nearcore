@@ -27,20 +27,12 @@ pub fn internal_storage_key(address: &Address, key: [u8; 32]) -> [u8; 52] {
     k
 }
 
-pub fn evm_account_to_internal_address(addr: Address) -> [u8; 20] {
-    addr.0
-}
-
 pub fn near_account_bytes_to_evm_address(addr: &[u8]) -> Address {
     Address::from_slice(&keccak(addr)[12..])
 }
 
 pub fn near_account_id_to_evm_address(account_id: &str) -> Address {
     near_account_bytes_to_evm_address(&account_id.to_string().into_bytes())
-}
-
-pub fn near_account_id_to_internal_address(account_id: &str) -> [u8; 20] {
-    evm_account_to_internal_address(near_account_id_to_evm_address(account_id))
 }
 
 pub fn hex_to_evm_address(address: &str) -> Address {

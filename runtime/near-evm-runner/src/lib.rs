@@ -97,10 +97,10 @@ impl<'a> EvmState for EvmContext<'a> {
             self.clear_contract_info(address)?;
         }
         for (address, code) in other.code.iter() {
-            self.set_code(&H160(*address), code)?;
+            self.set_code(address, code)?;
         }
         for (address, account) in other.accounts.iter() {
-            self.set_account(&H160(*address), account)?;
+            self.set_account(address, account)?;
         }
         for (key, value) in other.storages.iter() {
             let mut arr = [0; 52];
@@ -111,7 +111,7 @@ impl<'a> EvmState for EvmContext<'a> {
         Ok(())
     }
 
-    fn recreate(&mut self, _address: [u8; 20]) {
+    fn recreate(&mut self, _address: Address) {
         unreachable!()
     }
 }
@@ -159,8 +159,8 @@ impl<'a> EvmContext<'a> {
         }
     }
 
-    fn clear_contract_info(&mut self, other: &[u8; 20]) -> Result<()> {
-        self.ext.storage_remove_subtree(other)
+    fn clear_contract_info(&mut self, other: &Address) -> Result<()> {
+        self.ext.storage_remove_subtree(&other.0)
     }
 
     pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
