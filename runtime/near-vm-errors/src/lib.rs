@@ -200,6 +200,8 @@ pub enum EvmError {
     InvalidNonce,
     /// Invalid sub EVM account.
     InvalidSubAccount,
+    /// Won't withdraw to itself.
+    FailSelfWithdraw,
     /// Too small NEAR deposit.
     InsufficientDeposit,
     /// `OutOfGas` is returned when transaction execution runs out of gas.

@@ -95,12 +95,12 @@ impl<'a> vm::Ext for NearExt<'a> {
 
     // TODO: research why these are different
     fn exists(&self, address: &Address) -> EvmResult<bool> {
-        Ok(self.sub_state.balance_of(address).unwrap_or_else(|_| U256::from(0)) > U256::from(0)
+        Ok(self.sub_state.balance_of(address).unwrap_or_else(|_| U256::zero()) > U256::zero()
             || self.sub_state.code_at(address).unwrap_or(None).is_some())
     }
 
     fn exists_and_not_null(&self, address: &Address) -> EvmResult<bool> {
-        Ok(self.sub_state.balance_of(address).unwrap_or_else(|_| U256::from(0)) > 0.into()
+        Ok(self.sub_state.balance_of(address).unwrap_or_else(|_| U256::zero()) > 0.into()
             || self.sub_state.code_at(address).unwrap_or(None).is_some())
     }
 
@@ -109,11 +109,16 @@ impl<'a> vm::Ext for NearExt<'a> {
     }
 
     fn balance(&self, address: &Address) -> EvmResult<U256> {
-        let account = self.sub_state.get_account(address).unwrap_or(None).unwrap_or_default();
-        Ok(account.balance.into())
+        Ok(self
+            .sub_state
+            .get_account(address)
+            .unwrap_or(None)
+            .map(|account| account.balance.into())
+            .unwrap_or(U256::zero()))
     }
 
     fn blockhash(&mut self, number: &U256) -> H256 {
+        // TODO(3456): Return actual block hashes.
         let mut buf = [0u8; 32];
         number.to_big_endian(&mut buf);
         keccak(&buf[..])
@@ -219,8 +224,8 @@ impl<'a> vm::Ext for NearExt<'a> {
                     VMLogicError::EvmError(EvmError::Revert(encoded_message)) => {
                         hex::decode(encoded_message).unwrap_or(vec![])
                     }
-                    // TODO: this is potentially error prone if there are non runtime errors here, but we can only return vector here.
-                    _ => format!("{:?}", err).as_bytes().to_vec(),
+                    // TODO(3455): Pass errors indirectly via state of the object.
+                    _ => vec![],
                 };
                 let message_len = message.len();
                 // TODO: gas usage.

@@ -1,15 +1,16 @@
 use std::io::Write;
 
 use byteorder::WriteBytesExt;
-use ethereum_types::{Address, H256, U256};
+use ethereum_types::{Address, H160, H256, U256};
 use keccak_hash::keccak;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vm::CreateContractAddress;
 
+use crate::types::{DataKey, RawAddress, RawHash, RawU256};
 use near_vm_logic::types::AccountId;
 
-pub fn safe_next_address(addr: &[u8; 20]) -> [u8; 20] {
-    let mut expanded_addr = [0u8; 32];
+pub fn saturating_next_address(addr: &RawAddress) -> RawAddress {
+    let mut expanded_addr = [255u8; 32];
     expanded_addr[12..].copy_from_slice(addr);
     let mut result = [0u8; 32];
     U256::from_big_endian(&expanded_addr)
@@ -20,7 +21,7 @@ pub fn safe_next_address(addr: &[u8; 20]) -> [u8; 20] {
     address
 }
 
-pub fn internal_storage_key(address: &Address, key: [u8; 32]) -> [u8; 52] {
+pub fn internal_storage_key(address: &Address, key: RawU256) -> DataKey {
     let mut k = [0u8; 52];
     k[..20].copy_from_slice(address.as_ref());
     k[20..].copy_from_slice(&key);
@@ -32,12 +33,7 @@ pub fn near_account_bytes_to_evm_address(addr: &[u8]) -> Address {
 }
 
 pub fn near_account_id_to_evm_address(account_id: &str) -> Address {
-    near_account_bytes_to_evm_address(&account_id.to_string().into_bytes())
-}
-
-pub fn hex_to_evm_address(address: &str) -> Address {
-    let addr = hex::decode(&address).expect("Hex string not valid hex");
-    Address::from_slice(&addr)
+    near_account_bytes_to_evm_address(&account_id.as_bytes().to_vec())
 }
 
 pub fn encode_call_function_args(address: Address, input: Vec<u8>) -> Vec<u8> {
@@ -45,6 +41,21 @@ pub fn encode_call_function_args(address: Address, input: Vec<u8>) -> Vec<u8> {
     result.extend_from_slice(&address.0);
     result.extend_from_slice(&input);
     result
+}
+
+pub fn split_data_key(key: &DataKey) -> (Address, RawU256) {
+    let mut addr = [0u8; 20];
+    addr.copy_from_slice(&key[..20]);
+    let mut subkey = [0u8; 32];
+    subkey.copy_from_slice(&key[20..]);
+    (H160(addr), subkey)
+}
+
+pub fn combine_data_key(addr: &Address, subkey: &RawU256) -> DataKey {
+    let mut key = [0u8; 52];
+    key[..20].copy_from_slice(&addr.0);
+    key[20..52].copy_from_slice(subkey);
+    key
 }
 
 pub fn encode_view_call_function_args(
@@ -68,7 +79,7 @@ pub fn address_from_arr(arr: &[u8]) -> Address {
     Address::from(address)
 }
 
-pub fn u256_to_arr(val: &U256) -> [u8; 32] {
+pub fn u256_to_arr(val: &U256) -> RawU256 {
     let mut result = [0u8; 32];
     val.to_big_endian(&mut result);
     result
@@ -78,7 +89,7 @@ pub fn address_to_vec(val: &Address) -> Vec<u8> {
     val.to_fixed_bytes().to_vec()
 }
 
-pub fn vec_to_arr_32(v: Vec<u8>) -> Option<[u8; 32]> {
+pub fn vec_to_arr_32(v: Vec<u8>) -> Option<RawU256> {
     if v.len() != 32 {
         return None;
     }
@@ -174,7 +185,7 @@ pub fn format_log(topics: Vec<H256>, data: &[u8]) -> std::result::Result<Vec<u8>
     Ok(result)
 }
 
-pub fn near_erc721_domain(chain_id: U256) -> [u8; 32] {
+pub fn near_erc721_domain(chain_id: U256) -> RawU256 {
     let mut bytes = Vec::with_capacity(70);
     bytes.extend_from_slice(
         &keccak("EIP712Domain(string name,string version,uint256 chainId)".as_bytes()).as_bytes(),
@@ -186,11 +197,11 @@ pub fn near_erc721_domain(chain_id: U256) -> [u8; 32] {
 }
 
 pub fn prepare_meta_call_args(
-    domain_separator: &[u8; 32],
+    domain_separator: &RawU256,
     account_id: &AccountId,
     nonce: U256,
     args: &[u8],
-) -> [u8; 32] {
+) -> RawU256 {
     let mut bytes = Vec::with_capacity(32 + account_id.len() + args.len());
     bytes.extend_from_slice(
         &keccak(
@@ -202,7 +213,7 @@ pub fn prepare_meta_call_args(
     bytes.extend_from_slice(account_id.as_bytes());
     bytes.extend_from_slice(&u256_to_arr(&nonce));
     bytes.extend_from_slice(args);
-    let message: [u8; 32] = keccak(&bytes).into();
+    let message: RawU256 = keccak(&bytes).into();
     let mut bytes = Vec::with_capacity(2 + 32 + 32);
     bytes.extend_from_slice(&[0x19, 0x01]);
     bytes.extend_from_slice(domain_separator);
@@ -212,7 +223,7 @@ pub fn prepare_meta_call_args(
 
 /// Given signature and data, validates that signature is valid for given data and returns ecrecover address.
 /// If signature is invalid or doesn't match, returns 0x0 address.
-pub fn ecrecover_address(hash: &[u8; 32], signature: &[u8; 96]) -> Address {
+pub fn ecrecover_address(hash: &RawHash, signature: &[u8; 96]) -> Address {
     use sha3::Digest;
 
     let hash = secp256k1::Message::parse(&H256::from_slice(hash).0);

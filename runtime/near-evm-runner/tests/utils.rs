@@ -46,6 +46,8 @@ pub fn create_context<'a>(
     )
 }
 
+/// Linter is suboptimal, because doesn't see that this is used in standard_ops.rs.
+#[allow(dead_code)]
 pub fn public_key_to_address(public_key: PublicKey) -> Address {
     match public_key {
         PublicKey::ED25519(_) => panic!("Wrong PublicKey"),
@@ -59,6 +61,8 @@ pub fn public_key_to_address(public_key: PublicKey) -> Address {
     }
 }
 
+/// Linter is suboptimal, because doesn't see that this is used in standard_ops.rs.
+#[allow(dead_code)]
 pub fn encode_meta_call_function_args(
     signer: &dyn Signer,
     chain_id: u128,
