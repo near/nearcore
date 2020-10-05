@@ -835,7 +835,7 @@ impl ClientActor {
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
                             self.client.shards_mgr.request_chunks(
-                                missing_chunks.into_iter().map(ShardChunkHeader::lift),
+                                missing_chunks,
                                 &self.client.chain.header_head().expect("header_head must be available when processing newly produced block").last_block_hash,
                             );
                             Ok(())
@@ -955,7 +955,7 @@ impl ClientActor {
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
                     self.client.shards_mgr.request_chunks(
-                        missing_chunks.into_iter().map(ShardChunkHeader::lift),
+                        missing_chunks,
                         &self
                             .client
                             .chain
@@ -1282,7 +1282,7 @@ impl ClientActor {
                                 .write()
                                 .unwrap()
                                 .drain(..)
-                                .flat_map(|missing_chunks| missing_chunks.into_iter().map(ShardChunkHeader::lift)),
+                                .flatten(),
                             &self
                                 .client
                                 .chain

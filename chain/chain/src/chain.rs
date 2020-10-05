@@ -33,10 +33,7 @@ use near_primitives::merkle::{
     combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
 };
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo,
-    ShardProof, StateSyncInfo,
-};
+use near_primitives::sharding::{ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo, VersionedShardChunk, VersionedShardChunkHeader};
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
     ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
@@ -279,7 +276,7 @@ impl Chain {
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
                     for chunk in genesis_chunks {
-                        store_update.save_chunk(chunk.clone().downgrade());
+                        store_update.save_chunk(chunk.clone());
                     }
                     runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
                         &genesis.header(),
@@ -693,7 +690,7 @@ impl Chain {
     ) -> Result<Option<Tip>, Error>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(Vec<VersionedShardChunkHeader>) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let block_hash = *block.hash();
@@ -922,7 +919,7 @@ impl Chain {
     ) -> Result<(), Error>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(Vec<VersionedShardChunkHeader>) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         // Get header we were syncing into.
@@ -994,7 +991,7 @@ impl Chain {
     ) -> Result<Option<Tip>, Error>
     where
         F: FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(Vec<VersionedShardChunkHeader>) -> (),
         F3: FnMut(ChallengeBody) -> (),
     {
         near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
@@ -1151,7 +1148,7 @@ impl Chain {
         on_challenge: F3,
     ) where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(Vec<VersionedShardChunkHeader>) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let mut new_blocks_accepted = vec![];
@@ -1200,7 +1197,7 @@ impl Chain {
     ) -> Option<Tip>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(Vec<VersionedShardChunkHeader>) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let mut queue = vec![prev_hash];
@@ -1313,7 +1310,7 @@ impl Chain {
         );
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
-        let chunk = self.get_chunk_clone_from_header(&chunk_header.clone().downgrade())?;
+        let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
         let chunk_proof = chunk_proofs[shard_id as usize].clone();
         let block_header =
             self.get_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?.clone();
@@ -1404,7 +1401,7 @@ impl Chain {
             .get_state_root_node(shard_id, &chunk_header.prev_state_root())?;
 
         let shard_state_header = ShardStateSyncResponseHeader {
-            chunk,
+            chunk: chunk.downgrade(),
             chunk_proof,
             prev_chunk_header: prev_chunk_header.map(|h| h.downgrade()),
             prev_chunk_proof,
@@ -1753,7 +1750,7 @@ impl Chain {
     ) -> Result<(), Error>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(Vec<VersionedShardChunkHeader>) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         debug!("Catching up blocks after syncing pre {:?}, me: {:?}", epoch_first_block, me);
@@ -2187,7 +2184,7 @@ impl Chain {
 
     /// Gets a chunk from hash.
     #[inline]
-    pub fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
+    pub fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&VersionedShardChunk, Error> {
         self.store.get_chunk(chunk_hash)
     }
 
@@ -2195,8 +2192,8 @@ impl Chain {
     #[inline]
     pub fn get_chunk_clone_from_header(
         &mut self,
-        header: &ShardChunkHeader,
-    ) -> Result<ShardChunk, Error> {
+        header: &VersionedShardChunkHeader,
+    ) -> Result<VersionedShardChunk, Error> {
         self.store.get_chunk_clone_from_header(header)
     }
 
@@ -2485,7 +2482,7 @@ impl<'a> ChainUpdate<'a> {
                 let chunk_proof = ChunkProofs {
                     block_header: block.header().try_to_vec().expect("Failed to serialize"),
                     merkle_proof: merkle_paths[shard_id].clone(),
-                    chunk: MaybeEncodedShardChunk::Encoded(encoded_chunk.clone()),
+                    chunk: MaybeEncodedShardChunk::Encoded(encoded_chunk.clone().downgrade()),
                 };
                 return Err(ErrorKind::InvalidChunkProofs(Box::new(chunk_proof)).into());
             }
@@ -2515,7 +2512,7 @@ impl<'a> ChainUpdate<'a> {
             }
         }
         if !missing.is_empty() {
-            return Err(ErrorKind::ChunksMissing(missing.into_iter().map(|h| h.downgrade()).collect()).into());
+            return Err(ErrorKind::ChunksMissing(missing).into());
         }
         Ok(())
     }
@@ -2535,7 +2532,7 @@ impl<'a> ChainUpdate<'a> {
             if chunk_header.height_included() == height {
                 let partial_encoded_chunk =
                     self.chain_store_update.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-                for receipt in partial_encoded_chunk.receipts.iter() {
+                for receipt in partial_encoded_chunk.receipts().iter() {
                     let ReceiptProof(_, shard_proof) = receipt;
                     let ShardProof { from_shard_id: _, to_shard_id, proof: _ } = shard_proof;
                     receipt_proofs_by_shard_id
@@ -2569,7 +2566,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_chunk = self
             .chain_store_update
             .get_chain_store()
-            .get_chunk_clone_from_header(&prev_block.chunks()[chunk_header.inner.shard_id as usize].clone().downgrade())
+            .get_chunk_clone_from_header(&prev_block.chunks()[chunk_header.inner.shard_id as usize].clone())
             .unwrap();
         let receipt_proof_response: Vec<ReceiptProofResponse> =
             self.chain_store_update.get_incoming_receipts_for_shard(
@@ -2585,20 +2582,21 @@ impl<'a> ChainUpdate<'a> {
             block.header().prev_hash(),
             Some(&block.hash()),
         )?;
+        let prev_chunk_inner = prev_chunk.cloned_versioned_header().take_inner();
         let apply_result = self
             .runtime_adapter
             .apply_transactions_with_optional_storage_proof(
                 chunk_header.inner.shard_id,
-                &prev_chunk.header.inner.prev_state_root,
-                prev_chunk.header.height_included,
+                &prev_chunk_inner.prev_state_root,
+                prev_chunk.height_included(),
                 prev_block.header().raw_timestamp(),
-                &prev_chunk.header.inner.prev_block_hash,
+                &prev_chunk_inner.prev_block_hash,
                 &prev_block.hash(),
                 &receipts,
-                &prev_chunk.transactions,
-                &prev_chunk.header.inner.validator_proposals,
+                prev_chunk.transactions(),
+                &prev_chunk_inner.validator_proposals,
                 prev_block.header().gas_price(),
-                prev_chunk.header.inner.gas_limit,
+                prev_chunk_inner.gas_limit,
                 &challenges_result,
                 *block.header().random_value(),
                 true,
@@ -2610,7 +2608,7 @@ impl<'a> ChainUpdate<'a> {
             block_header: block.header().try_to_vec()?,
             prev_merkle_proof: prev_merkle_proofs[chunk_header.inner.shard_id as usize].clone(),
             merkle_proof: merkle_proofs[chunk_header.inner.shard_id as usize].clone(),
-            prev_chunk,
+            prev_chunk: prev_chunk.downgrade(),
             chunk_header: chunk_header.clone(),
             partial_state,
         })
@@ -2695,37 +2693,38 @@ impl<'a> ChainUpdate<'a> {
                     let receipts = collect_receipts_from_response(&receipt_proof_response);
 
                     let chunk =
-                        self.chain_store_update.get_chunk_clone_from_header(&chunk_header.clone().downgrade())?;
+                        self.chain_store_update.get_chunk_clone_from_header(&chunk_header.clone())?;
 
-                    if !validate_transactions_order(&chunk.transactions) {
+                    if !validate_transactions_order(chunk.transactions()) {
                         let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
                         let chunk_proof = ChunkProofs {
                             block_header: block.header().try_to_vec().expect("Failed to serialize"),
                             merkle_proof: merkle_paths[shard_id as usize].clone(),
-                            chunk: MaybeEncodedShardChunk::Decoded(chunk),
+                            chunk: MaybeEncodedShardChunk::Decoded(chunk.downgrade()),
                         };
                         return Err(Error::from(ErrorKind::InvalidChunkProofs(Box::new(
                             chunk_proof,
                         ))));
                     }
 
-                    let gas_limit = chunk.header.inner.gas_limit;
+                    let chunk_inner = chunk.cloned_versioned_header().take_inner();
+                    let gas_limit = chunk_inner.gas_limit;
 
                     // Apply transactions and receipts.
                     let apply_result = self
                         .runtime_adapter
                         .apply_transactions(
                             shard_id,
-                            &chunk.header.inner.prev_state_root,
+                            &chunk_inner.prev_state_root,
                             chunk_header.height_included(),
                             block.header().raw_timestamp(),
                             &chunk_header.prev_block_hash(),
                             &block.hash(),
                             &receipts,
-                            &chunk.transactions,
-                            &chunk.header.inner.validator_proposals,
+                            chunk.transactions(),
+                            &chunk_inner.validator_proposals,
                             prev_block.header().gas_price(),
-                            chunk.header.inner.gas_limit,
+                            gas_limit,
                             &block.header().challenges_result(),
                             *block.header().random_value(),
                         )
@@ -3414,7 +3413,7 @@ impl<'a> ChainUpdate<'a> {
         let (outcome_root, outcome_proofs) =
             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
 
-        self.chain_store_update.save_chunk(chunk.clone());
+        self.chain_store_update.save_chunk(chunk.clone().lift());
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(

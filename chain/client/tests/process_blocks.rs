@@ -1993,7 +1993,7 @@ fn test_block_execution_outcomes() {
     }
     let block = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
     let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
-    assert_eq!(chunk.transactions.len(), 3);
+    assert_eq!(chunk.transactions().len(), 3);
     let execution_outcomes_from_block =
         env.clients[0].chain.get_block_execution_outcomes(block.hash()).unwrap();
     assert_eq!(execution_outcomes_from_block.len(), 5);
@@ -2008,8 +2008,8 @@ fn test_block_execution_outcomes() {
     // Make sure the chunk outcomes contain the outcome from the delayed receipt.
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap().clone();
-    assert!(next_chunk.transactions.is_empty());
-    assert!(next_chunk.receipts.is_empty());
+    assert!(next_chunk.transactions().is_empty());
+    assert!(next_chunk.receipts().is_empty());
     let execution_outcomes_from_block =
         env.clients[0].chain.get_block_execution_outcomes(next_block.hash()).unwrap();
     assert_eq!(execution_outcomes_from_block.len(), 1);

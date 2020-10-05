@@ -5,7 +5,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardProof, VersionedEncodedShardChunk, VersionedPartialEncodedChunk};
+use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardProof, VersionedEncodedShardChunk, VersionedPartialEncodedChunk, VersionedShardChunk};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
@@ -260,4 +260,46 @@ pub fn migrate_11_to_12(path: &String) {
             .map(|rx| (rx.receipt_id, rx.try_to_vec().unwrap())),
     );
     set_store_version(&store, 12);
+}
+
+fn map_col<T, U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
+where
+    T: BorshDeserialize,
+    U: BorshSerialize,
+    F: Fn(T) -> U,
+{
+    let mut store_update = store.store_update();
+    let batch_size_limit = 10_000_000;
+    let mut batch_size = 0;
+    let keys: Vec<_> = store.iter(col).map(|(key, _)| key).collect();
+    for key in keys {
+        let value: T = store.get_ser(col, key.as_ref())?.unwrap();
+        let new_value = f(value);
+        let new_bytes = new_value.try_to_vec()?;
+        batch_size += key.as_ref().len() + new_bytes.len() + 8;
+        store_update.set_ser(col, key.as_ref(), &new_bytes)?;
+
+        if batch_size > batch_size_limit {
+            store_update.commit()?;
+            store_update = store.store_update();
+            batch_size = 0;
+        }
+    }
+
+    if batch_size > 0 {
+        store_update.commit()?;
+    }
+
+    Ok(())
+}
+
+/// Lift all chunks to the versioned structure
+pub fn migrate_12_to_13(path: &String) {
+    let store = create_store(path);
+
+    map_col(&store, DBCol::ColPartialChunks, |pec: PartialEncodedChunk| VersionedPartialEncodedChunk::V1(pec)).unwrap();
+    map_col(&store, DBCol::ColInvalidChunks, |chunk: EncodedShardChunk| VersionedEncodedShardChunk::V1(chunk)).unwrap();
+    map_col(&store, DBCol::ColChunks, |chunk: ShardChunk| VersionedShardChunk::V1(chunk)).unwrap();
+
+    set_store_version(&store, 13);
 }

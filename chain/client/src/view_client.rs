@@ -524,14 +524,15 @@ impl Handler<GetChunk> for ViewClientActor {
             }
         }
         .and_then(|chunk| {
+            let chunk_inner = chunk.cloned_versioned_header().take_inner();
             let epoch_id = self
                 .runtime_adapter
-                .get_epoch_id_from_prev_block(&chunk.header.inner.prev_block_hash)?;
+                .get_epoch_id_from_prev_block(&chunk_inner.prev_block_hash)?;
             self.runtime_adapter
                 .get_chunk_producer(
                     &epoch_id,
-                    chunk.header.inner.height_created,
-                    chunk.header.inner.shard_id,
+                    chunk_inner.height_created,
+                    chunk_inner.shard_id,
                 )
                 .map(|author| ChunkView::from_author_chunk(author, chunk))
         })

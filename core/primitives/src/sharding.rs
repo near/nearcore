@@ -175,78 +175,78 @@ pub enum VersionedShardChunkHeader {
 impl VersionedShardChunkHeader {
     pub fn take_inner(self) -> ShardChunkHeaderInner {
         match self {
-            VersionedShardChunkHeader::V1(header) => header.inner,
-            VersionedShardChunkHeader::V2(header) => header.inner,
+            Self::V1(header) => header.inner,
+            Self::V2(header) => header.inner,
         }
     }
 
     pub fn height_created(&self) -> BlockHeight {
-        match &self {
-            VersionedShardChunkHeader::V1(header) => header.inner.height_created,
-            VersionedShardChunkHeader::V2(header) => header.inner.height_created,
+        match self {
+            Self::V1(header) => header.inner.height_created,
+            Self::V2(header) => header.inner.height_created,
         }
     }
 
     pub fn signature(&self) -> &Signature {
-        match &self {
-            VersionedShardChunkHeader::V1(header) => &header.signature,
-            VersionedShardChunkHeader::V2(header) => &header.signature,
+        match self {
+            Self::V1(header) => &header.signature,
+            Self::V2(header) => &header.signature,
         }
     }
 
     pub fn height_included(&self) -> BlockHeight {
-        match &self {
-            VersionedShardChunkHeader::V1(header) => header.height_included,
-            VersionedShardChunkHeader::V2(header) => header.height_included,
+        match self {
+            Self::V1(header) => header.height_included,
+            Self::V2(header) => header.height_included,
         }
     }
 
     pub fn height_included_mut(&mut self) -> &mut BlockHeight {
         match self {
-            VersionedShardChunkHeader::V1(header) => &mut header.height_included,
-            VersionedShardChunkHeader::V2(header) => &mut header.height_included,
+            Self::V1(header) => &mut header.height_included,
+            Self::V2(header) => &mut header.height_included,
         }
     }
 
     pub fn validator_proposals(&self) -> &[ValidatorStake] {
         match self {
-            VersionedShardChunkHeader::V1(header) => &header.inner.validator_proposals,
-            VersionedShardChunkHeader::V2(header) => &header.inner.validator_proposals,
+            Self::V1(header) => &header.inner.validator_proposals,
+            Self::V2(header) => &header.inner.validator_proposals,
         }
     }
 
     pub fn prev_state_root(&self) -> StateRoot {
-        match &self {
-            VersionedShardChunkHeader::V1(header) => header.inner.prev_state_root,
-            VersionedShardChunkHeader::V2(header) => header.inner.prev_state_root,
+        match self {
+            Self::V1(header) => header.inner.prev_state_root,
+            Self::V2(header) => header.inner.prev_state_root,
         }
     }
 
     pub fn prev_block_hash(&self) -> CryptoHash {
-        match &self {
-            VersionedShardChunkHeader::V1(header) => header.inner.prev_block_hash,
-            VersionedShardChunkHeader::V2(header) => header.inner.prev_block_hash,
+        match self {
+            Self::V1(header) => header.inner.prev_block_hash,
+            Self::V2(header) => header.inner.prev_block_hash,
         }
     }
 
     pub fn encoded_merkle_root(&self) -> CryptoHash {
-        match &self {
-            VersionedShardChunkHeader::V1(header) => header.inner.encoded_merkle_root,
-            VersionedShardChunkHeader::V2(header) => header.inner.encoded_merkle_root,
+        match self {
+            Self::V1(header) => header.inner.encoded_merkle_root,
+            Self::V2(header) => header.inner.encoded_merkle_root,
         }
     }
 
     pub fn shard_id(&self) -> ShardId {
-        match &self {
-            VersionedShardChunkHeader::V1(header) => header.inner.shard_id,
-            VersionedShardChunkHeader::V2(header) => header.inner.shard_id,
+        match self {
+            Self::V1(header) => header.inner.shard_id,
+            Self::V2(header) => header.inner.shard_id,
         }
     }
 
     pub fn encoded_length(&self) -> u64 {
-        match &self {
-            VersionedShardChunkHeader::V1(header) => header.inner.encoded_length,
-            VersionedShardChunkHeader::V2(header) => header.inner.encoded_length,
+        match self {
+            Self::V1(header) => header.inner.encoded_length,
+            Self::V2(header) => header.inner.encoded_length,
         }
     }
 
@@ -393,10 +393,24 @@ impl VersionedPartialEncodedChunk {
         }
     }
 
+    pub fn chunk_hash(&self) -> ChunkHash {
+        match self {
+            Self::V1(chunk) => chunk.header.hash.clone(),
+            Self::V2(chunk) => chunk.header.chunk_hash(),
+        }
+    }
+
     pub fn parts(&self) -> &Vec<PartialEncodedChunkPart> {
         match self {
             Self::V1(chunk) => &chunk.parts,
             Self::V2(chunk) => &chunk.parts,
+        }
+    }
+
+    pub fn receipts(&self) -> &Vec<ReceiptProof> {
+        match self {
+            Self::V1(chunk) => &chunk.receipts,
+            Self::V2(chunk) => &chunk.receipts,
         }
     }
 
@@ -530,6 +544,13 @@ impl VersionedShardChunk {
         }
     }
 
+    pub fn height_included(&self) -> BlockHeight {
+        match self {
+            Self::V1(chunk) => chunk.header.height_included,
+            Self::V2(chunk) => chunk.header.height_included(),
+        }
+    }
+
     pub fn chunk_hash(&self) -> ChunkHash {
         match self {
             Self::V1(chunk) => chunk.chunk_hash.clone(),
@@ -544,7 +565,7 @@ impl VersionedShardChunk {
         }
     }
 
-    pub fn transactions(&self) -> &[SignedTransaction] {
+    pub fn transactions(&self) -> &Vec<SignedTransaction> {
         match self {
             Self::V1(chunk) => &chunk.transactions,
             Self::V2(chunk) => &chunk.transactions,

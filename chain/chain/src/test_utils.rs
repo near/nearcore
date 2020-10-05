@@ -1092,8 +1092,8 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             format_hash(chunk_header.chunk_hash().0),
                             chunk_header.shard_id(),
                             chunk_producer,
-                            chunk.transactions.len(),
-                            chunk.receipts.len()
+                            chunk.transactions().len(),
+                            chunk.receipts().len()
                         );
                     } else if let Ok(partial_chunk) =
                         chain_store.get_partial_chunk(&chunk_header.chunk_hash())
@@ -1104,9 +1104,9 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             format_hash(chunk_header.chunk_hash().0),
                             chunk_header.shard_id(),
                             chunk_producer,
-                            partial_chunk.parts.iter().map(|x| x.part_ord).collect::<Vec<_>>(),
+                            partial_chunk.parts().iter().map(|x| x.part_ord).collect::<Vec<_>>(),
                             partial_chunk
-                                .receipts
+                                .receipts()
                                 .iter()
                                 .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
                                 .collect::<Vec<_>>(),

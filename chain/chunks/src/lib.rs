@@ -23,7 +23,7 @@ use near_primitives::block::BlockHeader;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner, ShardProof, PartialEncodedChunkV2, VersionedShardChunkHeader, VersionedEncodedShardChunk};
+use near_primitives::sharding::{ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner, ShardProof, PartialEncodedChunkV2, VersionedShardChunkHeader, VersionedEncodedShardChunk, VersionedPartialEncodedChunk};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
@@ -834,7 +834,7 @@ impl ShardsManager {
             // references are used in this index, we will only clone the requested parts, not
             // all of them.
             let present_parts: HashMap<u64, _> =
-                partial_chunk.parts.iter().map(|part| (part.part_ord, part)).collect();
+                partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
             // Create an iterator which _might_ contain the request parts. Again, we are
             // using the laziness of iterators for efficiency.
             let parts_iter =
@@ -842,7 +842,7 @@ impl ShardsManager {
 
             // Same process for receipts as above for parts.
             let present_receipts: HashMap<ShardId, _> = partial_chunk
-                .receipts
+                .receipts()
                 .iter()
                 .map(|receipt| (receipt.1.to_shard_id, receipt))
                 .collect();
@@ -1288,40 +1288,45 @@ impl ShardsManager {
             true,
         );
         let prev_block_hash = chunk_entry.header.prev_block_hash();
-        let partial_chunk = PartialEncodedChunk {
-            header: chunk_entry.header.clone().downgrade(),
-            parts: chunk_entry
-                .parts
-                .iter()
-                .filter_map(|(part_ord, part_entry)| {
-                    if cares_about_shard
-                        || self.need_part(&prev_block_hash, *part_ord).unwrap_or(false)
-                    {
+        let parts = chunk_entry
+            .parts
+            .iter()
+            .filter_map(|(part_ord, part_entry)| {
+                if cares_about_shard
+                    || self.need_part(&prev_block_hash, *part_ord).unwrap_or(false)
+                {
+                    Some(part_entry.clone())
+                } else if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
+                    if need_part {
                         Some(part_entry.clone())
-                    } else if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
-                        if need_part {
-                            Some(part_entry.clone())
-                        } else {
-                            None
-                        }
                     } else {
                         None
                     }
-                })
-                .collect(),
-            receipts: chunk_entry
-                .receipts
-                .iter()
-                .filter_map(|(shard_id, receipt)| {
-                    if cares_about_shard || self.need_receipt(&prev_block_hash, *shard_id) {
-                        Some(receipt.clone())
-                    } else if self.need_receipt(&prev_block_hash, *shard_id) {
-                        Some(receipt.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let receipts = chunk_entry
+            .receipts
+            .iter()
+            .filter_map(|(shard_id, receipt)| {
+                if cares_about_shard || self.need_receipt(&prev_block_hash, *shard_id) {
+                    Some(receipt.clone())
+                } else if self.need_receipt(&prev_block_hash, *shard_id) {
+                    Some(receipt.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let partial_chunk = match chunk_entry.header.clone() {
+            VersionedShardChunkHeader::V1(header) => VersionedPartialEncodedChunk::V1(PartialEncodedChunk{
+                header, parts, receipts,
+            }),
+            header @ VersionedShardChunkHeader::V2(_) => VersionedPartialEncodedChunk::V2(PartialEncodedChunkV2{
+                header, parts, receipts,
+            })
         };
 
         store_update.save_partial_chunk(partial_chunk);
@@ -1356,7 +1361,7 @@ impl ShardsManager {
             );
 
             // Decoded a valid chunk, store it in the permanent store
-            store_update.save_chunk(shard_chunk.downgrade());
+            store_update.save_chunk(shard_chunk);
             store_update.commit()?;
 
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
@@ -1365,7 +1370,7 @@ impl ShardsManager {
         } else {
             // Can't decode chunk or has invalid proofs, ignore it
             error!(target: "chunks", "Reconstructed, but failed to decoded chunk {}, I'm {:?}", chunk_hash.0, self.me);
-            store_update.save_invalid_chunk(encoded_chunk.downgrade());
+            store_update.save_invalid_chunk(encoded_chunk);
             store_update.commit()?;
             self.encoded_chunks.remove(&chunk_hash);
             self.requested_partial_encoded_chunks.remove(&chunk_hash);

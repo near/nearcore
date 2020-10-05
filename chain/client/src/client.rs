@@ -176,7 +176,7 @@ impl Client {
                     self.shards_mgr.remove_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
-                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
+                        self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
                     );
                 }
             }
@@ -199,7 +199,7 @@ impl Client {
                     self.shards_mgr.reintroduce_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
-                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
+                        self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
                     );
                 }
             }
@@ -680,7 +680,7 @@ impl Client {
                 .write()
                 .unwrap()
                 .drain(..)
-                .flat_map(|missing_chunks| missing_chunks.into_iter().map(ShardChunkHeader::lift)),
+                .flatten(),
             &self
                 .chain
                 .header_head()
@@ -1009,7 +1009,7 @@ impl Client {
                 .write()
                 .unwrap()
                 .drain(..)
-                .flat_map(|missing_chunks| missing_chunks.into_iter().map(ShardChunkHeader::lift)),
+                .flatten(),
             &self
                 .chain
                 .header_head()
@@ -1414,7 +1414,7 @@ impl Client {
                             .write()
                             .unwrap()
                             .drain(..)
-                            .flat_map(|missing_chunks| missing_chunks.into_iter().map(ShardChunkHeader::lift)),
+                            .flatten(),
                         &self.chain.header_head()?.last_block_hash,
                     );
 

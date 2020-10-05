@@ -224,19 +224,20 @@ fn apply_block_at_height(
         .unwrap();
     let receipts = collect_receipts_from_response(&receipt_proof_response);
 
+    let chunk_inner = chunk.cloned_versioned_header().take_inner();
     let apply_result = runtime
         .apply_transactions(
             shard_id,
-            &chunk.header.inner.prev_state_root,
+            &chunk_inner.prev_state_root,
             height,
             block.header().raw_timestamp(),
             block.header().prev_hash(),
             block.hash(),
             &receipts,
-            &chunk.transactions,
-            &chunk.header.inner.validator_proposals,
+            chunk.transactions(),
+            &chunk_inner.validator_proposals,
             prev_block.header().gas_price(),
-            chunk.header.inner.gas_limit,
+            chunk_inner.gas_limit,
             &block.header().challenges_result(),
             *block.header().random_value(),
         )
@@ -247,7 +248,7 @@ fn apply_block_at_height(
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
-        chunk.header.inner.gas_limit,
+        chunk_inner.gas_limit,
         apply_result.total_balance_burnt,
     );
 
