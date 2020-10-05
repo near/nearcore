@@ -240,11 +240,11 @@ const USING_LIGHTBEAM: bool = false;
 type Coef = (Ratio<u64>, Ratio<u64>);
 
 pub struct EvmPrecompiledFunctionCost {
-    pub ecRecoverCost: Ratio<u64>,
-    pub sha256Cost: Ratio<u64>,
-    pub ripemd160Cost: Ratio<u64>,
-    pub identityCost: Ratio<u64>,
-    pub modexpImplCost: Ratio<u64>,
+    pub ec_recover_cost: Ratio<u64>,
+    pub sha256_cost: Ratio<u64>,
+    pub ripemd160_cost: Ratio<u64>,
+    pub identity_cost: Ratio<u64>,
+    pub modexp_impl_cost: Ratio<u64>,
     // pub bn128AddImplCost: Ratio<u64>,
     // pub bn128MulImplCost: Ratio<u64>,
     // pub bn128PairingImplCost: Ratio<u64>,
@@ -580,10 +580,10 @@ pub fn measure_evm_precompiled(config: &Config, verbose: bool) -> EvmPrecompiled
     ];
 
     EvmPrecompiledFunctionCost {
-        ecRecoverCost: measurements[1].cost - measurements[0].cost,
-        sha256Cost: measurements[2].cost - measurements[0].cost,
+        ec_recover_cost: measurements[1].cost - measurements[0].cost,
+        sha256_cost: measurements[2].cost - measurements[0].cost,
         ripemd160Cost: measurements[3].cost - measurements[0].cost,
-        identityCost: measurements[4].cost - measurements[0].cost,
+        identity_cost: measurements[4].cost - measurements[0].cost,
         modexpImplCost: measurements[5].cost - measurements[0].cost,
     }
 }

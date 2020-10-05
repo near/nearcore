@@ -180,23 +180,23 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         println!("EVM precompiled function evm gas:");
         println!(
             "ecrecover: {}",
-            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.ecRecoverCost)
+            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.ec_recover_cost)
         );
         println!(
             "sha256: {}",
-            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.sha256Cost)
+            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.sha256_cost)
         );
         println!(
             "ripemd160: {}",
-            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.ripemd160Cost)
+            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.ripemd160_cost)
         );
         println!(
             "identity: {}",
-            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.identityCost)
+            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.identity_cost)
         );
         println!(
             "modexp: {}",
-            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.modexpImplCost)
+            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.modexp_impl_cost)
         );
 
         process::exit(0);
