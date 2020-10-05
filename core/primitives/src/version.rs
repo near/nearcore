@@ -18,7 +18,7 @@ pub const DB_VERSION: DbVersion = 12;
 pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 39;
+pub const PROTOCOL_VERSION: ProtocolVersion = 40;
 /// Oldest supported version by this client.
 pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
 
@@ -44,3 +44,6 @@ pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
 
 /// Updates the way receipt ID, data ID and random seeds are constructed.
 pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
+
+/// Adding EVM precompile.
+pub const EVM_PRECOMPILE_PROTOCOL_VERSION: ProtocolVersion = 40;

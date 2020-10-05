@@ -38,8 +38,11 @@ use near_primitives::rpc::{
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest};
+use near_primitives::views::{
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest,
+};
 use near_runtime_utils::is_valid_account_id;
+
 mod metrics;
 
 /// Max size of the query path (soft-deprecated)
