@@ -20,9 +20,9 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeView, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    QueryRequest, QueryResponse, StateChangesKindsView, StateChangesRequestView, StateChangesView,
-    ValidatorStakeView,
+    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
+    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
+    StateChangesView, ValidatorStakeView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -249,6 +249,7 @@ pub struct NetworkInfoResponse {
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
+    pub fetch_receipt: bool,
 }
 
 #[derive(Debug)]
@@ -275,7 +276,7 @@ impl From<TxStatusError> for String {
 }
 
 impl Message for TxStatus {
-    type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
+    type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
 }
 
 pub struct GetValidatorInfo {
@@ -344,4 +345,12 @@ pub struct GetBlockProofResponse {
 
 impl Message for GetBlockProof {
     type Result = Result<GetBlockProofResponse, String>;
+}
+
+pub struct GetReceipt {
+    pub receipt_id: CryptoHash,
+}
+
+impl Message for GetReceipt {
+    type Result = Result<Option<ReceiptView>, String>;
 }

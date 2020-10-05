@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use near_metrics::{Histogram, IntCounter};
+use near_metrics::{Histogram, IntCounter, IntCounterVec};
 
 lazy_static! {
     pub static ref RPC_PROCESSING_TIME: near_metrics::Result<Histogram> =
@@ -17,10 +17,11 @@ lazy_static! {
             "http_prometheus_requests_total",
             "Total count of Prometheus requests received"
         );
-    pub static ref HTTP_RPC_REQUEST_COUNT: near_metrics::Result<IntCounter> =
-        near_metrics::try_create_int_counter(
+    pub static ref HTTP_RPC_REQUEST_COUNT: near_metrics::Result<IntCounterVec> =
+        near_metrics::try_create_int_counter_vec(
             "http_rpc_requests_total",
-            "Total count of HTTP RPC requests received"
+            "Total count of HTTP RPC requests received, by method",
+            &["method"]
         );
     pub static ref HTTP_STATUS_REQUEST_COUNT: near_metrics::Result<IntCounter> =
         near_metrics::try_create_int_counter(

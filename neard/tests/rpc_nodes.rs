@@ -17,7 +17,8 @@ use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{BlockId, BlockReference, TransactionOrReceiptId};
 use near_primitives::views::{
-    ExecutionOutcomeView, ExecutionStatusView, FinalExecutionStatus, QueryResponseKind,
+    ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
+    QueryResponseKind,
 };
 use neard::config::TESTING_INIT_BALANCE;
 use std::sync::atomic::AtomicBool;
@@ -90,13 +91,18 @@ fn test_tx_propagation() {
                 }));
                 actix::spawn(
                     view_client
-                        .send(TxStatus { tx_hash, signer_account_id: "near.1".to_string() })
+                        .send(TxStatus {
+                            tx_hash,
+                            signer_account_id: "near.1".to_string(),
+                            fetch_receipt: false,
+                        })
                         .then(move |res| {
                             match &res {
-                                Ok(Ok(Some(feo)))
-                                    if feo.status
-                                        == FinalExecutionStatus::SuccessValue("".to_string())
-                                        && feo.transaction == transaction_copy1.into() =>
+                                Ok(Ok(Some(
+                                    FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(feo),
+                                ))) if feo.status
+                                    == FinalExecutionStatus::SuccessValue("".to_string())
+                                    && feo.transaction == transaction_copy1.into() =>
                                 {
                                     System::current().stop();
                                 }
