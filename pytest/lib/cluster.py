@@ -616,14 +616,19 @@ class PreexistingCluster():
         atexit.register(self.atexit_cleanup_preexist, None)
         signal.signal(signal.SIGTERM, self.atexit_cleanup_preexist)
         signal.signal(signal.SIGINT, self.atexit_cleanup_preexist)
-        
+        k = 0
         while True:
+            k += 1
             post = {'num_nodes': num_nodes, 'request_id': self.request_id,
                     'token': self.token}
             res = requests.post('http://40.112.59.229:5000/get_instances', json=post)
             json_res = json.loads(res.text)
             self.ips = json_res['ips']
             print('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
+            if requester == "NayDuck" and k == 3:
+                print("Postpone test for NayDuck.")
+                sys.exit(13)
+
             if len(self.ips) != num_nodes:
                 time.sleep(10)
                 continue
