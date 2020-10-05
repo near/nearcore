@@ -53,8 +53,6 @@ enum KeyPrefix {
     Contract = 1,
 }
 
-pub const PREPAID_EVM_GAS: u128 = 1_000_000_000;
-
 fn address_to_key(prefix: KeyPrefix, address: &H160) -> Vec<u8> {
     let mut result = Vec::with_capacity(21);
     result.push(prefix as u8);
