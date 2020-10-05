@@ -246,7 +246,6 @@ impl Runtime {
             apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
-                // println!("=== a");
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
                 state_update.commit(StateChangeCause::TransactionProcessing {
                     tx_hash: signed_transaction.get_hash(),
@@ -286,7 +285,6 @@ impl Runtime {
                 Ok((receipt, outcome))
             }
             Err(e) => {
-                println!("=== b");
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_FAILED_TOTAL);
                 state_update.rollback();
                 return Err(e);
@@ -469,7 +467,6 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        // println!("=== apply_action_receipt");
 
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
@@ -817,7 +814,6 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        // println!("=== process_receipt");
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
