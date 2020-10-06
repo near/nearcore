@@ -21,7 +21,7 @@ pub struct ShardTries {
 }
 
 impl ShardTries {
-    pub fn get_cache(num_shards: NumShards) -> Arc<Vec<TrieCache>> {
+    fn get_new_cache(num_shards: NumShards) -> Arc<Vec<TrieCache>> {
         Arc::new((0..num_shards).map(|_| TrieCache::new()).collect::<Vec<_>>())
     }
 
@@ -29,8 +29,8 @@ impl ShardTries {
         assert_ne!(num_shards, 0);
         ShardTries {
             store,
-            caches: Self::get_cache(num_shards),
-            view_caches: Self::get_cache(num_shards),
+            caches: Self::get_new_cache(num_shards),
+            view_caches: Self::get_new_cache(num_shards),
         }
     }
 
