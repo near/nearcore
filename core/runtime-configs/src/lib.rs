@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 use near_primitives::account::Account;
 use near_primitives::serialize::u128_dec_format;
 use near_primitives::types::{AccountId, Balance};
+use near_primitives::version::ProtocolVersion;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::VMConfig;
+use std::sync::Arc;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -44,6 +46,13 @@ impl RuntimeConfig {
             wasm_config: VMConfig::free(),
             account_creation_config: AccountCreationConfig::default(),
         }
+    }
+
+    pub fn from_protocol_version(
+        genesis_runtime_config: &Arc<RuntimeConfig>,
+        _protocol_version: ProtocolVersion,
+    ) -> Arc<Self> {
+        genesis_runtime_config.clone()
     }
 }
 

@@ -48,6 +48,7 @@ use node_runtime::{
 };
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_runtime_configs::RuntimeConfig;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -113,6 +114,7 @@ impl EpochInfoProvider for SafeEpochManager {
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
+    genesis_runtime_config: Arc<RuntimeConfig>,
 
     store: Arc<Store>,
     tries: ShardTries,
@@ -131,9 +133,10 @@ impl NightshadeRuntime {
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
     ) -> Self {
-        let runtime = Runtime::new(genesis.config.runtime_config.clone());
+        let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new();
         let genesis_config = genesis.config.clone();
+        let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
         let initial_epoch_config = EpochConfig {
             epoch_length: genesis.config.epoch_length,
@@ -197,6 +200,7 @@ impl NightshadeRuntime {
         );
         NightshadeRuntime {
             genesis_config,
+            genesis_runtime_config,
             store,
             tries,
             runtime,
@@ -250,7 +254,7 @@ impl NightshadeRuntime {
         }
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
         let tries = ShardTries::new(store.clone(), num_shards);
-        let runtime = Runtime::new(genesis.config.runtime_config.clone());
+        let runtime = Runtime::new();
         for shard_id in 0..num_shards {
             let validators = genesis
                 .config
@@ -273,6 +277,7 @@ impl NightshadeRuntime {
                 shard_id,
                 &validators,
                 &shard_records[shard_id as usize],
+                &genesis.config.runtime_config,
             );
             store_update.merge(shard_store_update);
             state_roots.push(state_root);
@@ -407,6 +412,10 @@ impl NightshadeRuntime {
             gas_limit: Some(gas_limit),
             random_seed,
             current_protocol_version,
+            config: RuntimeConfig::from_protocol_version(
+                &self.genesis_runtime_config,
+                current_protocol_version,
+            ),
         };
 
         let apply_result = self
@@ -530,12 +539,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         verify_signature: bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
+        let runtime_config = RuntimeConfig::from_protocol_version(
+            &self.genesis_runtime_config,
+            current_protocol_version,
+        );
+
         if let Some(state_root) = state_root {
             let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
             let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
 
             match verify_and_charge_transaction(
-                &self.runtime.config,
+                &runtime_config,
                 &mut state_update,
                 gas_price,
                 &transaction,
@@ -555,7 +569,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             // Doing basic validation without a state root
             match validate_transaction(
-                &self.runtime.config,
+                &runtime_config,
                 gas_price,
                 &transaction,
                 verify_signature,
@@ -593,6 +607,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut transactions = vec![];
         let mut num_checked_transactions = 0;
 
+        let runtime_config = RuntimeConfig::from_protocol_version(
+            &self.genesis_runtime_config,
+            current_protocol_version,
+        );
+
         while total_gas_burnt < transactions_gas_limit {
             if let Some(iter) = pool_iterator.next() {
                 while let Some(tx) = iter.next() {
@@ -601,7 +620,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     if chain_validate(&tx) {
                         // Verifying the validity of the transaction based on the current state.
                         match verify_and_charge_transaction(
-                            &self.runtime.config,
+                            &runtime_config,
                             &mut state_update,
                             gas_price,
                             &tx,
