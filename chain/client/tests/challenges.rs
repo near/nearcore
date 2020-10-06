@@ -23,9 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::{
-    ReedSolomonWrapper, VersionedEncodedShardChunk, VersionedShardChunk,
-};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunk};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{ShardId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -117,7 +115,7 @@ fn test_verify_block_double_sign_challenge() {
 
 fn create_invalid_proofs_chunk(
     client: &mut Client,
-) -> (VersionedEncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     create_chunk(
         client,
         None,
@@ -125,10 +123,10 @@ fn create_invalid_proofs_chunk(
     )
 }
 
-fn get_shard_id(chunk: &VersionedEncodedShardChunk) -> ShardId {
+fn get_shard_id(chunk: &EncodedShardChunk) -> ShardId {
     match chunk {
-        VersionedEncodedShardChunk::V1(chunk) => chunk.header.inner.shard_id,
-        VersionedEncodedShardChunk::V2(chunk) => chunk.header.shard_id(),
+        EncodedShardChunk::V1(chunk) => chunk.header.inner.shard_id,
+        EncodedShardChunk::V2(chunk) => chunk.header.shard_id(),
     }
 }
 
@@ -154,8 +152,8 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
         encoded_chunk.decode_chunk(env.clients[0].chain.runtime_adapter.num_data_parts()).unwrap();
 
     let shard_id = match &chunk {
-        VersionedShardChunk::V1(ref chunk) => chunk.header.inner.shard_id,
-        VersionedShardChunk::V2(ref chunk) => chunk.header.shard_id(),
+        ShardChunk::V1(ref chunk) => chunk.header.inner.shard_id,
+        ShardChunk::V2(ref chunk) => chunk.header.shard_id(),
     };
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Decoded(chunk), &block);
@@ -345,10 +343,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         .unwrap();
 
     match &mut invalid_chunk {
-        VersionedEncodedShardChunk::V1(ref mut chunk) => {
+        EncodedShardChunk::V1(ref mut chunk) => {
             chunk.header.height_included = last_block.header().height() + 1;
         }
-        VersionedEncodedShardChunk::V2(ref mut chunk) => {
+        EncodedShardChunk::V2(ref mut chunk) => {
             *chunk.header.height_included_mut() = last_block.header().height() + 1;
         }
     }
@@ -359,7 +357,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         PROTOCOL_VERSION,
         &last_block.header(),
         last_block.header().height() + 1,
-        vec![invalid_chunk.cloned_versioned_header()],
+        vec![invalid_chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         vec![],
@@ -533,7 +531,7 @@ fn test_block_challenge() {
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
     let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
-    let shard_id = chunk.cloned_versioned_header().shard_id();
+    let shard_id = chunk.cloned_header().shard_id();
     let challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
             block_header: block.header().try_to_vec().unwrap(),
@@ -589,7 +587,7 @@ fn test_fishermen_challenge() {
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
     let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
-    let shard_id = chunk.cloned_versioned_header().shard_id();
+    let shard_id = chunk.cloned_header().shard_id();
     let challenge_body = ChallengeBody::ChunkProofs(ChunkProofs {
         block_header: block.header().try_to_vec().unwrap(),
         chunk: MaybeEncodedShardChunk::Encoded(chunk),

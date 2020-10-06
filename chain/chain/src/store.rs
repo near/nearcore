@@ -15,12 +15,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ReceiptProof, StateSyncInfo, VersionedEncodedShardChunk,
-    VersionedPartialEncodedChunk, VersionedShardChunk, VersionedShardChunkHeader,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
+    StateSyncInfo,
 };
 use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, StateHeaderKey, StatePartKey,
-    VersionedShardStateSyncResponseHeader,
+    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
+    StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
@@ -98,17 +98,14 @@ pub trait ChainStoreAccess {
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
     /// Get full chunk.
-    fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&VersionedShardChunk, Error>;
+    fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error>;
     /// Get partial chunk.
-    fn get_partial_chunk(
-        &mut self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<&VersionedPartialEncodedChunk, Error>;
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error>;
     /// Get full chunk from header, with possible error that contains the header for further retrieval.
     fn get_chunk_clone_from_header(
         &mut self,
-        header: &VersionedShardChunkHeader,
-    ) -> Result<VersionedShardChunk, Error> {
+        header: &ShardChunkHeader,
+    ) -> Result<ShardChunk, Error> {
         let shard_chunk_result = self.get_chunk(&header.chunk_hash());
         match shard_chunk_result {
             Err(_) => {
@@ -125,10 +122,10 @@ pub trait ChainStoreAccess {
                 }
                 let mut shard_chunk_clone = shard_chunk.clone();
                 match &mut shard_chunk_clone {
-                    VersionedShardChunk::V1(ref mut chunk) => {
+                    ShardChunk::V1(ref mut chunk) => {
                         chunk.header.height_included = header.height_included();
                     }
-                    VersionedShardChunk::V2(ref mut chunk) => {
+                    ShardChunk::V2(ref mut chunk) => {
                         *chunk.header.height_included_mut() = header.height_included();
                     }
                 }
@@ -254,7 +251,7 @@ pub trait ChainStoreAccess {
         &mut self,
         shard_id: ShardId,
         block_hash: CryptoHash,
-    ) -> Result<VersionedShardStateSyncResponseHeader, Error>;
+    ) -> Result<ShardStateSyncResponseHeader, Error>;
 
     /// Returns latest known height and time it was seen.
     fn get_latest_known(&mut self) -> Result<LatestKnown, Error>;
@@ -266,7 +263,7 @@ pub trait ChainStoreAccess {
     fn is_invalid_chunk(
         &mut self,
         chunk_hash: &ChunkHash,
-    ) -> Result<Option<&VersionedEncodedShardChunk>, Error>;
+    ) -> Result<Option<&EncodedShardChunk>, Error>;
 
     /// Get destination shard id for receipt id.
     fn get_shard_id_for_receipt_id(&mut self, receipt_id: &CryptoHash) -> Result<&ShardId, Error>;
@@ -338,9 +335,9 @@ pub struct ChainStore {
     /// Cache with blocks.
     blocks: SizedCache<Vec<u8>, Block>,
     /// Cache with chunks
-    chunks: SizedCache<Vec<u8>, VersionedShardChunk>,
+    chunks: SizedCache<Vec<u8>, ShardChunk>,
     /// Cache with partial chunks
-    partial_chunks: SizedCache<Vec<u8>, VersionedPartialEncodedChunk>,
+    partial_chunks: SizedCache<Vec<u8>, PartialEncodedChunk>,
     /// Cache with block extra.
     block_extras: SizedCache<Vec<u8>, BlockExtra>,
     /// Cache with chunk extra.
@@ -366,7 +363,7 @@ pub struct ChainStore {
     /// Cache transaction statuses.
     outcomes: SizedCache<Vec<u8>, ExecutionOutcomeWithIdAndProof>,
     /// Invalid chunks.
-    invalid_chunks: SizedCache<Vec<u8>, VersionedEncodedShardChunk>,
+    invalid_chunks: SizedCache<Vec<u8>, EncodedShardChunk>,
     /// Mapping from receipt id to destination shard id
     receipt_id_to_shard_id: SizedCache<Vec<u8>, ShardId>,
     /// Mapping from block to a map of shard id to the next block hash where a new chunk for the
@@ -650,7 +647,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get full chunk.
-    fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&VersionedShardChunk, Error> {
+    fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
         match read_with_cache(&*self.store, ColChunks, &mut self.chunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
             _ => Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into()),
@@ -658,10 +655,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get partial chunk.
-    fn get_partial_chunk(
-        &mut self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<&VersionedPartialEncodedChunk, Error> {
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
         match read_with_cache(
             &*self.store,
             ColPartialChunks,
@@ -881,7 +875,7 @@ impl ChainStoreAccess for ChainStore {
         &mut self,
         shard_id: ShardId,
         block_hash: CryptoHash,
-    ) -> Result<VersionedShardStateSyncResponseHeader, Error> {
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
         let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
         match self.store.get_ser(ColStateHeaders, &key) {
             Ok(Some(header)) => Ok(header),
@@ -916,7 +910,7 @@ impl ChainStoreAccess for ChainStore {
     fn is_invalid_chunk(
         &mut self,
         chunk_hash: &ChunkHash,
-    ) -> Result<Option<&VersionedEncodedShardChunk>, Error> {
+    ) -> Result<Option<&EncodedShardChunk>, Error> {
         read_with_cache(
             &*self.store,
             ColInvalidChunks,
@@ -1153,8 +1147,8 @@ struct ChainStoreCacheUpdate {
     headers: HashMap<CryptoHash, BlockHeader>,
     block_extras: HashMap<CryptoHash, BlockExtra>,
     chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
-    chunks: HashMap<ChunkHash, VersionedShardChunk>,
-    partial_chunks: HashMap<ChunkHash, VersionedPartialEncodedChunk>,
+    chunks: HashMap<ChunkHash, ShardChunk>,
+    partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     chunk_hash_per_height_shard: HashMap<(BlockHeight, ShardId), ChunkHash>,
     height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
@@ -1165,7 +1159,7 @@ struct ChainStoreCacheUpdate {
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptProof>>,
     outcomes: HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>,
-    invalid_chunks: HashMap<ChunkHash, VersionedEncodedShardChunk>,
+    invalid_chunks: HashMap<ChunkHash, EncodedShardChunk>,
     receipt_id_to_shard_id: HashMap<CryptoHash, ShardId>,
     next_block_with_new_chunk: HashMap<(CryptoHash, ShardId), CryptoHash>,
     last_block_with_new_chunk: HashMap<ShardId, CryptoHash>,
@@ -1505,7 +1499,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_outcomes_by_block_hash(block_hash)
     }
 
-    fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&VersionedShardChunk, Error> {
+    fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
         if let Some(chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
             Ok(chunk)
         } else {
@@ -1513,10 +1507,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_partial_chunk(
-        &mut self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<&VersionedPartialEncodedChunk, Error> {
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
         if let Some(partial_chunk) = self.chain_store_cache_update.partial_chunks.get(chunk_hash) {
             Ok(partial_chunk)
         } else {
@@ -1526,8 +1517,8 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     fn get_chunk_clone_from_header(
         &mut self,
-        header: &VersionedShardChunkHeader,
-    ) -> Result<VersionedShardChunk, Error> {
+        header: &ShardChunkHeader,
+    ) -> Result<ShardChunk, Error> {
         if let Some(chunk) = self.chain_store_cache_update.chunks.get(&header.chunk_hash()) {
             Ok(chunk.clone())
         } else {
@@ -1548,7 +1539,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         &mut self,
         shard_id: ShardId,
         block_hash: CryptoHash,
-    ) -> Result<VersionedShardStateSyncResponseHeader, Error> {
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
         self.chain_store.get_state_header(shard_id, block_hash)
     }
 
@@ -1570,7 +1561,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn is_invalid_chunk(
         &mut self,
         chunk_hash: &ChunkHash,
-    ) -> Result<Option<&VersionedEncodedShardChunk>, Error> {
+    ) -> Result<Option<&EncodedShardChunk>, Error> {
         if let Some(chunk) = self.chain_store_cache_update.invalid_chunks.get(&chunk_hash) {
             Ok(Some(chunk))
         } else {
@@ -1810,7 +1801,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.chunk_extras.insert((*block_hash, shard_id), chunk_extra);
     }
 
-    pub fn save_chunk(&mut self, chunk: VersionedShardChunk) {
+    pub fn save_chunk(&mut self, chunk: ShardChunk) {
         for transaction in chunk.transactions() {
             self.chain_store_cache_update.transactions.insert(transaction.clone());
         }
@@ -1820,7 +1811,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.chunks.insert(chunk.chunk_hash(), chunk);
     }
 
-    pub fn save_partial_chunk(&mut self, partial_chunk: VersionedPartialEncodedChunk) {
+    pub fn save_partial_chunk(&mut self, partial_chunk: PartialEncodedChunk) {
         self.chain_store_cache_update
             .partial_chunks
             .insert(partial_chunk.chunk_hash(), partial_chunk);
@@ -1948,7 +1939,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.challenged_blocks.insert(hash);
     }
 
-    pub fn save_invalid_chunk(&mut self, chunk: VersionedEncodedShardChunk) {
+    pub fn save_invalid_chunk(&mut self, chunk: EncodedShardChunk) {
         self.chain_store_cache_update.invalid_chunks.insert(chunk.chunk_hash(), chunk);
     }
 
@@ -2035,7 +2026,7 @@ impl<'a> ChainStoreUpdate<'a> {
             for chunk_hash in chunk_hashes {
                 // 1. Delete chunk-related data
                 let chunk = self.get_chunk(&chunk_hash)?.clone();
-                debug_assert_eq!(chunk.cloned_versioned_header().height_created(), height);
+                debug_assert_eq!(chunk.cloned_header().height_created(), height);
                 for transaction in chunk.transactions() {
                     self.gc_col(ColTransactions, &transaction.get_hash().into());
                 }
@@ -2506,8 +2497,8 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             let height_created = match chunk {
-                VersionedShardChunk::V1(chunk) => chunk.header.inner.height_created,
-                VersionedShardChunk::V2(chunk) => chunk.header.height_created(),
+                ShardChunk::V1(chunk) => chunk.header.inner.height_created,
+                ShardChunk::V2(chunk) => chunk.header.height_created(),
             };
             match chunk_hashes_by_height.entry(height_created) {
                 Entry::Occupied(mut entry) => {

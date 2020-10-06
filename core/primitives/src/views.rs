@@ -29,8 +29,7 @@ use crate::serialize::{
     u128_dec_format, u64_dec_format,
 };
 use crate::sharding::{
-    ChunkHash, ShardChunkHeaderInner, ShardChunkHeaderV2, VersionedShardChunk,
-    VersionedShardChunkHeader,
+    ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV2,
 };
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -550,8 +549,8 @@ pub struct ChunkHeaderView {
     pub signature: Signature,
 }
 
-impl From<VersionedShardChunkHeader> for ChunkHeaderView {
-    fn from(chunk: VersionedShardChunkHeader) -> Self {
+impl From<ShardChunkHeader> for ChunkHeaderView {
+    fn from(chunk: ShardChunkHeader) -> Self {
         let hash = chunk.chunk_hash();
         let signature = chunk.signature().clone();
         let height_included = chunk.height_included();
@@ -579,7 +578,7 @@ impl From<VersionedShardChunkHeader> for ChunkHeaderView {
     }
 }
 
-impl From<ChunkHeaderView> for VersionedShardChunkHeader {
+impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
         let mut header = ShardChunkHeaderV2 {
             inner: ShardChunkHeaderInner {
@@ -602,7 +601,7 @@ impl From<ChunkHeaderView> for VersionedShardChunkHeader {
             hash: ChunkHash::default(),
         };
         header.init();
-        VersionedShardChunkHeader::V2(header)
+        ShardChunkHeader::V2(header)
     }
 }
 
@@ -632,15 +631,15 @@ pub struct ChunkView {
 }
 
 impl ChunkView {
-    pub fn from_author_chunk(author: AccountId, chunk: VersionedShardChunk) -> Self {
+    pub fn from_author_chunk(author: AccountId, chunk: ShardChunk) -> Self {
         match chunk {
-            VersionedShardChunk::V1(chunk) => Self {
+            ShardChunk::V1(chunk) => Self {
                 author,
-                header: VersionedShardChunkHeader::V1(chunk.header).into(),
+                header: ShardChunkHeader::V1(chunk.header).into(),
                 transactions: chunk.transactions.into_iter().map(Into::into).collect(),
                 receipts: chunk.receipts.into_iter().map(Into::into).collect(),
             },
-            VersionedShardChunk::V2(chunk) => Self {
+            ShardChunk::V2(chunk) => Self {
                 author,
                 header: chunk.header.into(),
                 transactions: chunk.transactions.into_iter().map(Into::into).collect(),

@@ -11,7 +11,7 @@ use near_primitives::challenge::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{
-    ShardChunkHeader, ShardChunkHeaderV2, VersionedShardChunk, VersionedShardChunkHeader,
+    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce};
@@ -25,23 +25,18 @@ use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
 
 /// Verifies that chunk's proofs in the header match the body.
-pub fn validate_chunk_proofs(
-    chunk: &VersionedShardChunk,
-    runtime_adapter: &dyn RuntimeAdapter,
-) -> bool {
+pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAdapter) -> bool {
     let correct_chunk_hash = match chunk {
-        VersionedShardChunk::V1(chunk) => ShardChunkHeader::compute_hash(&chunk.header.inner),
-        VersionedShardChunk::V2(chunk) => match &chunk.header {
-            VersionedShardChunkHeader::V1(header) => ShardChunkHeader::compute_hash(&header.inner),
-            VersionedShardChunkHeader::V2(header) => {
-                ShardChunkHeaderV2::compute_hash(&header.inner)
-            }
+        ShardChunk::V1(chunk) => ShardChunkHeaderV1::compute_hash(&chunk.header.inner),
+        ShardChunk::V2(chunk) => match &chunk.header {
+            ShardChunkHeader::V1(header) => ShardChunkHeaderV1::compute_hash(&header.inner),
+            ShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
         },
     };
 
     let header_hash = match chunk {
-        VersionedShardChunk::V1(chunk) => chunk.header.chunk_hash(),
-        VersionedShardChunk::V2(chunk) => chunk.header.chunk_hash(),
+        ShardChunk::V1(chunk) => chunk.header.chunk_hash(),
+        ShardChunk::V2(chunk) => chunk.header.chunk_hash(),
     };
 
     // 1. Checking chunk.header.hash
@@ -57,15 +52,15 @@ pub fn validate_chunk_proofs(
         return false;
     }
     let header_inner = match chunk {
-        VersionedShardChunk::V1(chunk) => &chunk.header.inner,
-        VersionedShardChunk::V2(chunk) => match &chunk.header {
-            VersionedShardChunkHeader::V1(header) => &header.inner,
-            VersionedShardChunkHeader::V2(header) => &header.inner,
+        ShardChunk::V1(chunk) => &chunk.header.inner,
+        ShardChunk::V2(chunk) => match &chunk.header {
+            ShardChunkHeader::V1(header) => &header.inner,
+            ShardChunkHeader::V2(header) => &header.inner,
         },
     };
     let (transactions, receipts) = match chunk {
-        VersionedShardChunk::V1(chunk) => (&chunk.transactions, &chunk.receipts),
-        VersionedShardChunk::V2(chunk) => (&chunk.transactions, &chunk.receipts),
+        ShardChunk::V1(chunk) => (&chunk.transactions, &chunk.receipts),
+        ShardChunk::V2(chunk) => (&chunk.transactions, &chunk.receipts),
     };
 
     // 2b. Checking that chunk transactions are valid
@@ -127,8 +122,8 @@ pub fn validate_chunk_with_chunk_extra(
     runtime_adapter: &dyn RuntimeAdapter,
     prev_block_hash: &CryptoHash,
     prev_chunk_extra: &ChunkExtra,
-    prev_chunk_header: &VersionedShardChunkHeader,
-    chunk_header: &VersionedShardChunkHeader,
+    prev_chunk_header: &ShardChunkHeader,
+    chunk_header: &ShardChunkHeader,
 ) -> Result<(), Error> {
     if prev_chunk_extra.state_root != chunk_header.prev_state_root() {
         return Err(ErrorKind::InvalidStateRoot.into());
@@ -227,7 +222,7 @@ fn validate_header_authorship(
 
 fn validate_chunk_authorship(
     runtime_adapter: &dyn RuntimeAdapter,
-    chunk_header: &VersionedShardChunkHeader,
+    chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
     if runtime_adapter.verify_chunk_header_signature(chunk_header)? {
         let epoch_id =
@@ -250,8 +245,8 @@ fn validate_chunk_proofs_challenge(
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
     validate_header_authorship(runtime_adapter, &block_header)?;
     let chunk_header = match &chunk_proofs.chunk {
-        MaybeEncodedShardChunk::Encoded(encoded_chunk) => encoded_chunk.cloned_versioned_header(),
-        MaybeEncodedShardChunk::Decoded(chunk) => chunk.cloned_versioned_header(),
+        MaybeEncodedShardChunk::Encoded(encoded_chunk) => encoded_chunk.cloned_header(),
+        MaybeEncodedShardChunk::Decoded(chunk) => chunk.cloned_header(),
     };
     let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header)?;
     let account_to_slash_for_valid_challenge = Ok((*block_header.hash(), vec![chunk_producer]));
@@ -304,7 +299,7 @@ fn validate_chunk_state_challenge(
 
     // Validate previous chunk and block header.
     validate_header_authorship(runtime_adapter, &prev_block_header)?;
-    let prev_chunk_header = chunk_state.prev_chunk.cloned_versioned_header();
+    let prev_chunk_header = chunk_state.prev_chunk.cloned_header();
     let _ = validate_chunk_authorship(runtime_adapter, &prev_chunk_header)?;
     if !Block::validate_chunk_header_proof(
         &prev_chunk_header,

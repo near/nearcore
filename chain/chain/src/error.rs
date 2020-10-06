@@ -10,7 +10,7 @@ use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
-use near_primitives::sharding::{ChunkHash, VersionedShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, ShardId};
 
 #[derive(Debug)]
@@ -34,7 +34,7 @@ pub enum ErrorKind {
     ChunkMissing(ChunkHash),
     /// Chunks missing with header info.
     #[fail(display = "Chunks Missing: {:?}", _0)]
-    ChunksMissing(Vec<VersionedShardChunkHeader>),
+    ChunksMissing(Vec<ShardChunkHeader>),
     /// Block time is before parent block time.
     #[fail(display = "Invalid Block Time: block time {} before previous {}", _1, _0)]
     InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),

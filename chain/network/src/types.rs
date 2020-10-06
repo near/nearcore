@@ -23,8 +23,8 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkWithArcReceipts,
-    ReceiptProof, VersionedPartialEncodedChunk, VersionedShardChunkHeader,
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
+    PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::syncing::{ShardStateSyncResponse, VersionedShardStateSyncResponse};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
@@ -460,18 +460,18 @@ pub enum RoutedMessageBody {
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
-    PartialEncodedChunk(PartialEncodedChunk),
+    PartialEncodedChunk(PartialEncodedChunkV1),
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
-    VersionedPartialEncodedChunk(VersionedPartialEncodedChunk),
+    VersionedPartialEncodedChunk(PartialEncodedChunk),
     VersionedStateResponse(VersionedStateResponseInfo),
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
     fn from(pec: PartialEncodedChunkWithArcReceipts) -> Self {
-        if let VersionedShardChunkHeader::V1(legacy_header) = pec.header {
-            Self::PartialEncodedChunk(PartialEncodedChunk {
+        if let ShardChunkHeader::V1(legacy_header) = pec.header {
+            Self::PartialEncodedChunk(PartialEncodedChunkV1 {
                 header: legacy_header,
                 parts: pec.parts,
                 receipts: pec.receipts.into_iter().map(|r| ReceiptProof::clone(&r)).collect(),
@@ -1392,7 +1392,7 @@ pub enum NetworkClientMessages {
     /// Response to a request for  chunk parts and/or receipts.
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
-    PartialEncodedChunk(VersionedPartialEncodedChunk),
+    PartialEncodedChunk(PartialEncodedChunk),
 
     /// A challenge to invalidate the block.
     Challenge(Challenge),

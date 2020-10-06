@@ -252,7 +252,7 @@ pub(crate) fn chunk_hash_validity(
     shard_chunk: &ShardChunk,
 ) -> Result<(), StoreValidatorError> {
     check_discrepancy!(
-        shard_chunk.chunk_hash,
+        shard_chunk.chunk_hash(),
         *chunk_hash,
         "Invalid ShardChunk {:?} stored",
         shard_chunk
@@ -266,7 +266,7 @@ pub(crate) fn chunk_tail_validity(
     shard_chunk: &ShardChunk,
 ) -> Result<(), StoreValidatorError> {
     let chunk_tail = sv.inner.chunk_tail;
-    let height = shard_chunk.header.inner.height_created;
+    let height = shard_chunk.height_created();
     if height != sv.config.genesis_height && height < chunk_tail {
         err!(
             "Invalid ShardChunk stored, chunk_tail = {:?}, ShardChunk = {:?}",
@@ -282,14 +282,14 @@ pub(crate) fn chunk_indexed_by_height_created(
     _chunk_hash: &ChunkHash,
     shard_chunk: &ShardChunk,
 ) -> Result<(), StoreValidatorError> {
-    let height = shard_chunk.header.inner.height_created;
+    let height = shard_chunk.height_created();
     let chunk_hashes = unwrap_or_err_db!(
         sv.store.get_ser::<HashSet<ChunkHash>>(ColChunkHashesByHeight, &index_to_bytes(height)),
         "Can't get Chunks Set from storage on Height {:?}, no one is responsible for ShardChunk {:?}",
         height,
         shard_chunk
     );
-    if !chunk_hashes.contains(&shard_chunk.chunk_hash) {
+    if !chunk_hashes.contains(&shard_chunk.chunk_hash()) {
         err!("Can't find ShardChunk {:?} on Height {:?}", shard_chunk, height);
     }
     Ok(())
@@ -300,14 +300,14 @@ pub(crate) fn chunk_tx_exists(
     _chunk_hash: &ChunkHash,
     shard_chunk: &ShardChunk,
 ) -> Result<(), StoreValidatorError> {
-    for tx in shard_chunk.transactions.iter() {
+    for tx in shard_chunk.transactions().iter() {
         let tx_hash = tx.get_hash();
         sv.inner.tx_refcount.entry(tx_hash).and_modify(|x| *x += 1).or_insert(1);
     }
-    for receipt in shard_chunk.receipts.iter() {
+    for receipt in shard_chunk.receipts().iter() {
         sv.inner.receipt_refcount.entry(receipt.get_hash()).and_modify(|x| *x += 1).or_insert(1);
     }
-    for tx in shard_chunk.transactions.iter() {
+    for tx in shard_chunk.transactions().iter() {
         let tx_hash = tx.get_hash();
         unwrap_or_err_db!(
             sv.store.get_ser::<SignedTransaction>(DBCol::ColTransactions, &tx_hash.as_ref()),
@@ -566,7 +566,7 @@ pub(crate) fn chunk_of_height_exists(
             chunk_hash
         );
         check_discrepancy!(
-            shard_chunk.header.inner.height_created,
+            shard_chunk.height_created(),
             *height,
             "Invalid ShardChunk {:?} stored",
             shard_chunk
@@ -811,7 +811,7 @@ pub(crate) fn state_part_header_exists(
         sv.store.get_ser::<ShardStateSyncResponseHeader>(ColStateHeaders, &state_header_key),
         "Can't get StateHeaderKey from DB"
     );
-    let num_parts = get_num_state_parts(header.state_root_node.memory_usage);
+    let num_parts = get_num_state_parts(header.state_root_node().memory_usage);
     if part_id >= num_parts {
         err!("Invalid part_id {:?}, num_parts {:?}", part_id, num_parts)
     }

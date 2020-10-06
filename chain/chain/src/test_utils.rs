@@ -17,7 +17,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
-use near_primitives::sharding::VersionedShardChunkHeader;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
     TransferAction,
@@ -299,10 +299,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(header.verify_block_producer(&validator.public_key))
     }
 
-    fn verify_chunk_header_signature(
-        &self,
-        _header: &VersionedShardChunkHeader,
-    ) -> Result<bool, Error> {
+    fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
         Ok(true)
     }
 

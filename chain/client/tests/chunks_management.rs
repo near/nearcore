@@ -16,7 +16,7 @@ use near_network::types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkReque
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkV2, ShardChunkHeaderV2, VersionedShardChunkHeader,
+    ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
@@ -286,30 +286,30 @@ fn test_request_chunk_restart() {
 
 fn update_chunk_hash(chunk: PartialEncodedChunkV2, new_hash: ChunkHash) -> PartialEncodedChunkV2 {
     let new_header = match chunk.header {
-        VersionedShardChunkHeader::V1(mut header) => {
+        ShardChunkHeader::V1(mut header) => {
             header.hash = new_hash;
-            VersionedShardChunkHeader::V1(header)
+            ShardChunkHeader::V1(header)
         }
-        VersionedShardChunkHeader::V2(mut header) => {
+        ShardChunkHeader::V2(mut header) => {
             header.hash = new_hash;
-            VersionedShardChunkHeader::V2(header)
+            ShardChunkHeader::V2(header)
         }
     };
     PartialEncodedChunkV2 { header: new_header, parts: chunk.parts, receipts: chunk.receipts }
 }
 
 fn update_chunk_height_created(
-    header: VersionedShardChunkHeader,
+    header: ShardChunkHeader,
     new_height: BlockHeight,
-) -> VersionedShardChunkHeader {
+) -> ShardChunkHeader {
     match header {
-        VersionedShardChunkHeader::V1(mut header) => {
+        ShardChunkHeader::V1(mut header) => {
             header.inner.height_created = new_height;
-            VersionedShardChunkHeader::V1(header)
+            ShardChunkHeader::V1(header)
         }
-        VersionedShardChunkHeader::V2(mut header) => {
+        ShardChunkHeader::V2(mut header) => {
             header.inner.height_created = new_height;
-            VersionedShardChunkHeader::V2(header)
+            ShardChunkHeader::V2(header)
         }
     }
 }
@@ -320,7 +320,7 @@ fn store_partial_encoded_chunk_sanity() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let mut partial_encoded_chunk = PartialEncodedChunkV2 {
-        header: VersionedShardChunkHeader::V2(ShardChunkHeaderV2::new(
+        header: ShardChunkHeader::V2(ShardChunkHeaderV2::new(
             CryptoHash::default(),
             CryptoHash::default(),
             CryptoHash::default(),
@@ -364,7 +364,7 @@ fn store_partial_encoded_chunk_sanity() {
 
     // Check adding
     let mut partial_encoded_chunk2 = partial_encoded_chunk.clone();
-    let h = VersionedShardChunkHeader::V2(ShardChunkHeaderV2::new(
+    let h = ShardChunkHeader::V2(ShardChunkHeaderV2::new(
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
@@ -398,7 +398,7 @@ fn store_partial_encoded_chunk_sanity() {
     // Check horizon
     env.produce_block(0, 3);
     let mut partial_encoded_chunk3 = partial_encoded_chunk.clone();
-    let mut h = VersionedShardChunkHeader::V2(ShardChunkHeaderV2::new(
+    let mut h = ShardChunkHeader::V2(ShardChunkHeaderV2::new(
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),

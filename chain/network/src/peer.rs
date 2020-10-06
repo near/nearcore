@@ -43,7 +43,7 @@ use crate::{metrics, NetworkResponses};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
-use near_primitives::sharding::VersionedPartialEncodedChunk;
+use near_primitives::sharding::PartialEncodedChunk;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -509,9 +509,9 @@ impl Peer {
                         NetworkClientMessages::PartialEncodedChunkResponse(response)
                     }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
-                        NetworkClientMessages::PartialEncodedChunk(
-                            VersionedPartialEncodedChunk::V1(partial_encoded_chunk),
-                        )
+                        NetworkClientMessages::PartialEncodedChunk(PartialEncodedChunk::V1(
+                            partial_encoded_chunk,
+                        ))
                     }
                     RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(chunk)

@@ -27,8 +27,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::syncing::{
-    ShardStateSyncResponse, ShardStateSyncResponseV2, VersionedShardStateSyncResponse,
-    VersionedShardStateSyncResponseHeader,
+    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV2,
+    VersionedShardStateSyncResponse,
 };
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, TransactionOrReceiptId,
@@ -529,7 +529,7 @@ impl Handler<GetChunk> for ViewClientActor {
             }
         }
         .and_then(|chunk| {
-            let chunk_inner = chunk.cloned_versioned_header().take_inner();
+            let chunk_inner = chunk.cloned_header().take_inner();
             let epoch_id =
                 self.runtime_adapter.get_epoch_id_from_prev_block(&chunk_inner.prev_block_hash)?;
             self.runtime_adapter
@@ -948,13 +948,13 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                                 header: None,
                                 part: None,
                             }),
-                            Some(VersionedShardStateSyncResponseHeader::V1(header)) => {
+                            Some(ShardStateSyncResponseHeader::V1(header)) => {
                                 VersionedShardStateSyncResponse::V1(ShardStateSyncResponse {
                                     header: Some(header),
                                     part: None,
                                 })
                             }
-                            Some(VersionedShardStateSyncResponseHeader::V2(header)) => {
+                            Some(ShardStateSyncResponseHeader::V2(header)) => {
                                 VersionedShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
                                     header: Some(header),
                                     part: None,

@@ -11,8 +11,7 @@ use near_primitives::block::BlockHeader;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle;
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper,
-    VersionedShardChunkHeader,
+    ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
@@ -139,7 +138,7 @@ pub struct ChunkForwardingTestFixture {
     pub mock_part_ords: Vec<u64>,
     pub mock_chunk_part_owner: AccountId,
     pub mock_shard_tracker: AccountId,
-    pub mock_chunk_header: VersionedShardChunkHeader,
+    pub mock_chunk_header: ShardChunkHeader,
     pub mock_chunk_parts: Vec<PartialEncodedChunkPart>,
     pub rs: ReedSolomonWrapper,
 }
@@ -253,7 +252,7 @@ impl Default for ChunkForwardingTestFixture {
             mock_part_ords,
             mock_chunk_part_owner,
             mock_shard_tracker,
-            mock_chunk_header: encoded_chunk.cloned_versioned_header(),
+            mock_chunk_header: encoded_chunk.cloned_header(),
             mock_chunk_parts: encoded_chunk.parts().clone(),
             rs,
         }

@@ -5,7 +5,7 @@ use near_crypto::Signature;
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::MerklePath;
-use crate::sharding::{VersionedEncodedShardChunk, VersionedShardChunk, VersionedShardChunkHeader};
+use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::AccountId;
 use crate::validator_signer::ValidatorSigner;
 
@@ -45,8 +45,8 @@ pub struct ChunkProofs {
 /// decoded.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub enum MaybeEncodedShardChunk {
-    Encoded(VersionedEncodedShardChunk),
-    Decoded(VersionedShardChunk),
+    Encoded(EncodedShardChunk),
+    Decoded(ShardChunk),
 }
 
 /// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.
@@ -59,11 +59,11 @@ pub struct ChunkState {
     /// Merkle proof in inclusion of prev chunk.
     pub prev_merkle_proof: MerklePath,
     /// Previous chunk that contains transactions.
-    pub prev_chunk: VersionedShardChunk,
+    pub prev_chunk: ShardChunk,
     /// Merkle proof of inclusion of this chunk.
     pub merkle_proof: MerklePath,
     /// Invalid chunk header.
-    pub chunk_header: VersionedShardChunkHeader,
+    pub chunk_header: ShardChunkHeader,
     /// Partial state that was affected by transactions of given chunk.
     pub partial_state: PartialState,
 }

@@ -47,7 +47,7 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReedSolomonWrapper, VersionedEncodedShardChunk};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use num_rational::Rational;
 use std::mem::swap;
 use std::time::Instant;
@@ -1055,7 +1055,7 @@ impl TestEnv {
 pub fn create_chunk_on_height(
     client: &mut Client,
     next_height: BlockHeight,
-) -> (VersionedEncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
     client
@@ -1073,7 +1073,7 @@ pub fn create_chunk_on_height(
 pub fn create_chunk_with_transactions(
     client: &mut Client,
     transactions: Vec<SignedTransaction>,
-) -> (VersionedEncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     create_chunk(client, Some(transactions), None)
 }
 
@@ -1081,7 +1081,7 @@ pub fn create_chunk(
     client: &mut Client,
     replace_transactions: Option<Vec<SignedTransaction>>,
     replace_tx_root: Option<CryptoHash>,
-) -> (VersionedEncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     let last_block =
         client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
     let (mut chunk, mut merkle_paths, receipts) = client
@@ -1111,8 +1111,8 @@ pub fn create_chunk(
         let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
 
         let signer = client.validator_signer.as_ref().unwrap().clone();
-        let header = chunk.cloned_versioned_header();
-        let (mut encoded_chunk, mut new_merkle_paths) = VersionedEncodedShardChunk::new(
+        let header = chunk.cloned_header();
+        let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
             header.prev_block_hash(),
             header.prev_state_root(),
             header.outcome_root(),
@@ -1136,10 +1136,10 @@ pub fn create_chunk(
     }
     if tx_root_replaced {
         match &mut chunk {
-            VersionedEncodedShardChunk::V1(ref mut chunk) => {
+            EncodedShardChunk::V1(ref mut chunk) => {
                 chunk.header.height_included = 2;
             }
-            VersionedEncodedShardChunk::V2(ref mut chunk) => {
+            EncodedShardChunk::V2(ref mut chunk) => {
                 *chunk.header.height_included_mut() = 2;
             }
         }
@@ -1151,7 +1151,7 @@ pub fn create_chunk(
         PROTOCOL_VERSION,
         &last_block.header(),
         2,
-        vec![chunk.cloned_versioned_header()],
+        vec![chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         vec![],

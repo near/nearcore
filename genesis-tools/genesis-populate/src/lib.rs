@@ -190,7 +190,7 @@ impl GenesisBuilder {
         );
         let genesis = Block::genesis(
             self.genesis.config.protocol_version,
-            genesis_chunks.into_iter().map(|chunk| chunk.versioned_header()).collect(),
+            genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             self.genesis.config.genesis_time,
             self.genesis.config.genesis_height,
             self.genesis.config.min_gas_price,

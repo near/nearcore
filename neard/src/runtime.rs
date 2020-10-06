@@ -24,7 +24,7 @@ use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::VersionedShardChunkHeader;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::trie_key_parsers;
@@ -689,10 +689,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
     }
 
-    fn verify_chunk_header_signature(
-        &self,
-        header: &VersionedShardChunkHeader,
-    ) -> Result<bool, Error> {
+    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
         let epoch_id = self.get_epoch_id_from_prev_block(&header.prev_block_hash())?;
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         if let Ok(chunk_producer) = epoch_manager.get_chunk_producer_info(

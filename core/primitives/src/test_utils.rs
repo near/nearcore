@@ -6,7 +6,7 @@ use crate::block_header::{BlockHeader, BlockHeaderV2};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
-use crate::sharding::VersionedShardChunkHeader;
+use crate::sharding::ShardChunkHeader;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -271,14 +271,14 @@ impl Block {
         }
     }
 
-    pub fn set_chunks(&mut self, chunks: Vec<VersionedShardChunkHeader>) {
+    pub fn set_chunks(&mut self, chunks: Vec<ShardChunkHeader>) {
         match self {
             Block::BlockV1(block) => {
                 let legacy_chunks = chunks
                     .into_iter()
                     .map(|chunk| match chunk {
-                        VersionedShardChunkHeader::V1(header) => header,
-                        VersionedShardChunkHeader::V2(_) => {
+                        ShardChunkHeader::V1(header) => header,
+                        ShardChunkHeader::V2(_) => {
                             panic!("Attempted to set V1 block chunks with V2")
                         }
                     })

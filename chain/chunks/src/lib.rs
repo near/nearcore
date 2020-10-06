@@ -24,9 +24,9 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptList,
-    ReceiptProof, ReedSolomonWrapper, ShardProof, VersionedEncodedShardChunk,
-    VersionedPartialEncodedChunk, VersionedShardChunkHeader,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
+    PartialEncodedChunkV1, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
+    ShardChunkHeader, ShardProof,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
@@ -71,7 +71,7 @@ pub enum ProcessPartialEncodedChunkResult {
     HaveAllPartsAndReceipts(CryptoHash),
     /// The Header is the header of the current chunk, which is unknown to the caller, to request
     ///     parts / receipts for
-    NeedMorePartsOrReceipts(Box<VersionedShardChunkHeader>),
+    NeedMorePartsOrReceipts(Box<ShardChunkHeader>),
     /// PartialEncodedChunkMessage is received earlier than Block for the same height.
     /// Without the block we cannot restore the epoch and save encoded chunk data.
     NeedBlock,
@@ -590,7 +590,7 @@ impl ShardsManager {
 
     pub fn request_chunks<T>(&mut self, chunks_to_request: T, header_head: &Tip)
     where
-        T: IntoIterator<Item = VersionedShardChunkHeader>,
+        T: IntoIterator<Item = ShardChunkHeader>,
     {
         for chunk_header in chunks_to_request {
             let parent_hash = chunk_header.prev_block_hash();
@@ -731,7 +731,7 @@ impl ShardsManager {
     pub fn prepare_chunks(
         &mut self,
         prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, VersionedShardChunkHeader> {
+    ) -> HashMap<ShardId, ShardChunkHeader> {
         self.encoded_chunks.get_chunk_headers_for_block(&prev_block_hash)
     }
 
@@ -899,7 +899,7 @@ impl ShardsManager {
     }
 
     pub fn check_chunk_complete(
-        chunk: &mut VersionedEncodedShardChunk,
+        chunk: &mut EncodedShardChunk,
         rs: &mut ReedSolomonWrapper,
     ) -> ChunkStatus {
         let data_parts = rs.data_shard_count();
@@ -939,7 +939,7 @@ impl ShardsManager {
 
     pub fn decode_and_persist_encoded_chunk_if_complete(
         &mut self,
-        mut encoded_chunk: VersionedEncodedShardChunk,
+        mut encoded_chunk: EncodedShardChunk,
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
     ) -> Result<bool, Error> {
@@ -963,7 +963,7 @@ impl ShardsManager {
     pub fn get_partial_encoded_chunk_header(
         &self,
         chunk_hash: &ChunkHash,
-    ) -> Result<VersionedShardChunkHeader, Error> {
+    ) -> Result<ShardChunkHeader, Error> {
         let header = self
             .encoded_chunks
             .get(chunk_hash)
@@ -1165,7 +1165,7 @@ impl ShardsManager {
 
         if can_reconstruct {
             let height = header.height_created();
-            let mut encoded_chunk = VersionedEncodedShardChunk::from_header(
+            let mut encoded_chunk = EncodedShardChunk::from_header(
                 header,
                 self.runtime_adapter.num_total_parts(),
                 protocol_version,
@@ -1254,8 +1254,8 @@ impl ShardsManager {
         signer: &dyn ValidatorSigner,
         rs: &mut ReedSolomonWrapper,
         protocol_version: ProtocolVersion,
-    ) -> Result<(VersionedEncodedShardChunk, Vec<MerklePath>), Error> {
-        VersionedEncodedShardChunk::new(
+    ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
+        EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
             outcome_root,
@@ -1320,11 +1320,11 @@ impl ShardsManager {
             })
             .collect();
         let partial_chunk = match chunk_entry.header.clone() {
-            VersionedShardChunkHeader::V1(header) => {
-                VersionedPartialEncodedChunk::V1(PartialEncodedChunk { header, parts, receipts })
+            ShardChunkHeader::V1(header) => {
+                PartialEncodedChunk::V1(PartialEncodedChunkV1 { header, parts, receipts })
             }
-            header @ VersionedShardChunkHeader::V2(_) => {
-                VersionedPartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts })
+            header @ ShardChunkHeader::V2(_) => {
+                PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts })
             }
         };
 
@@ -1333,7 +1333,7 @@ impl ShardsManager {
 
     pub fn decode_and_persist_encoded_chunk(
         &mut self,
-        encoded_chunk: VersionedEncodedShardChunk,
+        encoded_chunk: EncodedShardChunk,
         chain_store: &mut ChainStore,
         merkle_paths: Vec<MerklePath>,
     ) -> Result<(), Error> {
@@ -1379,16 +1379,16 @@ impl ShardsManager {
 
     pub fn create_and_persist_partial_chunk(
         &mut self,
-        encoded_chunk: &VersionedEncodedShardChunk,
+        encoded_chunk: &EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
         outgoing_receipts: Vec<Receipt>,
         store_update: &mut ChainStoreUpdate<'_>,
     ) {
         let header_inner = match encoded_chunk {
-            VersionedEncodedShardChunk::V1(chunk) => &chunk.header.inner,
-            VersionedEncodedShardChunk::V2(chunk) => match &chunk.header {
-                VersionedShardChunkHeader::V1(header) => &header.inner,
-                VersionedShardChunkHeader::V2(header) => &header.inner,
+            EncodedShardChunk::V1(chunk) => &chunk.header.inner,
+            EncodedShardChunk::V2(chunk) => match &chunk.header {
+                ShardChunkHeader::V1(header) => &header.inner,
+                ShardChunkHeader::V2(header) => &header.inner,
             },
         };
         let shard_id = header_inner.shard_id;
@@ -1411,10 +1411,8 @@ impl ShardsManager {
             })
             .collect();
         let header = match encoded_chunk {
-            VersionedEncodedShardChunk::V1(chunk) => {
-                VersionedShardChunkHeader::V1(chunk.header.clone())
-            }
-            VersionedEncodedShardChunk::V2(chunk) => chunk.header.clone(),
+            EncodedShardChunk::V1(chunk) => ShardChunkHeader::V1(chunk.header.clone()),
+            EncodedShardChunk::V2(chunk) => chunk.header.clone(),
         };
         let cache_entry = EncodedChunksCacheEntry {
             header,
@@ -1443,13 +1441,13 @@ impl ShardsManager {
 
     pub fn distribute_encoded_chunk(
         &mut self,
-        encoded_chunk: VersionedEncodedShardChunk,
+        encoded_chunk: EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
         outgoing_receipts: Vec<Receipt>,
         chain_store: &mut ChainStore,
     ) -> Result<(), Error> {
         // TODO: if the number of validators exceeds the number of parts, this logic must be changed
-        let chunk_header = encoded_chunk.cloned_versioned_header();
+        let chunk_header = encoded_chunk.cloned_header();
         let prev_block_hash = chunk_header.prev_block_hash();
         let shard_id = chunk_header.shard_id();
         let outgoing_receipts_hashes =
@@ -1631,7 +1629,7 @@ mod test {
                 PROTOCOL_VERSION,
             )
             .unwrap();
-        let header = encoded_chunk.cloned_versioned_header();
+        let header = encoded_chunk.cloned_header();
         shards_manager.requested_partial_encoded_chunks.insert(
             header.chunk_hash(),
             ChunkRequestInfo {

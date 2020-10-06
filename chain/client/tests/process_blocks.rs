@@ -35,10 +35,8 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
-use near_primitives::sharding::{
-    ReedSolomonWrapper, VersionedEncodedShardChunk, VersionedShardChunkHeader,
-};
-use near_primitives::syncing::{get_num_state_parts, VersionedShardStateSyncResponseHeader};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
+use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
 };
@@ -96,7 +94,7 @@ fn produce_two_blocks() {
 // TODO: figure out how to re-enable it correctly
 #[ignore]
 fn produce_blocks_with_tx() {
-    let mut encoded_chunks: Vec<VersionedEncodedShardChunk> = vec![];
+    let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
     System::run(|| {
         let (client, view_client) = setup_mock(
@@ -118,7 +116,7 @@ fn produce_blocks_with_tx() {
                     let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
                     let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
                     if encoded_chunks.len() + 2 == height {
-                        encoded_chunks.push(VersionedEncodedShardChunk::from_header(
+                        encoded_chunks.push(EncodedShardChunk::from_header(
                             header,
                             total_parts,
                             PROTOCOL_VERSION,
@@ -458,10 +456,10 @@ fn invalid_blocks_common(is_requested: bool) {
             let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
             let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
             match &mut chunks[0] {
-                VersionedShardChunkHeader::V1(chunk) => {
+                ShardChunkHeader::V1(chunk) => {
                     chunk.signature = some_signature;
                 }
-                VersionedShardChunkHeader::V2(chunk) => {
+                ShardChunkHeader::V2(chunk) => {
                     chunk.signature = some_signature;
                 }
             };
@@ -1809,7 +1807,7 @@ fn test_validate_chunk_extra() {
 
     // Process two blocks on two different forks that contain the same chunk.
     for (i, block) in vec![&mut block1, &mut block2].into_iter().enumerate() {
-        let mut chunk_header = encoded_chunk.cloned_versioned_header();
+        let mut chunk_header = encoded_chunk.cloned_header();
         *chunk_header.height_included_mut() = i as BlockHeight + next_height;
         let chunk_headers = vec![chunk_header];
         block.set_chunks(chunk_headers.clone());
@@ -1935,11 +1933,9 @@ fn test_catchup_gas_price_change() {
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
     let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
     let state_root = match &state_sync_header {
-        VersionedShardStateSyncResponseHeader::V1(header) => {
-            header.chunk.header.inner.prev_state_root
-        }
-        VersionedShardStateSyncResponseHeader::V2(header) => {
-            header.chunk.cloned_versioned_header().take_inner().prev_state_root
+        ShardStateSyncResponseHeader::V1(header) => header.chunk.header.inner.prev_state_root,
+        ShardStateSyncResponseHeader::V2(header) => {
+            header.chunk.cloned_header().take_inner().prev_state_root
         }
     };
     //let state_root = state_sync_header.chunk.header.inner.prev_state_root;

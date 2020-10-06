@@ -224,7 +224,7 @@ fn apply_block_at_height(
         .unwrap();
     let receipts = collect_receipts_from_response(&receipt_proof_response);
 
-    let chunk_inner = chunk.cloned_versioned_header().take_inner();
+    let chunk_inner = chunk.cloned_header().take_inner();
     let apply_result = runtime
         .apply_transactions(
             shard_id,

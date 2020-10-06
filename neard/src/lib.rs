@@ -16,8 +16,8 @@ use near_network::{NetworkRecipient, PeerManagerActor};
 use near_rosetta_rpc::start_rosetta_rpc;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10,
-    set_store_version,
+    migrate_11_to_12, migrate_12_to_13, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9,
+    migrate_9_to_10, set_store_version,
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
@@ -147,6 +147,13 @@ pub fn apply_store_migrations(path: &String, is_archival: bool) {
         // version 11 => 12;
         // populate ColReceipts with existing receipts
         migrate_11_to_12(path);
+    }
+
+    if db_version <= 12 {
+        info!(target: "near", "Migrate DB from version 12 to 13");
+        // version 12 => 13;
+        // store versioned enums for shard chunks
+        migrate_12_to_13(path);
     }
 
     let db_version = get_store_version(path);
