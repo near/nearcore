@@ -906,6 +906,7 @@ pub fn start_rosetta_rpc(
 
         App::new()
             .app_data(json_config)
+            .wrap(actix_web::middleware::Logger::default())
             .data(Arc::clone(&genesis))
             .data(client_addr.clone())
             .data(view_client_addr.clone())
