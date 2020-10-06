@@ -612,9 +612,19 @@ async fn construction_payloads(
         metadata,
     }) = body;
 
-    let signer_public_access_key = public_keys.into_iter().next().ok_or_else(|| {
-        errors::ErrorKind::InvalidInput("exactly one public key is expected".to_string())
-    })?;
+    let signer_public_access_key: near_crypto::PublicKey = public_keys
+        .iter()
+        .next()
+        .ok_or_else(|| {
+            errors::ErrorKind::InvalidInput("exactly one public key is expected".to_string())
+        })?
+        .try_into()
+        .map_err(|err| {
+            errors::ErrorKind::InvalidInput(format!(
+                "public key could not be parsed due to: {:?}",
+                err
+            ))
+        })?;
 
     // TODO: reduce copy-paste
     let status = client_addr
@@ -644,12 +654,7 @@ async fn construction_payloads(
             ))
         })?,
         signer_id: signer_account_id.clone(),
-        public_key: (&signer_public_access_key).try_into().map_err(|err| {
-            errors::ErrorKind::InvalidInput(format!(
-                "public key could not be parsed due to: {:?}",
-                err
-            ))
-        })?,
+        public_key: signer_public_access_key.clone(),
         nonce: signer_public_access_key_nonce,
         receiver_id: receiver_account_id,
         actions,
@@ -661,7 +666,7 @@ async fn construction_payloads(
         unsigned_transaction: unsigned_transaction.into(),
         payloads: vec![models::SigningPayload {
             account_identifier: signer_account_id.into(),
-            signature_type: None,
+            signature_type: Some(signer_public_access_key.key_type().into()),
             hex_bytes: transaction_hash.as_ref().to_owned().into(),
         }],
     }))
@@ -901,6 +906,7 @@ pub fn start_rosetta_rpc(
 
         App::new()
             .app_data(json_config)
+            .wrap(actix_web::middleware::Logger::default())
             .data(Arc::clone(&genesis))
             .data(client_addr.clone())
             .data(view_client_addr.clone())

@@ -125,13 +125,13 @@ impl std::ops::Neg for Amount {
 
 impl Amount {
     pub(crate) fn from_yoctonear(amount: near_primitives::types::Balance) -> Self {
-        Self { value: amount.into(), currency: Currency::yoctonear() }
+        Self { value: amount.into(), currency: Currency::near() }
     }
 
     pub(crate) fn from_yoctonear_diff(
         amount: crate::utils::SignedDiff<near_primitives::types::Balance>,
     ) -> Self {
-        Self { value: amount, currency: Currency::yoctonear() }
+        Self { value: amount, currency: Currency::near() }
     }
 }
 
@@ -444,8 +444,7 @@ pub(crate) struct ConstructionHashRequest {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) enum CurrencySymbol {
-    #[serde(rename = "yoctoNEAR")]
-    YoctoNEAR,
+    NEAR,
 }
 
 /// Currency is composed of a canonical Symbol and Decimals. This Decimals value
@@ -471,8 +470,8 @@ pub(crate) struct Currency {
 }
 
 impl Currency {
-    fn yoctonear() -> Self {
-        Self { symbol: CurrencySymbol::YoctoNEAR, decimals: 0 }
+    fn near() -> Self {
+        Self { symbol: CurrencySymbol::NEAR, decimals: 24 }
     }
 }
 
@@ -1086,15 +1085,12 @@ impl TryFrom<&Signature> for near_crypto::Signature {
     fn try_from(
         Signature { signature_type, hex_bytes, .. }: &Signature,
     ) -> Result<Self, Self::Error> {
-        let key_type = match signature_type {
-            SignatureType::Ed25519 => near_crypto::KeyType::ED25519,
-        };
-        near_crypto::Signature::from_parts(key_type, hex_bytes.as_ref())
+        near_crypto::Signature::from_parts((*signature_type).into(), hex_bytes.as_ref())
     }
 }
 
 /// SignatureType is the type of a cryptographic signature.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum SignatureType {
     /// `R (32-byte) || s (32-bytes)` - `64 bytes`
@@ -1111,4 +1107,23 @@ pub(crate) enum SignatureType {
      * /// implemented by Zilliqa where both `r` and `s` are scalars encoded as
      * /// `32-bytes` values, most significant byte first.)
      * Schnorr1, */
+}
+
+impl From<near_crypto::KeyType> for SignatureType {
+    fn from(key_type: near_crypto::KeyType) -> Self {
+        match key_type {
+            near_crypto::KeyType::ED25519 => Self::Ed25519,
+            near_crypto::KeyType::SECP256K1 => {
+                unimplemented!("SECP256K1 keys are not implemented in Rosetta yet")
+            }
+        }
+    }
+}
+
+impl From<SignatureType> for near_crypto::KeyType {
+    fn from(signature_type: SignatureType) -> Self {
+        match signature_type {
+            SignatureType::Ed25519 => Self::ED25519,
+        }
+    }
 }

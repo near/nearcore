@@ -6,7 +6,7 @@ pub use crate::client_actor::{start_client, ClientActor};
 pub use crate::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
     GetExecutionOutcome, GetExecutionOutcomeResponse, GetExecutionOutcomesForBlock, GetGasPrice,
-    GetNetworkInfo, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
+    GetNetworkInfo, GetNextLightClientBlock, GetReceipt, GetStateChanges, GetStateChangesInBlock,
     GetValidatorInfo, GetValidatorOrdered, Query, Status, StatusResponse, SyncStatus, TxStatus,
     TxStatusError,
 };

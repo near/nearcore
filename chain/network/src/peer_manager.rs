@@ -33,13 +33,12 @@ use crate::peer_store::{PeerStore, TrustLevel};
 use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate,
-    ConsolidateResponse, FullPeerInfo, InboundTcpConnect, KnownPeerStatus, KnownProducer,
-    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
-    PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
-    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, SyncData, Unregister,
-    VersionedStateResponseInfo,
+    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
+    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
+    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
+    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, SendMessage, SyncData, Unregister, VersionedStateResponseInfo,
 };
 use crate::types::{
     EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
@@ -1221,70 +1220,62 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.announce_account(ctx, announce_account);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::PartialEncodedChunkRequest { target, request } => match target {
-                AccountIdOrPeerTrackingShard::AccountId(account_id) => {
-                    if self.send_message_to_account(
-                        ctx,
-                        &account_id,
-                        RoutedMessageBody::PartialEncodedChunkRequest(request),
-                    ) {
-                        NetworkResponses::NoResponse
-                    } else {
-                        NetworkResponses::RouteNotFound
-                    }
-                }
-                AccountIdOrPeerTrackingShard::PeerTrackingShard {
-                    shard_id,
-                    only_archival,
-                    fallback_account_id,
-                } => {
-                    let mut matching_peers = vec![];
-                    for (peer_id, active_peer) in self.active_peers.iter() {
-                        if (active_peer.full_peer_info.chain_info.archival || !only_archival)
-                            && active_peer
-                                .full_peer_info
-                                .chain_info
-                                .tracked_shards
-                                .contains(&shard_id)
-                        {
-                            matching_peers.push(peer_id.clone());
-                        }
-                    }
+            NetworkRequests::PartialEncodedChunkRequest { target, request } => {
+                let mut success = false;
 
-                    match matching_peers.iter().choose(&mut thread_rng()) {
-                        Some(matching_peer) => {
+                // Make two attempts to send the message. First following the preference of `prefer_peer`,
+                // and if it fails, against the preference.
+                for prefer_peer in &[target.prefer_peer, !target.prefer_peer] {
+                    if !prefer_peer {
+                        if let Some(account_id) = target.account_id.as_ref() {
+                            if self.send_message_to_account(
+                                ctx,
+                                &account_id,
+                                RoutedMessageBody::PartialEncodedChunkRequest(request.clone()),
+                            ) {
+                                success = true;
+                                break;
+                            }
+                        }
+                    } else {
+                        let mut matching_peers = vec![];
+                        for (peer_id, active_peer) in self.active_peers.iter() {
+                            if (active_peer.full_peer_info.chain_info.archival
+                                || !target.only_archival)
+                                && active_peer
+                                    .full_peer_info
+                                    .chain_info
+                                    .tracked_shards
+                                    .contains(&target.shard_id)
+                            {
+                                matching_peers.push(peer_id.clone());
+                            }
+                        }
+
+                        if let Some(matching_peer) = matching_peers.iter().choose(&mut thread_rng())
+                        {
                             if self.send_message_to_peer(
                                 ctx,
                                 RawRoutedMessage {
                                     target: AccountOrPeerIdOrHash::PeerId(matching_peer.clone()),
-                                    body: RoutedMessageBody::PartialEncodedChunkRequest(request),
+                                    body: RoutedMessageBody::PartialEncodedChunkRequest(
+                                        request.clone(),
+                                    ),
                                 },
                             ) {
-                                NetworkResponses::NoResponse
-                            } else {
-                                NetworkResponses::RouteNotFound
-                            }
-                        }
-                        None => {
-                            if let Some(fallback_account_id) = fallback_account_id {
-                                warn!("Chunk request for shard {} cannot be properly sent, because no known peer runs {} node tracking the shard. Falling back to sending to the block producer from the corresponding epoch.", shard_id, if only_archival { "an archival" } else { "a" });
-                                if self.send_message_to_account(
-                                    ctx,
-                                    &fallback_account_id,
-                                    RoutedMessageBody::PartialEncodedChunkRequest(request),
-                                ) {
-                                    NetworkResponses::NoResponse
-                                } else {
-                                    NetworkResponses::RouteNotFound
-                                }
-                            } else {
-                                error!("Chunk request for shard {} cannot be properly sent, because no known peer runs {} node tracking the shard. Dropping the request.", shard_id, if only_archival { "an archival" } else { "a" });
-                                NetworkResponses::NoResponse
+                                success = true;
+                                break;
                             }
                         }
                     }
                 }
-            },
+
+                if success {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
             NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                 if self.send_message_to_peer(
                     ctx,

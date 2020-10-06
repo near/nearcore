@@ -185,7 +185,7 @@ async def stop_server(server):
 
 def check_finish(server, global_stopped, local_stopped, error):
     loop = asyncio.get_running_loop()
-    if 0 == global_stopped.value and 0 == local_stopped.value and 0 == error.value:
+    if 0 == global_stopped.value and 0 >= local_stopped.value and 0 == error.value:
         loop.call_later(1, check_finish, server,
                         global_stopped, local_stopped, error)
     else:
@@ -195,16 +195,14 @@ def check_finish(server, global_stopped, local_stopped, error):
         local_stopped.value = 2
 
 
-async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, error):
+async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, bridge_stopped, error):
     bridge_id = random.randint(0, 10**10)
     logging.debug(f"Start bridge. port={_MY_PORT} bridge_id={bridge_id}")
 
     try:
-        while 0 == global_stopped.value and 0 == local_stopped.value and 0 == error.value:
+        while 0 == global_stopped.value and 0 >= local_stopped.value and 0 == error.value and 0 == bridge_stopped[0]:
             header = await reader.read(4)
             if not header:
-                writer.close()
-                await writer.wait_closed()
                 logging.debug(
                     f"Endpoint closed (Reader). port={_MY_PORT} bridge_id={bridge_id}")
                 break
@@ -228,9 +226,19 @@ async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, erro
                 writer.write(raw_message)
                 await writer.drain()
 
+        bridge_stopped[0] = 1
+        writer.close()
+        await writer.wait_closed()
+
         logging.debug(
             f"Gracefully close bridge. port={_MY_PORT} bridge_id={bridge_id}")
     except (ConnectionResetError, BrokenPipeError):
+        bridge_stopped[0] = 1
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except:
+            pass
         logging.debug(
             f"Endpoint closed (Writer). port={_MY_PORT} bridge_id={bridge_id}")
 
@@ -244,16 +252,17 @@ async def handle_connection(outer_reader, outer_writer, inner_port, outer_port, 
 
         my_port = [outer_port]
         peer_port_holder = [None]
+        bridge_stopped = [0]
 
         inner_to_outer = bridge(inner_reader, outer_writer, functools.partial(
             handler._handle, writer=inner_writer, sender_port_holder=my_port, receiver_port_holder=peer_port_holder,
             ordinal_to_writer=handler.recv_from_map,
-        ), global_stopped, local_stopped, error)
+        ), global_stopped, local_stopped, bridge_stopped, error)
 
         outer_to_inner = bridge(outer_reader, inner_writer, functools.partial(
             handler._handle, writer=outer_writer, sender_port_holder=peer_port_holder, receiver_port_holder=my_port,
             ordinal_to_writer=handler.send_to_map,
-        ), global_stopped, local_stopped, error)
+        ), global_stopped, local_stopped, bridge_stopped, error)
 
         await asyncio.gather(inner_to_outer, outer_to_inner)
         logging.debug(
@@ -261,7 +270,7 @@ async def handle_connection(outer_reader, outer_writer, inner_port, outer_port, 
     except asyncio.CancelledError:
         logging.debug(
             f"Cancelled Error (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
-        if local_stopped.value == 0:
+        if local_stopped.value <= 0:
             global_stopped.value = 1
     except ConnectionRefusedError:
         logging.debug(
@@ -299,13 +308,14 @@ async def listener(inner_port, outer_port, handler_ctr, global_stopped, local_st
                 await asyncio.sleep(1)
 
         check_finish(server, global_stopped, local_stopped, error)
+        local_stopped.value = 0
 
         async with server:
             await server.serve_forever()
     except asyncio.CancelledError:
         logging.debug(
             f"Cancelled Error (listener). port={_MY_PORT} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
-        if local_stopped.value == 0:
+        if local_stopped.value <= 0:
             global_stopped.value = 1
     except:
         logging.debug(
@@ -326,14 +336,22 @@ def proxify_node(node, ps, handler, global_stopped, error, proxy):
 
     def start_proxy():
         # local_stopped denotes the current of state of the proxy:
+        # -1: The proxy hasn't started yet
         # 0: The proxy is running
         # 1: The proxy is running but should be closed soon
         # 2: The proxy is closed
-        local_stopped = multiprocessing.Value('i', 0)
+        local_stopped = multiprocessing.Value('i', -1)
         p = multiprocessing.Process(target=start_server, args=(
             inner_port, outer_port, handler, global_stopped, local_stopped, error))
         p.start()
         ps.append(p)
+        for attempt in range(3):
+            if local_stopped.value == 0:
+                break
+            time.sleep(1)
+        else:
+            error.value = 1
+            assert False, "The proxy failed to start after 3 seconds"
         return local_stopped
 
     node.port = outer_port

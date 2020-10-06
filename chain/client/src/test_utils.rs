@@ -21,8 +21,8 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfoV2,
+    AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
+    PeerChainInfoV2,
 };
 use near_network::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
@@ -488,13 +488,8 @@ pub fn setup_mock_all_validators(
                                 .insert(*block.header().hash(), block.header().height());
                         }
                         NetworkRequests::PartialEncodedChunkRequest { target, request } => {
-                            if let AccountIdOrPeerTrackingShard::PeerTrackingShard { .. } = target {
-                                assert!(false); // Currently is not possible in client tests
-                            }
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if &AccountIdOrPeerTrackingShard::AccountId(name.to_string())
-                                    == target
-                                {
+                                if Some(&name.to_string()) == target.account_id.as_ref() {
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
                                             NetworkClientMessages::PartialEncodedChunkRequest(

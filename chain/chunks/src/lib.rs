@@ -19,7 +19,7 @@ use near_network::types::{
 };
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
-use near_primitives::block::BlockHeader;
+use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -35,10 +35,11 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolVersion;
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
-use near_primitives::version::ProtocolVersion;
+use rand::Rng;
 
 mod chunk_cache;
 pub mod test_utils;
@@ -457,21 +458,14 @@ impl ShardsManager {
             shard_id,
         )?;
 
-        let shard_representative_target =
-            if !request_own_parts_from_others && !request_from_archival {
-                AccountIdOrPeerTrackingShard::AccountId(chunk_producer_account_id.clone())
-            } else {
-                match self.get_random_target_tracking_shard(
-                    &parent_hash,
-                    shard_id,
-                    request_from_archival,
-                ) {
-                    Ok(Some(someone)) => someone,
-                    Ok(None) | Err(_) => {
-                        AccountIdOrPeerTrackingShard::AccountId(chunk_producer_account_id.clone())
-                    }
-                }
-            };
+        let shard_representative_target = if !request_own_parts_from_others
+            && !request_from_archival
+            && Some(chunk_producer_account_id) != self.me.as_ref()
+        {
+            AccountIdOrPeerTrackingShard::from_account(shard_id, chunk_producer_account_id.clone())
+        } else {
+            self.get_random_target_tracking_shard(&parent_hash, shard_id, request_from_archival)?
+        };
 
         let seal = self.seals_mgr.get_seal(chunk_hash, parent_hash, height, shard_id)?;
 
@@ -501,7 +495,7 @@ impl ShardsManager {
                         // If missing own part, request it from the chunk producer / node tracking shard
                         shard_representative_target.clone()
                     } else {
-                        AccountIdOrPeerTrackingShard::AccountId(part_owner)
+                        AccountIdOrPeerTrackingShard::from_account(shard_id, part_owner)
                     }
                 };
 
@@ -523,11 +517,7 @@ impl ShardsManager {
 
         for (target, part_ords) in bp_to_parts {
             // extra check that we are not sending request to ourselves.
-            if self
-                .me
-                .clone()
-                .map_or(true, |me| AccountIdOrPeerTrackingShard::AccountId(me) != target)
-            {
+            if self.me.clone().map_or(true, |me| Some(me) != target.account_id) {
                 let request = PartialEncodedChunkRequestMsg {
                     chunk_hash: chunk_hash.clone(),
                     part_ords,
@@ -556,7 +546,7 @@ impl ShardsManager {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
         request_from_archival: bool,
-    ) -> Result<Option<AccountIdOrPeerTrackingShard>, Error> {
+    ) -> Result<AccountIdOrPeerTrackingShard, near_chain::Error> {
         let mut block_producers = vec![];
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
         for (validator_stake, is_slashed) in
@@ -577,14 +567,11 @@ impl ShardsManager {
 
         let maybe_account_id = block_producers.choose(&mut rand::thread_rng()).cloned();
 
-        Ok(if request_from_archival {
-            Some(AccountIdOrPeerTrackingShard::PeerTrackingShard {
-                shard_id,
-                only_archival: true,
-                fallback_account_id: maybe_account_id,
-            })
-        } else {
-            maybe_account_id.map(|x| AccountIdOrPeerTrackingShard::AccountId(x))
+        Ok(AccountIdOrPeerTrackingShard {
+            shard_id,
+            only_archival: request_from_archival,
+            account_id: maybe_account_id,
+            prefer_peer: request_from_archival || rand::thread_rng().gen::<bool>(),
         })
     }
 
@@ -601,7 +588,7 @@ impl ShardsManager {
             .collect::<HashSet<_>>()
     }
 
-    pub fn request_chunks<T>(&mut self, chunks_to_request: T, header_head: &CryptoHash)
+    pub fn request_chunks<T>(&mut self, chunks_to_request: T, header_head: &Tip)
     where
         T: IntoIterator<Item = VersionedShardChunkHeader>,
     {
@@ -629,10 +616,12 @@ impl ShardsManager {
             );
 
             let fetch_from_archival = self.runtime_adapter
-                .chunk_needs_to_be_fetched_from_archival(&parent_hash, header_head).unwrap_or_else(|err| {
+                .chunk_needs_to_be_fetched_from_archival(&parent_hash, &header_head.last_block_hash).unwrap_or_else(|err| {
                 error!(target: "chunks", "Error during requesting partial encoded chunk. Cannot determine whether to request from an archival node, defaulting to not: {}", err);
                 false
             });
+            let old_block = header_head.last_block_hash != parent_hash
+                && header_head.prev_block_hash != parent_hash;
 
             let request_result = self.request_partial_encoded_chunk(
                 height,
@@ -640,7 +629,7 @@ impl ShardsManager {
                 shard_id,
                 &chunk_hash,
                 false,
-                false,
+                old_block,
                 fetch_from_archival,
             );
             if let Err(err) = request_result {
@@ -650,15 +639,18 @@ impl ShardsManager {
     }
 
     /// Resends chunk requests if haven't received it within expected time.
-    pub fn resend_chunk_requests(&mut self, header_head: &CryptoHash) {
+    pub fn resend_chunk_requests(&mut self, header_head: &Tip) {
         // Process chunk one part requests.
         let requests = self.requested_partial_encoded_chunks.fetch();
         for (chunk_hash, chunk_request) in requests {
             let fetch_from_archival = self.runtime_adapter
-                .chunk_needs_to_be_fetched_from_archival(&chunk_request.parent_hash, header_head).unwrap_or_else(|err| {
+                .chunk_needs_to_be_fetched_from_archival(&chunk_request.parent_hash, &header_head.last_block_hash).unwrap_or_else(|err| {
                 error!(target: "chunks", "Error during re-requesting partial encoded chunk. Cannot determine whether to request from an archival node, defaulting to not: {}", err);
                 false
             });
+            let old_block = header_head.last_block_hash != chunk_request.parent_hash
+                && header_head.prev_block_hash != chunk_request.parent_hash;
+
             match self.request_partial_encoded_chunk(
                 chunk_request.height,
                 &chunk_request.parent_hash,
@@ -666,8 +658,9 @@ impl ShardsManager {
                 &chunk_hash,
                 chunk_request.added.elapsed()
                     > self.requested_partial_encoded_chunks.switch_to_full_fetch_duration,
-                chunk_request.added.elapsed()
-                    > self.requested_partial_encoded_chunks.switch_to_others_duration,
+                old_block
+                    || chunk_request.added.elapsed()
+                        > self.requested_partial_encoded_chunks.switch_to_others_duration,
                 fetch_from_archival,
             ) {
                 Ok(()) => {}
@@ -1537,19 +1530,21 @@ mod test {
     };
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
-    use near_primitives::hash::hash;
+    use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::sharding::ChunkHash;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_network::NetworkRequests;
+    use near_primitives::block::Tip;
+    use near_primitives::types::EpochId;
     #[cfg(feature = "expensive_tests")]
     use {
         crate::ACCEPTING_SEAL_PERIOD_MS, near_chain::ChainStore, near_chain::RuntimeAdapter,
         near_crypto::KeyType, near_logger_utils::init_test_logger,
-        near_primitives::hash::CryptoHash, near_primitives::merkle::merklize,
-        near_primitives::sharding::ReedSolomonWrapper,
+        near_primitives::merkle::merklize, near_primitives::sharding::ReedSolomonWrapper,
         near_primitives::validator_signer::InMemoryValidatorSigner,
     };
 
@@ -1571,8 +1566,24 @@ mod test {
             },
         );
         std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
-        shards_manager.resend_chunk_requests(&Default::default());
-        assert!(network_adapter.requests.read().unwrap().is_empty());
+        shards_manager.resend_chunk_requests(&Tip {
+            height: 0,
+            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            epoch_id: EpochId::default(),
+            next_epoch_id: EpochId::default(),
+        });
+
+        // For the chunks that would otherwise be requested from self we expect a request to be
+        // sent to any peer tracking shard
+        if let NetworkRequests::PartialEncodedChunkRequest { target, .. } =
+            network_adapter.requests.read().unwrap()[0].clone()
+        {
+            assert!(target.account_id == None);
+        } else {
+            println!("{:?}", network_adapter.requests.read().unwrap());
+            assert!(false);
+        };
     }
 
     #[cfg(feature = "expensive_tests")]
