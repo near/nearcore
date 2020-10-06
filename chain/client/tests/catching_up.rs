@@ -768,11 +768,15 @@ mod tests {
                             ChunkGrievingPhases::SecondAttack => {
                                 if let NetworkRequests::PartialEncodedChunkRequest {
                                     request,
-                                    target: AccountIdOrPeerTrackingShard::AccountId(account_id),
+                                    target:
+                                        AccountIdOrPeerTrackingShard {
+                                            account_id: Some(account_id),
+                                            ..
+                                        },
                                 } = msg
                                 {
                                     if request.chunk_hash == *grieving_chunk_hash {
-                                        if *account_id == malicious_node {
+                                        if account_id == &malicious_node {
                                             // holding grieving_chunk_hash by malicious node
                                             return (NetworkResponses::NoResponse, false);
                                         }
