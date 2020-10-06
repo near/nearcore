@@ -689,7 +689,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
     }
 
-    fn verify_chunk_header_signature(&self, header: &VersionedShardChunkHeader) -> Result<bool, Error> {
+    fn verify_chunk_header_signature(
+        &self,
+        header: &VersionedShardChunkHeader,
+    ) -> Result<bool, Error> {
         let epoch_id = self.get_epoch_id_from_prev_block(&header.prev_block_hash())?;
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         if let Ok(chunk_producer) = epoch_manager.get_chunk_producer_info(

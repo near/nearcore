@@ -35,7 +35,9 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
-use near_primitives::sharding::{ReedSolomonWrapper, VersionedEncodedShardChunk, VersionedShardChunkHeader};
+use near_primitives::sharding::{
+    ReedSolomonWrapper, VersionedEncodedShardChunk, VersionedShardChunkHeader,
+};
 use near_primitives::syncing::{get_num_state_parts, VersionedShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
@@ -116,8 +118,11 @@ fn produce_blocks_with_tx() {
                     let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
                     let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
                     if encoded_chunks.len() + 2 == height {
-                        encoded_chunks
-                            .push(VersionedEncodedShardChunk::from_header(header, total_parts, PROTOCOL_VERSION));
+                        encoded_chunks.push(VersionedEncodedShardChunk::from_header(
+                            header,
+                            total_parts,
+                            PROTOCOL_VERSION,
+                        ));
                     }
                     for part in partial_encoded_chunk.parts.iter() {
                         encoded_chunks[height - 2].content_mut().parts[part.part_ord as usize] =
@@ -2024,7 +2029,8 @@ fn test_block_execution_outcomes() {
 
     // Make sure the chunk outcomes contain the outcome from the delayed receipt.
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
-    let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap().clone();
+    let next_chunk =
+        env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap().clone();
     assert!(next_chunk.transactions().is_empty());
     assert!(next_chunk.receipts().is_empty());
     let execution_outcomes_from_block =

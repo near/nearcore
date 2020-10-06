@@ -1104,7 +1104,7 @@ pub fn create_chunk(
     let transactions = replace_transactions.unwrap_or_else(Vec::new);
     let tx_root = match replace_tx_root {
         Some(root) => root,
-        None => merklize(&transactions).0
+        None => merklize(&transactions).0,
     };
     // reconstruct the chunk with changes (if any)
     if should_replace {

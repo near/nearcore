@@ -10,7 +10,10 @@ use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle;
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart, ReedSolomonWrapper, VersionedShardChunkHeader, PartialEncodedChunkV2};
+use near_primitives::sharding::{
+    ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper,
+    VersionedShardChunkHeader,
+};
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -265,7 +268,11 @@ impl ChunkForwardingTestFixture {
             .flat_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
             .cloned()
             .collect();
-        PartialEncodedChunkV2 { header: self.mock_chunk_header.clone(), parts, receipts: Vec::new() }
+        PartialEncodedChunkV2 {
+            header: self.mock_chunk_header.clone(),
+            parts,
+            receipts: Vec::new(),
+        }
     }
 }
 

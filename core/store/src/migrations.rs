@@ -5,7 +5,11 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardProof, VersionedEncodedShardChunk, VersionedPartialEncodedChunk, VersionedShardChunk};
+use near_primitives::sharding::{
+    EncodedShardChunk, PartialEncodedChunk, ReceiptList, ReceiptProof, ReedSolomonWrapper,
+    ShardChunk, ShardProof, VersionedEncodedShardChunk, VersionedPartialEncodedChunk,
+    VersionedShardChunk,
+};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
@@ -22,8 +26,10 @@ use near_crypto::KeyType;
 use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::merkle::merklize;
+use near_primitives::syncing::{
+    ShardStateSyncResponseHeader, VersionedShardStateSyncResponseHeader,
+};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::syncing::{ShardStateSyncResponseHeader, VersionedShardStateSyncResponseHeader};
 
 pub mod v6_to_v7;
 pub mod v8_to_v9;
@@ -180,28 +186,33 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
             .expect("create encoded chunk should not fail");
             let mut encoded_chunk = match encoded_chunk {
                 VersionedEncodedShardChunk::V1(chunk) => chunk,
-                VersionedEncodedShardChunk::V2(_) => panic!("Should not have created EncodedShardChunkV2"),
+                VersionedEncodedShardChunk::V2(_) => {
+                    panic!("Should not have created EncodedShardChunkV2")
+                }
             };
             encoded_chunk.header = header;
             let outgoing_receipt_hashes =
                 vec![hash(&ReceiptList(0, &receipts).try_to_vec().unwrap())];
             let (_, outgoing_receipt_proof) = merklize(&outgoing_receipt_hashes);
 
-            let partial_encoded_chunk = VersionedEncodedShardChunk::V1(encoded_chunk).create_partial_encoded_chunk(
-                (0..num_total_parts as u64).collect(),
-                vec![ReceiptProof(
-                    receipts,
-                    ShardProof {
-                        from_shard_id: 0,
-                        to_shard_id: 0,
-                        proof: outgoing_receipt_proof[0].clone(),
-                    },
-                )],
-                &merkle_paths,
-            );
+            let partial_encoded_chunk = VersionedEncodedShardChunk::V1(encoded_chunk)
+                .create_partial_encoded_chunk(
+                    (0..num_total_parts as u64).collect(),
+                    vec![ReceiptProof(
+                        receipts,
+                        ShardProof {
+                            from_shard_id: 0,
+                            to_shard_id: 0,
+                            proof: outgoing_receipt_proof[0].clone(),
+                        },
+                    )],
+                    &merkle_paths,
+                );
             let partial_encoded_chunk = match partial_encoded_chunk {
                 VersionedPartialEncodedChunk::V1(chunk) => chunk,
-                VersionedPartialEncodedChunk::V2(_) => panic!("Should not have created PartialEncodedChunkV2"),
+                VersionedPartialEncodedChunk::V2(_) => {
+                    panic!("Should not have created PartialEncodedChunkV2")
+                }
             };
             store_update
                 .set_ser(ColPartialChunks, chunk_hash.as_ref(), &partial_encoded_chunk)
@@ -298,10 +309,19 @@ where
 pub fn migrate_12_to_13(path: &String) {
     let store = create_store(path);
 
-    map_col(&store, DBCol::ColPartialChunks, |pec: PartialEncodedChunk| VersionedPartialEncodedChunk::V1(pec)).unwrap();
-    map_col(&store, DBCol::ColInvalidChunks, |chunk: EncodedShardChunk| VersionedEncodedShardChunk::V1(chunk)).unwrap();
+    map_col(&store, DBCol::ColPartialChunks, |pec: PartialEncodedChunk| {
+        VersionedPartialEncodedChunk::V1(pec)
+    })
+    .unwrap();
+    map_col(&store, DBCol::ColInvalidChunks, |chunk: EncodedShardChunk| {
+        VersionedEncodedShardChunk::V1(chunk)
+    })
+    .unwrap();
     map_col(&store, DBCol::ColChunks, |chunk: ShardChunk| VersionedShardChunk::V1(chunk)).unwrap();
-    map_col(&store, DBCol::ColStateHeaders, |header: ShardStateSyncResponseHeader| VersionedShardStateSyncResponseHeader::V1(header)).unwrap();
+    map_col(&store, DBCol::ColStateHeaders, |header: ShardStateSyncResponseHeader| {
+        VersionedShardStateSyncResponseHeader::V1(header)
+    })
+    .unwrap();
 
     set_store_version(&store, 13);
 }

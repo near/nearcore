@@ -17,13 +17,19 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo, VersionedStateResponseInfo, StateResponseInfoV2};
+use near_network::types::{
+    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
+    StateResponseInfoV2, VersionedStateResponseInfo,
+};
 use near_network::{NetworkAdapter, NetworkRequests};
 use near_primitives::block::{BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
-use near_primitives::syncing::{ShardStateSyncResponse, VersionedShardStateSyncResponse, VersionedShardStateSyncResponseHeader, ShardStateSyncResponseV2};
+use near_primitives::syncing::{
+    ShardStateSyncResponse, ShardStateSyncResponseV2, VersionedShardStateSyncResponse,
+    VersionedShardStateSyncResponseHeader,
+};
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, TransactionOrReceiptId,
 };
@@ -523,15 +529,10 @@ impl Handler<GetChunk> for ViewClientActor {
         }
         .and_then(|chunk| {
             let chunk_inner = chunk.cloned_versioned_header().take_inner();
-            let epoch_id = self
-                .runtime_adapter
-                .get_epoch_id_from_prev_block(&chunk_inner.prev_block_hash)?;
+            let epoch_id =
+                self.runtime_adapter.get_epoch_id_from_prev_block(&chunk_inner.prev_block_hash)?;
             self.runtime_adapter
-                .get_chunk_producer(
-                    &epoch_id,
-                    chunk_inner.height_created,
-                    chunk_inner.shard_id,
-                )
+                .get_chunk_producer(&epoch_id, chunk_inner.height_created, chunk_inner.shard_id)
                 .map(|author| ChunkView::from_author_chunk(author, chunk))
         })
         .map_err(|err| err.to_string())
@@ -929,9 +930,22 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             }
                         };
                         match header {
-                            None => VersionedShardStateSyncResponse::V1(ShardStateSyncResponse { header: None, part: None }),
-                            Some(VersionedShardStateSyncResponseHeader::V1(header)) => VersionedShardStateSyncResponse::V1(ShardStateSyncResponse { header: Some(header), part: None }),
-                            Some(VersionedShardStateSyncResponseHeader::V2(header)) => VersionedShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: Some(header), part: None }),
+                            None => VersionedShardStateSyncResponse::V1(ShardStateSyncResponse {
+                                header: None,
+                                part: None,
+                            }),
+                            Some(VersionedShardStateSyncResponseHeader::V1(header)) => {
+                                VersionedShardStateSyncResponse::V1(ShardStateSyncResponse {
+                                    header: Some(header),
+                                    part: None,
+                                })
+                            }
+                            Some(VersionedShardStateSyncResponseHeader::V2(header)) => {
+                                VersionedShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
+                                    header: Some(header),
+                                    part: None,
+                                })
+                            }
                         }
                     }
                     Ok(false) => {
@@ -943,11 +957,17 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             // This case may appear in case of latency in epoch switching.
                             // Request sender is ready to sync but we still didn't get the block.
                             info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
-                            VersionedShardStateSyncResponse::V1(ShardStateSyncResponse { header: None, part: None })
+                            VersionedShardStateSyncResponse::V1(ShardStateSyncResponse {
+                                header: None,
+                                part: None,
+                            })
                         }
                         _ => {
                             error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                            VersionedShardStateSyncResponse::V1(ShardStateSyncResponse { header: None, part: None })
+                            VersionedShardStateSyncResponse::V1(ShardStateSyncResponse {
+                                header: None,
+                                part: None,
+                            })
                         }
                     },
                 };
@@ -956,7 +976,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         let info = VersionedStateResponseInfo::V1(StateResponseInfo {
                             shard_id,
                             sync_hash,
-                            state_response
+                            state_response,
                         });
                         NetworkViewClientResponses::StateResponse(Box::new(info))
                     }

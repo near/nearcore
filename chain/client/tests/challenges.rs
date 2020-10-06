@@ -23,9 +23,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::{ReedSolomonWrapper, VersionedEncodedShardChunk, VersionedShardChunk};
+use near_primitives::sharding::{
+    ReedSolomonWrapper, VersionedEncodedShardChunk, VersionedShardChunk,
+};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{StateRoot, ShardId};
+use near_primitives::types::{ShardId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -137,12 +139,8 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
     let shard_id = get_shard_id(&chunk);
-    let challenge_result = challenge(
-        env,
-        shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
-        &block,
-    );
+    let challenge_result =
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".to_string()]));
 }
 
@@ -159,12 +157,8 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
         VersionedShardChunk::V1(ref chunk) => chunk.header.inner.shard_id,
         VersionedShardChunk::V2(ref chunk) => chunk.header.shard_id(),
     };
-    let challenge_result = challenge(
-        env,
-        shard_id as usize,
-        MaybeEncodedShardChunk::Decoded(chunk),
-        &block,
-    );
+    let challenge_result =
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Decoded(chunk), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".to_string()]));
 }
 
@@ -176,12 +170,8 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
     let (chunk, _merkle_paths, _receipts, block) = create_chunk(&mut env.clients[0], None, None);
 
     let shard_id = get_shard_id(&chunk);
-    let challenge_result = challenge(
-        env,
-        shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
-        &block,
-    );
+    let challenge_result =
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
     assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
 }
 
@@ -216,12 +206,8 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     );
 
     let shard_id = get_shard_id(&chunk);
-    let challenge_result = challenge(
-        env,
-        shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
-        &block,
-    );
+    let challenge_result =
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
     assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
 }
 
@@ -256,12 +242,8 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     );
 
     let shard_id = get_shard_id(&chunk);
-    let challenge_result = challenge(
-        env,
-        shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
-        &block,
-    );
+    let challenge_result =
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".to_string()]));
 }
 
@@ -412,9 +394,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &genesis_block,
         );
 
-        chain_update
-            .create_chunk_state_challenge(&last_block, &block, &block.chunks()[0])
-            .unwrap()
+        chain_update.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap()
     };
     {
         let prev_merkle_proofs = Block::compute_chunk_headers_root(last_block.chunks().iter()).1;
@@ -505,11 +485,9 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     let partial_encoded_chunk = chunk.create_partial_encoded_chunk(
         vec![0],
         one_part_receipt_proofs,
-        &vec![merkle_paths[0].clone()]
+        &vec![merkle_paths[0].clone()],
     );
-    assert!(env.clients[1]
-        .process_partial_encoded_chunk(partial_encoded_chunk)
-        .is_ok());
+    assert!(env.clients[1].process_partial_encoded_chunk(partial_encoded_chunk).is_ok());
     env.process_block(1, block.clone(), Provenance::NONE);
 
     // At this point we should create a challenge and send it out.

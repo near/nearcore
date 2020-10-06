@@ -23,7 +23,11 @@ use near_primitives::block::BlockHeader;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardProof, PartialEncodedChunkV2, VersionedShardChunkHeader, VersionedEncodedShardChunk, VersionedPartialEncodedChunk};
+use near_primitives::sharding::{
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptList,
+    ReceiptProof, ReedSolomonWrapper, ShardProof, VersionedEncodedShardChunk,
+    VersionedPartialEncodedChunk, VersionedShardChunkHeader,
+};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
@@ -992,7 +996,7 @@ impl ShardsManager {
         // Check validity first
 
         if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
-            return Err(Error::InvalidChunkHeader)
+            return Err(Error::InvalidChunkHeader);
         }
         let header = partial_encoded_chunk.header.clone();
         let chunk_hash = header.chunk_hash();
@@ -1045,10 +1049,9 @@ impl ShardsManager {
                 return Err(Error::ChainError(ErrorKind::InvalidChunkHeight.into()));
             }
             // We shouldn't process unrequested chunk if we have seen one with same (height_created + shard_id)
-            if let Ok(hash) = chain_store.get_any_chunk_hash_by_height_shard(
-                header.height_created(),
-                header.shard_id(),
-            ) {
+            if let Ok(hash) = chain_store
+                .get_any_chunk_hash_by_height_shard(header.height_created(), header.shard_id())
+            {
                 if *hash != chunk_hash {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
                     return Err(Error::DuplicateChunkHeight.into());
@@ -1169,11 +1172,15 @@ impl ShardsManager {
 
         if can_reconstruct {
             let height = header.height_created();
-            let mut encoded_chunk =
-                VersionedEncodedShardChunk::from_header(header, self.runtime_adapter.num_total_parts(), protocol_version);
+            let mut encoded_chunk = VersionedEncodedShardChunk::from_header(
+                header,
+                self.runtime_adapter.num_total_parts(),
+                protocol_version,
+            );
 
             for (part_ord, part_entry) in entry.parts.iter() {
-                encoded_chunk.content_mut().parts[*part_ord as usize] = Some(part_entry.part.clone());
+                encoded_chunk.content_mut().parts[*part_ord as usize] =
+                    Some(part_entry.part.clone());
             }
 
             let successfully_decoded =
@@ -1292,8 +1299,7 @@ impl ShardsManager {
             .parts
             .iter()
             .filter_map(|(part_ord, part_entry)| {
-                if cares_about_shard
-                    || self.need_part(&prev_block_hash, *part_ord).unwrap_or(false)
+                if cares_about_shard || self.need_part(&prev_block_hash, *part_ord).unwrap_or(false)
                 {
                     Some(part_entry.clone())
                 } else if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
@@ -1321,12 +1327,12 @@ impl ShardsManager {
             })
             .collect();
         let partial_chunk = match chunk_entry.header.clone() {
-            VersionedShardChunkHeader::V1(header) => VersionedPartialEncodedChunk::V1(PartialEncodedChunk{
-                header, parts, receipts,
-            }),
-            header @ VersionedShardChunkHeader::V2(_) => VersionedPartialEncodedChunk::V2(PartialEncodedChunkV2{
-                header, parts, receipts,
-            })
+            VersionedShardChunkHeader::V1(header) => {
+                VersionedPartialEncodedChunk::V1(PartialEncodedChunk { header, parts, receipts })
+            }
+            header @ VersionedShardChunkHeader::V2(_) => {
+                VersionedPartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts })
+            }
         };
 
         store_update.save_partial_chunk(partial_chunk);
@@ -1390,7 +1396,7 @@ impl ShardsManager {
             VersionedEncodedShardChunk::V2(chunk) => match &chunk.header {
                 VersionedShardChunkHeader::V1(header) => &header.inner,
                 VersionedShardChunkHeader::V2(header) => &header.inner,
-            }
+            },
         };
         let shard_id = header_inner.shard_id;
         let outgoing_receipts_hashes =
@@ -1412,8 +1418,10 @@ impl ShardsManager {
             })
             .collect();
         let header = match encoded_chunk {
-            VersionedEncodedShardChunk::V1(chunk) => VersionedShardChunkHeader::V1(chunk.header.clone()),
-            VersionedEncodedShardChunk::V2(chunk) => chunk.header.clone()
+            VersionedEncodedShardChunk::V1(chunk) => {
+                VersionedShardChunkHeader::V1(chunk.header.clone())
+            }
+            VersionedEncodedShardChunk::V2(chunk) => chunk.header.clone(),
         };
         let cache_entry = EncodedChunksCacheEntry {
             header,
@@ -1535,6 +1543,7 @@ mod test {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    use near_primitives::version::PROTOCOL_VERSION;
     #[cfg(feature = "expensive_tests")]
     use {
         crate::ACCEPTING_SEAL_PERIOD_MS, near_chain::ChainStore, near_chain::RuntimeAdapter,
@@ -1543,7 +1552,6 @@ mod test {
         near_primitives::sharding::ReedSolomonWrapper,
         near_primitives::validator_signer::InMemoryValidatorSigner,
     };
-    use near_primitives::version::PROTOCOL_VERSION;
 
     /// should not request partial encoded chunk from self
     #[test]
@@ -1641,7 +1649,12 @@ mod test {
         std::thread::sleep(Duration::from_millis(ACCEPTING_SEAL_PERIOD_MS as u64 + 100));
         for partial_encoded_chunk in vec![partial_encoded_chunk1, partial_encoded_chunk2] {
             shards_manager
-                .process_partial_encoded_chunk(partial_encoded_chunk.into(), &mut chain_store, &mut rs, PROTOCOL_VERSION)
+                .process_partial_encoded_chunk(
+                    partial_encoded_chunk.into(),
+                    &mut chain_store,
+                    &mut rs,
+                    PROTOCOL_VERSION,
+                )
                 .unwrap();
         }
     }

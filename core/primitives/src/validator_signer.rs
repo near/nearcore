@@ -33,10 +33,7 @@ pub trait ValidatorSigner: Sync + Send {
     ) -> (CryptoHash, Signature);
 
     /// Signs given inner of the chunk header.
-    fn sign_chunk_hash(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Signature;
+    fn sign_chunk_hash(&self, chunk_hash: &ChunkHash) -> Signature;
 
     /// Signs approval of given parent hash and reference hash.
     fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature;
@@ -91,10 +88,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
         (hash, Signature::default())
     }
 
-    fn sign_chunk_hash(
-        &self,
-        _chunk_hash: &ChunkHash,
-    ) -> Signature {
+    fn sign_chunk_hash(&self, _chunk_hash: &ChunkHash) -> Signature {
         Signature::default()
     }
 
@@ -186,10 +180,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         (hash, self.signer.sign(hash.as_ref()))
     }
 
-    fn sign_chunk_hash(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Signature {
+    fn sign_chunk_hash(&self, chunk_hash: &ChunkHash) -> Signature {
         self.signer.sign(chunk_hash.as_ref())
     }
 

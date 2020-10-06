@@ -227,9 +227,8 @@ mod tests {
                                             partial_encoded_chunk.header.shard_id(),
                                             source_shard_id
                                         );
-                                        seen_heights_with_receipts.insert(
-                                            partial_encoded_chunk.header.height_created(),
-                                        );
+                                        seen_heights_with_receipts
+                                            .insert(partial_encoded_chunk.header.height_created());
                                     } else {
                                         assert_ne!(
                                             partial_encoded_chunk.header.shard_id(),
@@ -581,14 +580,12 @@ mod tests {
                                 } = msg
                                 {
                                     if partial_encoded_chunk.header.height_created() == 22 {
-                                        seen_heights_same_block.insert(
-                                            partial_encoded_chunk.header.prev_block_hash(),
-                                        );
+                                        seen_heights_same_block
+                                            .insert(partial_encoded_chunk.header.prev_block_hash());
                                     }
                                     if skip_15 {
                                         if partial_encoded_chunk.header.height_created() == 14
-                                            || partial_encoded_chunk.header.height_created()
-                                                == 15
+                                            || partial_encoded_chunk.header.height_created() == 15
                                         {
                                             return (NetworkResponses::NoResponse, false);
                                         }

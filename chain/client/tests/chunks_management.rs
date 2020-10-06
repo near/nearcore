@@ -15,11 +15,13 @@ use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::sharding::{PartialEncodedChunkV2, ShardChunkHeaderV2, VersionedShardChunkHeader, ChunkHash};
+use near_primitives::sharding::{
+    ChunkHash, PartialEncodedChunkV2, ShardChunkHeaderV2, VersionedShardChunkHeader,
+};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use testlib::test_helpers::heavy_test;
-use near_primitives::types::BlockHeight;
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
@@ -293,14 +295,13 @@ fn update_chunk_hash(chunk: PartialEncodedChunkV2, new_hash: ChunkHash) -> Parti
             VersionedShardChunkHeader::V2(header)
         }
     };
-    PartialEncodedChunkV2 {
-        header: new_header,
-        parts: chunk.parts,
-        receipts: chunk.receipts,
-    }
+    PartialEncodedChunkV2 { header: new_header, parts: chunk.parts, receipts: chunk.receipts }
 }
 
-fn update_chunk_height_created(header: VersionedShardChunkHeader, new_height: BlockHeight) -> VersionedShardChunkHeader {
+fn update_chunk_height_created(
+    header: VersionedShardChunkHeader,
+    new_height: BlockHeight,
+) -> VersionedShardChunkHeader {
     match header {
         VersionedShardChunkHeader::V1(mut header) => {
             header.inner.height_created = new_height;

@@ -22,7 +22,10 @@ use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkWithArcReceipts, ReceiptProof, VersionedPartialEncodedChunk, VersionedShardChunkHeader};
+use near_primitives::sharding::{
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkWithArcReceipts,
+    ReceiptProof, VersionedPartialEncodedChunk, VersionedShardChunkHeader,
+};
 use near_primitives::syncing::{ShardStateSyncResponse, VersionedShardStateSyncResponse};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
@@ -524,9 +527,12 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
                 write!(f, "VersionedPartialChunk(?)")
             }
-            RoutedMessageBody::VersionedStateResponse(response) => {
-                write!(f, "VersionedStateResponse({}, {})", response.shard_id(), response.sync_hash())
-            }
+            RoutedMessageBody::VersionedStateResponse(response) => write!(
+                f,
+                "VersionedStateResponse({}, {})",
+                response.shard_id(),
+                response.sync_hash()
+            ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
         }
@@ -1313,7 +1319,7 @@ pub struct StateResponseInfoV2 {
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub enum VersionedStateResponseInfo {
     V1(StateResponseInfo),
-    V2(StateResponseInfoV2)
+    V2(StateResponseInfoV2),
 }
 
 impl VersionedStateResponseInfo {

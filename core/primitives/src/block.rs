@@ -15,7 +15,10 @@ pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
-use crate::sharding::{ChunkHashHeight, ReedSolomonWrapper, ShardChunkHeader, VersionedShardChunkHeader, VersionedEncodedShardChunk, VersionedShardChunk};
+use crate::sharding::{
+    ChunkHashHeight, ReedSolomonWrapper, ShardChunkHeader, VersionedEncodedShardChunk,
+    VersionedShardChunk, VersionedShardChunkHeader,
+};
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -109,12 +112,24 @@ pub fn genesis_chunks(
 }
 
 impl Block {
-    fn block_from_protocol_version(protocol_version: ProtocolVersion, header: BlockHeader, chunks: Vec<VersionedShardChunkHeader>, challenges: Challenges, vrf_value: near_crypto::vrf::Value, vrf_proof: near_crypto::vrf::Proof) -> Block {
+    fn block_from_protocol_version(
+        protocol_version: ProtocolVersion,
+        header: BlockHeader,
+        chunks: Vec<VersionedShardChunkHeader>,
+        challenges: Challenges,
+        vrf_value: near_crypto::vrf::Value,
+        vrf_proof: near_crypto::vrf::Proof,
+    ) -> Block {
         if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
-            let legacy_chunks = chunks.into_iter().map(|chunk| match chunk {
-                VersionedShardChunkHeader::V1(header) => header,
-                VersionedShardChunkHeader::V2(_) => panic!("Attempted to include VersionedShardChunkHeaderV2 in old protocol version"),
-            }).collect();
+            let legacy_chunks = chunks
+                .into_iter()
+                .map(|chunk| match chunk {
+                    VersionedShardChunkHeader::V1(header) => header,
+                    VersionedShardChunkHeader::V2(_) => panic!(
+                        "Attempted to include VersionedShardChunkHeaderV2 in old protocol version"
+                    ),
+                })
+                .collect();
 
             Block::BlockV1(Box::new(BlockV1 {
                 header,
@@ -124,13 +139,7 @@ impl Block {
                 vrf_proof,
             }))
         } else {
-            Block::BlockV2(Box::new(BlockV2 {
-                header,
-                chunks,
-                challenges,
-                vrf_value,
-                vrf_proof,
-            }))
+            Block::BlockV2(Box::new(BlockV2 { header, chunks, challenges, vrf_value, vrf_proof }))
         }
     }
 
@@ -162,7 +171,14 @@ impl Block {
         let vrf_value = near_crypto::vrf::Value([0; 32]);
         let vrf_proof = near_crypto::vrf::Proof([0; 64]);
 
-        Self::block_from_protocol_version(genesis_protocol_version, header, chunks, challenges, vrf_value, vrf_proof)
+        Self::block_from_protocol_version(
+            genesis_protocol_version,
+            header,
+            chunks,
+            challenges,
+            vrf_value,
+            vrf_proof,
+        )
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
@@ -257,7 +273,14 @@ impl Block {
             block_merkle_root,
         );
 
-        Self::block_from_protocol_version(protocol_version, header, chunks, challenges, vrf_value, vrf_proof)
+        Self::block_from_protocol_version(
+            protocol_version,
+            header,
+            chunks,
+            challenges,
+            vrf_value,
+            vrf_proof,
+        )
     }
 
     pub fn verify_gas_price(
@@ -306,14 +329,21 @@ impl Block {
         }
     }
 
-    pub fn compute_state_root<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T) -> CryptoHash {
+    pub fn compute_state_root<'a, T: IntoIterator<Item = &'a VersionedShardChunkHeader>>(
+        chunks: T,
+    ) -> CryptoHash {
         merklize(
             &chunks.into_iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<CryptoHash>>(),
         )
         .0
     }
 
-    pub fn compute_chunk_receipts_root<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T) -> CryptoHash {
+    pub fn compute_chunk_receipts_root<
+        'a,
+        T: IntoIterator<Item = &'a VersionedShardChunkHeader>,
+    >(
+        chunks: T,
+    ) -> CryptoHash {
         merklize(
             &chunks
                 .into_iter()
@@ -323,7 +353,7 @@ impl Block {
         .0
     }
 
-    pub fn compute_chunk_headers_root<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(
+    pub fn compute_chunk_headers_root<'a, T: IntoIterator<Item = &'a VersionedShardChunkHeader>>(
         chunks: T,
     ) -> (CryptoHash, Vec<MerklePath>) {
         merklize(
@@ -334,15 +364,22 @@ impl Block {
         )
     }
 
-    pub fn compute_chunk_tx_root<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T) -> CryptoHash {
+    pub fn compute_chunk_tx_root<'a, T: IntoIterator<Item = &'a VersionedShardChunkHeader>>(
+        chunks: T,
+    ) -> CryptoHash {
         merklize(&chunks.into_iter().map(|chunk| chunk.tx_root()).collect::<Vec<CryptoHash>>()).0
     }
 
-    pub fn compute_chunks_included<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T, height: BlockHeight) -> u64 {
+    pub fn compute_chunks_included<'a, T: IntoIterator<Item = &'a VersionedShardChunkHeader>>(
+        chunks: T,
+        height: BlockHeight,
+    ) -> u64 {
         chunks.into_iter().filter(|chunk| chunk.height_included() == height).count() as u64
     }
 
-    pub fn compute_outcome_root<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T) -> CryptoHash {
+    pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a VersionedShardChunkHeader>>(
+        chunks: T,
+    ) -> CryptoHash {
         merklize(&chunks.into_iter().map(|chunk| chunk.outcome_root()).collect::<Vec<CryptoHash>>())
             .0
     }
@@ -351,7 +388,10 @@ impl Block {
         merklize(&challenges.iter().map(|challenge| challenge.hash).collect::<Vec<CryptoHash>>()).0
     }
 
-    pub fn compute_gas_used<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T, height: BlockHeight) -> Gas {
+    pub fn compute_gas_used<'a, T: IntoIterator<Item = &'a VersionedShardChunkHeader>>(
+        chunks: T,
+        height: BlockHeight,
+    ) -> Gas {
         chunks.into_iter().fold(0, |acc, chunk| {
             if chunk.height_included() == height {
                 acc + chunk.gas_used()
@@ -361,7 +401,10 @@ impl Block {
         })
     }
 
-    pub fn compute_gas_limit<'a, T: IntoIterator<Item=&'a VersionedShardChunkHeader>>(chunks: T, height: BlockHeight) -> Gas {
+    pub fn compute_gas_limit<'a, T: IntoIterator<Item = &'a VersionedShardChunkHeader>>(
+        chunks: T,
+        height: BlockHeight,
+    ) -> Gas {
         chunks.into_iter().fold(0, |acc, chunk| {
             if chunk.height_included() == height {
                 acc + chunk.gas_limit()
@@ -392,7 +435,9 @@ impl Block {
 
     pub fn chunks(&self) -> ChunksCollection {
         match self {
-            Block::BlockV1(block) => ChunksCollection::V1(block.chunks.iter().map(|h| VersionedShardChunkHeader::V1(h.clone())).collect()),
+            Block::BlockV1(block) => ChunksCollection::V1(
+                block.chunks.iter().map(|h| VersionedShardChunkHeader::V1(h.clone())).collect(),
+            ),
             Block::BlockV2(block) => ChunksCollection::V2(&block.chunks),
         }
     }
@@ -473,16 +518,12 @@ pub enum ChunksCollection<'a> {
 pub struct VersionedChunksIter<'a> {
     chunks: &'a [VersionedShardChunkHeader],
     curr_index: usize,
-    len: usize
+    len: usize,
 }
 
 impl<'a> VersionedChunksIter<'a> {
     fn new(chunks: &'a [VersionedShardChunkHeader]) -> Self {
-        Self {
-            chunks,
-            curr_index: 0,
-            len: chunks.len(),
-        }
+        Self { chunks, curr_index: 0, len: chunks.len() }
     }
 }
 

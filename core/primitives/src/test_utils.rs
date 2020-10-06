@@ -6,6 +6,7 @@ use crate::block_header::{BlockHeader, BlockHeaderV2};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
+use crate::sharding::VersionedShardChunkHeader;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -16,7 +17,6 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 use std::collections::HashMap;
-use crate::sharding::VersionedShardChunkHeader;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
@@ -274,10 +274,15 @@ impl Block {
     pub fn set_chunks(&mut self, chunks: Vec<VersionedShardChunkHeader>) {
         match self {
             Block::BlockV1(block) => {
-                let legacy_chunks = chunks.into_iter().map(|chunk| match chunk {
-                    VersionedShardChunkHeader::V1(header) => header,
-                    VersionedShardChunkHeader::V2(_) => panic!("Attempted to set V1 block chunks with V2"),
-                }).collect();
+                let legacy_chunks = chunks
+                    .into_iter()
+                    .map(|chunk| match chunk {
+                        VersionedShardChunkHeader::V1(header) => header,
+                        VersionedShardChunkHeader::V2(_) => {
+                            panic!("Attempted to set V1 block chunks with V2")
+                        }
+                    })
+                    .collect();
                 block.as_mut().chunks = legacy_chunks;
             }
             Block::BlockV2(block) => {

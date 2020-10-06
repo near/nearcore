@@ -49,12 +49,12 @@ pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 40;
 
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
-    upper: Option<ProtocolVersion>
+    upper: Option<ProtocolVersion>,
 }
 
 impl ProtocolVersionRange {
     pub fn new(lower: ProtocolVersion, upper: Option<ProtocolVersion>) -> Self {
-        Self {lower, upper}
+        Self { lower, upper }
     }
 
     pub fn contains(&self, version: ProtocolVersion) -> bool {

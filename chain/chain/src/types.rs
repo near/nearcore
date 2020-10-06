@@ -299,7 +299,10 @@ pub trait RuntimeAdapter: Send + Sync {
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 
     /// Verify chunk header signature.
-    fn verify_chunk_header_signature(&self, header: &VersionedShardChunkHeader) -> Result<bool, Error>;
+    fn verify_chunk_header_signature(
+        &self,
+        header: &VersionedShardChunkHeader,
+    ) -> Result<bool, Error>;
 
     /// Verify aggregated bls signature
     fn verify_approval(
@@ -618,7 +621,8 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis_chunks = genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
+        let genesis_chunks =
+            genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.versioned_header()).collect(),

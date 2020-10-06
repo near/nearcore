@@ -1277,11 +1277,7 @@ impl ClientActor {
                         );
 
                         self.client.shards_mgr.request_chunks(
-                            blocks_missing_chunks
-                                .write()
-                                .unwrap()
-                                .drain(..)
-                                .flatten(),
+                            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
                             &self
                                 .client
                                 .chain

@@ -10,7 +10,9 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
-use near_primitives::sharding::{ShardChunkHeader, VersionedShardChunkHeader, VersionedShardChunk, ShardChunkHeaderV2};
+use near_primitives::sharding::{
+    ShardChunkHeader, ShardChunkHeaderV2, VersionedShardChunk, VersionedShardChunkHeader,
+};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce};
 use near_store::PartialStorage;
@@ -23,13 +25,18 @@ use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
 
 /// Verifies that chunk's proofs in the header match the body.
-pub fn validate_chunk_proofs(chunk: &VersionedShardChunk, runtime_adapter: &dyn RuntimeAdapter) -> bool {
+pub fn validate_chunk_proofs(
+    chunk: &VersionedShardChunk,
+    runtime_adapter: &dyn RuntimeAdapter,
+) -> bool {
     let correct_chunk_hash = match chunk {
         VersionedShardChunk::V1(chunk) => ShardChunkHeader::compute_hash(&chunk.header.inner),
         VersionedShardChunk::V2(chunk) => match &chunk.header {
             VersionedShardChunkHeader::V1(header) => ShardChunkHeader::compute_hash(&header.inner),
-            VersionedShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
-        }
+            VersionedShardChunkHeader::V2(header) => {
+                ShardChunkHeaderV2::compute_hash(&header.inner)
+            }
+        },
     };
 
     let header_hash = match chunk {
@@ -69,8 +76,7 @@ pub fn validate_chunk_proofs(chunk: &VersionedShardChunk, runtime_adapter: &dyn 
     }
     // 2c. Checking that chunk receipts are valid
     if header_inner.height_created == 0 {
-        return receipts.len() == 0
-            && header_inner.outgoing_receipts_root == CryptoHash::default();
+        return receipts.len() == 0 && header_inner.outgoing_receipts_root == CryptoHash::default();
     } else {
         let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(receipts);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
@@ -162,8 +168,7 @@ pub fn validate_chunk_with_chunk_extra(
 
     let prev_gas_limit = prev_chunk_extra.gas_limit;
     if chunk_header.gas_limit() < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
-        || chunk_header.gas_limit()
-            > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+        || chunk_header.gas_limit() > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
     {
         return Err(ErrorKind::InvalidGasLimit.into());
     }

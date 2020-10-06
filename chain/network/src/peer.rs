@@ -29,7 +29,15 @@ use crate::rate_counter::RateCounter;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{PeerMessageMetadata, Status};
 use crate::routing::{Edge, EdgeInfo};
-use crate::types::{Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE, VersionedStateResponseInfo};
+use crate::types::{
+    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
+    NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
+    PeerMessage, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
+    PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, SendMessage, Unregister, VersionedStateResponseInfo,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+};
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
 #[cfg(feature = "delay_detector")]
@@ -415,8 +423,12 @@ impl Peer {
                     }
                     Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
                         let body = match *state_response {
-                            VersionedStateResponseInfo::V1(state_response) => RoutedMessageBody::StateResponse(state_response),
-                            state_response @ VersionedStateResponseInfo::V2(_) => RoutedMessageBody::VersionedStateResponse(state_response),
+                            VersionedStateResponseInfo::V1(state_response) => {
+                                RoutedMessageBody::StateResponse(state_response)
+                            }
+                            state_response @ VersionedStateResponseInfo::V2(_) => {
+                                RoutedMessageBody::VersionedStateResponse(state_response)
+                            }
                         };
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(Box::new(body), msg_hash.unwrap()));
@@ -497,7 +509,9 @@ impl Peer {
                         NetworkClientMessages::PartialEncodedChunkResponse(response)
                     }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
-                        NetworkClientMessages::PartialEncodedChunk(VersionedPartialEncodedChunk::V1(partial_encoded_chunk))
+                        NetworkClientMessages::PartialEncodedChunk(
+                            VersionedPartialEncodedChunk::V1(partial_encoded_chunk),
+                        )
                     }
                     RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(chunk)

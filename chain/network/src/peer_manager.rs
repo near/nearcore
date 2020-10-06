@@ -32,7 +32,15 @@ use crate::peer_store::{PeerStore, TrustLevel};
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
-use crate::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo, InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, SyncData, Unregister, VersionedStateResponseInfo};
+use crate::types::{
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate,
+    ConsolidateResponse, FullPeerInfo, InboundTcpConnect, KnownPeerStatus, KnownProducer,
+    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
+    PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
+    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, SyncData, Unregister,
+    VersionedStateResponseInfo,
+};
 use crate::types::{
     EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
     NetworkResponses, PeerInfo,
@@ -1189,15 +1197,16 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::StateResponse { route_back, response } => {
                 let body = match response {
-                    VersionedStateResponseInfo::V1(response) => RoutedMessageBody::StateResponse(response),
-                    response @ VersionedStateResponseInfo::V2(_) => RoutedMessageBody::VersionedStateResponse(response),
+                    VersionedStateResponseInfo::V1(response) => {
+                        RoutedMessageBody::StateResponse(response)
+                    }
+                    response @ VersionedStateResponseInfo::V2(_) => {
+                        RoutedMessageBody::VersionedStateResponse(response)
+                    }
                 };
                 if self.send_message_to_peer(
                     ctx,
-                    RawRoutedMessage {
-                        target: AccountOrPeerIdOrHash::Hash(route_back),
-                        body,
-                    },
+                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(route_back), body },
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1290,11 +1299,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                if self.send_message_to_account(
-                    ctx,
-                    &account_id,
-                    partial_encoded_chunk.into(),
-                ) {
+                if self.send_message_to_account(ctx, &account_id, partial_encoded_chunk.into()) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound

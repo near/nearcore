@@ -4,8 +4,10 @@ use serde::Serialize;
 use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
 use crate::receipt::Receipt;
-use crate::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, VersionedShardChunk, VersionedShardChunkHeader};
-use crate::types::{ShardId, StateRootNode, BlockHeight, StateRoot};
+use crate::sharding::{
+    ReceiptProof, ShardChunk, ShardChunkHeader, VersionedShardChunk, VersionedShardChunkHeader,
+};
+use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -47,7 +49,7 @@ pub struct ShardStateSyncResponseHeaderV2 {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
 pub enum VersionedShardStateSyncResponseHeader {
     V1(ShardStateSyncResponseHeader),
-    V2(ShardStateSyncResponseHeaderV2)
+    V2(ShardStateSyncResponseHeaderV2),
 }
 
 impl VersionedShardStateSyncResponseHeader {

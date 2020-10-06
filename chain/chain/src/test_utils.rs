@@ -299,7 +299,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(header.verify_block_producer(&validator.public_key))
     }
 
-    fn verify_chunk_header_signature(&self, _header: &VersionedShardChunkHeader) -> Result<bool, Error> {
+    fn verify_chunk_header_signature(
+        &self,
+        _header: &VersionedShardChunkHeader,
+    ) -> Result<bool, Error> {
         Ok(true)
     }
 

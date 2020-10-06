@@ -26,7 +26,10 @@ use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReedSolomonWrapper, VersionedPartialEncodedChunk, PartialEncodedChunkV2, VersionedEncodedShardChunk, VersionedShardChunkHeader};
+use near_primitives::sharding::{
+    PartialEncodedChunkV2, ReedSolomonWrapper, VersionedEncodedShardChunk,
+    VersionedPartialEncodedChunk, VersionedShardChunkHeader,
+};
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
@@ -676,11 +679,7 @@ impl Client {
 
         // Request any missing chunks
         self.shards_mgr.request_chunks(
-            blocks_missing_chunks
-                .write()
-                .unwrap()
-                .drain(..)
-                .flatten(),
+            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
             &self
                 .chain
                 .header_head()
@@ -972,7 +971,9 @@ impl Client {
         let mut partial_encoded_chunks =
             self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
         for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
-            if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(VersionedPartialEncodedChunk::V2(partial_encoded_chunk)) {
+            if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(
+                VersionedPartialEncodedChunk::V2(partial_encoded_chunk),
+            ) {
                 // Executing process_partial_encoded_chunk can unlock some blocks.
                 // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
                 // for which we track shards will be unblocked here.
@@ -1005,11 +1006,7 @@ impl Client {
         self.send_challenges(challenges);
 
         self.shards_mgr.request_chunks(
-            blocks_missing_chunks
-                .write()
-                .unwrap()
-                .drain(..)
-                .flatten(),
+            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
             &self
                 .chain
                 .header_head()
@@ -1410,11 +1407,7 @@ impl Client {
                     self.send_challenges(challenges);
 
                     self.shards_mgr.request_chunks(
-                        blocks_missing_chunks
-                            .write()
-                            .unwrap()
-                            .drain(..)
-                            .flatten(),
+                        blocks_missing_chunks.write().unwrap().drain(..).flatten(),
                         &self.chain.header_head()?.last_block_hash,
                     );
 

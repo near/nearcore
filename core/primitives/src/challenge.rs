@@ -5,7 +5,7 @@ use near_crypto::Signature;
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::MerklePath;
-use crate::sharding::{VersionedShardChunk, VersionedShardChunkHeader, VersionedEncodedShardChunk};
+use crate::sharding::{VersionedEncodedShardChunk, VersionedShardChunk, VersionedShardChunkHeader};
 use crate::types::AccountId;
 use crate::validator_signer::ValidatorSigner;
 

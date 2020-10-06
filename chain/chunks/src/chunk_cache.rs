@@ -3,7 +3,10 @@ use std::collections::{HashMap, HashSet};
 use cached::{Cached, SizedCache};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart, ReceiptProof, PartialEncodedChunkV2, VersionedShardChunkHeader};
+use near_primitives::sharding::{
+    ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof,
+    VersionedShardChunkHeader,
+};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
@@ -22,7 +25,8 @@ pub struct EncodedChunksCache {
 
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,
     height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
-    block_hash_to_chunk_headers: SizedCache<CryptoHash, HashMap<ShardId, VersionedShardChunkHeader>>,
+    block_hash_to_chunk_headers:
+        SizedCache<CryptoHash, HashMap<ShardId, VersionedShardChunkHeader>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -30,7 +34,10 @@ impl EncodedChunksCacheEntry {
         EncodedChunksCacheEntry { header, parts: HashMap::new(), receipts: HashMap::new() }
     }
 
-    pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunkV2) {
+    pub fn merge_in_partial_encoded_chunk(
+        &mut self,
+        partial_encoded_chunk: &PartialEncodedChunkV2,
+    ) {
         for part_info in partial_encoded_chunk.parts.iter() {
             let part_ord = part_info.part_ord;
             self.parts.entry(part_ord).or_insert_with(|| part_info.clone());
@@ -92,7 +99,10 @@ impl EncodedChunksCache {
         self.height_within_front_horizon(height) || self.height_within_rear_horizon(height)
     }
 
-    pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunkV2) {
+    pub fn merge_in_partial_encoded_chunk(
+        &mut self,
+        partial_encoded_chunk: &PartialEncodedChunkV2,
+    ) {
         let chunk_hash = partial_encoded_chunk.header.chunk_hash();
         let entry = self
             .get_or_insert_from_header(chunk_hash.clone(), partial_encoded_chunk.header.clone());
@@ -169,7 +179,9 @@ mod tests {
 
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::sharding::{PartialEncodedChunkV2, VersionedShardChunkHeader, ShardChunkHeaderV2};
+    use near_primitives::sharding::{
+        PartialEncodedChunkV2, ShardChunkHeaderV2, VersionedShardChunkHeader,
+    };
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;

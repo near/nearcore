@@ -14,8 +14,14 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, ReceiptProof, StateSyncInfo, VersionedShardChunk, VersionedPartialEncodedChunk, VersionedShardChunkHeader, VersionedEncodedShardChunk};
-use near_primitives::syncing::{get_num_state_parts, ReceiptProofResponse, ReceiptResponse, StateHeaderKey, StatePartKey, VersionedShardStateSyncResponseHeader};
+use near_primitives::sharding::{
+    ChunkHash, ReceiptProof, StateSyncInfo, VersionedEncodedShardChunk,
+    VersionedPartialEncodedChunk, VersionedShardChunk, VersionedShardChunkHeader,
+};
+use near_primitives::syncing::{
+    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, StateHeaderKey, StatePartKey,
+    VersionedShardStateSyncResponseHeader,
+};
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
@@ -94,7 +100,10 @@ pub trait ChainStoreAccess {
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&VersionedShardChunk, Error>;
     /// Get partial chunk.
-    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&VersionedPartialEncodedChunk, Error>;
+    fn get_partial_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<&VersionedPartialEncodedChunk, Error>;
     /// Get full chunk from header, with possible error that contains the header for further retrieval.
     fn get_chunk_clone_from_header(
         &mut self,
@@ -649,7 +658,10 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get partial chunk.
-    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&VersionedPartialEncodedChunk, Error> {
+    fn get_partial_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<&VersionedPartialEncodedChunk, Error> {
         match read_with_cache(
             &*self.store,
             ColPartialChunks,
@@ -1501,7 +1513,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&VersionedPartialEncodedChunk, Error> {
+    fn get_partial_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<&VersionedPartialEncodedChunk, Error> {
         if let Some(partial_chunk) = self.chain_store_cache_update.partial_chunks.get(chunk_hash) {
             Ok(partial_chunk)
         } else {
@@ -2499,13 +2514,11 @@ impl<'a> ChainStoreUpdate<'a> {
                     entry.get_mut().insert(chunk_hash.clone());
                 }
                 Entry::Vacant(entry) => {
-                    let mut hash_set = match self
-                        .chain_store
-                        .get_all_chunk_hashes_by_height(height_created)
-                    {
-                        Ok(hash_set) => hash_set.clone(),
-                        Err(_) => HashSet::new(),
-                    };
+                    let mut hash_set =
+                        match self.chain_store.get_all_chunk_hashes_by_height(height_created) {
+                            Ok(hash_set) => hash_set.clone(),
+                            Err(_) => HashSet::new(),
+                        };
                     hash_set.insert(chunk_hash.clone());
                     entry.insert(hash_set);
                 }
