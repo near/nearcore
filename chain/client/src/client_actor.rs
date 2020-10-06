@@ -776,7 +776,7 @@ impl ClientActor {
             ctx,
             |act, _ctx| {
                 if let Ok(header_head) = act.client.chain.header_head() {
-                    act.client.shards_mgr.resend_chunk_requests(&header_head.last_block_hash)
+                    act.client.shards_mgr.resend_chunk_requests(&header_head)
                 }
             },
         );
@@ -844,7 +844,7 @@ impl ClientActor {
                             );
                             self.client.shards_mgr.request_chunks(
                                 missing_chunks,
-                                &self.client.chain.header_head().expect("header_head must be available when processing newly produced block").last_block_hash,
+                                &self.client.chain.header_head().expect("header_head must be available when processing newly produced block"),
                             );
                             Ok(())
                         }
@@ -964,12 +964,9 @@ impl ClientActor {
                     );
                     self.client.shards_mgr.request_chunks(
                         missing_chunks,
-                        &self
-                            .client
-                            .chain
-                            .header_head()
-                            .expect("header_head should always be available when block is received")
-                            .last_block_hash,
+                        &self.client.chain.header_head().expect(
+                            "header_head should always be available when block is received",
+                        ),
                     );
                 }
                 _ => {
@@ -1097,8 +1094,20 @@ impl ClientActor {
         for _ in 0..self.client.config.state_fetch_horizon {
             sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
         }
-        let epoch_start_sync_hash =
+        let mut epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
+
+        if &epoch_start_sync_hash == self.client.chain.genesis().hash() {
+            // If we are within `state_fetch_horizon` blocks of the second epoch, the sync hash will
+            // be the first block of the first epoch (or, the genesis block). Due to implementation
+            // details of the state sync, we can't state sync to the genesis block, so redo the
+            // search without going back `state_fetch_horizon` blocks.
+            epoch_start_sync_hash = StateSync::get_epoch_start_sync_hash(
+                &mut self.client.chain,
+                &header_head.last_block_hash,
+            )?;
+            assert_ne!(&epoch_start_sync_hash, self.client.chain.genesis().hash());
+        }
         Ok(epoch_start_sync_hash)
     }
 
@@ -1295,8 +1304,7 @@ impl ClientActor {
                                 .client
                                 .chain
                                 .header_head()
-                                .expect("header_head must be available during sync")
-                                .last_block_hash,
+                                .expect("header_head must be available during sync"),
                         );
 
                         self.client.sync_status =
