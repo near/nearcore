@@ -5,7 +5,7 @@ use near_crypto::Signature;
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::MerklePath;
-use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
+use crate::sharding::{EncodedShardChunk, ShardChunk, VersionedShardChunk, VersionedShardChunkHeader};
 use crate::types::AccountId;
 use crate::validator_signer::ValidatorSigner;
 
@@ -59,11 +59,11 @@ pub struct ChunkState {
     /// Merkle proof in inclusion of prev chunk.
     pub prev_merkle_proof: MerklePath,
     /// Previous chunk that contains transactions.
-    pub prev_chunk: ShardChunk,
+    pub prev_chunk: VersionedShardChunk,
     /// Merkle proof of inclusion of this chunk.
     pub merkle_proof: MerklePath,
     /// Invalid chunk header.
-    pub chunk_header: ShardChunkHeader,
+    pub chunk_header: VersionedShardChunkHeader,
     /// Partial state that was affected by transactions of given chunk.
     pub partial_state: PartialState,
 }

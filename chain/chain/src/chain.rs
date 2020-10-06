@@ -33,7 +33,7 @@ use near_primitives::merkle::{
     combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
 };
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo, VersionedShardChunk, VersionedShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardInfo, ShardProof, StateSyncInfo, VersionedShardChunk, VersionedShardChunkHeader};
 use near_primitives::syncing::{get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, VersionedShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
@@ -2571,19 +2571,20 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         prev_block: &Block,
         block: &Block,
-        chunk_header: &ShardChunkHeader,
+        chunk_header: &VersionedShardChunkHeader,
     ) -> Result<ChunkState, Error> {
-        let prev_chunk_header = &prev_block.chunks()[chunk_header.inner.shard_id as usize];
+        let chunk_shard_id = chunk_header.shard_id();
+        let prev_chunk_header = &prev_block.chunks()[chunk_shard_id as usize];
         let prev_merkle_proofs = Block::compute_chunk_headers_root(prev_block.chunks().iter()).1;
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
         let prev_chunk = self
             .chain_store_update
             .get_chain_store()
-            .get_chunk_clone_from_header(&prev_block.chunks()[chunk_header.inner.shard_id as usize].clone())
+            .get_chunk_clone_from_header(&prev_block.chunks()[chunk_shard_id as usize].clone())
             .unwrap();
         let receipt_proof_response: Vec<ReceiptProofResponse> =
             self.chain_store_update.get_incoming_receipts_for_shard(
-                chunk_header.inner.shard_id,
+                chunk_shard_id,
                 *prev_block.hash(),
                 prev_chunk_header.height_included(),
             )?;
@@ -2599,7 +2600,7 @@ impl<'a> ChainUpdate<'a> {
         let apply_result = self
             .runtime_adapter
             .apply_transactions_with_optional_storage_proof(
-                chunk_header.inner.shard_id,
+                chunk_shard_id,
                 &prev_chunk_inner.prev_state_root,
                 prev_chunk.height_included(),
                 prev_block.header().raw_timestamp(),
@@ -2619,9 +2620,9 @@ impl<'a> ChainUpdate<'a> {
         Ok(ChunkState {
             prev_block_header: prev_block.header().try_to_vec()?,
             block_header: block.header().try_to_vec()?,
-            prev_merkle_proof: prev_merkle_proofs[chunk_header.inner.shard_id as usize].clone(),
-            merkle_proof: merkle_proofs[chunk_header.inner.shard_id as usize].clone(),
-            prev_chunk: prev_chunk.downgrade(),
+            prev_merkle_proof: prev_merkle_proofs[chunk_shard_id as usize].clone(),
+            merkle_proof: merkle_proofs[chunk_shard_id as usize].clone(),
+            prev_chunk,
             chunk_header: chunk_header.clone(),
             partial_state,
         })
@@ -2689,7 +2690,7 @@ impl<'a> ChainUpdate<'a> {
                     .map_err(|e| {
                         debug!(target: "chain", "Failed to validate chunk extra: {:?}", e);
                         byzantine_assert!(false);
-                        match self.create_chunk_state_challenge(&prev_block, &block, &chunk_header.clone().downgrade()) {
+                        match self.create_chunk_state_challenge(&prev_block, &block, &chunk_header) {
                             Ok(chunk_state) => {
                                 Error::from(ErrorKind::InvalidChunkState(Box::new(chunk_state)))
                             }

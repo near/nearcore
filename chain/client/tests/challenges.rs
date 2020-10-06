@@ -413,7 +413,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         );
 
         chain_update
-            .create_chunk_state_challenge(&last_block, &block, &block.chunks()[0].clone().downgrade())
+            .create_chunk_state_challenge(&last_block, &block, &block.chunks()[0])
             .unwrap()
     };
     {

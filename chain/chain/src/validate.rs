@@ -299,9 +299,10 @@ fn validate_chunk_state_challenge(
 
     // Validate previous chunk and block header.
     validate_header_authorship(runtime_adapter, &prev_block_header)?;
-    let _ = validate_chunk_authorship(runtime_adapter, &chunk_state.prev_chunk.header.clone().lift())?;
+    let prev_chunk_header = chunk_state.prev_chunk.cloned_versioned_header();
+    let _ = validate_chunk_authorship(runtime_adapter, &prev_chunk_header)?;
     if !Block::validate_chunk_header_proof(
-        &chunk_state.prev_chunk.header.clone().lift(),
+        &prev_chunk_header,
         &prev_block_header.chunk_headers_root(),
         &chunk_state.prev_merkle_proof,
     ) {
@@ -310,9 +311,9 @@ fn validate_chunk_state_challenge(
 
     // Validate current chunk and block header.
     validate_header_authorship(runtime_adapter, &block_header)?;
-    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header.clone().lift())?;
+    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header)?;
     if !Block::validate_chunk_header_proof(
-        &chunk_state.chunk_header.clone().lift(),
+        &chunk_state.chunk_header,
         &block_header.chunk_headers_root(),
         &chunk_state.merkle_proof,
     ) {
@@ -324,26 +325,26 @@ fn validate_chunk_state_challenge(
     let result = runtime_adapter
         .check_state_transition(
             partial_storage,
-            chunk_state.prev_chunk.header.inner.shard_id,
-            &chunk_state.prev_chunk.header.inner.prev_state_root,
+            prev_chunk_header.shard_id(),
+            &prev_chunk_header.prev_state_root(),
             block_header.height(),
             block_header.raw_timestamp(),
             &block_header.prev_hash(),
             &block_header.hash(),
-            &chunk_state.prev_chunk.receipts,
-            &chunk_state.prev_chunk.transactions,
+            &chunk_state.prev_chunk.receipts(),
+            &chunk_state.prev_chunk.transactions(),
             &[],
             prev_block_header.gas_price(),
-            chunk_state.prev_chunk.header.inner.gas_limit,
+            prev_chunk_header.gas_limit(),
             &ChallengesResult::default(),
             *block_header.random_value(),
         )
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
     let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
-    if result.new_root != chunk_state.chunk_header.inner.prev_state_root
-        || outcome_root != chunk_state.chunk_header.inner.outcome_root
-        || result.validator_proposals != chunk_state.chunk_header.inner.validator_proposals
-        || result.total_gas_burnt != chunk_state.chunk_header.inner.gas_used
+    if result.new_root != chunk_state.chunk_header.prev_state_root()
+        || outcome_root != chunk_state.chunk_header.outcome_root()
+        || result.validator_proposals != chunk_state.chunk_header.validator_proposals()
+        || result.total_gas_burnt != chunk_state.chunk_header.gas_used()
     {
         Ok((*block_header.hash(), vec![chunk_producer]))
     } else {
