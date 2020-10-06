@@ -127,7 +127,7 @@ where
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub(crate) struct SignedDiff<T>
 where
     T: Copy + PartialEq,
@@ -189,6 +189,15 @@ where
             if self.is_positive { "" } else { "-" },
             self.absolute_difference.to_string()
         )
+    }
+}
+
+impl<T> std::fmt::Debug for SignedDiff<T>
+where
+    T: Copy + PartialEq + std::string::ToString,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SignedDiff({})", self.to_string())
     }
 }
 
