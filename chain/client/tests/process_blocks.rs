@@ -1872,7 +1872,7 @@ fn test_gas_price_change_no_chunk() {
     for i in 1..=20 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         if i <= 5 || (i > 10 && i <= 15) {
-            block.mut_header().get_mut().inner_rest.latest_protocol_version = 31;
+            block.mut_header().get_mut().inner_rest.latest_protocol_version += 1;
             block.mut_header().resign(&validator_signer);
         }
         env.process_block(0, block, Provenance::NONE);
