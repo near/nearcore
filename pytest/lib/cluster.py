@@ -139,8 +139,8 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self, check_storage=True):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=2)
+    def get_status(self, check_storage=True, timeout=2):
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=timeout)
         r.raise_for_status()
         status = json.loads(r.content)
         if check_storage and status['sync_info']['syncing'] == False:
@@ -621,14 +621,19 @@ class PreexistingCluster():
         atexit.register(self.atexit_cleanup_preexist, None)
         signal.signal(signal.SIGTERM, self.atexit_cleanup_preexist)
         signal.signal(signal.SIGINT, self.atexit_cleanup_preexist)
-        
+        k = 0
         while True:
+            k += 1
             post = {'num_nodes': num_nodes, 'request_id': self.request_id,
                     'token': self.token}
             res = requests.post('http://40.112.59.229:5000/get_instances', json=post)
             json_res = json.loads(res.text)
             self.ips = json_res['ips']
             print('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
+            if requester == "NayDuck" and k == 3:
+                print("Postpone test for NayDuck.")
+                sys.exit(13)
+
             if len(self.ips) != num_nodes:
                 time.sleep(10)
                 continue
@@ -637,6 +642,7 @@ class PreexistingCluster():
                 self.nodes.append(node)
             if len(self.nodes) == num_nodes:
                 break
+
         print()
         print("ips: %s" % self.ips)
         while True:

@@ -205,7 +205,7 @@ fn chunks_produced_and_distributed_common(
                         partial_chunk_msgs += 1;
                     }
                     NetworkRequests::PartialEncodedChunkRequest {
-                        target: AccountIdOrPeerTrackingShard::AccountId(to_whom),
+                        target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
                         request: _,
                     } => {
                         if drop_from_1_to_4 && from_whom == "test4" && to_whom == "test1" {

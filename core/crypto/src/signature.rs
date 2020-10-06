@@ -345,6 +345,18 @@ impl FromStr for PublicKey {
     }
 }
 
+impl From<ED25519PublicKey> for PublicKey {
+    fn from(ed25519: ED25519PublicKey) -> Self {
+        Self::ED25519(ed25519)
+    }
+}
+
+impl From<Secp256K1PublicKey> for PublicKey {
+    fn from(secp256k1: Secp256K1PublicKey) -> Self {
+        Self::SECP256K1(secp256k1)
+    }
+}
+
 #[derive(Clone)]
 // This is actually a keypair, because ed25519_dalek api only has keypair.sign
 // From ed25519_dalek doc: The first SECRET_KEY_LENGTH of bytes is the SecretKey
