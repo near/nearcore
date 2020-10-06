@@ -2495,7 +2495,7 @@ impl<'a> ChainUpdate<'a> {
                 let chunk_proof = ChunkProofs {
                     block_header: block.header().try_to_vec().expect("Failed to serialize"),
                     merkle_proof: merkle_paths[shard_id].clone(),
-                    chunk: MaybeEncodedShardChunk::Encoded(encoded_chunk.clone().downgrade()),
+                    chunk: MaybeEncodedShardChunk::Encoded(encoded_chunk.clone()),
                 };
                 return Err(ErrorKind::InvalidChunkProofs(Box::new(chunk_proof)).into());
             }
@@ -2714,7 +2714,7 @@ impl<'a> ChainUpdate<'a> {
                         let chunk_proof = ChunkProofs {
                             block_header: block.header().try_to_vec().expect("Failed to serialize"),
                             merkle_proof: merkle_paths[shard_id as usize].clone(),
-                            chunk: MaybeEncodedShardChunk::Decoded(chunk.downgrade()),
+                            chunk: MaybeEncodedShardChunk::Decoded(chunk),
                         };
                         return Err(Error::from(ErrorKind::InvalidChunkProofs(Box::new(
                             chunk_proof,

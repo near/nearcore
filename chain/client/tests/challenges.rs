@@ -140,7 +140,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     let challenge_result = challenge(
         env,
         shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk.downgrade()),
+        MaybeEncodedShardChunk::Encoded(chunk),
         &block,
     );
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".to_string()]));
@@ -162,7 +162,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
     let challenge_result = challenge(
         env,
         shard_id as usize,
-        MaybeEncodedShardChunk::Decoded(chunk.downgrade()),
+        MaybeEncodedShardChunk::Decoded(chunk),
         &block,
     );
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".to_string()]));
@@ -179,7 +179,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
     let challenge_result = challenge(
         env,
         shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk.downgrade()),
+        MaybeEncodedShardChunk::Encoded(chunk),
         &block,
     );
     assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
@@ -219,7 +219,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     let challenge_result = challenge(
         env,
         shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk.downgrade()),
+        MaybeEncodedShardChunk::Encoded(chunk),
         &block,
     );
     assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
@@ -259,7 +259,7 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     let challenge_result = challenge(
         env,
         shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk.downgrade()),
+        MaybeEncodedShardChunk::Encoded(chunk),
         &block,
     );
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".to_string()]));
@@ -519,7 +519,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         ..
     }) = last_message.clone()
     {
-        assert_eq!(chunk_proofs.chunk, MaybeEncodedShardChunk::Encoded(chunk.downgrade()));
+        assert_eq!(chunk_proofs.chunk, MaybeEncodedShardChunk::Encoded(chunk));
     } else {
         assert!(false);
     }
@@ -559,7 +559,7 @@ fn test_block_challenge() {
     let challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
             block_header: block.header().try_to_vec().unwrap(),
-            chunk: MaybeEncodedShardChunk::Encoded(chunk.clone().downgrade()),
+            chunk: MaybeEncodedShardChunk::Encoded(chunk),
             merkle_proof: merkle_paths[shard_id as usize].clone(),
         }),
         &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
@@ -614,7 +614,7 @@ fn test_fishermen_challenge() {
     let shard_id = chunk.cloned_versioned_header().shard_id();
     let challenge_body = ChallengeBody::ChunkProofs(ChunkProofs {
         block_header: block.header().try_to_vec().unwrap(),
-        chunk: MaybeEncodedShardChunk::Encoded(chunk.clone().downgrade()),
+        chunk: MaybeEncodedShardChunk::Encoded(chunk),
         merkle_proof: merkle_paths[shard_id as usize].clone(),
     });
     let challenge = Challenge::produce(

@@ -245,13 +245,13 @@ fn validate_chunk_proofs_challenge(
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
     validate_header_authorship(runtime_adapter, &block_header)?;
     let chunk_header = match &chunk_proofs.chunk {
-        MaybeEncodedShardChunk::Encoded(encoded_chunk) => &encoded_chunk.header,
-        MaybeEncodedShardChunk::Decoded(chunk) => &chunk.header,
+        MaybeEncodedShardChunk::Encoded(encoded_chunk) => encoded_chunk.cloned_versioned_header(),
+        MaybeEncodedShardChunk::Decoded(chunk) => chunk.cloned_versioned_header(),
     };
-    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header.clone().lift())?;
+    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header)?;
     let account_to_slash_for_valid_challenge = Ok((*block_header.hash(), vec![chunk_producer]));
     if !Block::validate_chunk_header_proof(
-        &chunk_header.clone().lift(),
+        &chunk_header,
         &block_header.chunk_headers_root(),
         &chunk_proofs.merkle_proof,
     ) {
@@ -276,12 +276,12 @@ fn validate_chunk_proofs_challenge(
         MaybeEncodedShardChunk::Decoded(chunk) => chunk,
     };
 
-    if !validate_chunk_proofs(&chunk_ref.clone().lift(), &*runtime_adapter) {
+    if !validate_chunk_proofs(chunk_ref, &*runtime_adapter) {
         // Chunk proofs are invalid. Good challenge.
         return account_to_slash_for_valid_challenge;
     }
 
-    if !validate_transactions_order(&chunk_ref.transactions) {
+    if !validate_transactions_order(chunk_ref.transactions()) {
         // Chunk transactions are invalid. Good challenge.
         return account_to_slash_for_valid_challenge;
     }
