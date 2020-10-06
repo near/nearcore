@@ -669,12 +669,11 @@ impl StateSync {
 
     pub fn sync_block_status(
         &mut self,
-        sync_hash: CryptoHash,
+        prev_hash: &CryptoHash,
         chain: &mut Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
-        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
-        let (request_block, have_block) = if !chain.block_exists(&prev_hash)? {
+        let (request_block, have_block) = if !chain.block_exists(prev_hash)? {
             match self.last_time_block_requested {
                 None => (true, false),
                 Some(last_time) => {
@@ -884,6 +883,9 @@ impl StateSync {
         let mut hash = header.hash().clone();
         let mut prev_hash = header.prev_hash().clone();
         loop {
+            if prev_hash == CryptoHash::default() {
+                return Ok(hash);
+            }
             header = chain.get_block_header(&prev_hash)?;
             if &epoch_id != header.epoch_id() {
                 return Ok(hash);
@@ -1083,8 +1085,10 @@ impl StateSync {
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
+        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
         let now = Utc::now();
-        let (request_block, have_block) = self.sync_block_status(sync_hash, chain, now)?;
+
+        let (request_block, have_block) = self.sync_block_status(&prev_hash, chain, now)?;
 
         if tracking_shards.is_empty() {
             // This case is possible if a validator cares about the same shards in the new epoch as

@@ -521,17 +521,23 @@ pub enum PeerIdOrHash {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
-pub enum AccountIdOrPeerTrackingShard {
-    AccountId(AccountId),
-    // The request should be sent to any peer tracking shard.
-    // `fallback_account_id` is the account to sent the message to if no such peer exist. It is used
-    // to provide the block producer owning the part to cover situations when no peer is tracking
-    // shard, but the corresponding block producer is still online.
-    PeerTrackingShard {
-        shard_id: ShardId,
-        only_archival: bool,
-        fallback_account_id: Option<AccountId>,
-    },
+// Defines the destination for a network request.
+// The request should be sent either to the `account_id` as a routed message, or directly to
+// any peer that tracks the shard.
+// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
+// case fall back to sending to the account.
+// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
+pub struct AccountIdOrPeerTrackingShard {
+    pub shard_id: ShardId,
+    pub only_archival: bool,
+    pub account_id: Option<AccountId>,
+    pub prefer_peer: bool,
+}
+
+impl AccountIdOrPeerTrackingShard {
+    pub fn from_account(shard_id: ShardId, account_id: AccountId) -> Self {
+        Self { shard_id, only_archival: false, account_id: Some(account_id), prefer_peer: false }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
