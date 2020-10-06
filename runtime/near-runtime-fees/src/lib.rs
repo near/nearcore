@@ -72,7 +72,7 @@ pub struct RuntimeFeesConfig {
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational,
 
-    /// New EVM deposit.
+    /// Fee to create new EVM account.
     #[serde(with = "u128_dec_format", default = "default_evm_deposit")]
     pub evm_deposit: Balance,
 }

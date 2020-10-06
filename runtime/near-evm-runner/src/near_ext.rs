@@ -16,7 +16,6 @@ use crate::interpreter;
 use crate::utils::format_log;
 
 // https://github.com/paritytech/parity-ethereum/blob/77643c13e80ca09d9a6b10631034f5a1568ba6d3/ethcore/machine/src/externalities.rs
-// #[derive(Debug)]
 pub struct NearExt<'a> {
     pub info: EnvInfo,
     pub origin: Address,

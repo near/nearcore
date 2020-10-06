@@ -91,10 +91,11 @@ impl<'a> EvmState for EvmContext<'a> {
             .storage_get(&key)
             .map(|value| value.map(|x| utils::vec_to_arr_32(x.deref().expect("Failed to deref"))))
         {
-            Ok(Some(value)) => Ok(value),
-            Ok(None) => Err(VMLogicError::InconsistentStateError(StorageError(
+            Ok(Some(Some(value))) => Ok(Some(value)),
+            Ok(Some(None)) => Err(VMLogicError::InconsistentStateError(StorageError(
                 "Must be 32 bytes".to_string(),
             ))),
+            Ok(None) => Ok(None),
             Err(err) => Err(err),
         }
     }
