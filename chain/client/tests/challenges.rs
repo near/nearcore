@@ -23,7 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, VersionedPartialEncodedChunk, VersionedEncodedShardChunk, VersionedShardChunk};
+use near_primitives::sharding::{ReedSolomonWrapper, VersionedEncodedShardChunk, VersionedShardChunk};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{StateRoot, ShardId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;

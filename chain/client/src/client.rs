@@ -26,7 +26,7 @@ use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader, VersionedPartialEncodedChunk, PartialEncodedChunkV2, VersionedEncodedShardChunk, VersionedShardChunkHeader};
+use near_primitives::sharding::{ReedSolomonWrapper, VersionedPartialEncodedChunk, PartialEncodedChunkV2, VersionedEncodedShardChunk, VersionedShardChunkHeader};
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};

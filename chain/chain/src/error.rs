@@ -10,7 +10,7 @@ use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader, VersionedShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, VersionedShardChunkHeader};
 use near_primitives::types::{BlockHeight, ShardId};
 
 #[derive(Debug)]

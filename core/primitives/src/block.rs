@@ -15,7 +15,7 @@ pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
-use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader, VersionedShardChunkHeader, VersionedEncodedShardChunk, VersionedShardChunk};
+use crate::sharding::{ChunkHashHeight, ReedSolomonWrapper, ShardChunkHeader, VersionedShardChunkHeader, VersionedEncodedShardChunk, VersionedShardChunk};
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use cached::{Cached, SizedCache};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader, PartialEncodedChunkV2, VersionedShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart, ReceiptProof, PartialEncodedChunkV2, VersionedShardChunkHeader};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
@@ -169,7 +169,7 @@ mod tests {
 
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader, PartialEncodedChunkV2, VersionedShardChunkHeader, ShardChunkHeaderV2};
+    use near_primitives::sharding::{PartialEncodedChunkV2, VersionedShardChunkHeader, ShardChunkHeaderV2};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;

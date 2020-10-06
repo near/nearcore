@@ -33,7 +33,7 @@ use near_primitives::merkle::{
     combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
 };
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo, VersionedShardChunk, VersionedShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo, VersionedShardChunk, VersionedShardChunkHeader};
 use near_primitives::syncing::{get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, VersionedShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{

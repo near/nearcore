@@ -10,7 +10,7 @@ use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle;
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReedSolomonWrapper, ShardChunkHeader, VersionedShardChunkHeader, VersionedPartialEncodedChunk, PartialEncodedChunkV2};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart, ReedSolomonWrapper, VersionedShardChunkHeader, PartialEncodedChunkV2};
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::validator_signer::InMemoryValidatorSigner;

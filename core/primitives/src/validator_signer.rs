@@ -9,7 +9,7 @@ use crate::block::{Approval, ApprovalInner, BlockHeader};
 use crate::challenge::ChallengeBody;
 use crate::hash::{hash, CryptoHash};
 use crate::network::{AnnounceAccount, PeerId};
-use crate::sharding::{ChunkHash, ShardChunkHeaderInner};
+use crate::sharding::ChunkHash;
 use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 

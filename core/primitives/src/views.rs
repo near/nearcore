@@ -28,7 +28,7 @@ use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
     u128_dec_format, u64_dec_format,
 };
-use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, VersionedShardChunkHeader, ShardChunkHeaderV2, VersionedShardChunk};
+use crate::sharding::{ChunkHash, ShardChunkHeaderInner, VersionedShardChunkHeader, ShardChunkHeaderV2, VersionedShardChunk};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,

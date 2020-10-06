@@ -47,7 +47,7 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderV2, VersionedEncodedShardChunk, VersionedShardChunkHeader};
+use near_primitives::sharding::{ReedSolomonWrapper, VersionedEncodedShardChunk};
 use num_rational::Rational;
 use std::mem::swap;
 use std::time::Instant;

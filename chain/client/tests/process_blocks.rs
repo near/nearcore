@@ -35,7 +35,7 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, VersionedShardChunkHeader, VersionedEncodedShardChunk};
+use near_primitives::sharding::{ReedSolomonWrapper, VersionedEncodedShardChunk};
 use near_primitives::syncing::{get_num_state_parts, VersionedShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,

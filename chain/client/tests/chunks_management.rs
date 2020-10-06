@@ -15,7 +15,7 @@ use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader, PartialEncodedChunkV2, ShardChunkHeaderV2, VersionedShardChunkHeader, ChunkHash};
+use near_primitives::sharding::{PartialEncodedChunkV2, ShardChunkHeaderV2, VersionedShardChunkHeader, ChunkHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use testlib::test_helpers::heavy_test;

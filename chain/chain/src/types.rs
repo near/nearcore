@@ -13,7 +13,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReceiptList, ShardChunkHeader, VersionedShardChunkHeader};
+use near_primitives::sharding::{ReceiptList, VersionedShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,

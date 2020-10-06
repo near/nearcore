@@ -23,7 +23,7 @@ use near_primitives::block::BlockHeader;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner, ShardProof, PartialEncodedChunkV2, VersionedShardChunkHeader, VersionedEncodedShardChunk, VersionedPartialEncodedChunk};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardProof, PartialEncodedChunkV2, VersionedShardChunkHeader, VersionedEncodedShardChunk, VersionedPartialEncodedChunk};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,

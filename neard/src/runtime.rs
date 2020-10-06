@@ -24,7 +24,7 @@ use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ShardChunkHeader, VersionedShardChunkHeader};
+use near_primitives::sharding::VersionedShardChunkHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::trie_key_parsers;

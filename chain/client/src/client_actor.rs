@@ -28,7 +28,7 @@ use near_crypto::Signature;
 use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
+use near_network::types::{NetworkInfo, ReasonForBan};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
@@ -54,7 +54,6 @@ use crate::types::{
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
-use near_primitives::sharding::ShardChunkHeader;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;

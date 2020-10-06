@@ -14,7 +14,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader, StateSyncInfo, VersionedShardChunk, VersionedPartialEncodedChunk, VersionedShardChunkHeader, VersionedEncodedShardChunk};
+use near_primitives::sharding::{ChunkHash, ReceiptProof, StateSyncInfo, VersionedShardChunk, VersionedPartialEncodedChunk, VersionedShardChunkHeader, VersionedEncodedShardChunk};
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
     StateHeaderKey, StatePartKey,

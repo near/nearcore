@@ -17,7 +17,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
-use near_primitives::sharding::{ShardChunkHeader, VersionedShardChunkHeader};
+use near_primitives::sharding::VersionedShardChunkHeader;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
     TransferAction,
