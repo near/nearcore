@@ -738,7 +738,7 @@ impl StateSync {
                     if shard_sync_download.downloads[0].done {
                         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                         let state_num_parts =
-                            get_num_state_parts(shard_state_header.state_root_node.memory_usage);
+                            get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![
                                 DownloadStatus {
@@ -799,7 +799,7 @@ impl StateSync {
                 ShardSyncStatus::StateDownloadFinalize => {
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
-                        get_num_state_parts(shard_state_header.state_root_node.memory_usage);
+                        get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                     match chain.set_state_finalize(shard_id, sync_hash, state_num_parts) {
                         Ok(_) => {
                             update_sync_status = true;
@@ -822,7 +822,7 @@ impl StateSync {
                     this_done = true;
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
-                        get_num_state_parts(shard_state_header.state_root_node.memory_usage);
+                        get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                     chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                 }
             }

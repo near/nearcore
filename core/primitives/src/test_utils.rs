@@ -1,7 +1,7 @@
 use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
-use crate::block::{Block, BlockV1};
+use crate::block::Block;
 use crate::block_header::{BlockHeader, BlockHeaderV2};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
@@ -274,19 +274,15 @@ impl Block {
     pub fn set_chunks(&mut self, chunks: Vec<VersionedShardChunkHeader>) {
         match self {
             Block::BlockV1(block) => {
-                let legacy_chunks = chunks.into_iter().map(|chunk| chunk.downgrade()).collect();
+                let legacy_chunks = chunks.into_iter().map(|chunk| match chunk {
+                    VersionedShardChunkHeader::V1(header) => header,
+                    VersionedShardChunkHeader::V2(_) => panic!("Attempted to set V1 block chunks with V2"),
+                }).collect();
                 block.as_mut().chunks = legacy_chunks;
             }
             Block::BlockV2(block) => {
                 block.as_mut().chunks = chunks;
             }
-        }
-    }
-
-    pub fn get_mut(&mut self) -> &mut BlockV1 {
-        match self {
-            Block::BlockV1(block) => block.as_mut(),
-            Block::BlockV2(_) => panic!("impossible."), // TODO
         }
     }
 

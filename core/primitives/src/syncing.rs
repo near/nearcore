@@ -5,7 +5,7 @@ use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
 use crate::receipt::Receipt;
 use crate::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, VersionedShardChunk, VersionedShardChunkHeader};
-use crate::types::{ShardId, StateRootNode};
+use crate::types::{ShardId, StateRootNode, BlockHeight, StateRoot};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -51,6 +51,13 @@ pub enum VersionedShardStateSyncResponseHeader {
 }
 
 impl VersionedShardStateSyncResponseHeader {
+    pub fn versioned_chunk(self) -> VersionedShardChunk {
+        match self {
+            Self::V1(header) => VersionedShardChunk::V1(header.chunk),
+            Self::V2(header) => header.chunk,
+        }
+    }
+
     pub fn cloned_versioned_chunk(&self) -> VersionedShardChunk {
         match self {
             Self::V1(header) => VersionedShardChunk::V1(header.chunk.clone()),
@@ -62,6 +69,20 @@ impl VersionedShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => header.prev_chunk_header.clone().map(VersionedShardChunkHeader::V1),
             Self::V2(header) => header.prev_chunk_header.clone(),
+        }
+    }
+
+    pub fn chunk_height_included(&self) -> BlockHeight {
+        match self {
+            Self::V1(header) => header.chunk.header.height_included,
+            Self::V2(header) => header.chunk.height_included(),
+        }
+    }
+
+    pub fn chunk_prev_state_root(&self) -> StateRoot {
+        match self {
+            Self::V1(header) => header.chunk.header.inner.prev_state_root,
+            Self::V2(header) => header.chunk.prev_state_root(),
         }
     }
 

@@ -306,14 +306,6 @@ impl VersionedShardChunkHeader {
             VersionedShardChunkHeader::V2(_) => ProtocolVersionRange::new(SHARD_CHUNK_HEADER_UPGRADE_VERSION, None),
         }
     }
-
-    // TODO: remove
-    pub fn downgrade(self) -> ShardChunkHeader {
-        match self {
-            VersionedShardChunkHeader::V1(header) => header,
-            VersionedShardChunkHeader::V2(_) => panic!("impossible."),
-        }
-    }
 }
 
 #[derive(
@@ -322,11 +314,6 @@ impl VersionedShardChunkHeader {
 pub struct ChunkHashHeight(pub ChunkHash, pub BlockHeight);
 
 impl ShardChunkHeader {
-    // TODO: remove
-    pub fn lift(self) -> VersionedShardChunkHeader {
-        VersionedShardChunkHeader::V1(self)
-    }
-
     pub fn init(&mut self) {
         self.hash = Self::compute_hash(&self.inner);
     }
@@ -515,13 +502,6 @@ pub struct ShardChunk {
     pub receipts: Vec<Receipt>,
 }
 
-impl ShardChunk {
-    // TODO: remove
-    pub fn lift(self) -> VersionedShardChunk {
-        VersionedShardChunk::V1(self)
-    }
-}
-
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardChunkV2 {
     pub chunk_hash: ChunkHash,
@@ -548,6 +528,13 @@ impl VersionedShardChunk {
         match self {
             Self::V1(chunk) => chunk.header.height_included,
             Self::V2(chunk) => chunk.header.height_included(),
+        }
+    }
+
+    pub fn prev_state_root(&self) -> StateRoot {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.prev_state_root,
+            Self::V2(chunk) => chunk.header.prev_state_root(),
         }
     }
 
@@ -583,14 +570,6 @@ impl VersionedShardChunk {
         match self {
             Self::V1(chunk) => VersionedShardChunkHeader::V1(chunk.header.clone()),
             Self::V2(chunk) => chunk.header.clone(),
-        }
-    }
-
-    // TODO: remove
-    pub fn downgrade(self) -> ShardChunk {
-        match self {
-            Self::V1(chunk) => chunk,
-            Self::V2(_) => panic!("impossible."),
         }
     }
 }
@@ -669,14 +648,6 @@ pub enum VersionedEncodedShardChunk {
 
 
 impl VersionedEncodedShardChunk {
-    // TODO: remove
-    pub fn downgrade(self) -> EncodedShardChunk {
-        match self {
-            Self::V1(chunk) => chunk,
-            Self::V2(_) => panic!("impossible."),
-        }
-    }
-
     pub fn cloned_versioned_header(&self) -> VersionedShardChunkHeader {
         match self {
             Self::V1(chunk) => VersionedShardChunkHeader::V1(chunk.header.clone()),

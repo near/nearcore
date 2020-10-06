@@ -15,10 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, StateSyncInfo, VersionedShardChunk, VersionedPartialEncodedChunk, VersionedShardChunkHeader, VersionedEncodedShardChunk};
-use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
-    StateHeaderKey, StatePartKey,
-};
+use near_primitives::syncing::{get_num_state_parts, ReceiptProofResponse, ReceiptResponse, StateHeaderKey, StatePartKey, VersionedShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
@@ -248,7 +245,7 @@ pub trait ChainStoreAccess {
         &mut self,
         shard_id: ShardId,
         block_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error>;
+    ) -> Result<VersionedShardStateSyncResponseHeader, Error>;
 
     /// Returns latest known height and time it was seen.
     fn get_latest_known(&mut self) -> Result<LatestKnown, Error>;
@@ -872,7 +869,7 @@ impl ChainStoreAccess for ChainStore {
         &mut self,
         shard_id: ShardId,
         block_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error> {
+    ) -> Result<VersionedShardStateSyncResponseHeader, Error> {
         let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
         match self.store.get_ser(ColStateHeaders, &key) {
             Ok(Some(header)) => Ok(header),
@@ -1536,7 +1533,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         &mut self,
         shard_id: ShardId,
         block_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error> {
+    ) -> Result<VersionedShardStateSyncResponseHeader, Error> {
         self.chain_store.get_state_header(shard_id, block_hash)
     }
 
@@ -2128,7 +2125,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // We need to make sure all State Parts are removed.
             if let Ok(shard_state_header) = self.get_state_header(shard_id, block_hash) {
                 let state_num_parts =
-                    get_num_state_parts(shard_state_header.state_root_node.memory_usage);
+                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
                 let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
                 self.gc_col(ColStateHeaders, &key);

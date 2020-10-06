@@ -1671,7 +1671,7 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error> {
+    ) -> Result<VersionedShardStateSyncResponseHeader, Error> {
         self.store.get_state_header(shard_id, sync_hash)
     }
 
@@ -1684,8 +1684,8 @@ impl Chain {
         data: &Vec<u8>,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
-        let state_root = chunk.header.inner.prev_state_root;
+        let chunk = shard_state_header.versioned_chunk();
+        let state_root = chunk.versioned_header().take_inner().prev_state_root;
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
@@ -1709,8 +1709,8 @@ impl Chain {
         num_parts: u64,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let mut height = shard_state_header.chunk.header.height_included;
-        let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
+        let mut height = shard_state_header.chunk_height_included();
+        let state_root = shard_state_header.chunk_prev_state_root();
         let mut parts = vec![];
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
@@ -3373,21 +3373,20 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        shard_state_header: ShardStateSyncResponseHeader,
+        shard_state_header: VersionedShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
-        let ShardStateSyncResponseHeader {
-            chunk,
-            chunk_proof: _,
-            prev_chunk_header: _,
-            prev_chunk_proof: _,
-            incoming_receipts_proofs,
-            root_proofs: _,
-            state_root_node: _,
-        } = shard_state_header;
+        let (chunk, incoming_receipts_proofs) = match shard_state_header {
+            VersionedShardStateSyncResponseHeader::V1(shard_state_header) => {
+                (VersionedShardChunk::V1(shard_state_header.chunk), shard_state_header.incoming_receipts_proofs)
+            }
+            VersionedShardStateSyncResponseHeader::V2(shard_state_header) => {
+                (shard_state_header.chunk, shard_state_header.incoming_receipts_proofs)
+            }
+        };
 
         let block_header = self
             .chain_store_update
-            .get_header_on_chain_by_height(&sync_hash, chunk.header.height_included)?
+            .get_header_on_chain_by_height(&sync_hash, chunk.height_included())?
             .clone();
 
         // Getting actual incoming receipts.
@@ -3395,7 +3394,7 @@ impl<'a> ChainUpdate<'a> {
         for incoming_receipt_proof in incoming_receipts_proofs.iter() {
             let ReceiptProofResponse(hash, _) = incoming_receipt_proof;
             let block_header = self.chain_store_update.get_block_header(&hash)?;
-            if block_header.height() <= chunk.header.height_included {
+            if block_header.height() <= chunk.height_included() {
                 receipt_proof_response.push(incoming_receipt_proof.clone());
             }
         }
@@ -3407,19 +3406,20 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.get_block_header(block_header.prev_hash())?.gas_price()
         };
 
-        let gas_limit = chunk.header.inner.gas_limit;
+        let chunk_header = chunk.cloned_versioned_header();
+        let gas_limit = chunk_header.gas_limit();
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
-            &chunk.header.inner.prev_state_root,
-            chunk.header.height_included,
+            &chunk_header.prev_state_root(),
+            chunk_header.height_included(),
             block_header.raw_timestamp(),
-            &chunk.header.inner.prev_block_hash,
+            &chunk_header.prev_block_hash(),
             block_header.hash(),
             &receipts,
-            &chunk.transactions,
-            &chunk.header.inner.validator_proposals,
+            chunk.transactions(),
+            chunk_header.validator_proposals(),
             gas_price,
-            chunk.header.inner.gas_limit,
+            gas_limit,
             &block_header.challenges_result(),
             *block_header.random_value(),
         )?;
@@ -3427,7 +3427,7 @@ impl<'a> ChainUpdate<'a> {
         let (outcome_root, outcome_proofs) =
             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
 
-        self.chain_store_update.save_chunk(chunk.clone().lift());
+        self.chain_store_update.save_chunk(chunk);
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(

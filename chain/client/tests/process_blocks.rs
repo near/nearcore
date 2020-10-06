@@ -35,7 +35,7 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
-use near_primitives::sharding::{ReedSolomonWrapper, VersionedEncodedShardChunk};
+use near_primitives::sharding::{ReedSolomonWrapper, VersionedEncodedShardChunk, VersionedShardChunkHeader};
 use near_primitives::syncing::{get_num_state_parts, VersionedShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
@@ -450,8 +450,17 @@ fn invalid_blocks_common(is_requested: bool) {
 
             // Send block with invalid chunk signature
             let mut block = valid_block.clone();
-            block.get_mut().chunks[0].signature =
-                Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
+            let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
+            let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
+            match &mut chunks[0] {
+                VersionedShardChunkHeader::V1(chunk) => {
+                    chunk.signature = some_signature;
+                }
+                VersionedShardChunkHeader::V2(chunk) => {
+                    chunk.signature = some_signature;
+                }
+            };
+            block.set_chunks(chunks);
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
@@ -1863,7 +1872,7 @@ fn test_gas_price_change_no_chunk() {
     for i in 1..=20 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         if i <= 5 || (i > 10 && i <= 15) {
-            block.get_mut().header.get_mut().inner_rest.latest_protocol_version = 31;
+            block.mut_header().get_mut().inner_rest.latest_protocol_version = 31;
             block.mut_header().resign(&validator_signer);
         }
         env.process_block(0, block, Provenance::NONE);
@@ -2070,8 +2079,7 @@ fn test_epoch_protocol_version_change() {
                 &format!("test{}", index),
             );
 
-            block.get_mut().header.get_mut().inner_rest.latest_protocol_version =
-                PROTOCOL_VERSION + 1;
+            block.mut_header().get_mut().inner_rest.latest_protocol_version = PROTOCOL_VERSION + 1;
             block.mut_header().resign(&validator_signer);
         }
         for j in 0..2 {
