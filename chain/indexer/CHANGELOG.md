@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+* Add local receipt to `receipt_execution_outcomes` if possible
+
 ## 0.3.0
 
 

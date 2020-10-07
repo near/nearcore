@@ -234,6 +234,14 @@ async fn build_streamer_message(
         });
     }
 
+    // Add local receipts to corresponding outcomes
+    for receipt in &local_receipts {
+        if let Some(outcome) = outcomes.get_mut(&receipt.receipt_id) {
+            debug_assert!(outcome.receipt.is_none());
+            outcome.receipt = Some(receipt.clone());
+        }
+    }
+
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
     Ok(StreamerMessage {
