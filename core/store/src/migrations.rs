@@ -284,7 +284,7 @@ where
         let new_value = f(value);
         let new_bytes = new_value.try_to_vec()?;
         batch_size += key.as_ref().len() + new_bytes.len() + 8;
-        store_update.set_ser(col, key.as_ref(), &new_bytes)?;
+        store_update.set(col, key.as_ref(), &new_bytes);
 
         if batch_size > batch_size_limit {
             store_update.commit()?;
