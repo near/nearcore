@@ -236,8 +236,9 @@ async fn build_streamer_message(
 
     // Add local receipts to corresponding outcomes
     for receipt in &local_receipts {
-        if outcomes.contains_key(&receipt.receipt_id) {
-            outcomes.get_mut(&receipt.receipt_id).unwrap().receipt = Some(receipt.clone())
+        if let Some(outcome) = outcomes.get_mut(&receipt.receipt_id) {
+            debug_assert!(outcome.receipt.is_none());
+            outcome.receipt = Some(receipt.clone());
         }
     }
 
