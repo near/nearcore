@@ -11,7 +11,7 @@ use glob::glob;
 use lazy_static_include::lazy_static_include_str;
 use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::utils::encode_call_function_args;
-use near_evm_runner::{evm_last_deployed_addr, EvmContext};
+use near_evm_runner::EvmContext;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -26,11 +26,13 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fs;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 use std::{
     hash::{Hash, Hasher},
     path::PathBuf,
 };
+use testlib::node::{Node, RuntimeNode};
+use testlib::user::runtime_user::MockClient;
 use walrus::{Module, Result};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -334,10 +336,7 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
             config,
             verbose,
             |sol_test_addr| {
-                encode_call_function_args(
-                    sol_test_addr,
-                    soltest::functions::deploy_new_guy::call(8).0,
-                )
+                vec![sol_test_addr, soltest::functions::deploy_new_guy::call(8).0].concat()
             },
             "deploy_new_guy(8)",
         ),
@@ -345,7 +344,7 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
             config,
             verbose,
             |sol_test_addr| {
-                encode_call_function_args(sol_test_addr, soltest::functions::pay_new_guy::call(8).0)
+                vec![sol_test_addr, soltest::functions::pay_new_guy::call(8).0].concat()
             },
             "pay_new_guy(8)",
         ),
@@ -353,19 +352,14 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
             config,
             verbose,
             |sol_test_addr| {
-                encode_call_function_args(
-                    sol_test_addr,
-                    soltest::functions::return_some_funds::call().0,
-                )
+                vec![sol_test_addr, soltest::functions::return_some_funds::call().0].concat()
             },
             "return_some_funds()",
         ),
         measure_evm_function(
             config,
             verbose,
-            |sol_test_addr| {
-                encode_call_function_args(sol_test_addr, soltest::functions::emit_it::call(8).0)
-            },
+            |sol_test_addr| vec![sol_test_addr, soltest::functions::emit_it::call(8).0].concat(),
             "emit_it(8)",
         ),
     ];
@@ -410,7 +404,7 @@ pub fn measure_evm_precompile_function(
     EvmCost { evm_gas, cost }
 }
 
-pub fn measure_evm_function<F: FnOnce(H160) -> Vec<u8> + Copy>(
+pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
     config: &Config,
     verbose: bool,
     args_encoder: F,
@@ -436,25 +430,36 @@ pub fn measure_evm_function<F: FnOnce(H160) -> Vec<u8> + Copy>(
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
 
+        let mut testbed = testbed.lock().unwrap();
+        let runtime_node = RuntimeNode {
+            signer: Arc::new(signer.clone()),
+            client: Arc::new(RwLock::new(MockClient {
+                runtime: testbed.runtime.clone(),
+                tries: testbed.tries.clone(),
+                state_root: testbed.root,
+                epoch_length: testbed.genesis.config.epoch_length,
+            })),
+            genesis: testbed.genesis.clone(),
+        };
+        let node_user = runtime_node.user();
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-        testbed.lock().unwrap().process_block(
-            &vec![SignedTransaction::from_actions(
-                nonce as u64,
+        let addr = node_user
+            .function_call(
                 account_id.clone(),
-                "evm".to_owned(),
-                &signer,
-                vec![Action::FunctionCall(FunctionCallAction {
-                    method_name: "deploy_code".to_string(),
-                    args: code.clone(),
-                    gas: 10u64.pow(18),
-                    deposit: 0,
-                })],
-                CryptoHash::default(),
-            )],
-            false,
-        );
-        testbed.lock().unwrap().process_blocks_until_no_receipts(allow_failures);
-        let addr = evm_last_deployed_addr();
+                "evm".to_string(),
+                "deploy_code",
+                code.clone(),
+                10u64.pow(14),
+                10,
+            )
+            .unwrap()
+            .status
+            .as_success_decoded()
+            .unwrap();
+
+        testbed.tries = runtime_node.client.read().unwrap().tries.clone();
+        testbed.root = runtime_node.client.read().unwrap().state_root;
+        testbed.runtime = runtime_node.client.read().unwrap().runtime.clone();
 
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
@@ -582,9 +587,9 @@ pub fn measure_evm_precompiled(config: &Config, verbose: bool) -> EvmPrecompiled
     EvmPrecompiledFunctionCost {
         ec_recover_cost: measurements[1].cost - measurements[0].cost,
         sha256_cost: measurements[2].cost - measurements[0].cost,
-        ripemd160Cost: measurements[3].cost - measurements[0].cost,
+        ripemd160_cost: measurements[3].cost - measurements[0].cost,
         identity_cost: measurements[4].cost - measurements[0].cost,
-        modexpImplCost: measurements[5].cost - measurements[0].cost,
+        modexp_impl_cost: measurements[5].cost - measurements[0].cost,
     }
 }
 

@@ -197,6 +197,7 @@ impl Default for ActionResult {
     }
 }
 
+#[derive(Clone)]
 pub struct Runtime {
     pub config: RuntimeConfig,
 }
@@ -467,7 +468,6 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
             _ => unreachable!("given receipt should be an action receipt"),

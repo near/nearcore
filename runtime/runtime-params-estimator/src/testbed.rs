@@ -4,6 +4,7 @@ use std::path::Path;
 
 use borsh::BorshDeserialize;
 
+use near_chain_configs::Genesis;
 use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
@@ -22,9 +23,10 @@ pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
     #[allow(dead_code)]
     workdir: tempfile::TempDir,
-    tries: ShardTries,
-    root: MerkleHash,
-    runtime: Runtime,
+    pub tries: ShardTries,
+    pub root: MerkleHash,
+    pub runtime: Runtime,
+    pub genesis: Genesis,
     prev_receipts: Vec<Receipt>,
     apply_state: ApplyState,
     epoch_info_provider: MockEpochInfoProvider,
@@ -38,6 +40,7 @@ impl RuntimeTestbed {
         let store = create_store(&get_store_path(workdir.path()));
         let tries = ShardTries::new(store.clone(), 1);
 
+        let genesis = Genesis::from_file(dump_dir.join("genesis.json"));
         let mut state_file = dump_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
         store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
@@ -96,6 +99,7 @@ impl RuntimeTestbed {
             prev_receipts,
             apply_state,
             epoch_info_provider: MockEpochInfoProvider::default(),
+            genesis,
         }
     }
 

@@ -535,15 +535,6 @@ fn max_evm_gas_from_near_gas(
     }
 }
 
-#[cfg(feature = "costs_counting")]
-pub fn evm_last_deployed_addr() -> H160 {
-    let mut ret = Default::default();
-    EVM_LAST_DEPLOYED.with(|addr| {
-        ret = addr.borrow().clone();
-    });
-    ret
-}
-
 pub fn run_evm(
     ext: &mut dyn External,
     chain_id: u128,

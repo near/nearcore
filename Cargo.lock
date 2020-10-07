@@ -4420,6 +4420,7 @@ dependencies = [
  "hex",
  "indicatif 0.15.0",
  "lazy-static-include",
+ "near-chain-configs",
  "near-crypto",
  "near-evm-runner",
  "near-primitives",
@@ -4434,7 +4435,9 @@ dependencies = [
  "rand_xorshift 0.2.0",
  "rocksdb",
  "serde_json",
+ "state-viewer",
  "tempfile",
+ "testlib",
  "walrus",
 ]
 

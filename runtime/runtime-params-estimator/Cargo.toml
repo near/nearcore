@@ -24,6 +24,9 @@ near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_cou
 node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", "no_cache"]}
 near-store = { path = "../../core/store", features = ["no_cache", "single_thread_rocksdb"]}
 near-primitives = { path = "../../core/primitives" }
+testlib = { path = "../../test-utils/testlib" }
+state-viewer = { path = "../../test-utils/state-viewer" }
+near-chain-configs = { path = "../../core/chain-configs" }
 neard = { path = "../../neard" }
 rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 glob = "0.3.0"
