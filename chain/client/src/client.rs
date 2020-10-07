@@ -27,8 +27,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
-    ShardChunkHeader,
+    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV1, PartialEncodedChunkV2,
+    ReedSolomonWrapper, ShardChunkHeader,
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
@@ -708,9 +708,19 @@ impl Client {
         response: PartialEncodedChunkResponseMsg,
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
-        let partial_chunk =
-            PartialEncodedChunkV2 { header, parts: response.parts, receipts: response.receipts };
-        self.process_partial_encoded_chunk(PartialEncodedChunk::V2(partial_chunk))
+        let partial_chunk = match header {
+            ShardChunkHeader::V1(header) => PartialEncodedChunk::V1(PartialEncodedChunkV1 {
+                header,
+                parts: response.parts,
+                receipts: response.receipts,
+            }),
+            header @ ShardChunkHeader::V2(_) => PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+                header,
+                parts: response.parts,
+                receipts: response.receipts,
+            }),
+        };
+        self.process_partial_encoded_chunk(partial_chunk)
     }
     pub fn process_partial_encoded_chunk(
         &mut self,
