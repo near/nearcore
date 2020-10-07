@@ -231,6 +231,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns trie.
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
 
+    /// Returns trie with view cache
+    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,
