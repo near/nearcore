@@ -471,6 +471,7 @@ fn rocksdb_options() -> Options {
         opts.set_level_zero_slowdown_writes_trigger(-1);
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_stop_writes_trigger(100000000);
+        opts.set_max_write_buffer_number(512);
     }
 
     return opts;
