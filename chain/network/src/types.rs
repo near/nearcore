@@ -777,7 +777,9 @@ impl PeerMessage {
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
                 | RoutedMessageBody::PartialEncodedChunkResponse(_)
-                | RoutedMessageBody::StateResponse(_) => true,
+                | RoutedMessageBody::StateResponse(_)
+                | RoutedMessageBody::VersionedPartialEncodedChunk(_)
+                | RoutedMessageBody::VersionedStateResponse(_) => true,
                 _ => false,
             },
             _ => false,
