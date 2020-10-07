@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
+use log::warn;
 use strum::IntoEnumIterator;
 
 use near_chain_configs::GenesisConfig;
@@ -335,10 +336,17 @@ impl StoreValidator {
             if let Err(e) = self.validate_col(col) {
                 self.process_error(e, col.to_string(), col)
             }
+            if let Some(timeout) = self.timeout {
+                if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                    warn!(target: "adversary", "Store validator hit timeout at {:?} ({:?}/{:?})", col, col as usize, NUM_COLS);
+                    return;
+                }
+            }
         }
         if let Some(timeout) = self.timeout {
             // We didn't complete all Column checks and cannot do final checks, returning here
             if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                warn!(target: "adversary", "Store validator hit timeout before final checks");
                 return;
             }
         }
