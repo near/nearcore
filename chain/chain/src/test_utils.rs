@@ -270,6 +270,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.tries.get_trie_for_shard(shard_id)
     }
 
+    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie {
+        self.tries.get_view_trie_for_shard(shard_id)
+    }
+
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,

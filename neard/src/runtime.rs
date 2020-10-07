@@ -501,6 +501,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.get_trie_for_shard(shard_id)
     }
 
+    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie {
+        self.tries.get_view_trie_for_shard(shard_id)
+    }
+
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,
@@ -1181,7 +1185,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         num_parts: u64,
     ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
-        let trie = self.get_trie_for_shard(shard_id);
+        let trie = self.get_view_trie_for_shard(shard_id);
         let result = match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
             Ok(partial_state) => partial_state,
             Err(e) => {
@@ -1247,7 +1251,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        self.get_trie_for_shard(shard_id)
+        self.get_view_trie_for_shard(shard_id)
             .retrieve_root_node(state_root)
             .map_err(|e| e.to_string().into())
     }
@@ -1294,7 +1298,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        let state_update = self.get_tries().new_trie_update(shard_id, state_root);
+        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
 
@@ -1314,7 +1318,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let state_update = self.get_tries().new_trie_update(shard_id, state_root);
+        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.call_function(
             state_update,
             height,
@@ -1338,7 +1342,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, Box<dyn std::error::Error>> {
-        let state_update = self.get_tries().new_trie_update(shard_id, state_root);
+        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
 
@@ -1348,7 +1352,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
-        let state_update = self.get_tries().new_trie_update(shard_id, state_root);
+        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let raw_prefix: &[u8] = prefix.as_ref();
         let access_keys = match state_update.iter(&prefix) {
@@ -1375,7 +1379,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
-        let state_update = self.get_tries().new_trie_update(shard_id, state_root);
+        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
     }
 }
