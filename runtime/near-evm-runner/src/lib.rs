@@ -215,17 +215,18 @@ impl<'a> EvmContext<'a> {
     /// Make an EVM call via a meta transaction pattern.
     /// Specifically, providing signature and NEAREvm message that determines which contract and arguments to be called.
     /// Format
-    /// 0..95: signature: v - 32 bytes, s - 32 bytes, r - 32 bytes
-    /// 96..115: contract_id: address for contract to call
-    /// 116..: RLP encoded arguments.
+    /// [0..65): signature: v - 1 byte, s - 32 bytes, r - 32 bytes
+    /// [65..97): nonce: nonce of the `signer` account of the `signature`.
+    /// [97..117): contract_id: address for contract to call
+    /// 117..: RLP encoded arguments.
     pub fn meta_call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
         if args.len() <= 148 {
             return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
         }
-        let mut signature: [u8; 96] = [0; 96];
-        signature.copy_from_slice(&args[..96]);
-        let nonce = U256::from_big_endian(&args[96..128]);
-        let args = &args[128..];
+        let mut signature: [u8; 65] = [0; 65];
+        signature.copy_from_slice(&args[..65]);
+        let nonce = U256::from_big_endian(&args[65..97]);
+        let args = &args[97..];
         let sender = ecrecover_address(
             &prepare_meta_call_args(&self.domain_separator, &self.account_id, nonce, args),
             &signature,
@@ -267,6 +268,8 @@ impl<'a> EvmContext<'a> {
             false,
         )
         .map(|rd| rd.to_vec());
+        // Need to subtract amount back, because if view call is called inside the transaction state will be applied.
+        // The interpreter call is not committing changes, but `add_balance` did, so need to revert that.
         self.sub_balance(&sender, attached_amount)?;
         result
     }

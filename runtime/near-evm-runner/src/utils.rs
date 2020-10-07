@@ -223,16 +223,16 @@ pub fn prepare_meta_call_args(
 
 /// Given signature and data, validates that signature is valid for given data and returns ecrecover address.
 /// If signature is invalid or doesn't match, returns 0x0 address.
-pub fn ecrecover_address(hash: &RawHash, signature: &[u8; 96]) -> Address {
+pub fn ecrecover_address(hash: &RawHash, signature: &[u8; 65]) -> Address {
     use sha3::Digest;
 
     let hash = secp256k1::Message::parse(&H256::from_slice(hash).0);
-    let v = &signature[..32];
-    let r = &signature[32..64];
-    let s = &signature[64..96];
+    let v = &signature[0];
+    let r = &signature[1..33];
+    let s = &signature[33..];
 
-    let bit = match v[31] {
-        27..=30 => v[31] - 27,
+    let bit = match v {
+        27..=30 => v - 27,
         _ => {
             // ??
             return Address::zero();
