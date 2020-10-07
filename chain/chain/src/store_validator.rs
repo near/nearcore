@@ -338,7 +338,7 @@ impl StoreValidator {
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::from_millis(timeout) {
-                    warn!(target: "adversary", "Store validator hit timeout after {:?} ({:?}/{:?})", col, col as usize, NUM_COLS);
+                    warn!(target: "adversary", "Store validator hit timeout at {:?} ({:?}/{:?})", col, col as usize, NUM_COLS);
                     return;
                 }
             }
@@ -346,6 +346,7 @@ impl StoreValidator {
         if let Some(timeout) = self.timeout {
             // We didn't complete all Column checks and cannot do final checks, returning here
             if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                warn!(target: "adversary", "Store validator hit timeout before final checks");
                 return;
             }
         }
