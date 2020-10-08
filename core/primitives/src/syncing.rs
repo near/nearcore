@@ -53,21 +53,21 @@ pub enum ShardStateSyncResponseHeader {
 }
 
 impl ShardStateSyncResponseHeader {
-    pub fn versioned_chunk(self) -> ShardChunk {
+    pub fn take_chunk(self) -> ShardChunk {
         match self {
             Self::V1(header) => ShardChunk::V1(header.chunk),
             Self::V2(header) => header.chunk,
         }
     }
 
-    pub fn cloned_versioned_chunk(&self) -> ShardChunk {
+    pub fn cloned_chunk(&self) -> ShardChunk {
         match self {
             Self::V1(header) => ShardChunk::V1(header.chunk.clone()),
             Self::V2(header) => header.chunk.clone(),
         }
     }
 
-    pub fn cloned_versioned_prev_chunk_header(&self) -> Option<ShardChunkHeader> {
+    pub fn cloned_prev_chunk_header(&self) -> Option<ShardChunkHeader> {
         match self {
             Self::V1(header) => header.prev_chunk_header.clone().map(ShardChunkHeader::V1),
             Self::V2(header) => header.prev_chunk_header.clone(),
@@ -125,7 +125,7 @@ impl ShardStateSyncResponseHeader {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct ShardStateSyncResponse {
+pub struct ShardStateSyncResponseV1 {
     pub header: Option<ShardStateSyncResponseHeaderV1>,
     pub part: Option<(u64, Vec<u8>)>,
 }
@@ -137,12 +137,12 @@ pub struct ShardStateSyncResponseV2 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
-pub enum VersionedShardStateSyncResponse {
-    V1(ShardStateSyncResponse),
+pub enum ShardStateSyncResponse {
+    V1(ShardStateSyncResponseV1),
     V2(ShardStateSyncResponseV2),
 }
 
-impl VersionedShardStateSyncResponse {
+impl ShardStateSyncResponse {
     pub fn part_id(&self) -> Option<u64> {
         match self {
             Self::V1(response) => response.part_id(),
@@ -172,7 +172,7 @@ impl VersionedShardStateSyncResponse {
     }
 }
 
-impl ShardStateSyncResponse {
+impl ShardStateSyncResponseV1 {
     pub fn part_id(&self) -> Option<u64> {
         self.part.as_ref().map(|(part_id, _)| *part_id)
     }

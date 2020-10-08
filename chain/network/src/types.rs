@@ -26,7 +26,7 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
     PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::syncing::{ShardStateSyncResponse, VersionedShardStateSyncResponse};
+use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -457,7 +457,7 @@ pub enum RoutedMessageBody {
     ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
-    StateResponse(StateResponseInfo),
+    StateResponse(StateResponseInfoV1),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     PartialEncodedChunk(PartialEncodedChunkV1),
@@ -465,7 +465,7 @@ pub enum RoutedMessageBody {
     Ping(Ping),
     Pong(Pong),
     VersionedPartialEncodedChunk(PartialEncodedChunk),
-    VersionedStateResponse(VersionedStateResponseInfo),
+    VersionedStateResponse(StateResponseInfo),
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
@@ -1168,7 +1168,7 @@ pub enum NetworkRequests {
     /// Response to state request.
     StateResponse {
         route_back: CryptoHash,
-        response: VersionedStateResponseInfo,
+        response: StateResponseInfo,
     },
     /// Ban given peer.
     BanPeer {
@@ -1311,26 +1311,26 @@ impl Message for NetworkRequests {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StateResponseInfo {
+pub struct StateResponseInfoV1 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub state_response: ShardStateSyncResponse,
+    pub state_response: ShardStateSyncResponseV1,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateResponseInfoV2 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub state_response: VersionedShardStateSyncResponse,
+    pub state_response: ShardStateSyncResponse,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub enum VersionedStateResponseInfo {
-    V1(StateResponseInfo),
+pub enum StateResponseInfo {
+    V1(StateResponseInfoV1),
     V2(StateResponseInfoV2),
 }
 
-impl VersionedStateResponseInfo {
+impl StateResponseInfo {
     pub fn shard_id(&self) -> ShardId {
         match self {
             Self::V1(info) => info.shard_id,
@@ -1345,9 +1345,9 @@ impl VersionedStateResponseInfo {
         }
     }
 
-    pub fn take_state_response(self) -> VersionedShardStateSyncResponse {
+    pub fn take_state_response(self) -> ShardStateSyncResponse {
         match self {
-            Self::V1(info) => VersionedShardStateSyncResponse::V1(info.state_response),
+            Self::V1(info) => ShardStateSyncResponse::V1(info.state_response),
             Self::V2(info) => info.state_response,
         }
     }
@@ -1387,7 +1387,7 @@ pub enum NetworkClientMessages {
     /// Block approval.
     BlockApproval(Approval, PeerId),
     /// State response.
-    StateResponse(VersionedStateResponseInfo),
+    StateResponse(StateResponseInfo),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
@@ -1492,7 +1492,7 @@ pub enum NetworkViewClientResponses {
         archival: bool,
     },
     /// Response to state request.
-    StateResponse(Box<VersionedStateResponseInfo>),
+    StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// Ban peer for malicious behavior.
@@ -1682,7 +1682,7 @@ mod tests {
         assert_size!(Ban);
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);
-        assert_size!(StateResponseInfo);
+        assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);
         assert_size!(PartialEncodedChunkRequestMsg);
     }

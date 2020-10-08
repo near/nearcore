@@ -19,7 +19,7 @@ use near_chain_configs::ClientConfig;
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
-    StateResponseInfoV2, VersionedStateResponseInfo,
+    StateResponseInfoV1, StateResponseInfoV2,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
 use near_primitives::block::{BlockHeader, GenesisId, Tip};
@@ -27,8 +27,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::syncing::{
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV2,
-    VersionedShardStateSyncResponse,
+    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
+    ShardStateSyncResponseV2,
 };
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, TransactionOrReceiptId,
@@ -944,18 +944,18 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             }
                         };
                         match header {
-                            None => VersionedShardStateSyncResponse::V1(ShardStateSyncResponse {
+                            None => ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
                                 header: None,
                                 part: None,
                             }),
                             Some(ShardStateSyncResponseHeader::V1(header)) => {
-                                VersionedShardStateSyncResponse::V1(ShardStateSyncResponse {
+                                ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
                                     header: Some(header),
                                     part: None,
                                 })
                             }
                             Some(ShardStateSyncResponseHeader::V2(header)) => {
-                                VersionedShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
+                                ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
                                     header: Some(header),
                                     part: None,
                                 })
@@ -971,14 +971,14 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             // This case may appear in case of latency in epoch switching.
                             // Request sender is ready to sync but we still didn't get the block.
                             info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
-                            VersionedShardStateSyncResponse::V1(ShardStateSyncResponse {
+                            ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
                                 header: None,
                                 part: None,
                             })
                         }
                         _ => {
                             error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                            VersionedShardStateSyncResponse::V1(ShardStateSyncResponse {
+                            ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
                                 header: None,
                                 part: None,
                             })
@@ -986,16 +986,16 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     },
                 };
                 match state_response {
-                    VersionedShardStateSyncResponse::V1(state_response) => {
-                        let info = VersionedStateResponseInfo::V1(StateResponseInfo {
+                    ShardStateSyncResponse::V1(state_response) => {
+                        let info = StateResponseInfo::V1(StateResponseInfoV1 {
                             shard_id,
                             sync_hash,
                             state_response,
                         });
                         NetworkViewClientResponses::StateResponse(Box::new(info))
                     }
-                    state_response @ VersionedShardStateSyncResponse::V2(_) => {
-                        let info = VersionedStateResponseInfo::V2(StateResponseInfoV2 {
+                    state_response @ ShardStateSyncResponse::V2(_) => {
+                        let info = StateResponseInfo::V2(StateResponseInfoV2 {
                             shard_id,
                             sync_hash,
                             state_response,
@@ -1020,7 +1020,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         };
 
                         trace!(target: "sync", "Finish computation for state request part {} {} {}", shard_id, sync_hash, part_id);
-                        ShardStateSyncResponse { header: None, part }
+                        ShardStateSyncResponseV1 { header: None, part }
                     }
                     Ok(false) => {
                         warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
@@ -1031,15 +1031,15 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             // This case may appear in case of latency in epoch switching.
                             // Request sender is ready to sync but we still didn't get the block.
                             info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);
-                            ShardStateSyncResponse { header: None, part: None }
+                            ShardStateSyncResponseV1 { header: None, part: None }
                         }
                         _ => {
                             error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                            ShardStateSyncResponse { header: None, part: None }
+                            ShardStateSyncResponseV1 { header: None, part: None }
                         }
                     },
                 };
-                let info = VersionedStateResponseInfo::V1(StateResponseInfo {
+                let info = StateResponseInfo::V1(StateResponseInfoV1 {
                     shard_id,
                     sync_hash,
                     state_response,

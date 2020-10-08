@@ -1505,8 +1505,8 @@ impl Chain {
     ) -> Result<(), Error> {
         let sync_block_header = self.get_block_header(&sync_hash)?.clone();
 
-        let chunk = shard_state_header.cloned_versioned_chunk();
-        let prev_chunk_header = shard_state_header.cloned_versioned_prev_chunk_header();
+        let chunk = shard_state_header.cloned_chunk();
+        let prev_chunk_header = shard_state_header.cloned_prev_chunk_header();
 
         // 1-2. Checking chunk validity
         if !validate_chunk_proofs(&chunk, &*self.runtime_adapter) {
@@ -1688,7 +1688,7 @@ impl Chain {
         data: &Vec<u8>,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let chunk = shard_state_header.versioned_chunk();
+        let chunk = shard_state_header.take_chunk();
         let state_root = chunk.take_header().take_inner().prev_state_root;
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
             byzantine_assert!(false);

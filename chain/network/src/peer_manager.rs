@@ -38,7 +38,7 @@ use crate::types::{
     NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
     PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
     QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, SyncData, Unregister, VersionedStateResponseInfo,
+    RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData, Unregister,
 };
 use crate::types::{
     EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
@@ -1196,10 +1196,8 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::StateResponse { route_back, response } => {
                 let body = match response {
-                    VersionedStateResponseInfo::V1(response) => {
-                        RoutedMessageBody::StateResponse(response)
-                    }
-                    response @ VersionedStateResponseInfo::V2(_) => {
+                    StateResponseInfo::V1(response) => RoutedMessageBody::StateResponse(response),
+                    response @ StateResponseInfo::V2(_) => {
                         RoutedMessageBody::VersionedStateResponse(response)
                     }
                 };

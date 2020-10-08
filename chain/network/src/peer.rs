@@ -35,7 +35,7 @@ use crate::types::{
     NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
     PeerMessage, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
     PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, Unregister, VersionedStateResponseInfo,
+    RoutedMessageFrom, SendMessage, StateResponseInfo, Unregister,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
@@ -423,10 +423,10 @@ impl Peer {
                     }
                     Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
                         let body = match *state_response {
-                            VersionedStateResponseInfo::V1(state_response) => {
+                            StateResponseInfo::V1(state_response) => {
                                 RoutedMessageBody::StateResponse(state_response)
                             }
-                            state_response @ VersionedStateResponseInfo::V2(_) => {
+                            state_response @ StateResponseInfo::V2(_) => {
                                 RoutedMessageBody::VersionedStateResponse(state_response)
                             }
                         };
@@ -497,7 +497,7 @@ impl Peer {
                     }
 
                     RoutedMessageBody::StateResponse(info) => {
-                        NetworkClientMessages::StateResponse(VersionedStateResponseInfo::V1(info))
+                        NetworkClientMessages::StateResponse(StateResponseInfo::V1(info))
                     }
                     RoutedMessageBody::VersionedStateResponse(info) => {
                         NetworkClientMessages::StateResponse(info)
