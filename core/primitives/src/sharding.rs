@@ -5,7 +5,7 @@ use serde::Serialize;
 use near_crypto::Signature;
 
 use crate::hash::{hash, CryptoHash};
-use crate::merkle::{merklize, MerklePath};
+use crate::merkle::{combine_hash, merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
@@ -122,11 +122,7 @@ impl ShardChunkHeaderV2 {
         let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
-        let mut input_bytes: Vec<u8> = Vec::with_capacity(2 * inner_hash.as_ref().len());
-        input_bytes.extend(inner_hash.as_ref());
-        input_bytes.extend(inner.encoded_merkle_root.as_ref());
-
-        ChunkHash(hash(&input_bytes))
+        ChunkHash(combine_hash(inner_hash, inner.encoded_merkle_root))
     }
 
     pub fn new(
