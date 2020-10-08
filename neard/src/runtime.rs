@@ -238,7 +238,7 @@ impl NightshadeRuntime {
     }
 
     fn genesis_state_from_records(store: Arc<Store>, genesis: &Genesis) -> Vec<StateRoot> {
-        info!(target: "near", "Genesis state has {} records, computing state roots", genesis.records.0.len());
+        info!(target: "runtime", "Genesis state has {} records, computing state roots", genesis.records.0.len());
         let mut store_update = store.store_update();
         let mut state_roots = vec![];
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
