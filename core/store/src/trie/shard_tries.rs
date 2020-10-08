@@ -188,6 +188,23 @@ impl ShardTries {
     ) -> Result<(StoreUpdate, StateRoot), StorageError> {
         ShardTries::apply_all_inner(trie_changes, self.clone(), shard_id, true)
     }
+
+    // apply_all with less memory overhead
+    pub fn apply_genesis(
+        &self,
+        trie_changes: TrieChanges,
+        shard_id: ShardId,
+    ) -> (StoreUpdate, StateRoot) {
+        assert_eq!(trie_changes.old_root, CryptoHash::default());
+        assert!(trie_changes.deletions.is_empty());
+        // Not new_with_tries on purpose
+        let mut store_update = StoreUpdate::new(self.get_store().storage.clone());
+        for (hash, value, rc) in trie_changes.insertions.into_iter() {
+            let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, &hash);
+            store_update.update_refcount(DBCol::ColState, key.as_ref(), &value, rc as i64);
+        }
+        (store_update, trie_changes.new_root)
+    }
 }
 
 pub struct WrappedTrieChanges {
