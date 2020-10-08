@@ -8,7 +8,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
@@ -38,7 +38,8 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, ColState, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges,
+    get_access_key_raw, get_genesis_hash, get_genesis_state_roots, set_genesis_hash,
+    set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -165,7 +166,12 @@ impl NightshadeRuntime {
             online_max_threshold: genesis.config.online_max_threshold,
             online_min_threshold: genesis.config.online_min_threshold,
         };
-        let (store, tries, state_roots) = Self::initialize_genesis_state(store, home_dir, genesis);
+        let state_roots =
+            Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
+        let tries = ShardTries::new(
+            store.clone(),
+            genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
+        );
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
                 store.clone(),
@@ -216,7 +222,8 @@ impl NightshadeRuntime {
         epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height).map_err(Error::from)
     }
 
-    fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> (Arc<Store>, Vec<StateRoot>) {
+    fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
+        error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
         let mut state_file = home_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
         store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
@@ -227,21 +234,18 @@ impl NightshadeRuntime {
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
         let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        (store, state_roots)
+        state_roots
     }
 
-    fn genesis_state_from_records(
-        store: Arc<Store>,
-        genesis: &Genesis,
-    ) -> (Arc<Store>, ShardTries, Vec<StateRoot>) {
+    fn genesis_state_from_records(store: Arc<Store>, genesis: &Genesis) -> Vec<StateRoot> {
+        info!(target: "near", "Genesis state has {} records, computing state roots", genesis.records.0.len());
         let mut store_update = store.store_update();
         let mut state_roots = vec![];
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
-        let mut shard_records: Vec<Vec<StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
+        let mut shard_records: Vec<Vec<&StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
         let mut has_protocol_account = false;
         for record in genesis.records.as_ref() {
-            shard_records[state_record_to_shard_id(record, num_shards) as usize]
-                .push(record.clone());
+            shard_records[state_record_to_shard_id(record, num_shards) as usize].push(record);
             if let StateRecord::Account { account_id, .. } = record {
                 if account_id == &genesis.config.protocol_treasury_account {
                     has_protocol_account = true;
@@ -278,14 +282,43 @@ impl NightshadeRuntime {
             state_roots.push(state_root);
         }
         store_update.commit().expect("Store update failed on genesis intialization");
-        (store, tries, state_roots)
+        state_roots
     }
 
-    fn initialize_genesis_state(
+    /// On first start: compute state roots, load genesis state into storage.
+    /// After that: return genesis state roots. The state is not guaranteed to be in storage, as
+    /// GC and state sync are allowed to delete it.
+    pub fn initialize_genesis_state_if_needed(
         store: Arc<Store>,
         home_dir: &Path,
         genesis: &Genesis,
-    ) -> (Arc<Store>, ShardTries, Vec<StateRoot>) {
+    ) -> Vec<StateRoot> {
+        let genesis_hash = genesis.json_hash();
+        let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
+        if let Some(hash) = stored_hash {
+            assert_eq!(
+                hash,
+                genesis.json_hash(),
+                "Storage already exists, but has a different genesis"
+            );
+            get_genesis_state_roots(&store)
+                .expect("Store failed on genesis intialization")
+                .expect("Genesis state roots not found in storage")
+        } else {
+            let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
+            let mut store_update = store.store_update();
+            set_genesis_hash(&mut store_update, &genesis_hash);
+            set_genesis_state_roots(&mut store_update, &state_roots);
+            store_update.commit().expect("Store failed on genesis intialization");
+            state_roots
+        }
+    }
+
+    pub fn initialize_genesis_state(
+        store: Arc<Store>,
+        home_dir: &Path,
+        genesis: &Genesis,
+    ) -> Vec<StateRoot> {
         let has_records = !genesis.records.as_ref().is_empty();
         let has_dump = {
             let mut state_dump = home_dir.to_path_buf();
@@ -296,12 +329,8 @@ impl NightshadeRuntime {
             if has_records {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
-            let (store, state_roots) = Self::genesis_state_from_dump(store, home_dir);
-            let tries = ShardTries::new(
-                store.clone(),
-                genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
-            );
-            (store, tries, state_roots)
+            let state_roots = Self::genesis_state_from_dump(store, home_dir);
+            state_roots
         } else if has_records {
             Self::genesis_state_from_records(store, genesis)
         } else {
