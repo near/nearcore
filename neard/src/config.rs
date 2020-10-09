@@ -981,7 +981,7 @@ pub fn get_genesis_url(chain_id: &String) -> String {
 }
 
 pub fn download_genesis(url: &String, path: &PathBuf) {
-    info!(target: "near", "Downloading config file from: {} ...", url);
+    info!(target: "near", "Downloading genesis file from: {} ...", url);
 
     let url = url.clone();
     let path = path.clone();
