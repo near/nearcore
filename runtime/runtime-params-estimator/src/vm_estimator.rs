@@ -9,6 +9,9 @@ use ethabi_contract::use_contract;
 use ethereum_types::H160;
 use glob::glob;
 use lazy_static_include::lazy_static_include_str;
+use ndarray::prelude::*;
+use ndarray::Array;
+use ndarray_linalg::{LeastSquaresSvd, LeastSquaresSvdInPlace, LeastSquaresSvdInto};
 use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::utils::encode_call_function_args;
 use near_evm_runner::EvmContext;
@@ -21,6 +24,7 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
+use num_traits::cast::ToPrimitive;
 use rand::Rng;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
@@ -157,6 +161,7 @@ pub fn load_and_compile(
 #[derive(Debug)]
 pub struct EvmCost {
     pub evm_gas: u64,
+    pub size: u64,
     pub cost: Ratio<u64>,
 }
 
@@ -224,7 +229,8 @@ fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
     evm_gas /= counts;
 
     // evm_gas is  times gas spent, so does cost
-    Some(EvmCost { evm_gas, cost: Ratio::new(total_cost, counts) })
+    // Some(EvmCost { evm_gas, cost: Ratio::new(total_cost, counts) })
+    Some(EvmCost { evm_gas, size: code.len() as u64, cost: Ratio::new(total_cost, counts) })
 }
 
 fn load_and_deploy_evm_contract(path: &PathBuf, config: &Config) -> Option<EvmCost> {
@@ -241,6 +247,8 @@ const USING_LIGHTBEAM: bool = false;
 
 type Coef = (Ratio<u64>, Ratio<u64>);
 
+type Coef2D = (f64, f64, f64);
+
 pub struct EvmPrecompiledFunctionCost {
     pub ec_recover_cost: Ratio<u64>,
     pub sha256_cost: Ratio<u64>,
@@ -255,12 +263,12 @@ pub struct EvmPrecompiledFunctionCost {
 }
 
 pub struct EvmCostCoef {
-    pub deploy_cost: Coef,
+    pub deploy_cost: Coef2D,
     pub funcall_cost: Coef,
     pub precompiled_function_cost: EvmPrecompiledFunctionCost,
 }
 
-pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef {
+pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef2D {
     let globbed_files = glob("./**/*.bin").expect("Failed to read glob pattern for bin files");
     let paths = globbed_files
         .filter_map(|x| match x {
@@ -277,11 +285,13 @@ pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef {
                 print!("Testing {}: ", path.display());
             };
             // Evm counted gas already count on size of the contract, therefore we look for cost = m*evm_gas + b.
-            if let Some(EvmCost { evm_gas, cost }) = load_and_deploy_evm_contract(path, config) {
+            if let Some(EvmCost { evm_gas, size, cost }) =
+                load_and_deploy_evm_contract(path, config)
+            {
                 if verbose {
-                    println!("({}, {})", evm_gas, cost);
+                    println!("({}, {}, {}),", evm_gas, size, cost);
                 };
-                Some(EvmCost { evm_gas, cost })
+                Some(EvmCost { evm_gas, size, cost })
             } else {
                 if verbose {
                     println!("FAILED")
@@ -292,7 +302,7 @@ pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef {
         .filter(|x| x.is_some())
         .map(|x| x.unwrap())
         .collect::<Vec<EvmCost>>();
-    measurements_to_coef(measurements, true)
+    measurements_to_coef_2d(measurements, true)
 }
 
 use_contract!(soltest, "../near-evm-runner/tests/build/SolTests.abi");
@@ -401,7 +411,7 @@ pub fn measure_evm_precompile_function(
     if verbose {
         println!("Testing call {}: ({}, {})", test_name, evm_gas, cost);
     }
-    EvmCost { evm_gas, cost }
+    EvmCost { size: 0, evm_gas, cost }
 }
 
 pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
@@ -508,7 +518,7 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
     if verbose {
         println!("Testing call {}: ({}, {})", test_name, evm_gas, cost);
     }
-    EvmCost { evm_gas, cost }
+    EvmCost { evm_gas, size: 0, cost }
 }
 
 pub fn measure_evm_precompiled(config: &Config, verbose: bool) -> EvmPrecompiledFunctionCost {
@@ -667,13 +677,29 @@ pub fn cost_to_compile(
     (m, b)
 }
 
+fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D {
+    let mut a = Array::<f64, _>::zeros((measurements.len(), 2).f());
+    let mut b = Array::<f64, _>::zeros((measurements.len(), 1).f());
+    for (i, m) in measurements.iter().enumerate() {
+        a[[i, 0]] = m.evm_gas as f64;
+        a[[i, 1]] = m.size as f64;
+        b[[i]] = m.cost.to_f64().unwrap();
+    }
+    let result = a.least_squares(&b).unwrap();
+    // println!("{:?}", result.solution);
+
+    let delta: Array<f64, _> = &b - a.dot(&result.solution);
+    let n = delta.len();
+    (result.solution[[0]], result.solution[[1]], delta.sum() / n)
+}
+
 fn measurements_to_coef(measurements: Vec<EvmCost>, verbose: bool) -> Coef {
     let ratio = Ratio::new(0 as u64, 1);
     let base = Ratio::new(u64::MAX, 1);
-    let b = measurements.iter().fold(base, |b, EvmCost { evm_gas: _, cost }| b.min(*cost));
+    let b = measurements.iter().fold(base, |b, EvmCost { evm_gas: _, size: _, cost }| b.min(*cost));
     let m = measurements
         .iter()
-        .fold(ratio, |r, EvmCost { evm_gas, cost }| r.max((*cost - b) / evm_gas));
+        .fold(ratio, |r, EvmCost { evm_gas, size: _, cost }| r.max((*cost - b) / evm_gas));
     if verbose {
         println!("raw data: ({},{})", m, b);
     }

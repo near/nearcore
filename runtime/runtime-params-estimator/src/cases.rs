@@ -1,4 +1,5 @@
 use num_rational::Ratio;
+use num_traits::cast::FromPrimitive;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
@@ -21,7 +22,8 @@ use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
 use crate::vm_estimator::{
-    action_receipt_fee, cost_of_evm, cost_per_op, cost_to_compile, near_cost_to_evm_gas, load_and_compile
+    action_receipt_fee, cost_of_evm, cost_per_op, cost_to_compile, load_and_compile,
+    near_cost_to_evm_gas,
 };
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
@@ -168,9 +170,10 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         config.block_sizes = vec![100];
         let cost = cost_of_evm(&config, true);
         println!(
-            "EVM base deploy (and init evm instance) cost: {}, deploy cost per EVM gas: {}",
-            ratio_to_gas(config.metric, cost.deploy_cost.1) - action_receipt_fee(),
-            ratio_to_gas(config.metric, cost.deploy_cost.0),
+            "EVM base deploy (and init evm instance) cost: {}, deploy cost per EVM gas: {}, deploy cost per byte: {}",
+            ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.2).unwrap()) - action_receipt_fee(),
+            ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.0).unwrap()),
+            ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.1).unwrap()),
         );
         println!(
             "EVM base function call cost: {}, function call cost per EVM gas: {}",
@@ -196,7 +199,10 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         );
         println!(
             "modexp: {}",
-            near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.modexp_impl_cost)
+            near_cost_to_evm_gas(
+                cost.funcall_cost,
+                cost.precompiled_function_cost.modexp_impl_cost
+            )
         );
 
         process::exit(0);
