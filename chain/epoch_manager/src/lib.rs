@@ -202,6 +202,44 @@ impl EpochManager {
         (validator_kickout, validator_block_chunk_stats)
     }
 
+    fn compute_new_protocol_version(
+        &self,
+        version_tracker: HashMap<ValidatorId, ProtocolVersion>,
+        epoch_info: &EpochInfo,
+        last_voted_protocol_version: ProtocolVersion,
+    ) -> ProtocolVersion {
+        // Next protocol version calculation.
+        // Implements https://github.com/nearprotocol/NEPs/pull/64/files#diff-45f773511fe4321b446c3c4226324873R76
+        let mut versions = HashMap::new();
+        for (validator_id, version) in version_tracker.iter() {
+            let stake = epoch_info.validators[*validator_id as usize].stake;
+            *versions.entry(version).or_insert(0) += stake;
+        }
+        let total_block_producer_stake: u128 = epoch_info
+            .block_producers_settlement
+            .iter()
+            .collect::<HashSet<_>>()
+            .iter()
+            .map(|&id| epoch_info.validators[*id as usize].stake)
+            .sum();
+
+        if let Some((&version, stake)) =
+            versions.into_iter().max_by(|left, right| left.1.cmp(&right.1))
+        {
+            if stake
+                > (total_block_producer_stake
+                    * *self.config.protocol_upgrade_stake_threshold.numer() as u128)
+                    / *self.config.protocol_upgrade_stake_threshold.denom() as u128
+            {
+                version
+            } else {
+                last_voted_protocol_version
+            }
+        } else {
+            last_voted_protocol_version
+        }
+    }
+
     fn collect_blocks_info(
         &mut self,
         last_block_info: &BlockInfo,
@@ -224,21 +262,6 @@ impl EpochManager {
         let mut proposals = vec![];
         let mut validator_kickout = HashMap::new();
 
-        // Next protocol version calculation.
-        // Implements https://github.com/nearprotocol/NEPs/pull/64/files#diff-45f773511fe4321b446c3c4226324873R76
-        let mut versions = HashMap::new();
-        for (validator_id, version) in version_tracker.iter() {
-            let stake = epoch_info.validators[*validator_id as usize].stake;
-            *versions.entry(version).or_insert(0) += stake;
-        }
-        let total_block_producer_stake: u128 = epoch_info
-            .block_producers_settlement
-            .iter()
-            .collect::<HashSet<_>>()
-            .iter()
-            .map(|&id| epoch_info.validators[*id as usize].stake)
-            .sum();
-
         let protocol_version = if epoch_info.protocol_version >= UPGRADABILITY_FIX_PROTOCOL_VERSION
         {
             next_epoch_info.protocol_version
@@ -246,21 +269,8 @@ impl EpochManager {
             epoch_info.protocol_version
         };
 
-        let next_version = if let Some((&version, stake)) =
-            versions.into_iter().max_by(|left, right| left.1.cmp(&right.1))
-        {
-            if stake
-                > (total_block_producer_stake
-                    * *self.config.protocol_upgrade_stake_threshold.numer() as u128)
-                    / *self.config.protocol_upgrade_stake_threshold.denom() as u128
-            {
-                version
-            } else {
-                protocol_version
-            }
-        } else {
-            protocol_version
-        };
+        let next_version =
+            self.compute_new_protocol_version(version_tracker, &epoch_info, protocol_version);
 
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed.clone();
@@ -999,6 +1009,7 @@ impl EpochManager {
 
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
     #[allow(clippy::wrong_self_convention)]
+    #[cfg(not(feature = "next_protocol_version"))]
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         if block_info.prev_hash == CryptoHash::default() {
             return Ok(true);
@@ -1013,6 +1024,27 @@ impl EpochManager {
         }
 
         Ok(block_info.last_finalized_height + 3 >= estimated_next_epoch_start)
+    }
+
+    #[cfg(feature = "next_protocol_version")]
+    fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
+        let mut epoch_aggregator = self.get_and_update_epoch_info_aggregator(
+            &block_info.epoch_id,
+            // pass prev hash here because block info may not be saved yet
+            &block_info.prev_hash,
+            true,
+        )?;
+        let epoch_info = self.get_epoch_info(&block_info.epoch_id)?.clone();
+        let prev_block_info = self.get_block_info(&block_info.prev_hash)?;
+        epoch_aggregator.update(block_info, &epoch_info, prev_block_info.height);
+        let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
+        let last_voted_protocol_version = self.get_epoch_info(&next_epoch_id)?.protocol_version;
+        let new_protocol_version = self.compute_new_protocol_version(
+            epoch_aggregator.version_tracker,
+            &epoch_info,
+            last_voted_protocol_version,
+        );
+        Ok(new_protocol_version != epoch_info.protocol_version)
     }
 
     /// Returns true, if given current block info, next block must include the approvals from the next
@@ -3037,5 +3069,56 @@ mod tests {
         let new_epoch_aggregator_final_hash =
             epoch_manager.epoch_info_aggregator.as_ref().map(|a| a.last_block_hash).unwrap();
         assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
+    }
+
+    #[cfg(feature = "next_protocol_version")]
+    #[test]
+    fn test_next_protocol_version_change() {
+        let store = create_test_store();
+        let mut config = epoch_config(10, 1, 2, 0, 90, 60, 0);
+        config.num_block_producer_seats_per_shard = vec![10];
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let mut epoch_manager = EpochManager::new(
+            store.clone(),
+            config.clone(),
+            PROTOCOL_VERSION,
+            default_reward_calculator(),
+            validators.clone(),
+        )
+        .unwrap();
+        let h = hash_range(50);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        for i in 1..3 {
+            let mut block_info1 = block_info(
+                i as u64,
+                i as u64 - 1,
+                h[i - 1],
+                h[i - 1],
+                h[0],
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+            );
+            block_info1.latest_protocol_version = PROTOCOL_VERSION + 1;
+            epoch_manager.record_block_info(&h[i], block_info1, [0; 32]).unwrap();
+        }
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
+        assert_eq!(epoch_info.protocol_version, PROTOCOL_VERSION + 1);
+
+        for i in 3..5 {
+            let mut block_info1 = block_info(
+                i as u64,
+                i as u64 - 1,
+                h[i - 1],
+                h[i - 1],
+                h[0],
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+            );
+            block_info1.latest_protocol_version = PROTOCOL_VERSION + 1;
+            epoch_manager.record_block_info(&h[i], block_info1, [0; 32]).unwrap();
+        }
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
+        assert_eq!(epoch_info.protocol_version, PROTOCOL_VERSION + 1);
     }
 }

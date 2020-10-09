@@ -58,6 +58,7 @@ metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"
 no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache"]
 delay_detector = ["near-client/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
+next_protocol_version = ["near-epoch-manager/next_protocol_version"]
 
 [[bin]]
 path = "src/main.rs"

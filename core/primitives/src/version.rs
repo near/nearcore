@@ -17,8 +17,14 @@ pub const DB_VERSION: DbVersion = 12;
 /// Protocol version type.
 pub type ProtocolVersion = u32;
 
-/// Current latest version of the protocol.
+/// Current latest version of the protocol. It is only updated on releases
+#[cfg(not(feature = "next_protocol_version"))]
 pub const PROTOCOL_VERSION: ProtocolVersion = 39;
+
+/// This one should be updated whenever there is a protocol change to facilitate testing.
+#[cfg(feature = "next_protocol_version")]
+pub const PROTOCOL_VERSION: ProtocolVersion = 39;
+
 /// Oldest supported version by this client.
 pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
 

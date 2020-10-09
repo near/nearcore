@@ -41,7 +41,7 @@ def latest_rc_branch():
     return semver.VersionInfo.parse(releases[0].title).finalize_version()
 
 
-def compile_binary(branch):
+def compile_binary(branch, feature=None):
     """For given branch, compile binary.
 
     Stashes current changes, switches branch and then returns everything back.
@@ -51,7 +51,7 @@ def compile_binary(branch):
     stash_output = subprocess.check_output(['git', 'stash'])
     subprocess.check_output(['git', 'checkout', str(branch)])
     subprocess.check_output(['git', 'pull'])
-    compile_current()
+    compile_current(feature)
     subprocess.check_output(['git', 'checkout', prev_branch])
     if stash_output != b"No local changes to save\n":
         subprocess.check_output(['git', 'stash', 'pop'])
@@ -61,12 +61,15 @@ def escaped(branch):
     return branch.replace('/', '-')
 
 
-def compile_current():
+def compile_current(feature=None):
     """Compile current branch."""
     branch = current_branch()
     try:
         # Accommodate rename from near to neard
-        subprocess.check_output(['cargo', 'build', '-p', 'neard'])
+        if feature is None:
+            subprocess.check_output(['cargo', 'build', '-p', 'neard'])
+        else:
+            subprocess.check_output(['cargo', 'build', '-p', 'neard', '--features', feature])
     except:
         subprocess.check_output(['cargo', 'build', '-p', 'near'])
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
@@ -98,7 +101,20 @@ def download_binary(uname, branch):
         ['chmod', '+x', f'../target/debug/state-viewer-{branch}'])
 
 
-def prepare_ab_test(other_branch):
+def prepare_single_branch(branch, feature=None):
+    uname = os.uname()[0]
+    if feature is None:
+        try:
+            download_binary(uname, branch)
+        except Exception:
+            compile_binary(str(branch))
+    else:
+        compile_binary(str(branch))
+
+    return escaped(branch)
+
+
+def prepare_ab_test(other_branch, feature=None):
     # Use NEAR_AB_BINARY_EXISTS to avoid rebuild / re-download when testing locally.
     #if not os.environ.get('NEAR_AB_BINARY_EXISTS'):
     #    compile_current()
@@ -107,7 +123,7 @@ def prepare_ab_test(other_branch):
     #        download_binary(uname, other_branch)
     #    else:
     # TODO: re-enable caching
-    compile_current()
+    compile_current(feature)
     uname = os.uname()[0]
     try:
         download_binary(uname, other_branch)

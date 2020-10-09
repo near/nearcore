@@ -25,3 +25,4 @@ near-store = { path = "../../core/store" }
 
 [features]
 expensive_tests = []
+next_protocol_version = ["near-primitives/next_protocol_version"]
