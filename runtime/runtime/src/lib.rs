@@ -44,6 +44,7 @@ use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_fees::RuntimeFeesConfig;
+use std::borrow::Borrow;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -1284,15 +1285,15 @@ impl Runtime {
 
     /// It's okay to use unsafe math here, because this method should only be called on the trusted
     /// state records (e.g. at launch from genesis)
-    pub fn compute_storage_usage(
+    pub fn compute_storage_usage<Record: Borrow<StateRecord>>(
         &self,
-        records: &[StateRecord],
+        records: &[Record],
         config: &RuntimeConfig,
     ) -> HashMap<AccountId, u64> {
         let mut result = HashMap::new();
         let config = &config.transaction_costs.storage_usage_config;
         for record in records {
-            let account_and_storage = match record {
+            let account_and_storage = match record.borrow() {
                 StateRecord::Account { account_id, .. } => {
                     Some((account_id.clone(), config.num_bytes_account))
                 }
@@ -1324,19 +1325,19 @@ impl Runtime {
     }
 
     /// Balances are account, publickey, initial_balance, initial_tx_stake
-    pub fn apply_genesis_state(
+    pub fn apply_genesis_state<Record: Borrow<StateRecord>>(
         &self,
         tries: ShardTries,
         shard_id: ShardId,
         validators: &[(AccountId, PublicKey, Balance)],
-        records: &[StateRecord],
+        records: &[Record],
         config: &RuntimeConfig,
     ) -> (StoreUpdate, StateRoot) {
         let mut state_update = tries.new_trie_update(shard_id, MerkleHash::default());
         let mut postponed_receipts: Vec<Receipt> = vec![];
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         for record in records {
-            match record.clone() {
+            match record.borrow().clone() {
                 StateRecord::Account { account_id, account } => {
                     set_account(&mut state_update, account_id, &account);
                 }
@@ -1433,10 +1434,9 @@ impl Runtime {
             set_account(&mut state_update, account_id.clone(), &account);
         }
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().expect("Genesis state update failed").0;
+        let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
 
-        let (store_update, state_root) =
-            tries.apply_all(&trie_changes, shard_id).expect("Genesis state update failed");
+        let (store_update, state_root) = tries.apply_genesis(trie_changes, shard_id);
         (store_update, state_root)
     }
 }

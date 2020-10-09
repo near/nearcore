@@ -57,6 +57,7 @@ The above code will download the official genesis config and generate necessary 
 **NB!** According to changes in `nearcore` config generation we don't fill all the necessary fields in the config file. While this issue is open https://github.com/nearprotocol/nearcore/issues/3156 you need to download config you want and replace the generated one manually.
  - [testnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/testnet/config.json)
  - [betanet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/betanet/config.json)
+ - [mainnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/config.json)
  
 Replace `config.json` in your `--home-dir` (e.g. `~/.near/testnet/config.json`) with downloaded one.
 
