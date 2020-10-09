@@ -21,6 +21,7 @@ use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
@@ -466,6 +467,7 @@ pub enum RoutedMessageBody {
     Pong(Pong),
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     VersionedStateResponse(StateResponseInfo),
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
@@ -532,6 +534,12 @@ impl Debug for RoutedMessageBody {
                 "VersionedStateResponse({}, {})",
                 response.shard_id(),
                 response.sync_hash()
+            ),
+            RoutedMessageBody::PartialEncodedChunkForward(forward) => write!(
+                f,
+                "PartialChunkForward({:?}, {:?})",
+                forward.chunk_hash,
+                forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
             ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
@@ -777,6 +785,7 @@ impl PeerMessage {
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
                 | RoutedMessageBody::PartialEncodedChunkResponse(_)
+                | RoutedMessageBody::PartialEncodedChunkForward(_)
                 | RoutedMessageBody::StateResponse(_)
                 | RoutedMessageBody::VersionedPartialEncodedChunk(_)
                 | RoutedMessageBody::VersionedStateResponse(_) => true,
@@ -1193,6 +1202,11 @@ pub enum NetworkRequests {
         account_id: AccountId,
         partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
     },
+    /// Forwarding a chunk part to a validator tracking the shard
+    PartialEncodedChunkForward {
+        account_id: AccountId,
+        forward: PartialEncodedChunkForwardMsg,
+    },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
@@ -1395,6 +1409,8 @@ pub enum NetworkClientMessages {
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
+    /// Forwarding parts to those tracking the shard (so they don't need to send requests)
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 
     /// A challenge to invalidate the block.
     Challenge(Challenge),
@@ -1563,6 +1579,44 @@ pub struct PartialEncodedChunkResponseMsg {
     pub chunk_hash: ChunkHash,
     pub parts: Vec<PartialEncodedChunkPart>,
     pub receipts: Vec<ReceiptProof>,
+}
+
+/// Message for chunk part owners to forward their parts to validators tracking that shard.
+/// This reduces the number of requests a node tracking a shard needs to send to obtain enough
+/// parts to reconstruct the message (in the best case no such requests are needed).
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct PartialEncodedChunkForwardMsg {
+    pub chunk_hash: ChunkHash,
+    pub inner_header_hash: CryptoHash,
+    pub merkle_root: CryptoHash,
+    pub signature: Signature,
+    pub prev_block_hash: CryptoHash,
+    pub height_created: BlockHeight,
+    pub shard_id: ShardId,
+    pub parts: Vec<PartialEncodedChunkPart>,
+}
+
+impl PartialEncodedChunkForwardMsg {
+    pub fn from_header_and_parts(
+        header: &ShardChunkHeader,
+        parts: Vec<PartialEncodedChunkPart>,
+    ) -> Self {
+        Self {
+            chunk_hash: header.chunk_hash(),
+            inner_header_hash: header.inner_header_hash(),
+            merkle_root: header.encoded_merkle_root(),
+            signature: header.signature().clone(),
+            prev_block_hash: header.prev_block_hash(),
+            height_created: header.height_created(),
+            shard_id: header.shard_id(),
+            parts,
+        }
+    }
+
+    pub fn is_valid_hash(&self) -> bool {
+        let correct_hash = combine_hash(self.inner_header_hash, self.merkle_root);
+        ChunkHash(correct_hash) == self.chunk_hash
+    }
 }
 
 /// Adapter to break dependency of sub-components on the network requests.

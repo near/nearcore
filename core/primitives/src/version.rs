@@ -18,7 +18,7 @@ pub const DB_VERSION: DbVersion = 14;
 pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 40;
+pub const PROTOCOL_VERSION: ProtocolVersion = 41;
 /// Oldest supported version by this client.
 pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
 
@@ -46,6 +46,7 @@ pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
 pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
 
 pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 40;
+pub const CHUNK_FORWARD_UPGRADE_VERSION: ProtocolVersion = 41;
 
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,

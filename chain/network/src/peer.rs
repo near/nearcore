@@ -516,6 +516,9 @@ impl Peer {
                     RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(chunk)
                     }
+                    RoutedMessageBody::PartialEncodedChunkForward(forward) => {
+                        NetworkClientMessages::PartialEncodedChunkForward(forward)
+                    }
                     RoutedMessageBody::Ping(_)
                     | RoutedMessageBody::Pong(_)
                     | RoutedMessageBody::TxStatusRequest(_, _)

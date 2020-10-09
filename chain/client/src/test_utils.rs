@@ -311,6 +311,26 @@ impl BlockStats {
     }
 }
 
+fn send_chunks<T, I, F>(
+    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    recipients: I,
+    target: T,
+    drop_chunks: bool,
+    create_msg: F,
+) where
+    T: Eq,
+    I: Iterator<Item = (usize, T)>,
+    F: Fn() -> NetworkClientMessages,
+{
+    for (i, name) in recipients {
+        if name == target {
+            if !drop_chunks || !sample_binary(1, 10) {
+                connectors.read().unwrap()[i].0.do_send(create_msg());
+            }
+        }
+    }
+}
+
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
 ///
 /// # Arguments
@@ -488,47 +508,60 @@ pub fn setup_mock_all_validators(
                                 .insert(*block.header().hash(), block.header().height());
                         }
                         NetworkRequests::PartialEncodedChunkRequest { target, request } => {
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if Some(&name.to_string()) == target.account_id.as_ref() {
-                                    if !drop_chunks || !sample_binary(1, 10) {
-                                        connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::PartialEncodedChunkRequest(
-                                                request.clone(),
-                                                my_address,
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
+                            let create_msg = || {
+                                NetworkClientMessages::PartialEncodedChunkRequest(
+                                    request.clone(),
+                                    my_address,
+                                )
+                            };
+                            send_chunks(
+                                Arc::clone(&connectors1),
+                                validators_clone2.iter().flatten().map(|s| Some(*s)).enumerate(),
+                                target.account_id.as_ref().map(|s| s.as_str()),
+                                drop_chunks,
+                                create_msg,
+                            );
                         }
                         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
-                            for (i, address) in addresses.iter().enumerate() {
-                                if route_back == address {
-                                    if !drop_chunks || !sample_binary(1, 10) {
-                                        connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::PartialEncodedChunkResponse(
-                                                response.clone(),
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
+                            let create_msg = || {
+                                NetworkClientMessages::PartialEncodedChunkResponse(response.clone())
+                            };
+                            send_chunks(
+                                Arc::clone(&connectors1),
+                                addresses.iter().enumerate(),
+                                route_back,
+                                drop_chunks,
+                                create_msg,
+                            );
                         }
                         NetworkRequests::PartialEncodedChunkMessage {
                             account_id,
                             partial_encoded_chunk,
                         } => {
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if name == account_id {
-                                    if !drop_chunks || !sample_binary(1, 10) {
-                                        connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::PartialEncodedChunk(
-                                                partial_encoded_chunk.clone().into(),
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
+                            let create_msg = || {
+                                NetworkClientMessages::PartialEncodedChunk(
+                                    partial_encoded_chunk.clone().into(),
+                                )
+                            };
+                            send_chunks(
+                                Arc::clone(&connectors1),
+                                validators_clone2.iter().flatten().copied().enumerate(),
+                                account_id.as_str(),
+                                drop_chunks,
+                                create_msg,
+                            );
+                        }
+                        NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+                            let create_msg = || {
+                                NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
+                            };
+                            send_chunks(
+                                Arc::clone(&connectors1),
+                                validators_clone2.iter().flatten().copied().enumerate(),
+                                account_id.as_str(),
+                                drop_chunks,
+                                create_msg,
+                            );
                         }
                         NetworkRequests::BlockRequest { hash, peer_id } => {
                             for (i, peer_info) in key_pairs.iter().enumerate() {
