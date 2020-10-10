@@ -1829,31 +1829,30 @@ impl Chain {
 
     pub fn get_transaction_execution_result(
         &mut self,
-        hash: &CryptoHash,
-    ) -> Result<ExecutionOutcomeWithIdView, Error> {
-        self.get_execution_outcome(hash).map(|r| r.clone().into())
+        id: &CryptoHash,
+    ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
+        self.store.get_outcomes_by_id(id).map(|res| res.into_iter().map(Into::into).collect())
     }
 
     fn get_recursive_transaction_results(
         &mut self,
-        hash: &CryptoHash,
+        id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
-        let outcome = self.get_transaction_execution_result(hash)?;
+        let outcome: ExecutionOutcomeWithIdView = self.get_execution_outcome(id)?.into();
         let receipt_ids = outcome.outcome.receipt_ids.clone();
-        let mut transactions = vec![outcome];
-        for hash in &receipt_ids {
-            transactions
-                .extend(self.get_recursive_transaction_results(&hash.clone().into())?.into_iter());
+        let mut results = vec![outcome];
+        for receipt_id in &receipt_ids {
+            results.extend(self.get_recursive_transaction_results(receipt_id)?.into_iter());
         }
-        Ok(transactions)
+        Ok(results)
     }
 
     pub fn get_final_transaction_result(
         &mut self,
-        hash: &CryptoHash,
+        transaction_hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, Error> {
-        let mut outcomes = self.get_recursive_transaction_results(hash)?;
-        let mut looking_for_id = (*hash).into();
+        let mut outcomes = self.get_recursive_transaction_results(transaction_hash)?;
+        let mut looking_for_id = (*transaction_hash).into();
         let num_outcomes = outcomes.len();
         let status = outcomes
             .iter()
@@ -1883,8 +1882,10 @@ impl Chain {
         let receipts_outcome = outcomes.split_off(1);
         let transaction: SignedTransactionView = self
             .store
-            .get_transaction(hash)?
-            .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("Transaction {} is not found", hash)))?
+            .get_transaction(transaction_hash)?
+            .ok_or_else(|| {
+                ErrorKind::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
+            })?
             .clone()
             .into();
         let transaction_outcome = outcomes.pop().unwrap();
@@ -1958,11 +1959,16 @@ impl Chain {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdAndProof>, Error> {
-        self.mut_store()
+        Ok(self
+            .mut_store()
             .get_outcomes_by_block_hash(block_hash)?
             .into_iter()
-            .map(|id| Ok(self.get_execution_outcome(&id)?.clone()))
-            .collect()
+            .flat_map(|id| {
+                let mut outcomes = self.store.get_outcomes_by_id(&id).unwrap_or_else(|_| vec![]);
+                outcomes.retain(|outcome| &outcome.block_hash == block_hash);
+                outcomes
+            })
+            .collect())
     }
 }
 
@@ -2260,15 +2266,6 @@ impl Chain {
         self.store.get_chunk_extra(block_hash, shard_id)
     }
 
-    /// Get transaction result for given hash of transaction or receipt id.
-    #[inline]
-    pub fn get_execution_outcome(
-        &mut self,
-        hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error> {
-        self.store.get_execution_outcome(hash)
-    }
-
     /// Get destination shard id for a given receipt id.
     #[inline]
     pub fn get_shard_id_for_receipt_id(
@@ -2364,6 +2361,24 @@ impl Chain {
         } else {
             Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
         }
+    }
+
+    /// Get transaction result for given hash of transaction or receipt id on the canonical chain
+    pub fn get_execution_outcome(
+        &mut self,
+        id: &CryptoHash,
+    ) -> Result<ExecutionOutcomeWithIdAndProof, Error> {
+        let outcomes = self.store.get_outcomes_by_id(id)?;
+        outcomes
+            .into_iter()
+            .find(|outcome| match self.get_block_header(&outcome.block_hash) {
+                Ok(header) => {
+                    let header = header.clone();
+                    self.is_on_current_chain(&header).is_ok()
+                }
+                Err(_) => false,
+            })
+            .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)).into())
     }
 }
 

@@ -230,12 +230,13 @@ impl StoreValidator {
                 }
                 DBCol::ColTransactionResult => {
                     let outcome_id = CryptoHash::try_from_slice(key_ref)?;
-                    let outcome = ExecutionOutcomeWithIdAndProof::try_from_slice(value_ref)?;
+                    let outcomes =
+                        <Vec<ExecutionOutcomeWithIdAndProof>>::try_from_slice(value_ref)?;
                     // Outcome is reachable in ColOutcomesByBlockHash
                     self.check(
                         &validate::outcome_indexed_by_block_hash,
                         &outcome_id,
-                        &outcome,
+                        &outcomes,
                         col,
                     );
                 }
