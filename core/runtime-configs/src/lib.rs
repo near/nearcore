@@ -48,6 +48,9 @@ impl RuntimeConfig {
         }
     }
 
+    /// Returns a `RuntimeConfig` for the corresponding protocol version.
+    /// It uses `genesis_runtime_config` to keep the unchanged fees.
+    /// TODO: https://github.com/nearprotocol/NEPs/issues/120
     pub fn from_protocol_version(
         genesis_runtime_config: &Arc<RuntimeConfig>,
         _protocol_version: ProtocolVersion,
