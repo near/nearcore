@@ -2834,7 +2834,6 @@ dependencies = [
  "bs58",
  "cached",
  "near-runtime-fees",
- "near-store",
  "near-vm-errors",
  "near-vm-logic",
  "parity-wasm",

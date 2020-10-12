@@ -32,7 +32,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, Runti
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
-use near_vm_runner::VMError;
+use near_vm_runner::{VMError, WasmCompileCache};
 
 pub(crate) fn get_code_with_cache(
     state_update: &TrieUpdate,
@@ -59,6 +59,7 @@ pub(crate) fn action_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
+    cache: &dyn WasmCompileCache,
 ) -> Result<(), RuntimeError> {
     let code = match get_code_with_cache(state_update, account_id, &account) {
         Ok(Some(code)) => code,
@@ -137,6 +138,7 @@ pub(crate) fn action_function_call(
         &config.transaction_costs,
         promise_results,
         apply_state.current_protocol_version,
+        cache,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {

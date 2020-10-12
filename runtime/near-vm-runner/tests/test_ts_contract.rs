@@ -38,6 +38,7 @@ pub fn test_ts_contract() {
             &promise_results,
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
+            &(),
         );
         assert_eq!(
             result.1,
@@ -59,6 +60,7 @@ pub fn test_ts_contract() {
             &promise_results,
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
+            &(),
         )
         .0
         .unwrap();
@@ -84,6 +86,7 @@ pub fn test_ts_contract() {
             &promise_results,
             vm_kind,
             LATEST_PROTOCOL_VERSION,
+            &(),
         );
 
         if let ReturnData::Value(value) = result.0.unwrap().return_data {

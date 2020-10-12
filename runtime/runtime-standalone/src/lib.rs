@@ -20,6 +20,7 @@ use near_runtime_configs::RuntimeConfig;
 use near_store::{
     get_access_key, get_account, set_account, test_utils::create_test_store, ShardTries, Store,
 };
+use node_runtime::cache::RocksDBWasmCompileCache;
 use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 
 const DEFAULT_EPOCH_LENGTH: u64 = 3;
@@ -129,7 +130,10 @@ impl RuntimeStandalone {
     pub fn new(genesis: GenesisConfig, store: Arc<Store>) -> Self {
         let mut genesis_block = Block::genesis(&genesis);
         let mut store_update = store.store_update();
-        let runtime = Runtime::new(genesis.runtime_config.clone());
+        let runtime = Runtime::new(
+            genesis.runtime_config.clone(),
+            Box::new(RocksDBWasmCompileCache { store: store.clone() }),
+        );
         let tries = ShardTries::new(store, 1);
         let (s_update, state_root) =
             runtime.apply_genesis_state(tries.clone(), 0, &[], &genesis.state_records);

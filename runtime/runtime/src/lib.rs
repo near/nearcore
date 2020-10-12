@@ -31,6 +31,7 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
+use near_vm_runner::WasmCompileCache;
 #[cfg(feature = "costs_counting")]
 pub use near_vm_runner::EXT_COSTS_COUNTER;
 
@@ -197,11 +198,12 @@ impl Default for ActionResult {
 
 pub struct Runtime {
     pub config: RuntimeConfig,
+    pub wasm_compile_cache: Box<dyn WasmCompileCache>,
 }
 
 impl Runtime {
-    pub fn new(config: RuntimeConfig) -> Self {
-        Runtime { config }
+    pub fn new(config: RuntimeConfig, wasm_compile_cache: Box<dyn WasmCompileCache>) -> Self {
+        Runtime { config, wasm_compile_cache }
     }
 
     fn print_log(log: &[LogEntry]) {
@@ -372,6 +374,7 @@ impl Runtime {
                     &self.config,
                     action_index + 1 == actions.len(),
                     epoch_info_provider,
+                    self.wasm_compile_cache.as_ref(),
                 )?;
             }
             Action::Transfer(transfer) => {
@@ -1490,8 +1493,7 @@ mod tests {
     {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let runtime = Runtime::new(RuntimeConfig::default());
-
+        let runtime = Runtime::new(RuntimeConfig::default(), Box::new(()));
         let account_id = alice_account();
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));

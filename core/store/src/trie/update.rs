@@ -7,11 +7,12 @@ use near_primitives::types::{
 };
 
 use crate::trie::TrieChanges;
-use crate::StorageError;
+use crate::{StorageError, Store};
 
 use super::{Trie, TrieIterator};
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -58,6 +59,20 @@ impl TrieUpdate {
 
     pub fn trie(&self) -> &Trie {
         self.trie.as_ref()
+    }
+
+    // HACK: this is used for accessing Store in runtime to use it for wasm cache.
+    pub fn get_store(&self) -> Option<Arc<Store>> {
+        if let Some(storage) = self.trie().storage.as_caching_storage() {
+            // Regular DB storage
+            Some(storage.store.clone())
+        } else if let Some(storage) = self.trie().storage.as_recording_storage() {
+            // Trie for creating a challenge / state parts
+            Some(storage.storage.store.clone())
+        } else {
+            // Validating a challenge
+            None
+        }
     }
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
