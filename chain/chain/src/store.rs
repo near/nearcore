@@ -851,11 +851,7 @@ impl ChainStoreAccess for ChainStore {
         &self,
         id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdAndProof>, Error> {
-        match self.store.get_ser(ColTransactionResult, id.as_ref()) {
-            Ok(Some(res)) => Ok(res),
-            Ok(None) => Ok(vec![]),
-            Err(e) => Err(e.into()),
-        }
+        Ok(self.store.get_ser(ColTransactionResult, id.as_ref())?.unwrap_or_else(|| vec![]))
     }
 
     fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
