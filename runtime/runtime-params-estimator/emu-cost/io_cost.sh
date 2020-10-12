@@ -1,9 +1,5 @@
 #!/bin/bash
 
-
-# brew install feedgnuplot
-# seq 20 | awk '{print $1, A, $1*$1}' | feedgnuplot --domain --dataid --lines --points  --title "Test plot"  --unset grid --terminal 'dumb 80,40' --exit
-
 log=./io_log.txt
 base=.
 mark=`date +"%Y-%m-%d-%H-%M-%S"`
@@ -13,7 +9,7 @@ echo $mark | tee -a $log
 # cargo build --release --package neard
 
 #for acc in 10
-for acc in 10 100 200 300 1000 2000 3000 10000 15000 20000 30000 40000 50000 60000 700000 80000 90000 100000
+for acc in 10 100 200 300 1000 2000 3000 10000 15000 20000 30000 40000 50000 60000 70000 80000 90000 100000 500000
 do
   echo "Using $acc accounts..." | tee -a $log
   dir=/tmp/data$acc
@@ -27,4 +23,6 @@ do
   # tail -1
 done
 
-#cat $log | python ./emu-cost/data_builder.py| feedgnuplot --domain --dataid --lines --points  --title "Test plot"  --unset grid  --autolegend
+# brew install feedgnuplot
+# seq 20 | awk '{print $1, A, $1*$1}' | feedgnuplot --domain --dataid --lines --points  --title "Instructions to IO"  --unset grid --terminal 'dumb 80,40' --exit
+# cat $log | python ./emu-cost/data_builder.py | feedgnuplot --domain --dataid --lines --points  --title "Instructions to IO"  --unset grid  --autolegend
