@@ -24,7 +24,6 @@ use near_store::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
 
-use crate::cache::RocksDBWasmCompileCache;
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};

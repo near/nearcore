@@ -1493,7 +1493,7 @@ mod tests {
     {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let runtime = Runtime::new(genesis.config.runtime_config.clone(), Box::new(()));
+        let runtime = Runtime::new(RuntimeConfig::default(), Box::new(()));
         let account_id = alice_account();
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
