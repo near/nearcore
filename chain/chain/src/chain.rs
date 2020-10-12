@@ -1831,7 +1831,7 @@ impl Chain {
         &mut self,
         id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
-        self.store.get_outcomes_by_id(id).map(|res| res.into_iter().map(Into::into).collect())
+        Ok(self.store.get_outcomes_by_id(id)?.into_iter().map(Into::into).collect())
     }
 
     fn get_recursive_transaction_results(
