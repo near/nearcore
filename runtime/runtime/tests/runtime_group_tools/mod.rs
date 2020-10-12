@@ -50,8 +50,7 @@ impl StandaloneRuntime {
         runtime_config.transaction_costs.data_receipt_creation_config.base_cost.execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
-        let runtime = Runtime::new(runtime_config);
-
+        let runtime = Runtime::new(genesis.config.runtime_config.clone(), Box::new(()));
         let (store_update, root) =
             runtime.apply_genesis_state(tries.clone(), 0, &[], state_records);
         store_update.commit().unwrap();

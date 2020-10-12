@@ -60,6 +60,7 @@ pub(crate) fn action_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
+    cache: &dyn WasmCompileCache,
 ) -> Result<(), RuntimeError> {
     let code = match get_code_with_cache(state_update, account_id, &account) {
         Ok(Some(code)) => code,
@@ -81,7 +82,6 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
-    let store = state_update.get_store();
 
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -129,13 +129,6 @@ pub(crate) fn action_function_call(
         output_data_receivers,
     };
 
-    let cache: Box<dyn WasmCompileCache> = if let Some(store) = store {
-        Box::new(RocksDBWasmCompileCache { store })
-    } else {
-        // If we're validating a challenge, there is no Store. For now just don't use cache.
-        Box::new(())
-    };
-
     let (outcome, err) = near_vm_runner::run(
         code.hash.as_ref().to_vec(),
         &code.code,
@@ -146,7 +139,7 @@ pub(crate) fn action_function_call(
         &config.transaction_costs,
         promise_results,
         apply_state.current_protocol_version,
-        cache.as_ref(),
+        cache,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {

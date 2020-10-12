@@ -41,6 +41,7 @@ use near_store::{
     get_access_key_raw, ColState, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::cache::RocksDBWasmCompileCache;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
@@ -131,7 +132,6 @@ impl NightshadeRuntime {
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
     ) -> Self {
-        let runtime = Runtime::new(genesis.config.runtime_config.clone());
         let trie_viewer = TrieViewer::new();
         let genesis_config = genesis.config.clone();
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
@@ -165,7 +165,13 @@ impl NightshadeRuntime {
             online_max_threshold: genesis.config.online_max_threshold,
             online_min_threshold: genesis.config.online_min_threshold,
         };
-        let (store, tries, state_roots) = Self::initialize_genesis_state(store, home_dir, genesis);
+        let (store, tries, state_roots) =
+            Self::initialize_genesis_state(store, home_dir, genesis.clone());
+        let runtime = Runtime::new(
+            genesis.config.runtime_config.clone(),
+            Box::new(RocksDBWasmCompileCache { store: store.clone() }),
+        );
+
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
                 store.clone(),
@@ -250,7 +256,10 @@ impl NightshadeRuntime {
         }
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
         let tries = ShardTries::new(store.clone(), num_shards);
-        let runtime = Runtime::new(genesis.config.runtime_config.clone());
+        let runtime = Runtime::new(
+            genesis.config.runtime_config.clone(),
+            Box::new(RocksDBWasmCompileCache { store: store.clone() }),
+        );
         for shard_id in 0..num_shards {
             let validators = genesis
                 .config

@@ -87,7 +87,7 @@ pub(crate) fn compile_module_cached(
 }
 
 /// Cache for compiled modules
-pub trait WasmCompileCache {
+pub trait WasmCompileCache: Send + Sync {
     fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error>;
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error>;

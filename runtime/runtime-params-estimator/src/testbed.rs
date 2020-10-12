@@ -71,7 +71,7 @@ impl RuntimeTestbed {
             ..Default::default()
         };
 
-        let runtime = Runtime::new(runtime_config);
+        let runtime = Runtime::new(runtime_config, Box::new(()));
         let prev_receipts = vec![];
 
         let apply_state = ApplyState {
