@@ -15,6 +15,8 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 #define CATCH_BASE 0xcafebabe
 
 static uint64_t insn_count = 0;
+static uint64_t read_count = 0;
+static uint64_t write_count = 0;
 static pthread_t counting_for = 0;
 static bool counting = false;
 static bool count_per_thread = false;
@@ -47,9 +49,9 @@ static void print_insn_count(void) {
 }
 
 static void vcpu_syscall(qemu_plugin_id_t id, unsigned int vcpu_index,
-                        int64_t num, uint64_t a1, uint64_t a2,
-                        uint64_t a3, uint64_t a4, uint64_t a5,
-                        uint64_t a6, uint64_t a7, uint64_t a8)
+                         int64_t num, uint64_t a1, uint64_t a2,
+                         uint64_t a3, uint64_t a4, uint64_t a5,
+                         uint64_t a6, uint64_t a7, uint64_t a8)
 {
     // We put our listener on fd reads in range [CATCH_BASE, CATCH_BASE + 1]
     if (num == 0) { // sys_read
@@ -60,6 +62,8 @@ static void vcpu_syscall(qemu_plugin_id_t id, unsigned int vcpu_index,
                 if (count_per_thread)
                     counting_for = pthread_self();
                 insn_count = 0;
+                read_count = 0;
+                write_count = 0;
                 break;
             case CATCH_BASE + 1: {
                 counting_for = 0;
@@ -74,12 +78,51 @@ static void vcpu_syscall(qemu_plugin_id_t id, unsigned int vcpu_index,
                 print_insn_count();
                 break;
             }
+            case CATCH_BASE + 2: {
+                if (a3 == 8) {
+                    *(uint64_t*)a2 = read_count;
+                }
+                break;
+            }
+            case CATCH_BASE + 3: {
+                if (a3 == 8) {
+                    *(uint64_t*)a2 = write_count;
+                }
+                break;
+            }
             default:
                 break;
         }
     }
     if (num == 3 && on_every_close) { // sys_close
         print_insn_count();
+    }
+}
+
+static void vcpu_ret_syscall(qemu_plugin_id_t id, unsigned int vcpu_index,
+                             int64_t num, int64_t ret)
+{
+    if (counting && ret > 0) {
+        switch (num) {
+            case 0: // sys_read
+                __atomic_fetch_add(&read_count, ret, __ATOMIC_SEQ_CST);
+                break;
+            case 1: // sys_read
+                __atomic_fetch_add(&write_count, ret, __ATOMIC_SEQ_CST);
+                break;
+            case 17: // sys_pread
+                __atomic_fetch_add(&read_count, ret, __ATOMIC_SEQ_CST);
+                break;
+            case 18: // sys_pwrite
+                __atomic_fetch_add(&write_count, ret, __ATOMIC_SEQ_CST);
+                break;
+            case 295: // sys_readv
+                __atomic_fetch_add(&read_count, ret, __ATOMIC_SEQ_CST);
+                break;
+            case 296: // sys_writev
+                __atomic_fetch_add(&write_count, ret, __ATOMIC_SEQ_CST);
+                break;
+        }
     }
 }
 
@@ -102,5 +145,6 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
 
     qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
     qemu_plugin_register_vcpu_syscall_cb(id, vcpu_syscall);
+    qemu_plugin_register_vcpu_syscall_ret_cb(id, vcpu_ret_syscall);
     return 0;
 }
