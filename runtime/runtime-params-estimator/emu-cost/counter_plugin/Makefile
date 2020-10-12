@@ -28,7 +28,6 @@ test: test_binary libcounter.so
 test_per_thread: test_binary libcounter.so
 	$(QEMU) -d plugin -plugin file=$(COUNTER_PLUGIN),arg="count_per_thread" ./test_binary
 
-
 clean:
 	rm -f *.o *.so ./test_binary
 
