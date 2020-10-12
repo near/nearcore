@@ -1842,7 +1842,7 @@ impl Chain {
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut results = vec![outcome];
         for receipt_id in &receipt_ids {
-            results.extend(self.get_recursive_transaction_results(receipt_id)?.into_iter());
+            results.extend(self.get_recursive_transaction_results(receipt_id)?);
         }
         Ok(results)
     }
