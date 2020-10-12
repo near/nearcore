@@ -44,7 +44,9 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 }
 
 static void print_insn_count(void) {
-    g_autofree gchar *out = g_strdup_printf("executed %" PRIu64 " instructions\n", insn_count);
+    g_autofree gchar *out = g_strdup_printf("executed %" PRIu64 " instructions; "
+        "%" PRIu64 " bytes read; %" PRIu64 " bytes written\n",
+        insn_count, read_count, write_count);
     qemu_plugin_outs(out);
 }
 
@@ -105,21 +107,15 @@ static void vcpu_ret_syscall(qemu_plugin_id_t id, unsigned int vcpu_index,
     if (counting && ret > 0) {
         switch (num) {
             case 0: // sys_read
+            case 17: // sys_pread64
+            case 19: // sys_readv
+            case 295: // sys_preadv
                 __atomic_fetch_add(&read_count, ret, __ATOMIC_SEQ_CST);
                 break;
-            case 1: // sys_read
-                __atomic_fetch_add(&write_count, ret, __ATOMIC_SEQ_CST);
-                break;
-            case 17: // sys_pread
-                __atomic_fetch_add(&read_count, ret, __ATOMIC_SEQ_CST);
-                break;
-            case 18: // sys_pwrite
-                __atomic_fetch_add(&write_count, ret, __ATOMIC_SEQ_CST);
-                break;
-            case 295: // sys_readv
-                __atomic_fetch_add(&read_count, ret, __ATOMIC_SEQ_CST);
-                break;
-            case 296: // sys_writev
+            case 1: // sys_write
+            case 18: // sys_pwrite64
+            case 20: // sys_writev
+            case 296: // sys_pwritev
                 __atomic_fetch_add(&write_count, ret, __ATOMIC_SEQ_CST);
                 break;
         }
@@ -132,9 +128,12 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
 {
     int i;
     for (i = 0; i < argc; i++) {
+        if (!strcmp(argv[i], "started")) {
+            counting = true;
+        }
         if (!strcmp(argv[i], "on_every_close")) {
             on_every_close = true;
-            counting_for = pthread_self();
+            //counting_for = pthread_self();
         }
         if (!strcmp(argv[i], "count_per_thread")) {
             qemu_plugin_outs("count per thread\n");

@@ -36,9 +36,25 @@ Start container and build estimator with:
 
 Now start the estimator under QEMU with the counter plugin enabled (note, that Rust compiler produces SSE4, so specify recent CPU):
 
-    docker> ./emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
+    docker> ./emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so \
+         ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
 
 Note that it may take some time, as we execute instrumented code under the binary translator.
+
+
+## IO cost calibration
+
+We got to calibrate IO operations cost to instruction counts. Technically instructions and IO are absolutely orthogonal,
+however, as we measure our gas in instructions, we have to compute abstract scaling coefficients binding
+number of bytes read/written in IO to instructions executed.
+We do that by computing following operation:
+
+    ./emu-cost/counter_plugin/qemu-x86_64  -d plugin -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so \
+        ../../target/release/genesis-populate --home /tmp/data --additional-accounts-num <NUM_ACCOUNTS>
+
+and checking how much data to be read/written depending on number of accounts in system. If amount of data grows lineraly with
+the number of instructions, it could be used as a metrics describing IO cost. I.e. we can arbitrary assume,
+that n bytes read during this operation
 
 ## Optional: re-building QEMU and the instruction counter plugin
 
