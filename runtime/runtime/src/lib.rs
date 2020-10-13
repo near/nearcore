@@ -43,7 +43,10 @@ use crate::config::{
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_runtime_fees::RuntimeFeesConfig;
+use std::borrow::Borrow;
 use std::rc::Rc;
+use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
@@ -79,6 +82,8 @@ pub struct ApplyState {
     pub random_seed: CryptoHash,
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
+    /// The Runtime config to use for the current transition.
+    pub config: Arc<RuntimeConfig>,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -195,13 +200,11 @@ impl Default for ActionResult {
     }
 }
 
-pub struct Runtime {
-    pub config: RuntimeConfig,
-}
+pub struct Runtime {}
 
 impl Runtime {
-    pub fn new(config: RuntimeConfig) -> Self {
-        Runtime { config }
+    pub fn new() -> Self {
+        Self {}
     }
 
     fn print_log(log: &[LogEntry]) {
@@ -236,7 +239,7 @@ impl Runtime {
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
         near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
         match verify_and_charge_transaction(
-            &self.config,
+            &apply_state.config,
             state_update,
             apply_state.gas_price,
             signed_transaction,
@@ -307,7 +310,7 @@ impl Runtime {
     ) -> Result<ActionResult, RuntimeError> {
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(
-            &self.config.transaction_costs,
+            &apply_state.config.transaction_costs,
             action,
             &receipt.receiver_id,
             apply_state.current_protocol_version,
@@ -338,8 +341,8 @@ impl Runtime {
             Action::CreateAccount(_) => {
                 near_metrics::inc_counter(&metrics::ACTION_CREATE_ACCOUNT_TOTAL);
                 action_create_account(
-                    &self.config.transaction_costs,
-                    &self.config.account_creation_config,
+                    &apply_state.config.transaction_costs,
+                    &apply_state.config.account_creation_config,
                     account,
                     actor_id,
                     &receipt.receiver_id,
@@ -369,7 +372,7 @@ impl Runtime {
                     account_id,
                     function_call,
                     action_hash,
-                    &self.config,
+                    &apply_state.config,
                     action_index + 1 == actions.len(),
                     epoch_info_provider,
                 )?;
@@ -396,7 +399,7 @@ impl Runtime {
                     debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,
-                        &self.config.transaction_costs,
+                        &apply_state.config.transaction_costs,
                         account,
                         actor_id,
                         &receipt.receiver_id,
@@ -418,7 +421,7 @@ impl Runtime {
             Action::AddKey(add_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_ADD_KEY_TOTAL);
                 action_add_key(
-                    &self.config.transaction_costs,
+                    &apply_state.config.transaction_costs,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -429,7 +432,7 @@ impl Runtime {
             Action::DeleteKey(delete_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_DELETE_KEY_TOTAL);
                 action_delete_key(
-                    &self.config.transaction_costs,
+                    &apply_state.config.transaction_costs,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -500,7 +503,8 @@ impl Runtime {
         let mut account = get_account(state_update, account_id)?;
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
-        let exec_fee = self.config.transaction_costs.action_receipt_creation_config.exec_fee();
+        let exec_fee =
+            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee();
         result.gas_used = exec_fee;
         result.gas_burnt = exec_fee;
         // Executing actions one by one
@@ -527,7 +531,7 @@ impl Runtime {
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
-                    validate_receipt(&self.config.wasm_config.limit_config, receipt)
+                    validate_receipt(&apply_state.config.wasm_config.limit_config, receipt)
                 }) {
                     new_result.result = Err(ActionErrorKind::NewReceiptValidationError(e).into());
                 }
@@ -543,7 +547,7 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if let Some(amount) = get_insufficient_storage_stake(account, &self.config)
+                if let Some(amount) = get_insufficient_storage_stake(account, &apply_state.config)
                     .map_err(|err| StorageError::StorageInconsistentState(err))?
                 {
                     result.merge(ActionResult {
@@ -582,6 +586,7 @@ impl Runtime {
                 action_receipt,
                 &mut result,
                 apply_state.current_protocol_version,
+                &apply_state.config.transaction_costs,
             )?
         };
         stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
@@ -610,8 +615,8 @@ impl Runtime {
 
         // Adding burnt gas reward for function calls if the account exists.
         let receiver_gas_reward = result.gas_burnt_for_function_call
-            * *self.config.transaction_costs.burnt_gas_reward.numer() as u64
-            / *self.config.transaction_costs.burnt_gas_reward.denom() as u64;
+            * *apply_state.config.transaction_costs.burnt_gas_reward.numer() as u64
+            / *apply_state.config.transaction_costs.burnt_gas_reward.denom() as u64;
         // The balance that the current account should receive as a reward for function call
         // execution.
         let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
@@ -736,17 +741,18 @@ impl Runtime {
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
         current_protocol_version: ProtocolVersion,
+        transaction_costs: &RuntimeFeesConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
         let exec_gas = safe_add_gas(
             total_exec_fees(
-                &self.config.transaction_costs,
+                &transaction_costs,
                 &action_receipt.actions,
                 &receipt.receiver_id,
                 current_protocol_version,
             )?,
-            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            transaction_costs.action_receipt_creation_config.exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
@@ -1183,12 +1189,14 @@ impl Runtime {
             })?;
 
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
-            validate_receipt(&self.config.wasm_config.limit_config, &receipt).map_err(|e| {
-                StorageError::StorageInconsistentState(format!(
-                    "Delayed receipt #{} in the state is invalid: {}",
-                    delayed_receipts_indices.first_index, e
-                ))
-            })?;
+            validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt).map_err(
+                |e| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Delayed receipt #{} in the state is invalid: {}",
+                        delayed_receipts_indices.first_index, e
+                    ))
+                },
+            )?;
 
             state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
@@ -1200,7 +1208,7 @@ impl Runtime {
         for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
-            validate_receipt(&self.config.wasm_config.limit_config, &receipt)
+            validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt)
                 .map_err(RuntimeError::ReceiptValidationError)?;
             if total_gas_burnt < gas_limit {
                 process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
@@ -1214,7 +1222,7 @@ impl Runtime {
         }
 
         check_balance(
-            &self.config.transaction_costs,
+            &apply_state.config.transaction_costs,
             &initial_state,
             &state_update,
             validator_accounts_update,
@@ -1277,11 +1285,15 @@ impl Runtime {
 
     /// It's okay to use unsafe math here, because this method should only be called on the trusted
     /// state records (e.g. at launch from genesis)
-    pub fn compute_storage_usage(&self, records: &[StateRecord]) -> HashMap<AccountId, u64> {
+    pub fn compute_storage_usage<Record: Borrow<StateRecord>>(
+        &self,
+        records: &[Record],
+        config: &RuntimeConfig,
+    ) -> HashMap<AccountId, u64> {
         let mut result = HashMap::new();
-        let config = &self.config.transaction_costs.storage_usage_config;
+        let config = &config.transaction_costs.storage_usage_config;
         for record in records {
-            let account_and_storage = match record {
+            let account_and_storage = match record.borrow() {
                 StateRecord::Account { account_id, .. } => {
                     Some((account_id.clone(), config.num_bytes_account))
                 }
@@ -1313,18 +1325,19 @@ impl Runtime {
     }
 
     /// Balances are account, publickey, initial_balance, initial_tx_stake
-    pub fn apply_genesis_state(
+    pub fn apply_genesis_state<Record: Borrow<StateRecord>>(
         &self,
         tries: ShardTries,
         shard_id: ShardId,
         validators: &[(AccountId, PublicKey, Balance)],
-        records: &[StateRecord],
+        records: &[Record],
+        config: &RuntimeConfig,
     ) -> (StoreUpdate, StateRoot) {
         let mut state_update = tries.new_trie_update(shard_id, MerkleHash::default());
         let mut postponed_receipts: Vec<Receipt> = vec![];
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         for record in records {
-            match record.clone() {
+            match record.borrow().clone() {
                 StateRecord::Account { account_id, account } => {
                     set_account(&mut state_update, account_id, &account);
                 }
@@ -1363,7 +1376,7 @@ impl Runtime {
                 }
             }
         }
-        for (account_id, storage_usage) in self.compute_storage_usage(records) {
+        for (account_id, storage_usage) in self.compute_storage_usage(records, &config) {
             let mut account = get_account(&state_update, &account_id)
                 .expect("Genesis storage error")
                 .expect("Account must exist");
@@ -1421,10 +1434,9 @@ impl Runtime {
             set_account(&mut state_update, account_id.clone(), &account);
         }
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().expect("Genesis state update failed").0;
+        let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
 
-        let (store_update, state_root) =
-            tries.apply_all(&trie_changes, shard_id).expect("Genesis state update failed");
+        let (store_update, state_root) = tries.apply_genesis(trie_changes, shard_id);
         (store_update, state_root)
     }
 }
@@ -1490,7 +1502,7 @@ mod tests {
     {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let runtime = Runtime::new(RuntimeConfig::default());
+        let runtime = Runtime::new();
 
         let account_id = alice_account();
         let signer =
@@ -1521,6 +1533,7 @@ mod tests {
             gas_limit: Some(gas_limit),
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            config: Arc::new(RuntimeConfig::default()),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
@@ -1621,9 +1634,12 @@ mod tests {
         let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
-        let receipt_gas_cost =
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
-                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+        let receipt_gas_cost = apply_state
+            .config
+            .transaction_costs
+            .action_receipt_creation_config
+            .exec_fee()
+            + apply_state.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
         apply_state.gas_limit = Some(receipt_gas_cost * 3);
 
         let n = 40;
@@ -1667,9 +1683,12 @@ mod tests {
         let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
-        let receipt_gas_cost =
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
-                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+        let receipt_gas_cost = apply_state
+            .config
+            .transaction_costs
+            .action_receipt_creation_config
+            .exec_fee()
+            + apply_state.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
 
         let n = 120;
         let receipts = generate_receipts(small_transfer, n);
@@ -1747,13 +1766,14 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
-        let (mut runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
         let receipt_exec_gas_fee = 1000;
-        runtime.config = RuntimeConfig::free();
-        runtime.config.transaction_costs.action_receipt_creation_config.execution =
+        let mut free_config = RuntimeConfig::free();
+        free_config.transaction_costs.action_receipt_creation_config.execution =
             receipt_exec_gas_fee;
+        apply_state.config = Arc::new(free_config);
         // This allows us to execute 3 receipts per apply.
         apply_state.gas_limit = Some(receipt_exec_gas_fee * 3);
 
@@ -2084,9 +2104,9 @@ mod tests {
         })];
 
         let expected_gas_burnt = safe_add_gas(
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
             total_exec_fees(
-                &runtime.config.transaction_costs,
+                &apply_state.config.transaction_costs,
                 &actions,
                 &alice_account(),
                 PROTOCOL_VERSION,
@@ -2153,9 +2173,9 @@ mod tests {
         })];
 
         let expected_gas_burnt = safe_add_gas(
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
             total_exec_fees(
-                &runtime.config.transaction_costs,
+                &apply_state.config.transaction_costs,
                 &actions,
                 &alice_account(),
                 PROTOCOL_VERSION,

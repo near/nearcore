@@ -344,10 +344,9 @@ impl ViewClientActor {
                 }
                 Err(e) => match e.kind() {
                     ErrorKind::DBNotFoundErr(_) => {
-                        if let Ok(execution_outcome) =
-                            self.chain.get_transaction_execution_result(&tx_hash)
-                        {
-                            for receipt_id in execution_outcome.outcome.receipt_ids {
+                        if let Ok(execution_outcome) = self.chain.get_execution_outcome(&tx_hash) {
+                            for receipt_id in execution_outcome.outcome_with_id.outcome.receipt_ids
+                            {
                                 self.request_receipt_outcome(receipt_id, &head.last_block_hash)?;
                             }
                             return Ok(None);

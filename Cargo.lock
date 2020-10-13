@@ -2428,6 +2428,7 @@ dependencies = [
  "num-rational 0.2.4",
  "serde",
  "serde_json",
+ "sha2",
  "smart-default",
 ]
 

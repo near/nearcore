@@ -337,7 +337,12 @@ impl Client {
         )?;
         if validator_stake.public_key != validator_signer.public_key() {
             debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_stake.public_key);
+            #[cfg(not(feature = "adversarial"))]
             return Ok(None);
+            #[cfg(feature = "adversarial")]
+            if !self.adv_produce_blocks || self.adv_produce_blocks_only_valid {
+                return Ok(None);
+            }
         }
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.height(), format_hash(head.last_block_hash));

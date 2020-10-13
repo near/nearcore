@@ -163,7 +163,11 @@ impl GenesisBuilder {
             self.state_updates.remove(&shard_idx).expect("State updates are always available");
 
         // Compute storage usage and update accounts.
-        for (account_id, storage_usage) in self.runtime.runtime.compute_storage_usage(&records) {
+        for (account_id, storage_usage) in self
+            .runtime
+            .runtime
+            .compute_storage_usage(&records, &self.genesis.config.runtime_config)
+        {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
             account.storage_usage = storage_usage;

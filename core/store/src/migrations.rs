@@ -301,7 +301,7 @@ where
 }
 
 /// Lift all chunks to the versioned structure
-pub fn migrate_12_to_13(path: &String) {
+pub fn migrate_13_to_14(path: &String) {
     let store = create_store(path);
 
     map_col(&store, DBCol::ColPartialChunks, |pec: PartialEncodedChunkV1| {
@@ -318,5 +318,5 @@ pub fn migrate_12_to_13(path: &String) {
     })
     .unwrap();
 
-    set_store_version(&store, 13);
+    set_store_version(&store, 14);
 }

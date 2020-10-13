@@ -581,20 +581,17 @@ pub(crate) fn outcome_by_outcome_id_exists(
     outcome_ids: &HashSet<CryptoHash>,
 ) -> Result<(), StoreValidatorError> {
     for outcome_id in outcome_ids {
-        let outcome = unwrap_or_err_db!(
-            sv.store.get_ser::<ExecutionOutcomeWithIdAndProof>(
+        let outcomes = unwrap_or_err_db!(
+            sv.store.get_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(
                 ColTransactionResult,
                 outcome_id.as_ref()
             ),
             "Can't get TransactionResult from storage with Outcome id {:?}",
             outcome_id
         );
-        check_discrepancy!(
-            outcome.block_hash,
-            *block_hash,
-            "Invalid TransactionResult {:?} stored",
-            outcome
-        );
+        if outcomes.iter().find(|outcome| &outcome.block_hash == block_hash).is_none() {
+            panic!("Invalid TransactionResult {:?} stored", outcomes);
+        }
     }
     Ok(())
 }
@@ -614,15 +611,19 @@ pub(crate) fn outcome_id_block_exists(
 pub(crate) fn outcome_indexed_by_block_hash(
     sv: &mut StoreValidator,
     outcome_id: &CryptoHash,
-    outcome: &ExecutionOutcomeWithIdAndProof,
+    outcomes: &Vec<ExecutionOutcomeWithIdAndProof>,
 ) -> Result<(), StoreValidatorError> {
-    let outcome_ids = unwrap_or_err_db!(
-        sv.store
-            .get_ser::<HashSet<CryptoHash>>(ColOutcomesByBlockHash, outcome.block_hash.as_ref()),
-        "Can't get Outcome ids by Block Hash"
-    );
-    if !outcome_ids.contains(outcome_id) {
-        err!("Outcome id {:?} is not found in ColOutcomesByBlockHash", outcome_id);
+    for outcome in outcomes {
+        let outcome_ids = unwrap_or_err_db!(
+            sv.store.get_ser::<HashSet<CryptoHash>>(
+                ColOutcomesByBlockHash,
+                outcome.block_hash.as_ref()
+            ),
+            "Can't get Outcome ids by Block Hash"
+        );
+        if !outcome_ids.contains(outcome_id) {
+            err!("Outcome id {:?} is not found in ColOutcomesByBlockHash", outcome_id);
+        }
     }
     Ok(())
 }
