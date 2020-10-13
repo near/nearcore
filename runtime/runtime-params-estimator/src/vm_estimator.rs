@@ -677,20 +677,54 @@ pub fn cost_to_compile(
     (m, b)
 }
 
-fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D {
-    let mut a = Array::<f64, _>::zeros((measurements.len(), 2).f());
-    let mut b = Array::<f64, _>::zeros((measurements.len(), 1).f());
-    for (i, m) in measurements.iter().enumerate() {
-        a[[i, 0]] = m.evm_gas as f64;
-        a[[i, 1]] = m.size as f64;
-        b[[i, 0]] = m.cost.to_f64().unwrap();
+fn dot(v1: &Vec<f64>, v2: &Vec<f64>) -> f64 {
+    let mut ret = 0.0;
+    for (i, u) in v1.iter().enumerate() {
+        ret += u * v2[i];
     }
-    let result = a.least_squares(&b).unwrap();
-    // println!("{:?}", result.solution);
+    ret
+}
 
-    let delta: Array<f64, _> = &b - a.dot(&result.solution);
-    let n = delta.len();
-    (result.solution[[0]], result.solution[[1]], delta.sum() / n)
+struct Matrix2x2 {
+    a: f64,
+    b: f64,
+    c: f64,
+    d: f64,
+}
+
+fn inverse2x2(m: Matrix2x2) -> Matrix2x2 {
+    let Matrix2x2 { a, b, c, d } = m;
+    let delta = a * d - b * c;
+    Matrix2x2 { a: d / delta, b: -b / delta, c: -c / delta, d: a / delta }
+}
+
+fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D {
+    let v1: Vec<_> = measurements.iter().map(|m| m.evm_gas as f64).collect();
+    let v2: Vec<_> = measurements.iter().map(|m| m.size as f64).collect();
+    let a = dot(&v1, &v1);
+    let b = dot(&v1, &v2);
+    let c = dot(&v2, &v1);
+    let d = dot(&v2, &v2);
+
+    let xt_x_inverse = inverse2x2(Matrix2x2 { a, b, c, d });
+    let xt_x_inverse_xt1: Vec<_> = measurements
+        .iter()
+        .map(|m| (m.evm_gas as f64) * xt_x_inverse.a + (m.size as f64) * xt_x_inverse.b)
+        .collect();
+    let xt_x_inverse_xt2: Vec<_> = measurements
+        .iter()
+        .map(|m| (m.evm_gas as f64) * xt_x_inverse.c + (m.size as f64) * xt_x_inverse.d)
+        .collect();
+
+    let y: Vec<_> = measurements.iter().map(|m| m.cost.to_f64().unwrap()).collect();
+    let beta1 = dot(&xt_x_inverse_xt1, &y);
+    let beta2 = dot(&xt_x_inverse_xt2, &y);
+
+    let delta: Vec<_> = measurements
+        .iter()
+        .map(|m| m.cost.to_f64().unwrap() - (m.evm_gas as f64) * beta1 - (m.size as f64) * beta2)
+        .collect();
+    (beta1, beta2, delta.iter().sum::<f64>() / delta.len() as f64)
 }
 
 fn measurements_to_coef(measurements: Vec<EvmCost>, verbose: bool) -> Coef {
