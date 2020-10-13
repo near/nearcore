@@ -24,15 +24,14 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
         genesis.config.runtime_config.transaction_costs.clone(),
         genesis.config.min_gas_price,
     );
-    let arc_genesis = Arc::new(genesis);
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         store1,
-        arc_genesis.clone(),
+        &genesis,
         vec![],
         vec![],
     ))];
-    let env = TestEnv::new_with_runtime(ChainGenesis::from(&arc_genesis), 1, 1, runtimes);
+    let env = TestEnv::new_with_runtime(ChainGenesis::from(&genesis), 1, 1, runtimes);
     (env, fee_helper)
 }
 
@@ -137,11 +136,11 @@ fn test_enable_inflation() {
     genesis.config.max_inflation_rate = Rational::from_integer(0);
     genesis.config.protocol_reward_rate = Rational::from_integer(0);
     genesis.config.protocol_version = ENABLE_INFLATION_PROTOCOL_VERSION - 1;
-    let chain_genesis = ChainGenesis::from(Arc::new(genesis.clone()));
+    let chain_genesis = ChainGenesis::from(&genesis);
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        Arc::new(genesis.clone()),
+        &genesis,
         vec![],
         vec![],
     ))];

@@ -14,27 +14,50 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct ShardTries {
     pub(crate) store: Arc<Store>,
+    /// Cache reserved for client actor to use
     pub(crate) caches: Arc<Vec<TrieCache>>,
+    /// Cache for readers.
+    pub(crate) view_caches: Arc<Vec<TrieCache>>,
 }
 
 impl ShardTries {
+    fn get_new_cache(num_shards: NumShards) -> Arc<Vec<TrieCache>> {
+        Arc::new((0..num_shards).map(|_| TrieCache::new()).collect::<Vec<_>>())
+    }
+
     pub fn new(store: Arc<Store>, num_shards: NumShards) -> Self {
         assert_ne!(num_shards, 0);
-        let caches = Arc::new((0..num_shards).map(|_| TrieCache::new()).collect::<Vec<_>>());
-        ShardTries { store, caches }
+        ShardTries {
+            store,
+            caches: Self::get_new_cache(num_shards),
+            view_caches: Self::get_new_cache(num_shards),
+        }
     }
 
     pub fn new_trie_update(&self, shard_id: ShardId, state_root: CryptoHash) -> TrieUpdate {
         TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_id)), state_root)
     }
 
-    pub fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        let store = Box::new(TrieCachingStorage::new(
-            self.store.clone(),
-            self.caches[shard_id as usize].clone(),
-            shard_id,
-        ));
+    pub fn new_trie_update_view(&self, shard_id: ShardId, state_root: CryptoHash) -> TrieUpdate {
+        TrieUpdate::new(Rc::new(self.get_view_trie_for_shard(shard_id)), state_root)
+    }
+
+    fn get_trie_for_shard_internal(&self, shard_id: ShardId, is_view: bool) -> Trie {
+        let cache = if is_view {
+            self.view_caches[shard_id as usize].clone()
+        } else {
+            self.caches[shard_id as usize].clone()
+        };
+        let store = Box::new(TrieCachingStorage::new(self.store.clone(), cache, shard_id));
         Trie::new(store, shard_id)
+    }
+
+    pub fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
+        self.get_trie_for_shard_internal(shard_id, false)
+    }
+
+    pub fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie {
+        self.get_trie_for_shard_internal(shard_id, true)
     }
 
     pub fn get_store(&self) -> Arc<Store> {
@@ -164,6 +187,23 @@ impl ShardTries {
         shard_id: ShardId,
     ) -> Result<(StoreUpdate, StateRoot), StorageError> {
         ShardTries::apply_all_inner(trie_changes, self.clone(), shard_id, true)
+    }
+
+    // apply_all with less memory overhead
+    pub fn apply_genesis(
+        &self,
+        trie_changes: TrieChanges,
+        shard_id: ShardId,
+    ) -> (StoreUpdate, StateRoot) {
+        assert_eq!(trie_changes.old_root, CryptoHash::default());
+        assert!(trie_changes.deletions.is_empty());
+        // Not new_with_tries on purpose
+        let mut store_update = StoreUpdate::new(self.get_store().storage.clone());
+        for (hash, value, rc) in trie_changes.insertions.into_iter() {
+            let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, &hash);
+            store_update.update_refcount(DBCol::ColState, key.as_ref(), &value, rc as i64);
+        }
+        (store_update, trie_changes.new_root)
     }
 }
 

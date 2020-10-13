@@ -17,7 +17,8 @@ use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{BlockId, BlockReference, TransactionOrReceiptId};
 use near_primitives::views::{
-    ExecutionOutcomeView, ExecutionStatusView, FinalExecutionStatus, QueryResponseKind,
+    ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
+    QueryResponseKind,
 };
 use neard::config::TESTING_INIT_BALANCE;
 use std::sync::atomic::AtomicBool;
@@ -49,10 +50,10 @@ fn test_tx_propagation() {
                 tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
             })
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
+        let (genesis, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(genesis_config).hash();
+        let genesis_hash = *genesis_block(&genesis).hash();
         let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
@@ -90,13 +91,18 @@ fn test_tx_propagation() {
                 }));
                 actix::spawn(
                     view_client
-                        .send(TxStatus { tx_hash, signer_account_id: "near.1".to_string() })
+                        .send(TxStatus {
+                            tx_hash,
+                            signer_account_id: "near.1".to_string(),
+                            fetch_receipt: false,
+                        })
                         .then(move |res| {
                             match &res {
-                                Ok(Ok(Some(feo)))
-                                    if feo.status
-                                        == FinalExecutionStatus::SuccessValue("".to_string())
-                                        && feo.transaction == transaction_copy1.into() =>
+                                Ok(Ok(Some(
+                                    FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(feo),
+                                ))) if feo.status
+                                    == FinalExecutionStatus::SuccessValue("".to_string())
+                                    && feo.transaction == transaction_copy1.into() =>
                                 {
                                     System::current().stop();
                                 }
@@ -128,10 +134,10 @@ fn test_tx_propagation_through_rpc() {
                 tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
             })
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 1000, 0);
+        let (genesis, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 1000, 0);
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(genesis_config).hash();
+        let genesis_hash = *genesis_block(&genesis).hash();
         let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
@@ -196,10 +202,10 @@ fn test_tx_status_with_light_client() {
                 tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
             })
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
+        let (genesis, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(genesis_config).hash();
+        let genesis_hash = *genesis_block(&genesis).hash();
         let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
@@ -269,10 +275,10 @@ fn test_tx_status_with_light_client1() {
                 tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
             })
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
+        let (genesis, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(genesis_config).hash();
+        let genesis_hash = *genesis_block(&genesis).hash();
         let signer = InMemorySigner::from_seed("near.3", KeyType::ED25519, "near.3");
         let transaction = SignedTransaction::send_money(
             1,
@@ -504,10 +510,10 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                 tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
             })
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 1, 1000, 0);
+        let (genesis, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 1, 1000, 0);
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(genesis_config).hash();
+        let genesis_hash = *genesis_block(&genesis).hash();
         let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
         let transaction = if is_tx_successful {
             SignedTransaction::send_money(

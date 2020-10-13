@@ -116,6 +116,7 @@ impl Block {
 
 pub struct RuntimeStandalone {
     genesis: GenesisConfig,
+    runtime_config: Arc<RuntimeConfig>,
     tx_pool: TransactionPool,
     transactions: HashMap<CryptoHash, SignedTransaction>,
     outcomes: HashMap<CryptoHash, ExecutionOutcome>,
@@ -131,18 +132,24 @@ impl RuntimeStandalone {
         let mut genesis_block = Block::genesis(&genesis);
         let mut store_update = store.store_update();
         let runtime = Runtime::new(
-            genesis.runtime_config.clone(),
             Box::new(RocksDBWasmCompileCache { store: store.clone() }),
         );
         let tries = ShardTries::new(store, 1);
-        let (s_update, state_root) =
-            runtime.apply_genesis_state(tries.clone(), 0, &[], &genesis.state_records);
+        let runtime_config = Arc::new(genesis.runtime_config.clone());
+        let (s_update, state_root) = runtime.apply_genesis_state(
+            tries.clone(),
+            0,
+            &[],
+            &genesis.state_records,
+            &runtime_config,
+        );
         store_update.merge(s_update);
         store_update.commit().unwrap();
         genesis_block.state_root = state_root;
         let validators = genesis.validators.clone();
         Self {
             genesis,
+            runtime_config,
             tries,
             runtime,
             transactions: HashMap::new(),
@@ -220,6 +227,7 @@ impl RuntimeStandalone {
             last_block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            config: self.runtime_config.clone(),
         };
 
         let apply_result = self.runtime.apply(

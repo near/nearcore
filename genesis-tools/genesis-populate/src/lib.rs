@@ -62,7 +62,7 @@ impl GenesisBuilder {
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
             store.clone(),
-            Arc::clone(&genesis),
+            &genesis,
             // Since we are not using runtime as an actor
             // there is no reason to track accounts or shards.
             vec![],
@@ -163,7 +163,11 @@ impl GenesisBuilder {
             self.state_updates.remove(&shard_idx).expect("State updates are always available");
 
         // Compute storage usage and update accounts.
-        for (account_id, storage_usage) in self.runtime.runtime.compute_storage_usage(&records) {
+        for (account_id, storage_usage) in self
+            .runtime
+            .runtime
+            .compute_storage_usage(&records, &self.genesis.config.runtime_config)
+        {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
             account.storage_usage = storage_usage;
@@ -223,7 +227,7 @@ impl GenesisBuilder {
 
         let head = Tip::from_header(&genesis.header());
         store_update.save_head(&head).unwrap();
-        store_update.save_sync_head(&head);
+        store_update.save_final_head(&head).unwrap();
         store_update.commit().unwrap();
 
         Ok(())

@@ -276,11 +276,11 @@ fn challenge(
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
-    let genesis = Arc::new(Genesis::test(vec!["test0", "test1"], 1));
+    let genesis = Genesis::test(vec!["test0", "test1"], 1);
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         store1,
-        Arc::clone(&genesis),
+        &genesis,
         vec![],
         vec![],
     ))];
@@ -288,6 +288,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     env.produce_block(0, 1);
     env.clients[0].process_tx(
         SignedTransaction::send_money(
@@ -384,6 +385,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             epoch_length,
             &economics_config,
             DoomslugThresholdMode::NoApprovals,
+            &genesis_block,
         );
 
         chain_update
@@ -551,12 +553,11 @@ fn test_fishermen_challenge() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1", "test2"], 1);
     genesis.config.epoch_length = 5;
-    let genesis = Arc::new(genesis);
     let create_runtime = || -> Arc<NightshadeRuntime> {
         Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
-            Arc::clone(&genesis),
+            &genesis.clone(),
             vec![],
             vec![],
         ))
@@ -611,20 +612,19 @@ fn test_challenge_in_different_epoch() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 2);
     genesis.config.epoch_length = 2;
-    let genesis = Arc::new(genesis);
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let runtime1 = Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        Arc::clone(&genesis),
+        &genesis.clone(),
         vec![],
         vec![],
     ));
     let runtime2 = Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        genesis,
+        &genesis.clone(),
         vec![],
         vec![],
     ));

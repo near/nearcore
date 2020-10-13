@@ -304,6 +304,9 @@ pub(crate) fn chunk_tx_exists(
         let tx_hash = tx.get_hash();
         sv.inner.tx_refcount.entry(tx_hash).and_modify(|x| *x += 1).or_insert(1);
     }
+    for receipt in shard_chunk.receipts.iter() {
+        sv.inner.receipt_refcount.entry(receipt.get_hash()).and_modify(|x| *x += 1).or_insert(1);
+    }
     for tx in shard_chunk.transactions.iter() {
         let tx_hash = tx.get_hash();
         unwrap_or_err_db!(
@@ -578,20 +581,17 @@ pub(crate) fn outcome_by_outcome_id_exists(
     outcome_ids: &HashSet<CryptoHash>,
 ) -> Result<(), StoreValidatorError> {
     for outcome_id in outcome_ids {
-        let outcome = unwrap_or_err_db!(
-            sv.store.get_ser::<ExecutionOutcomeWithIdAndProof>(
+        let outcomes = unwrap_or_err_db!(
+            sv.store.get_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(
                 ColTransactionResult,
                 outcome_id.as_ref()
             ),
             "Can't get TransactionResult from storage with Outcome id {:?}",
             outcome_id
         );
-        check_discrepancy!(
-            outcome.block_hash,
-            *block_hash,
-            "Invalid TransactionResult {:?} stored",
-            outcome
-        );
+        if outcomes.iter().find(|outcome| &outcome.block_hash == block_hash).is_none() {
+            panic!("Invalid TransactionResult {:?} stored", outcomes);
+        }
     }
     Ok(())
 }
@@ -611,15 +611,19 @@ pub(crate) fn outcome_id_block_exists(
 pub(crate) fn outcome_indexed_by_block_hash(
     sv: &mut StoreValidator,
     outcome_id: &CryptoHash,
-    outcome: &ExecutionOutcomeWithIdAndProof,
+    outcomes: &Vec<ExecutionOutcomeWithIdAndProof>,
 ) -> Result<(), StoreValidatorError> {
-    let outcome_ids = unwrap_or_err_db!(
-        sv.store
-            .get_ser::<HashSet<CryptoHash>>(ColOutcomesByBlockHash, outcome.block_hash.as_ref()),
-        "Can't get Outcome ids by Block Hash"
-    );
-    if !outcome_ids.contains(outcome_id) {
-        err!("Outcome id {:?} is not found in ColOutcomesByBlockHash", outcome_id);
+    for outcome in outcomes {
+        let outcome_ids = unwrap_or_err_db!(
+            sv.store.get_ser::<HashSet<CryptoHash>>(
+                ColOutcomesByBlockHash,
+                outcome.block_hash.as_ref()
+            ),
+            "Can't get Outcome ids by Block Hash"
+        );
+        if !outcome_ids.contains(outcome_id) {
+            err!("Outcome id {:?} is not found in ColOutcomesByBlockHash", outcome_id);
+        }
     }
     Ok(())
 }
@@ -740,6 +744,20 @@ pub(crate) fn tx_refcount(
     }
 }
 
+pub(crate) fn receipt_refcount(
+    sv: &mut StoreValidator,
+    receipt_id: &CryptoHash,
+    refcount: &u64,
+) -> Result<(), StoreValidatorError> {
+    let expected = sv.inner.receipt_refcount.get(receipt_id).map(|&rc| rc).unwrap_or_default();
+    if *refcount != expected {
+        err!("Invalid receipt refcount, expected {:?}, found {:?}", expected, refcount)
+    } else {
+        sv.inner.receipt_refcount.remove(receipt_id);
+        return Ok(());
+    }
+}
+
 pub(crate) fn block_refcount(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
@@ -844,6 +862,16 @@ pub(crate) fn tx_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreVali
     if len > 0 {
         for tx_refcount in sv.inner.tx_refcount.iter() {
             err!("Found {:?} Txs that are not counted, i.e. {:?}", len, tx_refcount);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn receipt_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
+    let len = sv.inner.receipt_refcount.len();
+    if len > 0 {
+        for receipt_refcount in sv.inner.receipt_refcount.iter() {
+            err!("Found {:?} receipts that are not counted, i.e. {:?}", len, receipt_refcount);
         }
     }
     Ok(())

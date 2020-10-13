@@ -13,7 +13,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
@@ -230,6 +230,9 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Returns trie.
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+
+    /// Returns trie with view cache
+    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie;
 
     fn verify_block_vrf(
         &self,
@@ -556,6 +559,12 @@ pub trait RuntimeAdapter: Send + Sync {
         other_epoch_id: &EpochId,
     ) -> Result<Ordering, Error>;
 
+    fn chunk_needs_to_be_fetched_from_archival(
+        &self,
+        chunk_prev_block_hash: &CryptoHash,
+        header_head: &CryptoHash,
+    ) -> Result<bool, Error>;
+
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
     // here.
@@ -585,9 +594,6 @@ pub trait RuntimeAdapter: Send + Sync {
             .collect()
     }
 }
-
-#[derive(BorshSerialize, Serialize, Debug, Clone)]
-pub struct ReceiptList<'a>(pub ShardId, pub &'a Vec<Receipt>);
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.

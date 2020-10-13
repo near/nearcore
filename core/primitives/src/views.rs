@@ -3,7 +3,6 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
-use std::borrow::Cow;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
@@ -25,13 +24,11 @@ use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
-use crate::rpc::RpcPagination;
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
     u128_dec_format, u64_dec_format,
 };
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
-use crate::state_record::StateRecord;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
@@ -149,12 +146,6 @@ impl From<AccessKeyView> for AccessKey {
     fn from(view: AccessKeyView) -> Self {
         Self { nonce: view.nonce, permission: view.permission.into() }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GenesisRecordsView<'a> {
-    pub pagination: RpcPagination,
-    pub records: Cow<'a, [StateRecord]>,
 }
 
 /// Set of serialized TrieNodes that are encoded in base64. Represent proof of inclusion of some TrieNode in the MerkleTrie.
@@ -910,6 +901,13 @@ impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FinalExecutionOutcomeViewEnum {
+    FinalExecutionOutcome(FinalExecutionOutcomeView),
+    FinalExecutionOutcomeWithReceipt(FinalExecutionOutcomeWithReceiptView),
+}
+
 /// Final execution outcome of the transaction and all of subsequent the receipts.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FinalExecutionOutcomeView {
@@ -937,6 +935,23 @@ impl fmt::Debug for FinalExecutionOutcomeView {
     }
 }
 
+/// Final execution outcome of the transaction and all of subsequent the receipts. Also includes
+/// the generated receipt.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub struct FinalExecutionOutcomeWithReceiptView {
+    /// Final outcome view without receipts
+    #[serde(flatten)]
+    pub final_outcome: FinalExecutionOutcomeView,
+    /// Receipts generated from the transaction
+    pub receipts: Vec<ReceiptView>,
+}
+
+impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
+    fn from(final_outcome_view: FinalExecutionOutcomeWithReceiptView) -> Self {
+        final_outcome_view.final_outcome
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
@@ -957,7 +972,7 @@ impl From<ValidatorStakeView> for ValidatorStake {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
@@ -966,13 +981,13 @@ pub struct ReceiptView {
     pub receipt: ReceiptEnumView,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DataReceiverView {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,

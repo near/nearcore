@@ -16,8 +16,6 @@ import base58
 import nacl.signing
 from cluster import start_cluster
 from peer import ED_PREFIX, connect, create_handshake, sign_handshake, BinarySerializer, schema
-from utils import obj_to_string
-
 
 
 nodes = start_cluster(1, 0, 4, None, [], {})
@@ -32,11 +30,11 @@ async def main():
 
     handshake = create_handshake(my_key_pair_nacl, nodes[0].node_key.pk, 12345)
     # Use future version
-    handshake.HandshakeV2.version = 2**32 - 1
+    handshake.Handshake.version = 2**32 - 1
     raw_message = BinarySerializer(schema).serialize(handshake)
 
     # Keep header (9 bytes)
-    # - 1 byte  PeerMessage::HandshakeV2 enum id
+    # - 1 byte  PeerMessage::Handshake enum id
     # - 4 bytes version
     # - 4 bytes oldest_supported_version
     raw_message = raw_message[:9] + bytes([random.randint(0, 255) for _ in range(random.randint(1, 32))])
@@ -45,13 +43,10 @@ async def main():
     await conn.send_raw(raw_message)
     response = await conn.recv()
 
-    print(obj_to_string(response))
-
     assert response.enum == 'HandshakeFailure', response.enum
     assert response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch', response.HandshakeFailure[1].enum
     pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
-    handshake.HandshakeV2.version = pvm
-
+    handshake.Handshake.version = pvm
 
 
 asyncio.run(main())
