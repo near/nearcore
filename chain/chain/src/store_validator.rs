@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
+use log::warn;
 use strum::IntoEnumIterator;
 
 use near_chain_configs::GenesisConfig;
@@ -38,6 +39,7 @@ pub struct StoreValidatorCache {
     block_heights_less_tail: Vec<CryptoHash>,
     gc_col: Vec<u64>,
     tx_refcount: HashMap<CryptoHash, u64>,
+    receipt_refcount: HashMap<CryptoHash, u64>,
     block_refcount: HashMap<CryptoHash, u64>,
     genesis_blocks: Vec<CryptoHash>,
 }
@@ -52,6 +54,7 @@ impl StoreValidatorCache {
             block_heights_less_tail: vec![],
             gc_col: vec![0; NUM_COLS],
             tx_refcount: HashMap::new(),
+            receipt_refcount: HashMap::new(),
             block_refcount: HashMap::new(),
             genesis_blocks: vec![],
         }
@@ -227,12 +230,13 @@ impl StoreValidator {
                 }
                 DBCol::ColTransactionResult => {
                     let outcome_id = CryptoHash::try_from_slice(key_ref)?;
-                    let outcome = ExecutionOutcomeWithIdAndProof::try_from_slice(value_ref)?;
+                    let outcomes =
+                        <Vec<ExecutionOutcomeWithIdAndProof>>::try_from_slice(value_ref)?;
                     // Outcome is reachable in ColOutcomesByBlockHash
                     self.check(
                         &validate::outcome_indexed_by_block_hash,
                         &outcome_id,
-                        &outcome,
+                        &outcomes,
                         col,
                     );
                 }
@@ -289,6 +293,11 @@ impl StoreValidator {
                     let tx_hash = CryptoHash::try_from(key_ref)?;
                     self.check(&validate::tx_refcount, &tx_hash, &(rc as u64), col);
                 }
+                DBCol::ColReceipts => {
+                    let (_value, rc) = decode_value_with_rc(value_ref);
+                    let receipt_id = CryptoHash::try_from(key_ref)?;
+                    self.check(&validate::receipt_refcount, &receipt_id, &(rc as u64), col);
+                }
                 DBCol::ColBlockRefCount => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
                     let refcount = u64::try_from_slice(value_ref)?;
@@ -328,10 +337,17 @@ impl StoreValidator {
             if let Err(e) = self.validate_col(col) {
                 self.process_error(e, col.to_string(), col)
             }
+            if let Some(timeout) = self.timeout {
+                if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                    warn!(target: "adversary", "Store validator hit timeout at {:?} ({:?}/{:?})", col, col as usize, NUM_COLS);
+                    return;
+                }
+            }
         }
         if let Some(timeout) = self.timeout {
             // We didn't complete all Column checks and cannot do final checks, returning here
             if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                warn!(target: "adversary", "Store validator hit timeout before final checks");
                 return;
             }
         }
@@ -348,6 +364,9 @@ impl StoreValidator {
         // Check that all refs are counted
         if let Err(e) = validate::tx_refcount_final(self) {
             self.process_error(e, "TX_REFCOUNT", DBCol::ColTransactions)
+        }
+        if let Err(e) = validate::receipt_refcount_final(self) {
+            self.process_error(e, "RECEIPT_REFCOUNT", DBCol::ColReceipts)
         }
         // Check that all Block Refcounts are counted
         if let Err(e) = validate::block_refcount_final(self) {

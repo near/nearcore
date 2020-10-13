@@ -10,6 +10,7 @@ use futures::{future, FutureExt};
 use num_rational::Rational;
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
+use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
     Block, ChainGenesis, ChainStore, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter,
@@ -25,7 +26,7 @@ use near_logger_utils::init_test_logger;
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
-use near_network::types::{NetworkInfo, PeerChainInfo, ReasonForBan};
+use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
@@ -39,7 +40,7 @@ use near_primitives::syncing::get_num_state_parts;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
 };
-use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ValidatorStake};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ValidatorStake};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -47,6 +48,20 @@ use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::NEAR_BASE;
+
+pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
+    (0..n)
+        .map(|_| {
+            Arc::new(neard::NightshadeRuntime::new(
+                Path::new("."),
+                create_test_store(),
+                genesis,
+                vec![],
+                vec![],
+            )) as Arc<dyn RuntimeAdapter>
+        })
+        .collect()
+}
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -381,14 +396,14 @@ fn invalid_blocks_common(is_requested: bool) {
                         } else {
                             assert_eq!(block.header().height(), 1);
                             assert_eq!(block.header().chunk_mask().len(), 1);
-                            assert_eq!(ban_counter, 1);
+                            assert_eq!(ban_counter, 2);
                             System::current().stop();
                         }
                     }
                     NetworkRequests::BanPeer { ban_reason, .. } => {
                         assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
                         ban_counter += 1;
-                        if ban_counter == 2 && is_requested {
+                        if ban_counter == 3 && is_requested {
                             System::current().stop();
                         }
                     }
@@ -400,8 +415,8 @@ fn invalid_blocks_common(is_requested: bool) {
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
-            // Send block with invalid chunk mask
-            let mut block = Block::produce(
+            block_merkle_tree.insert(last_block.header.hash);
+            let valid_block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -421,9 +436,22 @@ fn invalid_blocks_common(is_requested: bool) {
                 vec![],
                 &signer,
                 last_block.header.next_bp_hash,
-                CryptoHash::default(),
+                block_merkle_tree.root(),
             );
+            // Send block with invalid chunk mask
+            let mut block = valid_block.clone();
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
+            block.mut_header().get_mut().init();
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                is_requested,
+            ));
+
+            // Send block with invalid chunk signature
+            let mut block = valid_block.clone();
+            block.get_mut().chunks[0].signature =
+                Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
@@ -431,29 +459,7 @@ fn invalid_blocks_common(is_requested: bool) {
             ));
 
             // Send proper block.
-            block_merkle_tree.insert(last_block.header.hash);
-            let block2 = Block::produce(
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                last_block.chunks.into_iter().map(Into::into).collect(),
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
-                },
-                vec![],
-                Rational::from_integer(0),
-                0,
-                100,
-                Some(0),
-                vec![],
-                vec![],
-                &signer,
-                last_block.header.next_bp_hash,
-                block_merkle_tree.root(),
-            );
+            let block2 = valid_block.clone();
             client.do_send(NetworkClientMessages::Block(
                 block2.clone(),
                 PeerInfo::random().id,
@@ -761,10 +767,11 @@ fn client_sync_headers() {
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
             active_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
-                chain_info: PeerChainInfo {
+                chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
                     height: 5,
                     tracked_shards: vec![],
+                    archival: false,
                 },
                 edge_info: EdgeInfo::default(),
             }],
@@ -772,10 +779,11 @@ fn client_sync_headers() {
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
-                chain_info: PeerChainInfo {
+                chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
                     height: 5,
                     tracked_shards: vec![],
+                    archival: false,
                 },
                 edge_info: EdgeInfo::default(),
             }],
@@ -1013,19 +1021,12 @@ fn test_minimum_gas_price() {
 }
 
 fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
-    let store = create_test_store();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        store,
-        Arc::new(genesis),
-        vec![],
-        vec![],
-    ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let mut blocks = vec![];
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     blocks.push(genesis_block);
@@ -1082,25 +1083,10 @@ fn test_gc_long_epoch() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 5);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis),
-            vec![],
-            vec![],
-        )),
-    ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 5, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 5, create_nightshade_runtimes(&genesis, 2));
     let num_blocks = 100;
     let mut blocks = vec![];
 
@@ -1172,16 +1158,10 @@ fn test_gc_execution_outcome() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let tx = SignedTransaction::send_money(
@@ -1212,25 +1192,10 @@ fn test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-    ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 1, create_nightshade_runtimes(&genesis, 2));
     for i in 1..epoch_length * 4 + 2 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -1258,16 +1223,10 @@ fn test_process_block_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     for i in 1..epoch_length * 4 + 2 {
         env.produce_block(0, i);
     }
@@ -1297,25 +1256,14 @@ fn test_gc_fork_tail() {
     let epoch_length = 101;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-    ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis.clone(), 2, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(
+        chain_genesis.clone(),
+        2,
+        1,
+        create_nightshade_runtimes(&genesis, 2),
+    );
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     for i in 0..2 {
         env.process_block(i, b1.clone(), Provenance::NONE);
@@ -1368,24 +1316,11 @@ fn test_tx_forward_around_epoch_boundary() {
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
-    let create_runtime = |store| -> neard::NightshadeRuntime {
-        neard::NightshadeRuntime::new(
-            Path::new("."),
-            store,
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )
-    };
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(create_runtime(create_test_store())),
-        Arc::new(create_runtime(create_test_store())),
-        Arc::new(create_runtime(create_test_store())),
-    ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     chain_genesis.gas_limit = genesis.config.gas_limit;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 3, 2, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 3, 2, create_nightshade_runtimes(&genesis, 3));
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let tx = SignedTransaction::stake(
@@ -1431,20 +1366,13 @@ fn test_tx_forward_around_epoch_boundary() {
 /// Blocks that have already been gc'ed should not be accepted again.
 #[test]
 fn test_not_resync_old_blocks() {
-    let store = create_test_store();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        store,
-        Arc::new(genesis),
-        vec![],
-        vec![],
-    ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let mut blocks = vec![];
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1465,25 +1393,10 @@ fn test_gc_tail_update() {
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let epoch_length = 2;
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis),
-            vec![],
-            vec![],
-        )),
-    ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 1, create_nightshade_runtimes(&genesis, 2));
     let mut blocks = vec![];
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1544,16 +1457,9 @@ fn test_gas_price_change() {
     genesis.config.gas_limit = gas_limit;
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     genesis.config.runtime_config.storage_amount_per_byte = 0;
-    let genesis = Arc::new(genesis);
     let chain_genesis = ChainGenesis::from(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        genesis,
-        vec![],
-        vec![],
-    ))];
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
@@ -1596,16 +1502,10 @@ fn test_gas_price_overflow() {
     genesis.config.transaction_validity_period = 100000;
     genesis.config.epoch_length = 43200;
     genesis.config.max_gas_price = max_gas_price;
-    let genesis = Arc::new(genesis);
+
     let chain_genesis = ChainGenesis::from(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        genesis,
-        vec![],
-        vec![],
-    ))];
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
@@ -1645,12 +1545,11 @@ fn test_invalid_block_root() {
 #[test]
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0", "test1"], 2);
-    let genesis = Arc::new(genesis);
     let chain_genesis = ChainGenesis::from(&genesis);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        genesis,
+        &genesis,
         vec![],
         vec![],
     ));
@@ -1708,14 +1607,12 @@ fn test_data_reset_before_state_sync() {
     let mut genesis = Genesis::test(vec!["test0"], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
@@ -1767,16 +1664,10 @@ fn test_sync_hash_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     for i in 1..19 {
         env.produce_block(0, i);
     }
@@ -1822,18 +1713,30 @@ fn test_not_process_height_twice() {
 }
 
 #[test]
+fn test_block_height_processed_orphan() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let block = env.clients[0].produce_block(1).unwrap().unwrap();
+    let mut orphan_block = block.clone();
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    orphan_block.mut_header().get_mut().prev_hash = hash(&[1]);
+    orphan_block.mut_header().resign(&validator_signer);
+    let block_height = orphan_block.header().height();
+    let (_, tip) = env.clients[0].process_block(orphan_block, Provenance::NONE);
+    assert!(matches!(tip.unwrap_err().kind(), ErrorKind::Orphan));
+    assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
+}
+
+#[test]
 fn test_validate_chunk_extra() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let genesis_height = genesis_block.header().height();
 
@@ -1953,15 +1856,9 @@ fn test_gas_price_change_no_chunk() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = 30;
     genesis.config.min_gas_price = min_gas_price;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
-    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     for i in 1..=20 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1986,24 +1883,9 @@ fn test_catchup_gas_price_change() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-    ];
-    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 1, create_nightshade_runtimes(&genesis, 2));
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let mut blocks = vec![];
     for i in 1..3 {
@@ -2070,15 +1952,9 @@ fn test_block_execution_outcomes() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        Arc::new(genesis.clone()),
-        vec![],
-        vec![],
-    ))];
-    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let mut tx_hashes = vec![];
@@ -2148,24 +2024,9 @@ fn test_epoch_protocol_version_change() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let genesis_height = genesis.config.genesis_height;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-        Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            Arc::new(genesis.clone()),
-            vec![],
-            vec![],
-        )),
-    ];
-    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 2, runtimes);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 2, create_nightshade_runtimes(&genesis, 2));
     for i in 1..=16 {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
@@ -2217,4 +2078,169 @@ fn test_epoch_protocol_version_change() {
         .get_epoch_protocol_version(last_block.header().epoch_id())
         .unwrap();
     assert_eq!(protocol_version, PROTOCOL_VERSION + 1);
+}
+
+/// Final state should be consistent when a node switches between forks in the following scenario
+///                      /-----------h+2
+/// h-2 ---- h-1 ------ h
+///                      \------h+1
+/// even though from the perspective of h+2 the last final block is h-2.
+#[test]
+fn test_query_final_state() {
+    let epoch_length = 10;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".to_string(),
+        "test1".to_string(),
+        &signer,
+        100,
+        *genesis_block.hash(),
+    );
+    env.clients[0].process_tx(tx, false, false);
+
+    let mut blocks = vec![];
+
+    for i in 1..5 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        blocks.push(block.clone());
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+    }
+
+    let query_final_state = |chain: &mut near_chain::Chain,
+                             runtime_adapter: Arc<dyn RuntimeAdapter>,
+                             account_id: AccountId| {
+        let final_head = chain.store().final_head().unwrap();
+        let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap().clone();
+        let response = runtime_adapter
+            .query(
+                0,
+                &last_final_block.chunks()[0].inner.prev_state_root,
+                last_final_block.header().height(),
+                last_final_block.header().raw_timestamp(),
+                last_final_block.hash(),
+                last_final_block.header().epoch_id(),
+                &QueryRequest::ViewAccount { account_id },
+            )
+            .unwrap();
+        match response.kind {
+            QueryResponseKind::ViewAccount(account_view) => account_view,
+            _ => panic!("Wrong return value"),
+        }
+    };
+
+    let fork1_block = env.clients[0].produce_block(5).unwrap().unwrap();
+    env.clients[0]
+        .chain
+        .mut_store()
+        .save_latest_known(LatestKnown {
+            height: blocks.last().unwrap().header().height(),
+            seen: blocks.last().unwrap().header().raw_timestamp(),
+        })
+        .unwrap();
+    let fork2_block = env.clients[0].produce_block(6).unwrap().unwrap();
+    assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
+    env.process_block(0, fork1_block.clone(), Provenance::NONE);
+    assert_eq!(env.clients[0].chain.head().unwrap().height, 5);
+
+    let runtime_adapter = env.clients[0].runtime_adapter.clone();
+    let account_state1 =
+        query_final_state(&mut env.clients[0].chain, runtime_adapter.clone(), "test0".to_string());
+
+    env.process_block(0, fork2_block.clone(), Provenance::NONE);
+    assert_eq!(env.clients[0].chain.head().unwrap().height, 6);
+
+    let runtime_adapter = env.clients[0].runtime_adapter.clone();
+    let account_state2 =
+        query_final_state(&mut env.clients[0].chain, runtime_adapter.clone(), "test0".to_string());
+
+    assert_eq!(account_state1, account_state2);
+    assert!(account_state1.amount < TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+}
+
+#[test]
+fn test_fork_execution_outcome() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".to_string(),
+        "test1".to_string(),
+        &signer,
+        100,
+        *genesis_block.hash(),
+    );
+    let tx_hash = tx.get_hash();
+    env.clients[0].process_tx(tx, false, false);
+    let mut last_block = genesis_block;
+    for i in 1..3 {
+        last_block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, last_block.clone(), Provenance::PRODUCED);
+    }
+
+    // Construct two blocks that contain the same chunk and make the chunk unavailable.
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    let next_height = last_block.header().height() + 1;
+    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
+    let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
+    let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
+
+    // Process two blocks on two different forks that contain the same chunk.
+    for (i, block) in vec![&mut block2, &mut block1].into_iter().enumerate() {
+        let mut chunk_header = encoded_chunk.header.clone();
+        chunk_header.height_included = next_height - i as BlockHeight + 1;
+        let chunk_headers = vec![chunk_header];
+        block.get_mut().chunks = chunk_headers.clone();
+        block.mut_header().get_mut().inner_rest.chunk_headers_root =
+            Block::compute_chunk_headers_root(&chunk_headers).0;
+        block.mut_header().get_mut().inner_rest.chunk_tx_root =
+            Block::compute_chunk_tx_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.chunk_receipts_root =
+            Block::compute_chunk_receipts_root(&chunk_headers);
+        block.mut_header().get_mut().inner_lite.prev_state_root =
+            Block::compute_state_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
+        block.mut_header().resign(&validator_signer);
+        let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
+        assert!(res.is_ok());
+    }
+
+    let transaction_execution_outcome =
+        env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
+    assert_eq!(transaction_execution_outcome.len(), 1);
+    let receipt_id = transaction_execution_outcome[0].outcome_with_id.outcome.receipt_ids[0];
+    let receipt_execution_outcomes =
+        env.clients[0].chain.mut_store().get_outcomes_by_id(&receipt_id).unwrap();
+    assert_eq!(receipt_execution_outcomes.len(), 2);
+    let canonical_chain_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
+    assert_eq!(canonical_chain_outcome.block_hash, *block2.hash());
+
+    // make sure gc works properly
+    for i in 5..32 {
+        env.produce_block(0, i);
+    }
+    let transaction_execution_outcome =
+        env.clients[0].chain.store().get_outcomes_by_id(&tx_hash).unwrap();
+    assert!(transaction_execution_outcome.is_empty());
+    let receipt_execution_outcomes =
+        env.clients[0].chain.store().get_outcomes_by_id(&receipt_id).unwrap();
+    assert!(receipt_execution_outcomes.is_empty());
 }

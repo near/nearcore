@@ -29,7 +29,7 @@ def get_releases():
                   reverse=True)
 
 
-def latest_beta_branch():
+def latest_rc_branch():
     releases = list(
         filter(
             lambda release: (semver.VersionInfo.parse(release.title).prerelease
@@ -49,7 +49,7 @@ def compile_binary(branch):
     # TODO: download pre-compiled binary from github for beta/stable?
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
-    subprocess.check_output(['git', 'checkout', branch])
+    subprocess.check_output(['git', 'checkout', str(branch)])
     subprocess.check_output(['git', 'pull'])
     compile_current()
     subprocess.check_output(['git', 'checkout', prev_branch])
@@ -112,5 +112,5 @@ def prepare_ab_test(other_branch):
     try:
         download_binary(uname, other_branch)
     except Exception:
-        compile_binary(other_branch)
+        compile_binary(str(other_branch))
     return '../target/debug/', [other_branch, escaped(current_branch())]

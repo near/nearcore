@@ -768,7 +768,11 @@ impl ClientActor {
             self.client.config.chunk_request_retry_period,
             self.chunk_request_retry_next_attempt,
             ctx,
-            |act, _ctx| act.client.shards_mgr.resend_chunk_requests(),
+            |act, _ctx| {
+                if let Ok(header_head) = act.client.chain.header_head() {
+                    act.client.shards_mgr.resend_chunk_requests(&header_head)
+                }
+            },
         );
         core::cmp::min(
             delay,
@@ -829,7 +833,10 @@ impl ClientActor {
                                 missing_chunks,
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
-                            self.client.shards_mgr.request_chunks(missing_chunks);
+                            self.client.shards_mgr.request_chunks(
+                                missing_chunks,
+                                &self.client.chain.header_head().expect("header_head must be available when processing newly produced block"),
+                            );
                             Ok(())
                         }
                         _ => {
@@ -883,6 +890,7 @@ impl ClientActor {
                     if (head.height < block.header().height()
                         || &head.epoch_id == block.header().epoch_id())
                         && provenance == Provenance::NONE
+                        && !self.client.sync_status.is_syncing()
                     {
                         self.client.rebroadcast_block(block.clone());
                     }
@@ -945,7 +953,12 @@ impl ClientActor {
                         missing_chunks,
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.client.shards_mgr.request_chunks(missing_chunks);
+                    self.client.shards_mgr.request_chunks(
+                        missing_chunks,
+                        &self.client.chain.header_head().expect(
+                            "header_head should always be available when block is received",
+                        ),
+                    );
                 }
                 _ => {
                     debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
@@ -1072,8 +1085,20 @@ impl ClientActor {
         for _ in 0..self.client.config.state_fetch_horizon {
             sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
         }
-        let epoch_start_sync_hash =
+        let mut epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
+
+        if &epoch_start_sync_hash == self.client.chain.genesis().hash() {
+            // If we are within `state_fetch_horizon` blocks of the second epoch, the sync hash will
+            // be the first block of the first epoch (or, the genesis block). Due to implementation
+            // details of the state sync, we can't state sync to the genesis block, so redo the
+            // search without going back `state_fetch_horizon` blocks.
+            epoch_start_sync_hash = StateSync::get_epoch_start_sync_hash(
+                &mut self.client.chain,
+                &header_head.last_block_hash,
+            )?;
+            assert_ne!(&epoch_start_sync_hash, self.client.chain.genesis().hash());
+        }
         Ok(epoch_start_sync_hash)
     }
 
@@ -1266,6 +1291,11 @@ impl ClientActor {
                                 .unwrap()
                                 .drain(..)
                                 .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                            &self
+                                .client
+                                .chain
+                                .header_head()
+                                .expect("header_head must be available during sync"),
                         );
 
                         self.client.sync_status =

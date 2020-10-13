@@ -13,7 +13,10 @@ use tokio::sync::mpsc;
 pub use neard::{get_default_home, init_configs, NearConfig};
 mod streamer;
 
-pub use self::streamer::{Outcome, StreamerMessage};
+pub use self::streamer::{
+    ExecutionOutcomesWithReceipts, IndexerChunkView, IndexerExecutionOutcomeWithReceipt,
+    IndexerTransactionWithOutcome, StreamerMessage,
+};
 pub use near_primitives;
 
 /// Enum to define a mode of syncing for NEAR Indexer
@@ -69,6 +72,7 @@ impl Indexer {
         actix::spawn(streamer::start(
             self.view_client.clone(),
             self.client.clone(),
+            self.near_config.clone(),
             self.indexer_config.clone(),
             sender,
         ));

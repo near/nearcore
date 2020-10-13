@@ -47,13 +47,13 @@ transactions to a blockchain network.
 | - `/account/balance`         | Done (properly exposes liquid, liquid for storage, and locked [staked] balances through sub-accounts)                               |
 | - `/mempool`                 | Not implemented as mempool does not hold transactions for any meaningful time                                                       |
 | - `/mempool/transaction`     | Not implemented (see above)                                                                                                         |
-| Construction API             | Partially implemented                                                                                                               |
-| - `/construction/derive`     | Done (not applicable to NEAR)                                                                                                       |
-| - `/construction/preprocess` | Not implemented                                                                                                                     |
-| - `/construction/metadata`   | Not implemented                                                                                                                     |
-| - `/construction/payloads`   | Not implemented                                                                                                                     |
-| - `/construction/combine`    | Not implemented                                                                                                                     |
-| - `/construction/parse`      | Not implemented                                                                                                                     |
+| Construction API             | Done                                                                                                                                |
+| - `/construction/derive`     | Done (used for implicit accounts)                                                                                                   |
+| - `/construction/preprocess` | Done                                                                                                                                |
+| - `/construction/metadata`   | Done                                                                                                                                |
+| - `/construction/payloads`   | Done                                                                                                                                |
+| - `/construction/combine`    | Done                                                                                                                                |
+| - `/construction/parse`      | Done                                                                                                                                |
 | - `/construction/hash`       | Done                                                                                                                                |
 | - `/construction/submit`     | Done                                                                                                                                |
 

@@ -36,15 +36,11 @@ pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 const MAX_BLOCK_REQUEST: usize = 100;
 
 /// Maximum number of blocks to ask from single peer.
-const MAX_PEER_BLOCK_REQUEST: usize = 10;
+const MAX_PEER_BLOCK_REQUEST: usize = 20;
 
 const BLOCK_REQUEST_TIMEOUT: i64 = 6;
 const BLOCK_SOME_RECEIVED_TIMEOUT: i64 = 2;
 const BLOCK_REQUEST_BROADCAST_OFFSET: u64 = 2;
-
-/// If the number of hashes in the cache is below this number, we should
-/// refill the cache to request more blocks.
-const BLOCK_SYNC_CACHE_LOWER_LIMIT: usize = 10;
 
 /// Sync state download timeout in seconds.
 pub const STATE_SYNC_TIMEOUT: i64 = 10;
@@ -328,11 +324,23 @@ fn get_locator_heights(height: u64) -> Vec<u64> {
     heights
 }
 
+#[derive(Clone, Debug)]
+struct BlockHashAndHeight {
+    hash: CryptoHash,
+    height: BlockHeight,
+}
+
+impl BlockHashAndHeight {
+    pub fn new(hash: CryptoHash, height: BlockHeight) -> Self {
+        BlockHashAndHeight { hash, height }
+    }
+}
+
 /// Cache for block sync that stores the hashes to request in insertion order.
 /// It also maintains the last final block header to minimize the impact of reorgs.
 #[derive(Default)]
 struct BlockSyncCache {
-    hashes: LinkedHashMap<CryptoHash, ()>,
+    hashes: LinkedHashMap<CryptoHash, BlockHeight>,
     last_header: Option<BlockHeader>,
 }
 
@@ -341,8 +349,8 @@ impl BlockSyncCache {
         self.hashes.len()
     }
 
-    fn insert(&mut self, block_hash: CryptoHash) {
-        self.hashes.insert(block_hash, ());
+    fn insert(&mut self, block_hash: CryptoHash, block_height: BlockHeight) {
+        self.hashes.insert(block_hash, block_height);
     }
 
     fn remove(&mut self, block_hash: &CryptoHash) {
@@ -436,13 +444,13 @@ impl BlockSync {
 
     fn compute_hashes_to_request(
         &mut self,
-        new_hashes: &[CryptoHash],
+        new_blocks: &[BlockHashAndHeight],
         chain: &mut Chain,
         block_count: usize,
-    ) -> Vec<CryptoHash> {
+    ) -> Vec<BlockHashAndHeight> {
         let mut res = vec![];
         let mut hashes_to_remove = vec![];
-        for (block_hash, _) in self.cache.hashes.iter() {
+        for (block_hash, block_height) in self.cache.hashes.iter() {
             if res.len() >= block_count {
                 break;
             }
@@ -455,14 +463,16 @@ impl BlockSync {
             if block_exists || chain.is_orphan(block_hash) || chain.is_chunk_orphan(block_hash) {
                 continue;
             } else {
-                res.push(*block_hash);
+                res.push(BlockHashAndHeight::new(*block_hash, *block_height));
             }
         }
         for hash in hashes_to_remove {
             self.cache.remove(&hash);
         }
-        for hash in new_hashes.iter().rev().take(block_count.saturating_sub(res.len())) {
-            res.push(*hash);
+        for block_hash_and_height in
+            new_blocks.iter().rev().take(block_count.saturating_sub(res.len()))
+        {
+            res.push(block_hash_and_height.clone());
         }
         res
     }
@@ -472,7 +482,7 @@ impl BlockSync {
         &mut self,
         chain: &mut Chain,
         block_count: usize,
-    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+    ) -> Result<Vec<BlockHashAndHeight>, near_chain::Error> {
         let last_header = match self.cache.last_header {
             Some(ref h) => h.clone(),
             None => chain.head_header()?.clone(),
@@ -486,9 +496,7 @@ impl BlockSync {
         if header_head.height <= head.height {
             return Ok(vec![]);
         }
-        let close_to_header_head =
-            last_header.height() > header_head.height.saturating_sub(self.block_fetch_horizon);
-        if self.cache.len() < BLOCK_SYNC_CACHE_LOWER_LIMIT || close_to_header_head {
+        if (self.cache.len() as u64) < self.block_fetch_horizon {
             self.cache.clear();
             let mut hashes_to_request = vec![];
 
@@ -502,14 +510,14 @@ impl BlockSync {
                     }
                 }
 
-                hashes_to_request.push(*header.hash());
+                hashes_to_request.push(BlockHashAndHeight::new(*header.hash(), header.height()));
                 current = chain.get_previous_header(&header).map(|h| h.clone());
             }
             let res = self.compute_hashes_to_request(&hashes_to_request, chain, block_count);
 
             self.cache.hashes.reserve(hashes_to_request.len());
-            for hash in hashes_to_request.into_iter().rev() {
-                self.cache.insert(hash);
+            for block_hash_and_height in hashes_to_request.into_iter().rev() {
+                self.cache.insert(block_hash_and_height.hash, block_hash_and_height.height);
             }
             self.cache.last_header =
                 chain.get_block_header(&header_head.last_block_hash).map(|h| h.clone()).ok();
@@ -544,11 +552,22 @@ impl BlockSync {
             self.blocks_requested = 0;
             self.receive_timeout = Utc::now() + Duration::seconds(BLOCK_REQUEST_TIMEOUT);
 
-            let mut peers_iter = highest_height_peers.iter().cycle();
-            for hash in hashes_to_request {
-                if let Some(peer) = peers_iter.next() {
+            let gc_stop_height =
+                chain.runtime_adapter.get_gc_stop_height(&header_head.last_block_hash);
+            let mut archival_peer_iter =
+                highest_height_peers.iter().filter(|p| p.chain_info.archival).cycle();
+            let mut peer_iter = highest_height_peers.iter().cycle();
+            for block_hash_and_height in hashes_to_request {
+                let request_from_archival =
+                    self.archive && block_hash_and_height.height < gc_stop_height;
+                let peer = if request_from_archival {
+                    archival_peer_iter.next()
+                } else {
+                    peer_iter.next()
+                };
+                if let Some(peer) = peer {
                     self.network_adapter.do_send(NetworkRequests::BlockRequest {
-                        hash: hash.clone(),
+                        hash: block_hash_and_height.hash,
                         peer_id: peer.peer_info.id.clone(),
                     });
                     self.blocks_requested += 1;
@@ -650,12 +669,11 @@ impl StateSync {
 
     pub fn sync_block_status(
         &mut self,
-        sync_hash: CryptoHash,
+        prev_hash: &CryptoHash,
         chain: &mut Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
-        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
-        let (request_block, have_block) = if !chain.block_exists(&prev_hash)? {
+        let (request_block, have_block) = if !chain.block_exists(prev_hash)? {
             match self.last_time_block_requested {
                 None => (true, false),
                 Some(last_time) => {
@@ -865,6 +883,9 @@ impl StateSync {
         let mut hash = header.hash().clone();
         let mut prev_hash = header.prev_hash().clone();
         loop {
+            if prev_hash == CryptoHash::default() {
+                return Ok(hash);
+            }
             header = chain.get_block_header(&prev_hash)?;
             if &epoch_id != header.epoch_id() {
                 return Ok(hash);
@@ -1064,8 +1085,10 @@ impl StateSync {
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
+        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
         let now = Utc::now();
-        let (request_block, have_block) = self.sync_block_status(sync_hash, chain, now)?;
+
+        let (request_block, have_block) = self.sync_block_status(&prev_hash, chain, now)?;
 
         if tracking_shards.is_empty() {
             // This case is possible if a validator cares about the same shards in the new epoch as
@@ -1174,7 +1197,7 @@ mod test {
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
     use near_network::test_utils::MockNetworkAdapter;
-    use near_network::types::PeerChainInfo;
+    use near_network::types::PeerChainInfoV2;
     use near_network::PeerInfo;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
@@ -1239,13 +1262,14 @@ mod test {
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: PeerChainInfo {
+            chain_info: PeerChainInfoV2 {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
                     hash: *chain.genesis().hash(),
                 },
                 height: chain2.head().unwrap().height,
                 tracked_shards: vec![],
+                archival: false,
             },
             edge_info: EdgeInfo::default(),
         };
@@ -1488,7 +1512,9 @@ mod test {
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
-        let expected_request_hashes = blocks[4..].iter().map(|b| *b.hash()).collect::<HashSet<_>>();
+        let mut expected_request_hashes =
+            blocks[4..].iter().map(|b| *b.hash()).collect::<HashSet<_>>();
+        expected_request_hashes.remove(blocks[6].hash());
         assert_eq!(requested_block_hashes, expected_request_hashes);
         assert_eq!(block_sync.cache.len() as u64, last_block_header.height() - 4);
         assert_eq!(block_sync.cache.last_header, Some(last_block_header.clone()));
@@ -1559,5 +1585,46 @@ mod test {
         assert_eq!(requested_block_hashes, expected_block_hashes);
         assert_eq!(block_sync.cache.len(), expected_block_hashes.len());
         assert_eq!(block_sync.cache.last_header, Some(fork_block.header().clone()));
+    }
+
+    #[test]
+    fn test_block_sync_archival() {
+        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let block_fetch_horizon = 10;
+        let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, true);
+        let mut chain_genesis = ChainGenesis::test();
+        chain_genesis.epoch_length = 5;
+        let mut env = TestEnv::new(chain_genesis, 2, 1);
+        let mut blocks = vec![];
+        for i in 1..31 {
+            let block = env.clients[0].produce_block(i).unwrap().unwrap();
+            blocks.push(block.clone());
+            env.process_block(0, block, Provenance::PRODUCED);
+        }
+        let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
+        let peer_infos = create_peer_infos(2);
+        env.clients[1].chain.sync_block_headers(block_headers, |_| unreachable!()).unwrap();
+        let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
+        assert!(!is_state_sync);
+        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
+        assert_eq!(
+            requested_block_hashes,
+            blocks[4..].iter().map(|b| *b.hash()).collect::<HashSet<_>>()
+        );
+        let last_block_header = blocks.last().unwrap().header().clone();
+        assert_eq!(block_sync.cache.len() as u64, last_block_header.height());
+        assert_eq!(block_sync.cache.last_header, Some(last_block_header.clone()));
+
+        let mut peer_infos = create_peer_infos(2);
+        for peer in peer_infos.iter_mut() {
+            peer.chain_info.archival = true;
+        }
+        let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
+        assert!(!is_state_sync);
+        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
+        assert_eq!(
+            requested_block_hashes,
+            blocks.iter().map(|b| *b.hash()).collect::<HashSet<_>>()
+        );
     }
 }

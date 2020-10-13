@@ -1,6 +1,10 @@
 use std::cmp::max;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 use actix::io::{FramedWrite, WriteHandler};
@@ -17,21 +21,21 @@ use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
-    ProtocolVersion, NETWORK_PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 
-use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{PeerMessageMetadata, Status};
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
-    Ban, Consolidate, ConsolidateResponse, HandshakeFailureReason, HandshakeV2,
+    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
-    PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
-    QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
+    PeerMessage, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
+    PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, SendMessage, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
@@ -46,6 +50,11 @@ const MAX_TRACK_SIZE: usize = 30;
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
 const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
+
+/// Maximum number of transaction messages we will accept between block messages.
+/// The purpose of this constant is to ensure we do not spend too much time deserializing and
+/// dispatching transactions when we should be focusing on consensus-related messages.
+const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
@@ -158,13 +167,15 @@ pub struct Peer {
     /// This node genesis id.
     genesis_id: GenesisId,
     /// Latest chain info from the peer.
-    chain_info: PeerChainInfo,
+    chain_info: PeerChainInfoV2,
     /// Edge information needed to build the real edge. This is relevant for handshake.
     edge_info: Option<EdgeInfo>,
     /// Last time an update of received message was sent to PeerManager
     last_time_received_message_update: Instant,
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
+    /// How many transactions we have received since the last block message
+    txns_since_last_block: Arc<AtomicUsize>,
 }
 
 impl Peer {
@@ -180,6 +191,7 @@ impl Peer {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         edge_info: Option<EdgeInfo>,
         network_metrics: NetworkMetrics,
+        txns_since_last_block: Arc<AtomicUsize>,
     ) -> Self {
         Peer {
             node_info,
@@ -187,7 +199,7 @@ impl Peer {
             peer_info: peer_info.into(),
             peer_type,
             peer_status: PeerStatus::Connecting,
-            protocol_version: NETWORK_PROTOCOL_VERSION,
+            protocol_version: PROTOCOL_VERSION,
             framed,
             handshake_timeout,
             peer_manager_addr,
@@ -199,6 +211,7 @@ impl Peer {
             edge_info,
             last_time_received_message_update: Instant::now(),
             network_metrics,
+            txns_since_last_block,
         }
     }
 
@@ -273,16 +286,32 @@ impl Peer {
                     genesis_id,
                     height,
                     tracked_shards,
+                    archival,
                 }) => {
-                    let handshake = HandshakeV2::new(
-                        act.protocol_version,
-                        act.node_id(),
-                        act.peer_id().unwrap(),
-                        act.node_info.addr_port(),
-                        PeerChainInfo { genesis_id, height, tracked_shards },
-                        act.edge_info.as_ref().unwrap().clone(),
-                    );
-                    act.send_message(PeerMessage::HandshakeV2(handshake));
+                    let handshake = match act.protocol_version {
+                        39..=PROTOCOL_VERSION => PeerMessage::Handshake(Handshake::new(
+                            act.protocol_version,
+                            act.node_id(),
+                            act.peer_id().unwrap(),
+                            act.node_info.addr_port(),
+                            PeerChainInfoV2 { genesis_id, height, tracked_shards, archival },
+                            act.edge_info.as_ref().unwrap().clone(),
+                        )),
+                        34..=38 => PeerMessage::HandshakeV2(HandshakeV2::new(
+                            act.protocol_version,
+                            act.node_id(),
+                            act.peer_id().unwrap(),
+                            act.node_info.addr_port(),
+                            PeerChainInfo { genesis_id, height, tracked_shards },
+                            act.edge_info.as_ref().unwrap().clone(),
+                        )),
+                        _ => {
+                            error!(target: "network", "Trying to talk with peer with no supported version: {}", act.protocol_version);
+                            return actix::fut::ready(());
+                        }
+                    };
+
+                    act.send_message(handshake);
                     actix::fut::ready(())
                 }
                 Err(err) => {
@@ -572,7 +601,7 @@ impl Actor for Peer {
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
         near_metrics::dec_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
-        debug!(target: "network", "{:?}: Peer {} disconnected.", self.node_info.id, self.peer_info);
+        debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.node_info.id, self.peer_info, self.peer_status);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if let PeerStatus::Banned(ban_reason) = self.peer_status {
                 self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id.clone(), ban_reason });
@@ -580,6 +609,13 @@ impl Actor for Peer {
                 self.peer_manager_addr.do_send(Unregister {
                     peer_id: peer_info.id.clone(),
                     peer_type: self.peer_type,
+                    // If the PeerActor is no longer in the Connecting state this means
+                    // that the connection was consolidated at some point in the past.
+                    // Only if the connection was consolidated try to remove this peer from the
+                    // peer store. This avoids a situation in which both peers are connecting to
+                    // each other, and after resolving the tie, a peer tries to remove the other
+                    // peer from the active connection if it was added in the parallel connection.
+                    remove_from_peer_store: self.peer_status != PeerStatus::Connecting,
                 })
             }
         }
@@ -610,7 +646,12 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
         let msg_size = msg.len();
 
         self.tracker.increment_received(msg.len() as u64);
-
+        if codec::is_forward_tx(&msg).unwrap_or(false) {
+            let r = self.txns_since_last_block.load(Ordering::Acquire);
+            if r > MAX_TXNS_PER_BLOCK_MESSAGE {
+                return;
+            }
+        }
         let mut peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
             Err(err) => {
@@ -631,7 +672,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     self.send_message(PeerMessage::HandshakeFailure(
                         self.node_info.clone(),
                         HandshakeFailureReason::ProtocolVersionMismatch {
-                            version: NETWORK_PROTOCOL_VERSION,
+                            version: PROTOCOL_VERSION,
                             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
                         },
                     ));
@@ -641,6 +682,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 return;
             }
         };
+        if let PeerMessage::Routed(RoutedMessage {
+            body: RoutedMessageBody::ForwardTx(_), ..
+        }) = &peer_msg
+        {
+            self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
+        } else if let PeerMessage::Block(_) = &peer_msg {
+            self.txns_since_last_block.store(0, Ordering::Release);
+        }
 
         trace!(target: "network", "Received message: {}", peer_msg);
 
@@ -667,12 +716,12 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             msg.len() as i64,
         );
 
-        if let PeerMessage::Handshake(handshake) = peer_msg {
-            peer_msg = PeerMessage::HandshakeV2(handshake.into());
+        if let PeerMessage::HandshakeV2(handshake) = peer_msg {
+            peer_msg = PeerMessage::Handshake(handshake.into());
         }
 
         match (self.peer_type, self.peer_status, peer_msg) {
-            (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
+            (_, _, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
                         warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
@@ -681,7 +730,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         version,
                         oldest_supported_version,
                     } => {
-                        let target_version = std::cmp::min(version, NETWORK_PROTOCOL_VERSION);
+                        let target_version = std::cmp::min(version, PROTOCOL_VERSION);
 
                         if target_version
                             >= std::cmp::max(
@@ -694,7 +743,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                             self.send_handshake(ctx);
                             return;
                         } else {
-                            warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (NETWORK_PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION), (version, oldest_supported_version));
+                            warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION), (version, oldest_supported_version));
                         }
                     }
                     HandshakeFailureReason::InvalidTarget => {
@@ -704,13 +753,16 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 }
                 ctx.stop();
             }
-            (_, PeerStatus::Connecting, PeerMessage::HandshakeV2(handshake)) => {
+            (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
                 debug_assert!(
                     OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= handshake.version
-                        && handshake.version <= NETWORK_PROTOCOL_VERSION
+                        && handshake.version <= PROTOCOL_VERSION
                 );
+
+                let target_version = std::cmp::min(handshake.version, PROTOCOL_VERSION);
+                self.protocol_version = target_version;
 
                 if handshake.chain_info.genesis_id != self.genesis_id {
                     debug!(target: "network", "Received connection from node with different genesis.");

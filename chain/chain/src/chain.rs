@@ -15,7 +15,7 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
-    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, ReceiptList, RuntimeAdapter,
+    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -34,8 +34,8 @@ use near_primitives::merkle::{
 };
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo, ShardProof,
-    StateSyncInfo,
+    ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo,
+    ShardProof, StateSyncInfo,
 };
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
@@ -49,7 +49,8 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
-    FinalExecutionStatus, LightClientBlockView,
+    FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
+    SignedTransactionView,
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
@@ -178,7 +179,7 @@ pub struct Chain {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     blocks_with_missing_chunks: OrphanBlockPool,
-    genesis: BlockHeader,
+    genesis: Block,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
     /// Block economics, relevant to changes when new block must be produced.
@@ -214,7 +215,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: OrphanBlockPool::new(),
-            genesis: genesis.header().clone(),
+            genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
@@ -309,6 +310,7 @@ impl Chain {
 
                     head = Tip::from_header(genesis.header());
                     store_update.save_head(&head)?;
+                    store_update.save_final_head(&head)?;
 
                     info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_roots);
                 }
@@ -324,7 +326,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: OrphanBlockPool::new(),
-            genesis: genesis.header().clone(),
+            genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
@@ -387,12 +389,14 @@ impl Chain {
     }
 
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
-        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
-
-        if let Err(e) = block.check_validity() {
+        if let Err(e) =
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
+        {
             byzantine_assert!(false);
             return Err(e.into());
         }
+
+        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
         chain_store_update.save_block(block.clone());
         // We don't need to increase refcount for `prev_hash` at this point
@@ -415,6 +419,7 @@ impl Chain {
         if !chain_store_update.is_height_processed(block_height)? {
             chain_store_update.save_block_height_processed(block_height);
         }
+        chain_store_update.commit()?;
         Ok(())
     }
 
@@ -619,6 +624,31 @@ impl Chain {
     /// and block is well-formed (various roots match).
     pub fn validate_block(&mut self, block: &Block) -> Result<(), Error> {
         self.process_block_header(&block.header(), |_| {})?;
+        Self::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis_block(), block)
+    }
+
+    fn check_block_validity(
+        runtime_adapter: &dyn RuntimeAdapter,
+        genesis_block: &Block,
+        block: &Block,
+    ) -> Result<(), Error> {
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+            if chunk_header.inner.height_created == genesis_block.header().height() {
+                // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
+                // We must verify that content matches and signature is empty.
+                let genesis_chunk = &genesis_block.chunks()[shard_id];
+                if genesis_chunk.hash != chunk_header.hash
+                    || genesis_chunk.signature != chunk_header.signature
+                {
+                    return Err(ErrorKind::InvalidChunk.into());
+                }
+            } else {
+                if !runtime_adapter.verify_chunk_header_signature(chunk_header)? {
+                    byzantine_assert!(false);
+                    return Err(ErrorKind::InvalidChunk.into());
+                }
+            }
+        }
         block.check_validity().map_err(|e| e.into())
     }
 
@@ -632,15 +662,7 @@ impl Chain {
         F: FnMut(ChallengeBody) -> (),
     {
         // We create new chain update, but it's not going to be committed so it's read only.
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         chain_update.process_block_header(header, on_challenge)?;
         Ok(())
     }
@@ -650,15 +672,7 @@ impl Chain {
         block_hash: &CryptoHash,
         challenger_hash: &CryptoHash,
     ) -> Result<(), Error> {
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         chain_update.mark_block_as_challenged(block_hash, Some(challenger_hash))?;
         chain_update.commit()?;
         Ok(())
@@ -711,15 +725,7 @@ impl Chain {
     /// soon as possible and allow next block producer to skip invalid blocks.
     pub fn process_challenge(&mut self, challenge: &Challenge) {
         let head = unwrap_or_return!(self.head());
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         match chain_update.verify_challenges(
             &vec![challenge.clone()],
             &head.epoch_id,
@@ -761,15 +767,7 @@ impl Chain {
         if !all_known {
             // Validate header and then add to the chain.
             for header in headers.iter() {
-                let mut chain_update = ChainUpdate::new(
-                    &mut self.store,
-                    self.runtime_adapter.clone(),
-                    &self.orphans,
-                    &self.blocks_with_missing_chunks,
-                    self.epoch_length,
-                    &self.block_economics_config,
-                    self.doomslug_threshold_mode,
-                );
+                let mut chain_update = self.chain_update();
 
                 match chain_update.check_header_known(header) {
                     Ok(_) => {}
@@ -791,15 +789,7 @@ impl Chain {
             }
         }
 
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
 
         if let Some(header) = headers.last() {
             // Update header_head if it's the new tip
@@ -941,13 +931,15 @@ impl Chain {
         let new_chunk_tail =
             prev_block.chunks().iter().map(|x| x.inner.height_created).min().unwrap();
         let tip = Tip::from_header(prev_block.header());
+        let final_head = Tip::from_header(self.genesis.header());
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.save_body_head(&tip)?;
+        // Reset final head to genesis since at this point we don't have the last final block.
+        chain_store_update.save_final_head(&final_head)?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
         chain_store_update.update_tail(new_tail);
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
-        println!("resetting chunk tail to {}", new_chunk_tail);
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
@@ -1006,15 +998,7 @@ impl Chain {
         near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
 
         let prev_head = self.store.head()?;
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
         let block_height = block.header().height();
 
@@ -1725,15 +1709,7 @@ impl Chain {
         self.runtime_adapter.confirm_state(shard_id, &state_root, &parts)?;
 
         // Applying the chunk starts here
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
 
@@ -1741,15 +1717,7 @@ impl Chain {
         // Now we should build a chain up to height of `sync_hash` block.
         loop {
             height += 1;
-            let mut chain_update = ChainUpdate::new(
-                &mut self.store,
-                self.runtime_adapter.clone(),
-                &self.orphans,
-                &self.blocks_with_missing_chunks,
-                self.epoch_length,
-                &self.block_economics_config,
-                self.doomslug_threshold_mode,
-            );
+            let mut chain_update = self.chain_update();
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
             if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
@@ -1794,15 +1762,7 @@ impl Chain {
         let block = self.store.get_block(&epoch_first_block)?.clone();
         let prev_block = self.store.get_block(block.header().prev_hash())?.clone();
 
-        let mut chain_update = ChainUpdate::new(
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.epoch_length,
-            &self.block_economics_config,
-            self.doomslug_threshold_mode,
-        );
+        let mut chain_update = self.chain_update();
         chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
         chain_update.commit()?;
 
@@ -1825,15 +1785,7 @@ impl Chain {
                 saw_one = true;
                 let block = self.store.get_block(&next_block_hash).unwrap().clone();
 
-                let mut chain_update = ChainUpdate::new(
-                    &mut self.store,
-                    self.runtime_adapter.clone(),
-                    &self.orphans,
-                    &self.blocks_with_missing_chunks,
-                    self.epoch_length,
-                    &self.block_economics_config,
-                    self.doomslug_threshold_mode,
-                );
+                let mut chain_update = self.chain_update();
 
                 chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
 
@@ -1877,31 +1829,30 @@ impl Chain {
 
     pub fn get_transaction_execution_result(
         &mut self,
-        hash: &CryptoHash,
-    ) -> Result<ExecutionOutcomeWithIdView, Error> {
-        self.get_execution_outcome(hash).map(|r| r.clone().into())
+        id: &CryptoHash,
+    ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
+        Ok(self.store.get_outcomes_by_id(id)?.into_iter().map(Into::into).collect())
     }
 
     fn get_recursive_transaction_results(
         &mut self,
-        hash: &CryptoHash,
+        id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
-        let outcome = self.get_transaction_execution_result(hash)?;
+        let outcome: ExecutionOutcomeWithIdView = self.get_execution_outcome(id)?.into();
         let receipt_ids = outcome.outcome.receipt_ids.clone();
-        let mut transactions = vec![outcome];
-        for hash in &receipt_ids {
-            transactions
-                .extend(self.get_recursive_transaction_results(&hash.clone().into())?.into_iter());
+        let mut results = vec![outcome];
+        for receipt_id in &receipt_ids {
+            results.extend(self.get_recursive_transaction_results(receipt_id)?);
         }
-        Ok(transactions)
+        Ok(results)
     }
 
     pub fn get_final_transaction_result(
         &mut self,
-        hash: &CryptoHash,
+        transaction_hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, Error> {
-        let mut outcomes = self.get_recursive_transaction_results(hash)?;
-        let mut looking_for_id = (*hash).into();
+        let mut outcomes = self.get_recursive_transaction_results(transaction_hash)?;
+        let mut looking_for_id = (*transaction_hash).into();
         let num_outcomes = outcomes.len();
         let status = outcomes
             .iter()
@@ -1928,19 +1879,46 @@ impl Chain {
                 }
             })
             .expect("results should resolve to a final outcome");
-        let receipts = outcomes.split_off(1);
-        let transaction = self
+        let receipts_outcome = outcomes.split_off(1);
+        let transaction: SignedTransactionView = self
             .store
-            .get_transaction(hash)?
-            .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("Transaction {} is not found", hash)))?
+            .get_transaction(transaction_hash)?
+            .ok_or_else(|| {
+                ErrorKind::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
+            })?
             .clone()
             .into();
-        Ok(FinalExecutionOutcomeView {
-            status,
-            transaction,
-            transaction_outcome: outcomes.pop().unwrap(),
-            receipts_outcome: receipts,
-        })
+        let transaction_outcome = outcomes.pop().unwrap();
+        Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
+    }
+
+    pub fn get_final_transaction_result_with_receipt(
+        &mut self,
+        final_outcome: FinalExecutionOutcomeView,
+    ) -> Result<FinalExecutionOutcomeWithReceiptView, Error> {
+        let receipt_id_from_transaction =
+            final_outcome.transaction_outcome.outcome.receipt_ids.get(0).cloned();
+        let is_local_receipt =
+            final_outcome.transaction.signer_id == final_outcome.transaction.receiver_id;
+
+        let receipts = final_outcome
+            .receipts_outcome
+            .iter()
+            .filter_map(|outcome| {
+                if Some(outcome.id) == receipt_id_from_transaction && is_local_receipt {
+                    None
+                } else {
+                    Some(self.store.get_receipt(&outcome.id).and_then(|r| {
+                        r.cloned().map(Into::into).ok_or_else(|| {
+                            ErrorKind::DBNotFoundErr(format!("Receipt {} is not found", outcome.id))
+                                .into()
+                        })
+                    }))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(FinalExecutionOutcomeWithReceiptView { final_outcome, receipts })
     }
 
     /// Find a validator to forward transactions to
@@ -1981,11 +1959,16 @@ impl Chain {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdAndProof>, Error> {
-        self.mut_store()
+        Ok(self
+            .mut_store()
             .get_outcomes_by_block_hash(block_hash)?
             .into_iter()
-            .map(|id| Ok(self.get_execution_outcome(&id)?.clone()))
-            .collect()
+            .flat_map(|id| {
+                let mut outcomes = self.store.get_outcomes_by_id(&id).unwrap_or_else(|_| vec![]);
+                outcomes.retain(|outcome| &outcome.block_hash == block_hash);
+                outcomes
+            })
+            .collect())
     }
 }
 
@@ -2004,6 +1987,19 @@ impl Chain {
             }
             _ => None,
         }
+    }
+
+    fn chain_update(&mut self) -> ChainUpdate {
+        ChainUpdate::new(
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+            &self.blocks_with_missing_chunks,
+            self.epoch_length,
+            &self.block_economics_config,
+            self.doomslug_threshold_mode,
+            &self.genesis,
+        )
     }
 
     /// Get node at given position (index, level). If the node does not exist, return `None`.
@@ -2181,6 +2177,12 @@ impl Chain {
         self.store.head_header()
     }
 
+    /// Get final head of the chain.
+    #[inline]
+    pub fn final_head(&self) -> Result<Tip, Error> {
+        self.store.final_head()
+    }
+
     /// Gets a block by hash.
     #[inline]
     pub fn get_block(&mut self, hash: &CryptoHash) -> Result<&Block, Error> {
@@ -2264,15 +2266,6 @@ impl Chain {
         self.store.get_chunk_extra(block_hash, shard_id)
     }
 
-    /// Get transaction result for given hash of transaction or receipt id.
-    #[inline]
-    pub fn get_execution_outcome(
-        &mut self,
-        hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error> {
-        self.store.get_execution_outcome(hash)
-    }
-
     /// Get destination shard id for a given receipt id.
     #[inline]
     pub fn get_shard_id_for_receipt_id(
@@ -2310,10 +2303,16 @@ impl Chain {
         self.runtime_adapter.clone()
     }
 
+    /// Returns genesis block.
+    #[inline]
+    pub fn genesis_block(&self) -> &Block {
+        &self.genesis
+    }
+
     /// Returns genesis block header.
     #[inline]
     pub fn genesis(&self) -> &BlockHeader {
-        &self.genesis
+        &self.genesis.header()
     }
 
     /// Returns number of orphans currently in the orphan pool.
@@ -2363,6 +2362,24 @@ impl Chain {
             Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
         }
     }
+
+    /// Get transaction result for given hash of transaction or receipt id on the canonical chain
+    pub fn get_execution_outcome(
+        &mut self,
+        id: &CryptoHash,
+    ) -> Result<ExecutionOutcomeWithIdAndProof, Error> {
+        let outcomes = self.store.get_outcomes_by_id(id)?;
+        outcomes
+            .into_iter()
+            .find(|outcome| match self.get_block_header(&outcome.block_hash) {
+                Ok(header) => {
+                    let header = header.clone();
+                    self.is_on_current_chain(&header).is_ok()
+                }
+                Err(_) => false,
+            })
+            .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)).into())
+    }
 }
 
 /// Chain update helper, contains information that is needed to process block
@@ -2377,6 +2394,7 @@ pub struct ChainUpdate<'a> {
     epoch_length: BlockHeightDelta,
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
+    genesis: &'a Block,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -2388,6 +2406,7 @@ impl<'a> ChainUpdate<'a> {
         epoch_length: BlockHeightDelta,
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
+        genesis: &'a Block,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
@@ -2398,6 +2417,7 @@ impl<'a> ChainUpdate<'a> {
             epoch_length,
             block_economics_config,
             doomslug_threshold_mode,
+            genesis,
         }
     }
 
@@ -2879,7 +2899,9 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
         }
 
-        if let Err(e) = block.check_validity() {
+        if let Err(e) =
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), self.genesis, block)
+        {
             byzantine_assert!(false);
             return Err(e.into());
         }
@@ -3193,11 +3215,31 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
+    fn update_final_head_from_block(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+        let final_head = self.chain_store_update.final_head()?;
+        let last_final_block_header =
+            match self.chain_store_update.get_block_header(block.header().last_final_block()) {
+                Ok(header) => header,
+                Err(e) => match e.kind() {
+                    ErrorKind::DBNotFoundErr(_) => return Ok(None),
+                    _ => return Err(e),
+                },
+            };
+        if last_final_block_header.height() > final_head.height {
+            let tip = Tip::from_header(last_final_block_header);
+            self.chain_store_update.save_final_head(&tip)?;
+            Ok(Some(tip))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Directly updates the head if we've just appended a new block to it or handle
     /// the situation where the block has higher height to have a fork
     fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
         // if we made a fork with higher height than the head (which should also be true
         // when extending the head), update it
+        self.update_final_head_from_block(block)?;
         let head = self.chain_store_update.head()?;
         if block.header().height() > head.height {
             let tip = Tip::from_header(&block.header());
@@ -3261,9 +3303,13 @@ impl<'a> ChainUpdate<'a> {
             } else {
                 &prev_header
             };
+            let last_final_block = *new_head_header.last_final_block();
 
             let tip = Tip::from_header(new_head_header);
             self.chain_store_update.save_head(&tip)?;
+            let new_final_header =
+                self.chain_store_update.get_block_header(&last_final_block)?.clone();
+            self.chain_store_update.save_final_head(&Tip::from_header(&new_final_header))?;
         }
 
         Ok(())
