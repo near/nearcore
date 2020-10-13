@@ -201,13 +201,11 @@ impl Default for ActionResult {
     }
 }
 
-pub struct Runtime {
-    pub wasm_compile_cache: Box<dyn WasmCompileCache>,
-}
+pub struct Runtime {}
 
 impl Runtime {
-    pub fn new(wasm_compile_cache: Box<dyn WasmCompileCache>) -> Self {
-        Runtime { wasm_compile_cache }
+    pub fn new() -> Self {
+        Self {}
     }
 
     fn print_log(log: &[LogEntry]) {
@@ -310,6 +308,7 @@ impl Runtime {
         action_index: usize,
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
+        wasm_compile_cache: &dyn WasmCompileCache,
     ) -> Result<ActionResult, RuntimeError> {
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(
@@ -378,7 +377,7 @@ impl Runtime {
                     &apply_state.config,
                     action_index + 1 == actions.len(),
                     epoch_info_provider,
-                    self.wasm_compile_cache.as_ref(),
+                    wasm_compile_cache,
                 )?;
             }
             Action::Transfer(transfer) => {
@@ -470,6 +469,7 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
+        wasm_compile_cache: &dyn WasmCompileCache,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
@@ -532,6 +532,7 @@ impl Runtime {
                 action_index,
                 &action_receipt.actions,
                 epoch_info_provider,
+                wasm_compile_cache,
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
@@ -819,6 +820,7 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
+        wasm_compile_cache: &dyn WasmCompileCache,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
@@ -887,6 +889,7 @@ impl Runtime {
                                 validator_proposals,
                                 stats,
                                 epoch_info_provider,
+                                wasm_compile_cache,
                             )
                             .map(Some);
                     } else {
@@ -941,6 +944,7 @@ impl Runtime {
                             validator_proposals,
                             stats,
                             epoch_info_provider,
+                            wasm_compile_cache,
                         )
                         .map(Some);
                 } else {
@@ -1098,6 +1102,7 @@ impl Runtime {
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
+        wasm_compile_cache: &dyn WasmCompileCache,
     ) -> Result<ApplyResult, RuntimeError> {
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
@@ -1153,6 +1158,7 @@ impl Runtime {
                 &mut validator_proposals,
                 &mut stats,
                 epoch_info_provider,
+                wasm_compile_cache,
             )?
             .into_iter()
             .try_for_each(

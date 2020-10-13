@@ -175,9 +175,7 @@ impl NightshadeRuntime {
             store.clone(),
             genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
         );
-        let runtime = Runtime::new(
-            Box::new(RocksDBWasmCompileCache { store: store.clone() }),
-        );
+        let runtime = Runtime::new();
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
                 store.clone(),
@@ -261,7 +259,7 @@ impl NightshadeRuntime {
         }
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
         let tries = ShardTries::new(store.clone(), num_shards);
-        let runtime = Runtime::new(Box::new(RocksDBWasmCompileCache { store: store.clone() }));
+        let runtime = Runtime::new();
         for shard_id in 0..num_shards {
             let validators = genesis
                 .config
@@ -449,6 +447,7 @@ impl NightshadeRuntime {
                 current_protocol_version,
             ),
         };
+        let wasm_compile_cache = Box::new(RocksDBWasmCompileCache { store: self.store.clone() });
 
         let apply_result = self
             .runtime
@@ -460,6 +459,7 @@ impl NightshadeRuntime {
                 &receipts,
                 &transactions,
                 &self.epoch_manager,
+                wasm_compile_cache.as_ref(),
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => Error::from(ErrorKind::InvalidTransactions),

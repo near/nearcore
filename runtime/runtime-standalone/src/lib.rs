@@ -131,9 +131,7 @@ impl RuntimeStandalone {
     pub fn new(genesis: GenesisConfig, store: Arc<Store>) -> Self {
         let mut genesis_block = Block::genesis(&genesis);
         let mut store_update = store.store_update();
-        let runtime = Runtime::new(
-            Box::new(RocksDBWasmCompileCache { store: store.clone() }),
-        );
+        let runtime = Runtime::new();
         let tries = ShardTries::new(store, 1);
         let runtime_config = Arc::new(genesis.runtime_config.clone());
         let (s_update, state_root) = runtime.apply_genesis_state(
@@ -230,6 +228,8 @@ impl RuntimeStandalone {
             config: self.runtime_config.clone(),
         };
 
+        let wasm_compile_cache = Box::new(());
+
         let apply_result = self.runtime.apply(
             self.tries.get_trie_for_shard(0),
             self.cur_block.state_root,
@@ -238,6 +238,7 @@ impl RuntimeStandalone {
             &self.pending_receipts,
             &Self::prepare_transactions(&mut self.tx_pool),
             self.epoch_info_provider.as_ref(),
+            wasm_compile_cache.as_ref(),
         )?;
         self.pending_receipts = apply_result.outgoing_receipts;
         apply_result.outcomes.iter().for_each(|outcome| {

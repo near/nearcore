@@ -7,12 +7,11 @@ use near_primitives::types::{
 };
 
 use crate::trie::TrieChanges;
-use crate::{StorageError, Store};
+use crate::StorageError;
 
 use super::{Trie, TrieIterator};
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
-use std::sync::Arc;
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
