@@ -61,20 +61,6 @@ impl TrieUpdate {
         self.trie.as_ref()
     }
 
-    // HACK: this is used for accessing Store in runtime to use it for wasm cache.
-    pub fn get_store(&self) -> Option<Arc<Store>> {
-        if let Some(storage) = self.trie().storage.as_caching_storage() {
-            // Regular DB storage
-            Some(storage.store.clone())
-        } else if let Some(storage) = self.trie().storage.as_recording_storage() {
-            // Trie for creating a challenge / state parts
-            Some(storage.storage.store.clone())
-        } else {
-            // Validating a challenge
-            None
-        }
-    }
-
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
