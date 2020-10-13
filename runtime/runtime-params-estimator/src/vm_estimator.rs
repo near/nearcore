@@ -683,7 +683,7 @@ fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D 
     for (i, m) in measurements.iter().enumerate() {
         a[[i, 0]] = m.evm_gas as f64;
         a[[i, 1]] = m.size as f64;
-        b[[i]] = m.cost.to_f64().unwrap();
+        b[[i, 0]] = m.cost.to_f64().unwrap();
     }
     let result = a.least_squares(&b).unwrap();
     // println!("{:?}", result.solution);

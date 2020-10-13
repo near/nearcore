@@ -39,7 +39,7 @@ ethabi-derive = "8.0.0"
 ethereum-types = "0.6.0"
 lazy-static-include = "2.2.2"
 ndarray = "0.13.1"
-ndarray-linalg = "0.12.1"
+ndarray-linalg = { version = "0.12.1", features = ["openblas"] }
 num-traits = "0.2.12"
 
 [features]

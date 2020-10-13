@@ -587,6 +587,9 @@ name = "blas-src"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a25f136d1bcc6fc28330077511a0646aaf75bc894e5532b1a33a93d814272328"
+dependencies = [
+ "openblas-src",
+]
 
 [[package]]
 name = "block-buffer"
@@ -2399,6 +2402,9 @@ name = "lapack-src"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92b348b4b770b1092add976188242941b92272f3bad95cfbacadbfcb0c8923eb"
+dependencies = [
+ "openblas-src",
+]
 
 [[package]]
 name = "lapacke"
@@ -3621,6 +3627,12 @@ name = "opaque-debug"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
+
+[[package]]
+name = "openblas-src"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84629d1d4f9f40d3f9e4756dae33c6af50d3c2fcc186558dac65bf55141ade6b"
 
 [[package]]
 name = "openssl"
