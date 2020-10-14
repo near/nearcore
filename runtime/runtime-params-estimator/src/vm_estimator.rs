@@ -698,30 +698,32 @@ fn inverse2x2(m: Matrix2x2) -> Matrix2x2 {
     Matrix2x2 { a: d / delta, b: -b / delta, c: -c / delta, d: a / delta }
 }
 
+fn normalize(v: &Vec<f64>) -> (Vec<f64>, f64) {
+    let mean = v.iter().sum::<f64>() / (v.len() as f64);
+    // default sklearn LinearRegression only normalize mean to 0, but not normalize stddev to 1, and that gives a very good result.
+
+    let v: Vec<_> = v.iter().map(|x| (*x - mean)).collect();
+    (v, mean)
+}
+
 fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D {
     let v1: Vec<_> = measurements.iter().map(|m| m.evm_gas as f64).collect();
+    let (v1, _) = normalize(&v1);
     let v2: Vec<_> = measurements.iter().map(|m| m.size as f64).collect();
+    let (v2, _) = normalize(&v2); 
     let a = dot(&v1, &v1);
     let b = dot(&v1, &v2);
     let c = dot(&v2, &v1);
     let d = dot(&v2, &v2);
 
     let xt_x_inverse = inverse2x2(Matrix2x2 { a, b, c, d });
-    // let xt_x_inverse_xt1: Vec<_> = measurements
-    //     .iter()
-    //     .map(|m| (m.evm_gas as f64) * xt_x_inverse.a + (m.size as f64) * xt_x_inverse.b)
-    //     .collect();
-    // let xt_x_inverse_xt2: Vec<_> = measurements
-    //     .iter()
-    //     .map(|m| (m.evm_gas as f64) * xt_x_inverse.c + (m.size as f64) * xt_x_inverse.d)
-    //     .collect();
 
     let y: Vec<_> = measurements.iter().map(|m| m.cost.to_f64().unwrap()).collect();
     let xt_y1 = dot(&v1, &y);
     let xt_y2 = dot(&v2, &y);
 
-    let beta1 = xt_x_inverse.a*xt_y1 + xt_x_inverse.b*xt_y2;
-    let beta2 = xt_x_inverse.c*xt_y1 + xt_x_inverse.d*xt_y2;
+    let beta1 = (xt_x_inverse.a*xt_y1 + xt_x_inverse.b*xt_y2);
+    let beta2 = (xt_x_inverse.c*xt_y1 + xt_x_inverse.d*xt_y2);
 
     let delta: Vec<_> = measurements
         .iter()
