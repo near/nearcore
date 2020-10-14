@@ -707,18 +707,21 @@ fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D 
     let d = dot(&v2, &v2);
 
     let xt_x_inverse = inverse2x2(Matrix2x2 { a, b, c, d });
-    let xt_x_inverse_xt1: Vec<_> = measurements
-        .iter()
-        .map(|m| (m.evm_gas as f64) * xt_x_inverse.a + (m.size as f64) * xt_x_inverse.b)
-        .collect();
-    let xt_x_inverse_xt2: Vec<_> = measurements
-        .iter()
-        .map(|m| (m.evm_gas as f64) * xt_x_inverse.c + (m.size as f64) * xt_x_inverse.d)
-        .collect();
+    // let xt_x_inverse_xt1: Vec<_> = measurements
+    //     .iter()
+    //     .map(|m| (m.evm_gas as f64) * xt_x_inverse.a + (m.size as f64) * xt_x_inverse.b)
+    //     .collect();
+    // let xt_x_inverse_xt2: Vec<_> = measurements
+    //     .iter()
+    //     .map(|m| (m.evm_gas as f64) * xt_x_inverse.c + (m.size as f64) * xt_x_inverse.d)
+    //     .collect();
 
     let y: Vec<_> = measurements.iter().map(|m| m.cost.to_f64().unwrap()).collect();
-    let beta1 = dot(&xt_x_inverse_xt1, &y);
-    let beta2 = dot(&xt_x_inverse_xt2, &y);
+    let xt_y1 = dot(&v1, &y);
+    let xt_y2 = dot(&v2, &y);
+
+    let beta1 = xt_x_inverse.a*xt_y1 + xt_x_inverse.b*xt_y2;
+    let beta2 = xt_x_inverse.c*xt_y1 + xt_x_inverse.d*xt_y2;
 
     let delta: Vec<_> = measurements
         .iter()
@@ -726,6 +729,7 @@ fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D 
         .collect();
     let r = (beta1, beta2, delta.iter().sum::<f64>() / delta.len() as f64);
     println!("evm calc data {:?}", r);
+    println!("delta: {:?}", delta);
     r
 }
 
