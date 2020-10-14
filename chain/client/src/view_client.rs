@@ -21,13 +21,14 @@ use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{BlockHeader, GenesisId, Tip};
+use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, ShardId,
+    TransactionOrReceiptId,
 };
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
@@ -45,6 +46,7 @@ use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
+use near_primitives::sharding::ShardChunk;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -496,31 +498,31 @@ impl Handler<GetChunk> for ViewClientActor {
     type Result = Result<ChunkView, String>;
 
     fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
+        let get_chunk_from_block = |block: Result<Block, near_chain::Error>,
+                                    shard_id: ShardId,
+                                    chain: &mut Chain|
+         -> Result<ShardChunk, near_chain::Error> {
+            let block = block?;
+            let chunk_hash = block
+                .chunks()
+                .get(shard_id as usize)
+                .ok_or_else(|| near_chain::Error::from(ErrorKind::InvalidShardId(shard_id)))?
+                .chunk_hash();
+            chain.get_chunk(&chunk_hash).map(|chunk| {
+                let mut res = chunk.clone();
+                res.header = block.chunks()[shard_id as usize].clone();
+                res
+            })
+        };
         match msg {
             GetChunk::ChunkHash(chunk_hash) => self.chain.get_chunk(&chunk_hash).map(Clone::clone),
             GetChunk::BlockHash(block_hash, shard_id) => {
-                self.chain.get_block(&block_hash).map(Clone::clone).and_then(|block| {
-                    let chunk_hash = block
-                        .chunks()
-                        .get(shard_id as usize)
-                        .ok_or_else(|| {
-                            near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
-                        })?
-                        .chunk_hash();
-                    self.chain.get_chunk(&chunk_hash).map(Clone::clone)
-                })
+                let block = self.chain.get_block(&block_hash).map(Clone::clone);
+                get_chunk_from_block(block, shard_id, &mut self.chain)
             }
             GetChunk::Height(height, shard_id) => {
-                self.chain.get_block_by_height(height).map(Clone::clone).and_then(|block| {
-                    let chunk_hash = block
-                        .chunks()
-                        .get(shard_id as usize)
-                        .ok_or_else(|| {
-                            near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
-                        })?
-                        .chunk_hash();
-                    self.chain.get_chunk(&chunk_hash).map(Clone::clone)
-                })
+                let block = self.chain.get_block_by_height(height).map(Clone::clone);
+                get_chunk_from_block(block, shard_id, &mut self.chain)
             }
         }
         .and_then(|chunk| {
