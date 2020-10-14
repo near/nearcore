@@ -724,7 +724,9 @@ fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D 
         .iter()
         .map(|m| m.cost.to_f64().unwrap() - (m.evm_gas as f64) * beta1 - (m.size as f64) * beta2)
         .collect();
-    (beta1, beta2, delta.iter().sum::<f64>() / delta.len() as f64)
+    let r = (beta1, beta2, delta.iter().sum::<f64>() / delta.len() as f64);
+    println!("evm calc data {:?}", r);
+    r
 }
 
 fn measurements_to_coef(measurements: Vec<EvmCost>, verbose: bool) -> Coef {
