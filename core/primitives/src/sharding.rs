@@ -169,6 +169,7 @@ pub enum ShardChunkHeader {
 }
 
 impl ShardChunkHeader {
+    #[inline]
     pub fn take_inner(self) -> ShardChunkHeaderInner {
         match self {
             Self::V1(header) => header.inner,
@@ -176,6 +177,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn height_created(&self) -> BlockHeight {
         match self {
             Self::V1(header) => header.inner.height_created,
@@ -183,6 +185,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn signature(&self) -> &Signature {
         match self {
             Self::V1(header) => &header.signature,
@@ -190,6 +193,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn height_included(&self) -> BlockHeight {
         match self {
             Self::V1(header) => header.height_included,
@@ -197,6 +201,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn height_included_mut(&mut self) -> &mut BlockHeight {
         match self {
             Self::V1(header) => &mut header.height_included,
@@ -204,6 +209,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn validator_proposals(&self) -> &[ValidatorStake] {
         match self {
             Self::V1(header) => &header.inner.validator_proposals,
@@ -211,6 +217,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn prev_state_root(&self) -> StateRoot {
         match self {
             Self::V1(header) => header.inner.prev_state_root,
@@ -218,6 +225,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn prev_block_hash(&self) -> CryptoHash {
         match self {
             Self::V1(header) => header.inner.prev_block_hash,
@@ -225,6 +233,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn encoded_merkle_root(&self) -> CryptoHash {
         match self {
             Self::V1(header) => header.inner.encoded_merkle_root,
@@ -232,6 +241,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn shard_id(&self) -> ShardId {
         match self {
             Self::V1(header) => header.inner.shard_id,
@@ -239,6 +249,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn encoded_length(&self) -> u64 {
         match self {
             Self::V1(header) => header.inner.encoded_length,
@@ -246,6 +257,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn gas_used(&self) -> Gas {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.gas_used,
@@ -253,6 +265,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn gas_limit(&self) -> Gas {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.gas_limit,
@@ -260,6 +273,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn balance_burnt(&self) -> Balance {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.balance_burnt,
@@ -267,6 +281,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn outgoing_receipts_root(&self) -> CryptoHash {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.outgoing_receipts_root,
@@ -274,6 +289,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn outcome_root(&self) -> CryptoHash {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.outcome_root,
@@ -281,6 +297,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn tx_root(&self) -> CryptoHash {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.tx_root,
@@ -288,6 +305,7 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
     pub fn chunk_hash(&self) -> ChunkHash {
         match &self {
             ShardChunkHeader::V1(header) => header.hash.clone(),
@@ -386,6 +404,7 @@ impl PartialEncodedChunk {
         }
     }
 
+    #[inline]
     pub fn parts(&self) -> &Vec<PartialEncodedChunkPart> {
         match self {
             Self::V1(chunk) => &chunk.parts,
@@ -393,6 +412,7 @@ impl PartialEncodedChunk {
         }
     }
 
+    #[inline]
     pub fn receipts(&self) -> &Vec<ReceiptProof> {
         match self {
             Self::V1(chunk) => &chunk.receipts,
@@ -400,6 +420,7 @@ impl PartialEncodedChunk {
         }
     }
 
+    #[inline]
     pub fn prev_block(&self) -> &CryptoHash {
         match &self {
             PartialEncodedChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
@@ -517,6 +538,7 @@ impl ShardChunk {
         }
     }
 
+    #[inline]
     pub fn height_included(&self) -> BlockHeight {
         match self {
             Self::V1(chunk) => chunk.header.height_included,
@@ -524,6 +546,7 @@ impl ShardChunk {
         }
     }
 
+    #[inline]
     pub fn height_created(&self) -> BlockHeight {
         match self {
             Self::V1(chunk) => chunk.header.inner.height_created,
@@ -531,6 +554,7 @@ impl ShardChunk {
         }
     }
 
+    #[inline]
     pub fn prev_state_root(&self) -> StateRoot {
         match self {
             Self::V1(chunk) => chunk.header.inner.prev_state_root,
@@ -538,6 +562,7 @@ impl ShardChunk {
         }
     }
 
+    #[inline]
     pub fn chunk_hash(&self) -> ChunkHash {
         match self {
             Self::V1(chunk) => chunk.chunk_hash.clone(),
@@ -545,6 +570,7 @@ impl ShardChunk {
         }
     }
 
+    #[inline]
     pub fn receipts(&self) -> &Vec<Receipt> {
         match self {
             Self::V1(chunk) => &chunk.receipts,
@@ -552,6 +578,7 @@ impl ShardChunk {
         }
     }
 
+    #[inline]
     pub fn transactions(&self) -> &Vec<SignedTransaction> {
         match self {
             Self::V1(chunk) => &chunk.transactions,
@@ -559,6 +586,7 @@ impl ShardChunk {
         }
     }
 
+    #[inline]
     pub fn take_header(self) -> ShardChunkHeader {
         match self {
             Self::V1(chunk) => ShardChunkHeader::V1(chunk.header),
@@ -657,6 +685,7 @@ impl EncodedShardChunk {
         }
     }
 
+    #[inline]
     pub fn content(&self) -> &EncodedShardChunkBody {
         match self {
             Self::V1(chunk) => &chunk.content,
@@ -664,6 +693,7 @@ impl EncodedShardChunk {
         }
     }
 
+    #[inline]
     pub fn content_mut(&mut self) -> &mut EncodedShardChunkBody {
         match self {
             Self::V1(chunk) => &mut chunk.content,
@@ -671,6 +701,7 @@ impl EncodedShardChunk {
         }
     }
 
+    #[inline]
     pub fn encoded_merkle_root(&self) -> CryptoHash {
         match self {
             Self::V1(chunk) => chunk.header.inner.encoded_merkle_root,
@@ -678,6 +709,7 @@ impl EncodedShardChunk {
         }
     }
 
+    #[inline]
     pub fn encoded_length(&self) -> u64 {
         match self {
             Self::V1(chunk) => chunk.header.inner.encoded_length,
