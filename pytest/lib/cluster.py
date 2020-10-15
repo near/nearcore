@@ -579,7 +579,6 @@ class AzureNode(BaseNode):
                 print(json_res['stderr'])
                 sys.exit()
             self.wait_for_rpc(timeout=30)
-            self.companion('Ulala')
 
         def kill(self):
             cmd = ('killall -9 neard; pkill -9 -e -f companion.py')
