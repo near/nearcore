@@ -53,6 +53,7 @@ pub enum ShardStateSyncResponseHeader {
 }
 
 impl ShardStateSyncResponseHeader {
+    #[inline]
     pub fn take_chunk(self) -> ShardChunk {
         match self {
             Self::V1(header) => ShardChunk::V1(header.chunk),
@@ -60,6 +61,7 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    #[inline]
     pub fn cloned_chunk(&self) -> ShardChunk {
         match self {
             Self::V1(header) => ShardChunk::V1(header.chunk.clone()),
@@ -67,6 +69,7 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    #[inline]
     pub fn cloned_prev_chunk_header(&self) -> Option<ShardChunkHeader> {
         match self {
             Self::V1(header) => header.prev_chunk_header.clone().map(ShardChunkHeader::V1),
@@ -74,6 +77,7 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    #[inline]
     pub fn chunk_height_included(&self) -> BlockHeight {
         match self {
             Self::V1(header) => header.chunk.header.height_included,
@@ -81,6 +85,7 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    #[inline]
     pub fn chunk_prev_state_root(&self) -> StateRoot {
         match self {
             Self::V1(header) => header.chunk.header.inner.prev_state_root,
@@ -88,6 +93,7 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    #[inline]
     pub fn chunk_proof(&self) -> &MerklePath {
         match self {
             Self::V1(header) => &header.chunk_proof,
@@ -95,6 +101,7 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    #[inline]
     pub fn prev_chunk_proof(&self) -> &Option<MerklePath> {
         match self {
             Self::V1(header) => &header.prev_chunk_proof,
@@ -102,6 +109,7 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    #[inline]
     pub fn incoming_receipts_proofs(&self) -> &Vec<ReceiptProofResponse> {
         match self {
             Self::V1(header) => &header.incoming_receipts_proofs,
@@ -109,6 +117,7 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    #[inline]
     pub fn root_proofs(&self) -> &Vec<Vec<RootProof>> {
         match self {
             Self::V1(header) => &header.root_proofs,
@@ -116,6 +125,7 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    #[inline]
     pub fn state_root_node(&self) -> &StateRootNode {
         match self {
             Self::V1(header) => &header.state_root_node,

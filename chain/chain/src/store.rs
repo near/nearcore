@@ -121,14 +121,7 @@ pub trait ChainStoreAccess {
                     .into());
                 }
                 let mut shard_chunk_clone = shard_chunk.clone();
-                match &mut shard_chunk_clone {
-                    ShardChunk::V1(ref mut chunk) => {
-                        chunk.header.height_included = header.height_included();
-                    }
-                    ShardChunk::V2(ref mut chunk) => {
-                        *chunk.header.height_included_mut() = header.height_included();
-                    }
-                }
+                shard_chunk_clone.set_height_included(header.height_included());
                 Ok(shard_chunk_clone)
             }
         }
@@ -2515,10 +2508,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 continue;
             }
 
-            let height_created = match chunk {
-                ShardChunk::V1(chunk) => chunk.header.inner.height_created,
-                ShardChunk::V2(chunk) => chunk.header.height_created(),
-            };
+            let height_created = chunk.height_created();
             match chunk_hashes_by_height.entry(height_created) {
                 Entry::Occupied(mut entry) => {
                     entry.get_mut().insert(chunk_hash.clone());

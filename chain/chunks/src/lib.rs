@@ -1384,19 +1384,13 @@ impl ShardsManager {
         outgoing_receipts: Vec<Receipt>,
         store_update: &mut ChainStoreUpdate<'_>,
     ) {
-        let header_inner = match encoded_chunk {
-            EncodedShardChunk::V1(chunk) => &chunk.header.inner,
-            EncodedShardChunk::V2(chunk) => match &chunk.header {
-                ShardChunkHeader::V1(header) => &header.inner,
-                ShardChunkHeader::V2(header) => &header.inner,
-            },
-        };
-        let shard_id = header_inner.shard_id;
+        let header = encoded_chunk.cloned_header();
+        let shard_id = header.shard_id();
         let outgoing_receipts_hashes =
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
-        assert_eq!(header_inner.outgoing_receipts_root, outgoing_receipts_root);
+        assert_eq!(header.outgoing_receipts_root(), outgoing_receipts_root);
 
         // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
         let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts);
@@ -1410,10 +1404,6 @@ impl ShardsManager {
                 (to_shard_id, ReceiptProof(receipts, shard_proof))
             })
             .collect();
-        let header = match encoded_chunk {
-            EncodedShardChunk::V1(chunk) => ShardChunkHeader::V1(chunk.header.clone()),
-            EncodedShardChunk::V2(chunk) => chunk.header.clone(),
-        };
         let cache_entry = EncodedChunksCacheEntry {
             header,
             parts: encoded_chunk

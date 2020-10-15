@@ -423,6 +423,7 @@ impl Block {
         )
     }
 
+    #[inline]
     pub fn header(&self) -> &BlockHeader {
         match self {
             Block::BlockV1(block) => &block.header,
@@ -439,6 +440,7 @@ impl Block {
         }
     }
 
+    #[inline]
     pub fn challenges(&self) -> &Challenges {
         match self {
             Block::BlockV1(block) => &block.challenges,
@@ -446,6 +448,7 @@ impl Block {
         }
     }
 
+    #[inline]
     pub fn vrf_value(&self) -> &near_crypto::vrf::Value {
         match self {
             Block::BlockV1(block) => &block.vrf_value,
@@ -453,6 +456,7 @@ impl Block {
         }
     }
 
+    #[inline]
     pub fn vrf_proof(&self) -> &near_crypto::vrf::Proof {
         match self {
             Block::BlockV1(block) => &block.vrf_proof,

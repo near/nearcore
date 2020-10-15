@@ -390,6 +390,21 @@ pub enum PartialEncodedChunk {
 }
 
 impl PartialEncodedChunk {
+    pub fn new(
+        header: ShardChunkHeader,
+        parts: Vec<PartialEncodedChunkPart>,
+        receipts: Vec<ReceiptProof>,
+    ) -> Self {
+        match header {
+            ShardChunkHeader::V1(header) => {
+                Self::V1(PartialEncodedChunkV1 { header, parts, receipts })
+            }
+            header @ ShardChunkHeader::V2(_) => {
+                Self::V2(PartialEncodedChunkV2 { header, parts, receipts })
+            }
+        }
+    }
+
     pub fn cloned_header(&self) -> ShardChunkHeader {
         match self {
             Self::V1(chunk) => ShardChunkHeader::V1(chunk.header.clone()),
@@ -583,6 +598,22 @@ impl ShardChunk {
     }
 
     #[inline]
+    pub fn outgoing_receipts_root(&self) -> CryptoHash {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.outgoing_receipts_root,
+            Self::V2(chunk) => chunk.header.outgoing_receipts_root(),
+        }
+    }
+
+    #[inline]
+    pub fn shard_id(&self) -> ShardId {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.shard_id,
+            Self::V2(chunk) => chunk.header.shard_id(),
+        }
+    }
+
+    #[inline]
     pub fn chunk_hash(&self) -> ChunkHash {
         match self {
             Self::V1(chunk) => chunk.chunk_hash.clone(),
@@ -718,6 +749,14 @@ impl EncodedShardChunk {
         match self {
             Self::V1(chunk) => &mut chunk.content,
             Self::V2(chunk) => &mut chunk.content,
+        }
+    }
+
+    #[inline]
+    pub fn shard_id(&self) -> ShardId {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.shard_id,
+            Self::V2(chunk) => chunk.header.shard_id(),
         }
     }
 

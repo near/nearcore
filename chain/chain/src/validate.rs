@@ -58,10 +58,9 @@ pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAd
             ShardChunkHeader::V2(header) => &header.inner,
         },
     };
-    let (transactions, receipts) = match chunk {
-        ShardChunk::V1(chunk) => (&chunk.transactions, &chunk.receipts),
-        ShardChunk::V2(chunk) => (&chunk.transactions, &chunk.receipts),
-    };
+    let height_created = chunk.height_created();
+    let outgoing_receipts_root = chunk.outgoing_receipts_root();
+    let (transactions, receipts) = (chunk.transactions(), chunk.receipts());
 
     // 2b. Checking that chunk transactions are valid
     let (tx_root, _) = merklize(transactions);
@@ -70,12 +69,12 @@ pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAd
         return false;
     }
     // 2c. Checking that chunk receipts are valid
-    if header_inner.height_created == 0 {
-        return receipts.len() == 0 && header_inner.outgoing_receipts_root == CryptoHash::default();
+    if height_created == 0 {
+        return receipts.len() == 0 && outgoing_receipts_root == CryptoHash::default();
     } else {
         let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(receipts);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-        if receipts_root != header_inner.outgoing_receipts_root {
+        if receipts_root != outgoing_receipts_root {
             byzantine_assert!(false);
             return false;
         }
