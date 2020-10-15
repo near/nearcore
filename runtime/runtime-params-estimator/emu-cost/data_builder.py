@@ -5,7 +5,7 @@ re1 = re.compile('Using (\d+) accounts')
 re2 = re.compile('executed (\d+) instructions; (\d+) bytes read; (\d+) bytes written')
 
 accounts = 0
-interesting = [ 50000, 60000, 70000 ]
+interesting = [ 1000000 ]
 
 for line in sys.stdin:
     m = re1.match(line)
