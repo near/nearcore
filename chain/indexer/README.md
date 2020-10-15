@@ -49,7 +49,7 @@ $ env NEAR_ENV=local near --keyPath ~/.near/localnet/validator_key.json create_a
 To run the NEAR Indexer connected to testnet or betanet we need to have configs and keys prepopulated, you can get them with the NEAR Indexer Example like above with a little change. Follow the instructions below to run non-validating node (leaving account ID empty).
 
 ```bash
-$ cargo run --release --home-dir ~/.near/testnet init --chain-id testnet --download
+$ cargo run --release -- --home-dir ~/.near/testnet init --chain-id testnet --download
 ```
 
 The above code will download the official genesis config and generate necessary configs. You can replace `testnet` in the command above to different network ID `betanet`.
