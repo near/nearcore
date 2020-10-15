@@ -38,6 +38,7 @@
       "nanos": 0
     },
     "safe_set_size": 20,
+    "archival_peer_connections_lower_bound": 10,
     "handshake_timeout": {
       "secs": 20,
       "nanos": 0

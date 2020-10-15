@@ -1,6 +1,6 @@
 {
-  "protocol_version": 38,
-  "genesis_time": "2020-09-17T15:13:55.528442332Z",
+  "protocol_version": 41,
+  "genesis_time": "2020-10-15T18:12:22.856472317Z",
   "chain_id": "mocknet",
   "genesis_height": 0,
   "num_block_producer_seats": 100,
