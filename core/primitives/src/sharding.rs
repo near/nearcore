@@ -531,6 +531,26 @@ pub enum ShardChunk {
 }
 
 impl ShardChunk {
+    pub fn with_header(chunk: ShardChunk, header: ShardChunkHeader) -> Option<ShardChunk> {
+        match chunk {
+            Self::V1(chunk) => match header {
+                ShardChunkHeader::V1(header) => Some(ShardChunk::V1(ShardChunkV1 {
+                    chunk_hash: header.chunk_hash(),
+                    header,
+                    transactions: chunk.transactions,
+                    receipts: chunk.receipts,
+                })),
+                ShardChunkHeader::V2(_) => None,
+            },
+            Self::V2(chunk) => Some(ShardChunk::V2(ShardChunkV2 {
+                chunk_hash: header.chunk_hash(),
+                header,
+                transactions: chunk.transactions,
+                receipts: chunk.receipts,
+            })),
+        }
+    }
+
     pub fn set_height_included(&mut self, height: BlockHeight) {
         match self {
             Self::V1(chunk) => chunk.header.height_included = height,

@@ -507,15 +507,19 @@ impl Handler<GetChunk> for ViewClientActor {
                                     chain: &mut Chain|
          -> Result<ShardChunk, near_chain::Error> {
             let block = block?;
-            let chunk_hash = block
+            let chunk_header = block
                 .chunks()
                 .get(shard_id as usize)
                 .ok_or_else(|| near_chain::Error::from(ErrorKind::InvalidShardId(shard_id)))?
-                .chunk_hash();
-            chain.get_chunk(&chunk_hash).map(|chunk| {
-                let mut res = chunk.clone();
-                res.header = block.chunks()[shard_id as usize].clone();
-                res
+                .clone();
+            let chunk_hash = chunk_header.chunk_hash();
+            chain.get_chunk(&chunk_hash).and_then(|chunk| {
+                ShardChunk::with_header(chunk.clone(), chunk_header).ok_or(near_chain::Error::from(
+                    ErrorKind::Other(format!(
+                        "Mismatched versions for chunk with hash {}",
+                        chunk_hash.0
+                    )),
+                ))
             })
         };
         match msg {
