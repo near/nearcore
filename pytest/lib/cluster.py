@@ -602,7 +602,7 @@ class AzureNode(BaseNode):
             json_res = json.loads(res.text)
             if json_res['stderr'] != '':
                 print(json_res['stderr'])
-            sys.exit()
+                sys.exit()
             
 
 class PreexistingCluster():
