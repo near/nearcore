@@ -18,7 +18,7 @@ fn apply_block_at_height(
 ) -> Result<(), near_chain::Error> {
     let block_hash = chain_store.get_block_hash_by_height(block_height)?;
     let block = chain_store.get_block(&block_hash)?.clone();
-    if block.chunks()[shard_id as usize].height_included != block_height {
+    if block.chunks()[shard_id as usize].height_included() != block_height {
         return Ok(());
     }
 
@@ -27,24 +27,25 @@ fn apply_block_at_height(
     let receipt_proof_response = chain_store_update.get_incoming_receipts_for_shard(
         shard_id,
         block_hash,
-        prev_block.chunks()[shard_id as usize].height_included,
+        prev_block.chunks()[shard_id as usize].height_included(),
     )?;
     let receipts = collect_receipts_from_response(&receipt_proof_response);
     let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash())?;
+    let chunk_header = chunk.cloned_header();
 
     let apply_result = runtime_adapter
         .apply_transactions(
             shard_id,
-            &chunk.header.inner.prev_state_root,
+            &chunk_header.prev_state_root(),
             block_height,
             block.header().raw_timestamp(),
             block.header().prev_hash(),
             block.hash(),
             &receipts,
-            &chunk.transactions,
-            &chunk.header.inner.validator_proposals,
+            chunk.transactions(),
+            chunk_header.validator_proposals(),
             prev_block.header().gas_price(),
-            chunk.header.inner.gas_limit,
+            chunk_header.gas_limit(),
             &block.header().challenges_result(),
             *block.header().random_value(),
         )
