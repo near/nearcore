@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 
 use near_crypto::PublicKey;
 use near_primitives::block::{Block, BlockHeader};
@@ -8,9 +8,11 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk,
 };
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
-use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{
+    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2,
+};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce};
 use near_store::PartialStorage;
@@ -24,32 +26,55 @@ const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
 
 /// Verifies that chunk's proofs in the header match the body.
 pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAdapter) -> bool {
+    let correct_chunk_hash = match chunk {
+        ShardChunk::V1(chunk) => ShardChunkHeaderV1::compute_hash(&chunk.header.inner),
+        ShardChunk::V2(chunk) => match &chunk.header {
+            ShardChunkHeader::V1(header) => ShardChunkHeaderV1::compute_hash(&header.inner),
+            ShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
+        },
+    };
+
+    let header_hash = match chunk {
+        ShardChunk::V1(chunk) => chunk.header.chunk_hash(),
+        ShardChunk::V2(chunk) => chunk.header.chunk_hash(),
+    };
+
     // 1. Checking chunk.header.hash
-    if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec().unwrap())) {
+    if header_hash != correct_chunk_hash {
         byzantine_assert!(false);
         return false;
     }
 
     // 2. Checking that chunk body is valid
     // 2a. Checking chunk hash
-    if chunk.chunk_hash != chunk.header.hash {
+    if chunk.chunk_hash() != correct_chunk_hash {
         byzantine_assert!(false);
         return false;
     }
+    let header_inner = match chunk {
+        ShardChunk::V1(chunk) => &chunk.header.inner,
+        ShardChunk::V2(chunk) => match &chunk.header {
+            ShardChunkHeader::V1(header) => &header.inner,
+            ShardChunkHeader::V2(header) => &header.inner,
+        },
+    };
+    let height_created = chunk.height_created();
+    let outgoing_receipts_root = chunk.outgoing_receipts_root();
+    let (transactions, receipts) = (chunk.transactions(), chunk.receipts());
+
     // 2b. Checking that chunk transactions are valid
-    let (tx_root, _) = merklize(&chunk.transactions);
-    if tx_root != chunk.header.inner.tx_root {
+    let (tx_root, _) = merklize(transactions);
+    if tx_root != header_inner.tx_root {
         byzantine_assert!(false);
         return false;
     }
     // 2c. Checking that chunk receipts are valid
-    if chunk.header.inner.height_created == 0 {
-        return chunk.receipts.len() == 0
-            && chunk.header.inner.outgoing_receipts_root == CryptoHash::default();
+    if height_created == 0 {
+        return receipts.len() == 0 && outgoing_receipts_root == CryptoHash::default();
     } else {
-        let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts);
+        let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(receipts);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-        if receipts_root != chunk.header.inner.outgoing_receipts_root {
+        if receipts_root != outgoing_receipts_root {
             byzantine_assert!(false);
             return false;
         }
@@ -99,46 +124,45 @@ pub fn validate_chunk_with_chunk_extra(
     prev_chunk_header: &ShardChunkHeader,
     chunk_header: &ShardChunkHeader,
 ) -> Result<(), Error> {
-    if prev_chunk_extra.state_root != chunk_header.inner.prev_state_root {
+    if prev_chunk_extra.state_root != chunk_header.prev_state_root() {
         return Err(ErrorKind::InvalidStateRoot.into());
     }
 
-    if prev_chunk_extra.outcome_root != chunk_header.inner.outcome_root {
+    if prev_chunk_extra.outcome_root != chunk_header.outcome_root() {
         return Err(ErrorKind::InvalidOutcomesProof.into());
     }
 
-    if prev_chunk_extra.validator_proposals != chunk_header.inner.validator_proposals {
+    if prev_chunk_extra.validator_proposals != chunk_header.validator_proposals() {
         return Err(ErrorKind::InvalidValidatorProposals.into());
     }
 
-    if prev_chunk_extra.gas_limit != chunk_header.inner.gas_limit {
+    if prev_chunk_extra.gas_limit != chunk_header.gas_limit() {
         return Err(ErrorKind::InvalidGasLimit.into());
     }
 
-    if prev_chunk_extra.gas_used != chunk_header.inner.gas_used {
+    if prev_chunk_extra.gas_used != chunk_header.gas_used() {
         return Err(ErrorKind::InvalidGasUsed.into());
     }
 
-    if prev_chunk_extra.balance_burnt != chunk_header.inner.balance_burnt {
+    if prev_chunk_extra.balance_burnt != chunk_header.balance_burnt() {
         return Err(ErrorKind::InvalidBalanceBurnt.into());
     }
 
     let receipt_response = chain_store.get_outgoing_receipts_for_shard(
         *prev_block_hash,
-        chunk_header.inner.shard_id,
-        prev_chunk_header.height_included,
+        chunk_header.shard_id(),
+        prev_chunk_header.height_included(),
     )?;
     let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&receipt_response.1);
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
-    if outgoing_receipts_root != chunk_header.inner.outgoing_receipts_root {
+    if outgoing_receipts_root != chunk_header.outgoing_receipts_root() {
         return Err(ErrorKind::InvalidReceiptsProof.into());
     }
 
     let prev_gas_limit = prev_chunk_extra.gas_limit;
-    if chunk_header.inner.gas_limit < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
-        || chunk_header.inner.gas_limit
-            > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+    if chunk_header.gas_limit() < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+        || chunk_header.gas_limit() > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
     {
         return Err(ErrorKind::InvalidGasLimit.into());
     }
@@ -201,11 +225,11 @@ fn validate_chunk_authorship(
 ) -> Result<AccountId, Error> {
     if runtime_adapter.verify_chunk_header_signature(chunk_header)? {
         let epoch_id =
-            runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.inner.prev_block_hash)?;
+            runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
         let chunk_producer = runtime_adapter.get_chunk_producer(
             &epoch_id,
-            chunk_header.inner.height_created,
-            chunk_header.inner.shard_id,
+            chunk_header.height_created(),
+            chunk_header.shard_id(),
         )?;
         Ok(chunk_producer)
     } else {
@@ -220,8 +244,8 @@ fn validate_chunk_proofs_challenge(
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
     validate_header_authorship(runtime_adapter, &block_header)?;
     let chunk_header = match &chunk_proofs.chunk {
-        MaybeEncodedShardChunk::Encoded(encoded_chunk) => &encoded_chunk.header,
-        MaybeEncodedShardChunk::Decoded(chunk) => &chunk.header,
+        MaybeEncodedShardChunk::Encoded(encoded_chunk) => encoded_chunk.cloned_header(),
+        MaybeEncodedShardChunk::Decoded(chunk) => chunk.cloned_header(),
     };
     let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header)?;
     let account_to_slash_for_valid_challenge = Ok((*block_header.hash(), vec![chunk_producer]));
@@ -256,7 +280,7 @@ fn validate_chunk_proofs_challenge(
         return account_to_slash_for_valid_challenge;
     }
 
-    if !validate_transactions_order(&chunk_ref.transactions) {
+    if !validate_transactions_order(chunk_ref.transactions()) {
         // Chunk transactions are invalid. Good challenge.
         return account_to_slash_for_valid_challenge;
     }
@@ -274,9 +298,10 @@ fn validate_chunk_state_challenge(
 
     // Validate previous chunk and block header.
     validate_header_authorship(runtime_adapter, &prev_block_header)?;
-    let _ = validate_chunk_authorship(runtime_adapter, &chunk_state.prev_chunk.header)?;
+    let prev_chunk_header = chunk_state.prev_chunk.cloned_header();
+    let _ = validate_chunk_authorship(runtime_adapter, &prev_chunk_header)?;
     if !Block::validate_chunk_header_proof(
-        &chunk_state.prev_chunk.header,
+        &prev_chunk_header,
         &prev_block_header.chunk_headers_root(),
         &chunk_state.prev_merkle_proof,
     ) {
@@ -299,26 +324,26 @@ fn validate_chunk_state_challenge(
     let result = runtime_adapter
         .check_state_transition(
             partial_storage,
-            chunk_state.prev_chunk.header.inner.shard_id,
-            &chunk_state.prev_chunk.header.inner.prev_state_root,
+            prev_chunk_header.shard_id(),
+            &prev_chunk_header.prev_state_root(),
             block_header.height(),
             block_header.raw_timestamp(),
             &block_header.prev_hash(),
             &block_header.hash(),
-            &chunk_state.prev_chunk.receipts,
-            &chunk_state.prev_chunk.transactions,
+            &chunk_state.prev_chunk.receipts(),
+            &chunk_state.prev_chunk.transactions(),
             &[],
             prev_block_header.gas_price(),
-            chunk_state.prev_chunk.header.inner.gas_limit,
+            prev_chunk_header.gas_limit(),
             &ChallengesResult::default(),
             *block_header.random_value(),
         )
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
     let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
-    if result.new_root != chunk_state.chunk_header.inner.prev_state_root
-        || outcome_root != chunk_state.chunk_header.inner.outcome_root
-        || result.validator_proposals != chunk_state.chunk_header.inner.validator_proposals
-        || result.total_gas_burnt != chunk_state.chunk_header.inner.gas_used
+    if result.new_root != chunk_state.chunk_header.prev_state_root()
+        || outcome_root != chunk_state.chunk_header.outcome_root()
+        || result.validator_proposals != chunk_state.chunk_header.validator_proposals()
+        || result.total_gas_burnt != chunk_state.chunk_header.gas_used()
     {
         Ok((*block_header.hash(), vec![chunk_producer]))
     } else {

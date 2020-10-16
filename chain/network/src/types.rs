@@ -23,10 +23,10 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkWithArcReceipts,
-    ReceiptProof,
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
+    PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::syncing::ShardStateSyncResponse;
+use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -457,13 +457,29 @@ pub enum RoutedMessageBody {
     ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
-    StateResponse(StateResponseInfo),
+    StateResponse(StateResponseInfoV1),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
-    PartialEncodedChunk(PartialEncodedChunk),
+    PartialEncodedChunk(PartialEncodedChunkV1),
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
+    VersionedPartialEncodedChunk(PartialEncodedChunk),
+    VersionedStateResponse(StateResponseInfo),
+}
+
+impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
+    fn from(pec: PartialEncodedChunkWithArcReceipts) -> Self {
+        if let ShardChunkHeader::V1(legacy_header) = pec.header {
+            Self::PartialEncodedChunk(PartialEncodedChunkV1 {
+                header: legacy_header,
+                parts: pec.parts,
+                receipts: pec.receipts.into_iter().map(|r| ReceiptProof::clone(&r)).collect(),
+            })
+        } else {
+            Self::VersionedPartialEncodedChunk(pec.into())
+        }
+    }
 }
 
 impl Debug for RoutedMessageBody {
@@ -508,6 +524,15 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::PartialEncodedChunk(chunk) => {
                 write!(f, "PartialChunk({:?})", chunk.header.hash)
             }
+            RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
+                write!(f, "VersionedPartialChunk(?)")
+            }
+            RoutedMessageBody::VersionedStateResponse(response) => write!(
+                f,
+                "VersionedStateResponse({}, {})",
+                response.shard_id(),
+                response.sync_hash()
+            ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
         }
@@ -752,7 +777,9 @@ impl PeerMessage {
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
                 | RoutedMessageBody::PartialEncodedChunkResponse(_)
-                | RoutedMessageBody::StateResponse(_) => true,
+                | RoutedMessageBody::StateResponse(_)
+                | RoutedMessageBody::VersionedPartialEncodedChunk(_)
+                | RoutedMessageBody::VersionedStateResponse(_) => true,
                 _ => false,
             },
             _ => false,
@@ -1284,10 +1311,46 @@ impl Message for NetworkRequests {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StateResponseInfo {
+pub struct StateResponseInfoV1 {
+    pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
+    pub state_response: ShardStateSyncResponseV1,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct StateResponseInfoV2 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponse,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+pub enum StateResponseInfo {
+    V1(StateResponseInfoV1),
+    V2(StateResponseInfoV2),
+}
+
+impl StateResponseInfo {
+    pub fn shard_id(&self) -> ShardId {
+        match self {
+            Self::V1(info) => info.shard_id,
+            Self::V2(info) => info.shard_id,
+        }
+    }
+
+    pub fn sync_hash(&self) -> CryptoHash {
+        match self {
+            Self::V1(info) => info.sync_hash,
+            Self::V2(info) => info.sync_hash,
+        }
+    }
+
+    pub fn take_state_response(self) -> ShardStateSyncResponse {
+        match self {
+            Self::V1(info) => ShardStateSyncResponse::V1(info.state_response),
+            Self::V2(info) => info.state_response,
+        }
+    }
 }
 
 #[cfg(feature = "adversarial")]
@@ -1619,7 +1682,7 @@ mod tests {
         assert_size!(Ban);
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);
-        assert_size!(StateResponseInfo);
+        assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);
         assert_size!(PartialEncodedChunkRequestMsg);
     }

@@ -1014,11 +1014,12 @@ impl TestEnv {
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
         let head = self.clients[0].chain.head().unwrap();
         let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_chunk_header = &last_block.chunks()[0];
         let response = self.clients[0]
             .runtime_adapter
             .query(
                 0,
-                &last_block.chunks()[0].inner.prev_state_root,
+                &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
                 last_block.header().hash(),
@@ -1093,7 +1094,15 @@ pub fn create_chunk(
         )
         .unwrap()
         .unwrap();
-    if let Some(transactions) = replace_transactions {
+    let should_replace = replace_transactions.is_some() || replace_tx_root.is_some();
+    let tx_root_replaced = replace_tx_root.is_some();
+    let transactions = replace_transactions.unwrap_or_else(Vec::new);
+    let tx_root = match replace_tx_root {
+        Some(root) => root,
+        None => merklize(&transactions).0,
+    };
+    // reconstruct the chunk with changes (if any)
+    if should_replace {
         // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
         let total_parts = client.chain.runtime_adapter.num_total_parts();
         let data_parts = client.chain.runtime_adapter.num_data_parts();
@@ -1101,36 +1110,39 @@ pub fn create_chunk(
         let parity_parts = total_parts - data_parts;
         let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
 
-        let (tx_root, _) = merklize(&transactions);
         let signer = client.validator_signer.as_ref().unwrap().clone();
+        let header = chunk.cloned_header();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
-            chunk.header.inner.prev_block_hash,
-            chunk.header.inner.prev_state_root,
-            chunk.header.inner.outcome_root,
-            chunk.header.inner.height_created,
-            chunk.header.inner.shard_id,
+            header.prev_block_hash(),
+            header.prev_state_root(),
+            header.outcome_root(),
+            header.height_created(),
+            header.shard_id(),
             &mut rs,
-            chunk.header.inner.gas_used,
-            chunk.header.inner.gas_limit,
-            chunk.header.inner.balance_burnt,
+            header.gas_used(),
+            header.gas_limit(),
+            header.balance_burnt(),
             tx_root,
-            chunk.header.inner.validator_proposals.clone(),
+            header.validator_proposals().iter().cloned().collect(),
             transactions,
-            &decoded_chunk.receipts,
-            chunk.header.inner.outgoing_receipts_root,
+            decoded_chunk.receipts(),
+            header.outgoing_receipts_root(),
             &*signer,
+            PROTOCOL_VERSION,
         )
         .unwrap();
         swap(&mut chunk, &mut encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
     }
-    if let Some(tx_root) = replace_tx_root {
-        chunk.header.inner.tx_root = tx_root;
-        chunk.header.height_included = 2;
-        let (hash, signature) =
-            client.validator_signer.as_ref().unwrap().sign_chunk_header_inner(&chunk.header.inner);
-        chunk.header.hash = hash;
-        chunk.header.signature = signature;
+    if tx_root_replaced {
+        match &mut chunk {
+            EncodedShardChunk::V1(ref mut chunk) => {
+                chunk.header.height_included = 2;
+            }
+            EncodedShardChunk::V2(ref mut chunk) => {
+                *chunk.header.height_included_mut() = 2;
+            }
+        }
     }
     let mut block_merkle_tree =
         client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
@@ -1139,7 +1151,7 @@ pub fn create_chunk(
         PROTOCOL_VERSION,
         &last_block.header(),
         2,
-        vec![chunk.header.clone()],
+        vec![chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         vec![],

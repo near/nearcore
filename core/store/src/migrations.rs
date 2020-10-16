@@ -6,8 +6,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, ReceiptList, ReceiptProof, ReedSolomonWrapper,
-    ShardChunk, ShardProof,
+    EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1,
+    ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkV1, ShardProof,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
@@ -25,6 +25,7 @@ use near_crypto::KeyType;
 use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::merkle::merklize;
+use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 
 pub mod v6_to_v7;
@@ -88,9 +89,9 @@ pub fn fill_col_outcomes_by_hash(store: &Store) {
 
 pub fn fill_col_transaction_refcount(store: &Store) {
     let mut store_update = store.store_update();
-    let chunks: Vec<ShardChunk> = store
+    let chunks: Vec<ShardChunkV1> = store
         .iter(DBCol::ColChunks)
-        .map(|key| ShardChunk::try_from_slice(&key.1).expect("BorshDeserialize should not fail"))
+        .map(|key| ShardChunkV1::try_from_slice(&key.1).expect("BorshDeserialize should not fail"))
         .collect();
 
     let mut tx_refcount: HashMap<CryptoHash, u64> = HashMap::new();
@@ -138,6 +139,7 @@ pub fn migrate_8_to_9(path: &String) {
 
 pub fn migrate_9_to_10(path: &String, is_archival: bool) {
     let store = create_store(path);
+    let protocol_version = 38; // protocol_version at the time this migration was written
     if is_archival {
         // Hard code the number of parts there. These numbers are only used for this migration.
         let num_total_parts = 100;
@@ -150,17 +152,17 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
         let mut batch_size = 0;
         for (key, value) in store.iter_without_rc_logic(ColChunks) {
             if let Ok(Some(partial_chunk)) =
-                store.get_ser::<PartialEncodedChunk>(ColPartialChunks, &key)
+                store.get_ser::<PartialEncodedChunkV1>(ColPartialChunks, &key)
             {
                 if partial_chunk.parts.len() == num_total_parts {
                     continue;
                 }
             }
             batch_size += key.len() + value.len() + 8;
-            let chunk: ShardChunk = BorshDeserialize::try_from_slice(&value)
+            let chunk: ShardChunkV1 = BorshDeserialize::try_from_slice(&value)
                 .expect("Borsh deserialization should not fail");
-            let ShardChunk { chunk_hash, header, transactions, receipts } = chunk;
-            let (mut encoded_chunk, merkle_paths) = EncodedShardChunk::new(
+            let ShardChunkV1 { chunk_hash, header, transactions, receipts } = chunk;
+            let (encoded_chunk, merkle_paths) = EncodedShardChunk::new(
                 header.inner.prev_block_hash,
                 header.inner.prev_state_root,
                 header.inner.outcome_root,
@@ -176,25 +178,37 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                 &receipts,
                 header.inner.outgoing_receipts_root,
                 &signer,
+                protocol_version,
             )
             .expect("create encoded chunk should not fail");
+            let mut encoded_chunk = match encoded_chunk {
+                EncodedShardChunk::V1(chunk) => chunk,
+                EncodedShardChunk::V2(_) => panic!("Should not have created EncodedShardChunkV2"),
+            };
             encoded_chunk.header = header;
             let outgoing_receipt_hashes =
                 vec![hash(&ReceiptList(0, &receipts).try_to_vec().unwrap())];
             let (_, outgoing_receipt_proof) = merklize(&outgoing_receipt_hashes);
 
-            let partial_encoded_chunk = encoded_chunk.create_partial_encoded_chunk(
-                (0..num_total_parts as u64).collect(),
-                vec![ReceiptProof(
-                    receipts,
-                    ShardProof {
-                        from_shard_id: 0,
-                        to_shard_id: 0,
-                        proof: outgoing_receipt_proof[0].clone(),
-                    },
-                )],
-                &merkle_paths,
-            );
+            let partial_encoded_chunk = EncodedShardChunk::V1(encoded_chunk)
+                .create_partial_encoded_chunk(
+                    (0..num_total_parts as u64).collect(),
+                    vec![ReceiptProof(
+                        receipts,
+                        ShardProof {
+                            from_shard_id: 0,
+                            to_shard_id: 0,
+                            proof: outgoing_receipt_proof[0].clone(),
+                        },
+                    )],
+                    &merkle_paths,
+                );
+            let partial_encoded_chunk = match partial_encoded_chunk {
+                PartialEncodedChunk::V1(chunk) => chunk,
+                PartialEncodedChunk::V2(_) => {
+                    panic!("Should not have created PartialEncodedChunkV2")
+                }
+            };
             store_update
                 .set_ser(ColPartialChunks, chunk_hash.as_ref(), &partial_encoded_chunk)
                 .expect("storage update should not fail");
@@ -247,10 +261,62 @@ pub fn migrate_11_to_12(path: &String) {
         store
             .iter(DBCol::ColChunks)
             .map(|(_key, value)| {
-                ShardChunk::try_from_slice(&value).expect("BorshDeserialize should not fail")
+                ShardChunkV1::try_from_slice(&value).expect("BorshDeserialize should not fail")
             })
-            .flat_map(|chunk: ShardChunk| chunk.receipts)
+            .flat_map(|chunk: ShardChunkV1| chunk.receipts)
             .map(|rx| (rx.receipt_id, rx.try_to_vec().unwrap())),
     );
     set_store_version(&store, 12);
+}
+
+fn map_col<T, U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
+where
+    T: BorshDeserialize,
+    U: BorshSerialize,
+    F: Fn(T) -> U,
+{
+    let mut store_update = store.store_update();
+    let batch_size_limit = 10_000_000;
+    let mut batch_size = 0;
+    let keys: Vec<_> = store.iter(col).map(|(key, _)| key).collect();
+    for key in keys {
+        let value: T = store.get_ser(col, key.as_ref())?.unwrap();
+        let new_value = f(value);
+        let new_bytes = new_value.try_to_vec()?;
+        batch_size += key.as_ref().len() + new_bytes.len() + 8;
+        store_update.set(col, key.as_ref(), &new_bytes);
+
+        if batch_size > batch_size_limit {
+            store_update.commit()?;
+            store_update = store.store_update();
+            batch_size = 0;
+        }
+    }
+
+    if batch_size > 0 {
+        store_update.commit()?;
+    }
+
+    Ok(())
+}
+
+/// Lift all chunks to the versioned structure
+pub fn migrate_13_to_14(path: &String) {
+    let store = create_store(path);
+
+    map_col(&store, DBCol::ColPartialChunks, |pec: PartialEncodedChunkV1| {
+        PartialEncodedChunk::V1(pec)
+    })
+    .unwrap();
+    map_col(&store, DBCol::ColInvalidChunks, |chunk: EncodedShardChunkV1| {
+        EncodedShardChunk::V1(chunk)
+    })
+    .unwrap();
+    map_col(&store, DBCol::ColChunks, |chunk: ShardChunkV1| ShardChunk::V1(chunk)).unwrap();
+    map_col(&store, DBCol::ColStateHeaders, |header: ShardStateSyncResponseHeaderV1| {
+        ShardStateSyncResponseHeader::V1(header)
+    })
+    .unwrap();
+
+    set_store_version(&store, 14);
 }
