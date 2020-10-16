@@ -32,6 +32,21 @@
   {
     "constant": true,
     "inputs": [],
+    "name": "testSha256_100bytes",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [],
     "name": "testEcrecover",
     "outputs": [
       {
@@ -48,6 +63,21 @@
     "constant": true,
     "inputs": [],
     "name": "testRipemd160",
+    "outputs": [
+      {
+        "internalType": "bytes20",
+        "name": "",
+        "type": "bytes20"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [],
+    "name": "testRipemd160_1kb",
     "outputs": [
       {
         "internalType": "bytes20",
@@ -84,6 +114,21 @@
     "constant": false,
     "inputs": [],
     "name": "test_identity",
+    "outputs": [
+      {
+        "internalType": "bytes",
+        "name": "",
+        "type": "bytes"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "constant": false,
+    "inputs": [],
+    "name": "test_identity_100bytes",
     "outputs": [
       {
         "internalType": "bytes",

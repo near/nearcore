@@ -308,8 +308,11 @@ type Coef2D = (f64, f64, f64);
 pub struct EvmPrecompiledFunctionCost {
     pub ec_recover_cost: Ratio<u64>,
     pub sha256_cost: Ratio<u64>,
+    pub sha256_cost_per_byte: Ratio<u64>,
     pub ripemd160_cost: Ratio<u64>,
+    pub ripemd160_cost_per_byte: Ratio<u64>,
     pub identity_cost: Ratio<u64>,
+    pub identity_cost_per_byte: Ratio<u64>,
     pub modexp_impl_cost: Ratio<u64>,
     // pub bn128AddImplCost: Ratio<u64>,
     // pub bn128MulImplCost: Ratio<u64>,
@@ -643,9 +646,29 @@ pub fn measure_evm_precompiled(config: &Config, verbose: bool) -> EvmPrecompiled
             &mut context,
             encode_call_function_args(
                 precompiled_function_addr,
+                precompiled_function::functions::test_sha256_100bytes::call().0,
+            ),
+            "test_sha256_100bytes()",
+        ),
+        measure_evm_precompile_function(
+            config,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                precompiled_function_addr,
                 precompiled_function::functions::test_ripemd160::call().0,
             ),
             "test_ripemd160()",
+        ),
+        measure_evm_precompile_function(
+            config,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                precompiled_function_addr,
+                precompiled_function::functions::test_ripemd160_1kb::call().0,
+            ),
+            "test_ripemd160_1kb()",
         ),
         measure_evm_precompile_function(
             config,
@@ -663,19 +686,35 @@ pub fn measure_evm_precompiled(config: &Config, verbose: bool) -> EvmPrecompiled
             &mut context,
             encode_call_function_args(
                 precompiled_function_addr,
+                precompiled_function::functions::test_identity_100bytes::call().0,
+            ),
+            "test_identity_100bytes()",
+        ),
+        measure_evm_precompile_function(
+            config,
+            verbose,
+            &mut context,
+            encode_call_function_args(
+                precompiled_function_addr,
                 precompiled_function::functions::test_mod_exp::call().0,
             ),
             "test_mod_exp()",
         ),
     ];
 
-    EvmPrecompiledFunctionCost {
+    println!("measurements: {:?}", measurements);
+    let r = EvmPrecompiledFunctionCost {
         ec_recover_cost: measurements[1].cost - measurements[0].cost,
         sha256_cost: measurements[2].cost - measurements[0].cost,
-        ripemd160_cost: measurements[3].cost - measurements[0].cost,
-        identity_cost: measurements[4].cost - measurements[0].cost,
-        modexp_impl_cost: measurements[5].cost - measurements[0].cost,
-    }
+        sha256_cost_per_byte: (measurements[3].cost - measurements[2].cost) / 100,
+        ripemd160_cost: measurements[4].cost - measurements[0].cost,
+        ripemd160_cost_per_byte: (measurements[5].cost - measurements[4].cost) / 1024,
+        identity_cost: measurements[6].cost - measurements[0].cost,
+        identity_cost_per_byte: (measurements[7].cost - measurements[6].cost) / 100,
+        modexp_impl_cost: measurements[8].cost - measurements[0].cost,
+    };
+    println!("sha256_cost_per_byte {}", r.sha256_cost_per_byte);
+    r
 }
 
 pub fn near_cost_to_evm_gas(funcall_cost: Coef, cost: Ratio<u64>) -> u64 {

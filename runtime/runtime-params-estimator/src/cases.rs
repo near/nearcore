@@ -190,12 +190,33 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
             near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.sha256_cost)
         );
         println!(
+            "sha256 per byte: {}",
+            near_cost_to_evm_gas(
+                cost.funcall_cost,
+                cost.precompiled_function_cost.sha256_cost_per_byte
+            )
+        );
+        println!(
             "ripemd160: {}",
             near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.ripemd160_cost)
         );
         println!(
+            "ripemd160 per byte: {}",
+            near_cost_to_evm_gas(
+                cost.funcall_cost,
+                cost.precompiled_function_cost.ripemd160_cost_per_byte
+            )
+        );
+        println!(
             "identity: {}",
             near_cost_to_evm_gas(cost.funcall_cost, cost.precompiled_function_cost.identity_cost)
+        );
+        println!(
+            "identity per byte: {}",
+            near_cost_to_evm_gas(
+                cost.funcall_cost,
+                cost.precompiled_function_cost.identity_cost_per_byte
+            )
         );
         println!(
             "modexp: {}",
