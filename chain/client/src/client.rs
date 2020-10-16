@@ -1487,7 +1487,7 @@ mod test {
     use neard::config::GenesisExt;
 
     use crate::test_utils::TestEnv;
-    use near_primitives::sharding::ShardChunkHeader;
+    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 
     fn create_runtimes() -> Vec<Arc<dyn RuntimeAdapter>> {
         let store = create_test_store();
@@ -1537,11 +1537,19 @@ mod test {
         // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
         // based on a missing block.
         let result = client.shards_mgr.process_partial_encoded_chunk(
-            mock_chunk,
+            mock_chunk.clone(),
             client.chain.mut_store(),
             &mut client.rs,
             PROTOCOL_VERSION,
         );
         assert!(matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock)));
+
+        // Client::process_partial_encoded_chunk should not return an error
+        // if the chunk is based on a missing block.
+        let result = client.process_partial_encoded_chunk(PartialEncodedChunk::V2(mock_chunk));
+        match result {
+            Ok(accepted_blocks) => assert!(accepted_blocks.is_empty()),
+            Err(e) => panic!("Client::process_partial_encoded_chunk failed with {:?}", e),
+        }
     }
 }
