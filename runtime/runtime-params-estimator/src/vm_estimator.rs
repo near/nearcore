@@ -279,8 +279,6 @@ fn deploy_evm_contract(
     let counts = total_transactions(config) as u64;
     evm_gas /= counts;
 
-    // evm_gas is  times gas spent, so does cost
-    // Some(EvmCost { evm_gas, cost: Ratio::new(total_cost, counts) })
     Some(EvmCost { evm_gas, size: code.len() as u64, cost: Ratio::new(total_cost, counts) })
 }
 

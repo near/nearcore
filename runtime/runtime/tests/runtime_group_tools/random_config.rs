@@ -49,6 +49,7 @@ pub fn random_config() -> RuntimeConfig {
             evm_config: EvmCostConfig {
                 bootstrap_cost: rng.next_u64() % 1000,
                 deploy_cost_per_evm_gas: rng.next_u64() % 1000,
+                deploy_cost_per_byte: rng.next_u64() % 1000,
                 funcall_cost_base: rng.next_u64() % 1000,
                 funcall_cost_per_evm_gas: rng.next_u64() % 1000,
                 ecrecover_cost: rng.next_u64() % 1000,

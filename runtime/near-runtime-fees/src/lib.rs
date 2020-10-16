@@ -158,6 +158,8 @@ pub struct EvmCostConfig {
     pub bootstrap_cost: Gas,
     /// For every unit of gas used by evm in deploy evm contract, equivalent near gas cost
     pub deploy_cost_per_evm_gas: Gas,
+    /// For every byte of evm contract, result near gas cost
+    pub deploy_cost_per_byte: Gas,
     /// For bootstrapped evm, base cost to invoke a contract function
     pub funcall_cost_base: Gas,
     /// For every unit of gas used by evm in funcall, equivalent near gas cost
@@ -264,18 +266,19 @@ impl Default for RuntimeFeesConfig {
             burnt_gas_reward: Rational::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
             evm_config: EvmCostConfig {
-                // Got inside emu-cost docker, numbers very slightly in different runs:
+                // Got inside emu-cost docker, numbers differ slightly in different runs:
                 // cd /host/nearcore/runtime/near-evm-runner/tests
-                // ../../runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=../../runtime-params-estimator/emu-cost/counter_plugin/libcounter.so ../../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 2000 --iters 1 --warmup-iters 1 --evm-only
-                bootstrap_cost: 29513857500,
-                deploy_cost_per_evm_gas: 29008902,
-                funcall_cost_base: 108890282500,
-                funcall_cost_per_evm_gas: 35070059,
-                ecrecover_cost: 8005,
-                sha256_cost: 215,
-                ripemd160_cost: 200,
-                identity_cost: 591,
-                modexp_cost: 330,
+                // ../../runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=../../runtime-params-estimator/emu-cost/counter_plugin/libcounter.so ../../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 200000 --iters 1 --warmup-iters 1 --evm-only
+                bootstrap_cost: 701340443790,
+                deploy_cost_per_evm_gas: 2428031,
+                deploy_cost_per_byte: 1328305,
+                funcall_cost_base: 675044695000,
+                funcall_cost_per_evm_gas: 73398498,
+                ecrecover_cost: 3825,
+                sha256_cost: 89,
+                ripemd160_cost: 82,
+                identity_cost: 182,
+                modexp_cost: 144,
             },
             evm_deposit: EVM_DEPOSIT,
         }
@@ -316,6 +319,7 @@ impl RuntimeFeesConfig {
             evm_config: EvmCostConfig {
                 bootstrap_cost: 0,
                 deploy_cost_per_evm_gas: 0,
+                deploy_cost_per_byte: 0,
                 funcall_cost_base: 0,
                 funcall_cost_per_evm_gas: 0,
                 ecrecover_cost: 0,

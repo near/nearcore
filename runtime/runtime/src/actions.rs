@@ -67,7 +67,6 @@ pub(crate) fn execute_function_call(
             is_view,
         )
     } else {
-        println!("wasm!!!!");
         let code = match runtime_ext.get_code(account.code_hash) {
             Ok(Some(code)) => code,
             Ok(None) => {

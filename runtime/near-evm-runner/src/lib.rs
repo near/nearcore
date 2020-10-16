@@ -43,7 +43,8 @@ pub struct EvmContext<'a> {
 
 // Different kind of evm operations that result in different gas calculation
 pub enum EvmOpForGas {
-    Deploy,
+    // size of deployed evm contract after it's decoded from hex (0.5x)
+    Deploy(usize),
     Funcall,
     Other,
 }
@@ -486,8 +487,11 @@ impl<'a> EvmContext<'a> {
         let evm_gas = self.evm_gas_counter.used_gas.as_u64();
         self.gas_counter.inc_evm_gas_counter(evm_gas);
         let gas = match op {
-            EvmOpForGas::Deploy => {
-                evm_gas * fee_cfg.deploy_cost_per_evm_gas + fee_cfg.bootstrap_cost
+            EvmOpForGas::Deploy(decoded_len) => {
+                // gas per byte is counting hex encoded contract size (solc output, 2x of decoded len)
+                (decoded_len as u64 * 2) * fee_cfg.deploy_cost_per_byte
+                    + evm_gas * fee_cfg.deploy_cost_per_evm_gas
+                    + fee_cfg.bootstrap_cost
             }
             EvmOpForGas::Funcall => {
                 evm_gas * fee_cfg.funcall_cost_per_evm_gas
@@ -504,6 +508,7 @@ fn max_evm_gas_from_near_gas(
     near_gas: Gas,
     evm_gas_config: &EvmCostConfig,
     method_name: &str,
+    decoded_code_size: Option<usize>,
 ) -> Option<U256> {
     match method_name {
         "deploy_code" => {
@@ -511,7 +516,10 @@ fn max_evm_gas_from_near_gas(
                 return None;
             }
             Some(
-                ((near_gas - evm_gas_config.bootstrap_cost)
+                ((near_gas
+                    - evm_gas_config.bootstrap_cost
+                    - evm_gas_config.deploy_cost_per_byte
+                        * (2 * decoded_code_size.unwrap() as u64))
                     / evm_gas_config.deploy_cost_per_evm_gas)
                     .into(),
             )
@@ -551,8 +559,12 @@ pub fn run_evm(
     prepaid_gas: Gas,
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let evm_gas_result =
-        max_evm_gas_from_near_gas(prepaid_gas, &fees_config.evm_config, &method_name);
+    let evm_gas_result = max_evm_gas_from_near_gas(
+        prepaid_gas,
+        &fees_config.evm_config,
+        &method_name,
+        if &method_name == "deploy_code" { Some(args.len()) } else { None },
+    );
 
     if evm_gas_result.is_none() {
         return (
@@ -583,7 +595,7 @@ pub fn run_evm(
 
     let result = match method_name.as_str() {
         // Change the state methods.
-        "deploy_code" => context.deploy_code(args).map(|address| {
+        "deploy_code" => context.deploy_code(args.clone()).map(|address| {
             #[cfg(feature = "costs_counting")]
             EVM_LAST_DEPLOYED.with(|addr| {
                 *addr.borrow_mut() = address.clone();
@@ -591,28 +603,32 @@ pub fn run_evm(
             utils::address_to_vec(&address)
         }),
         // TODO: remove this function name if no one is using it.
-        "call_function" => context.call_function(args),
-        "call" => context.call_function(args),
-        "meta_call" => context.meta_call_function(args),
-        "deposit" => context.deposit(args).map(|balance| utils::u256_to_arr(&balance).to_vec()),
-        "withdraw" => context.withdraw(args).map(|_| vec![]),
-        "transfer" => context.transfer(args).map(|_| vec![]),
-        "create" => context.create_evm(args).map(|_| vec![]),
+        "call_function" => context.call_function(args.clone()),
+        "call" => context.call_function(args.clone()),
+        "meta_call" => context.meta_call_function(args.clone()),
+        "deposit" => {
+            context.deposit(args.clone()).map(|balance| utils::u256_to_arr(&balance).to_vec())
+        }
+        "withdraw" => context.withdraw(args.clone()).map(|_| vec![]),
+        "transfer" => context.transfer(args.clone()).map(|_| vec![]),
+        "create" => context.create_evm(args.clone()).map(|_| vec![]),
         // View methods.
         // TODO: remove this function name if no one is using it.
-        "view_function_call" => context.view_call_function(args),
-        "view" => context.view_call_function(args),
-        "get_code" => context.get_code(args),
-        "get_storage_at" => context.get_storage_at(args),
-        "get_nonce" => context.get_nonce(args).map(|nonce| utils::u256_to_arr(&nonce).to_vec()),
+        "view_function_call" => context.view_call_function(args.clone()),
+        "view" => context.view_call_function(args.clone()),
+        "get_code" => context.get_code(args.clone()),
+        "get_storage_at" => context.get_storage_at(args.clone()),
+        "get_nonce" => {
+            context.get_nonce(args.clone()).map(|nonce| utils::u256_to_arr(&nonce).to_vec())
+        }
         "get_balance" => {
-            context.get_balance(args).map(|balance| utils::u256_to_arr(&balance).to_vec())
+            context.get_balance(args.clone()).map(|balance| utils::u256_to_arr(&balance).to_vec())
         }
         _ => Err(VMLogicError::EvmError(EvmError::MethodNotFound)),
     };
     context
         .pay_gas_from_evm_gas(match method_name.as_str() {
-            "deploy_code" => EvmOpForGas::Deploy,
+            "deploy_code" => EvmOpForGas::Deploy(args.len()),
             "call_function" => EvmOpForGas::Funcall,
             _ => EvmOpForGas::Other,
         })
