@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::ShardChunkV1;
 
 use crate::migrations::v6_to_v7::{account_id_to_shard_id_v6, get_num_shards};
 use crate::{DBCol, Store};
@@ -44,9 +44,9 @@ pub(crate) fn repair_col_transactions(store: &Store) {
         store
             .iter(DBCol::ColChunks)
             .map(|(_key, value)| {
-                ShardChunk::try_from_slice(&value).expect("BorshDeserialize should not fail")
+                ShardChunkV1::try_from_slice(&value).expect("BorshDeserialize should not fail")
             })
-            .flat_map(|chunk: ShardChunk| chunk.transactions)
+            .flat_map(|chunk: ShardChunkV1| chunk.transactions)
             .map(|tx| (tx.get_hash(), tx.try_to_vec().unwrap())),
     )
 }

@@ -112,8 +112,8 @@ pub trait ChainStoreAccess {
                 return Err(ErrorKind::ChunksMissing(vec![header.clone()]).into());
             }
             Ok(shard_chunk) => {
-                byzantine_assert!(header.height_included > 0 || header.inner.height_created == 0);
-                if header.height_included == 0 && header.inner.height_created > 0 {
+                byzantine_assert!(header.height_included() > 0 || header.height_created() == 0);
+                if header.height_included() == 0 && header.height_created() > 0 {
                     return Err(ErrorKind::Other(format!(
                         "Invalid header: {:?} for chunk {:?}",
                         header, shard_chunk
@@ -121,7 +121,7 @@ pub trait ChainStoreAccess {
                     .into());
                 }
                 let mut shard_chunk_clone = shard_chunk.clone();
-                shard_chunk_clone.header.height_included = header.height_included;
+                shard_chunk_clone.set_height_included(header.height_included());
                 Ok(shard_chunk_clone)
             }
         }
@@ -1506,7 +1506,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         &mut self,
         header: &ShardChunkHeader,
     ) -> Result<ShardChunk, Error> {
-        if let Some(chunk) = self.chain_store_cache_update.chunks.get(&header.hash) {
+        if let Some(chunk) = self.chain_store_cache_update.chunks.get(&header.chunk_hash()) {
             Ok(chunk.clone())
         } else {
             self.chain_store.get_chunk_clone_from_header(header)
@@ -1789,19 +1789,19 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
-        for transaction in &chunk.transactions {
+        for transaction in chunk.transactions() {
             self.chain_store_cache_update.transactions.insert(transaction.clone());
         }
-        for receipt in &chunk.receipts {
+        for receipt in chunk.receipts() {
             self.chain_store_cache_update.receipts.insert(receipt.receipt_id, receipt.clone());
         }
-        self.chain_store_cache_update.chunks.insert(chunk.chunk_hash.clone(), chunk);
+        self.chain_store_cache_update.chunks.insert(chunk.chunk_hash(), chunk);
     }
 
     pub fn save_partial_chunk(&mut self, partial_chunk: PartialEncodedChunk) {
         self.chain_store_cache_update
             .partial_chunks
-            .insert(partial_chunk.header.hash.clone(), partial_chunk);
+            .insert(partial_chunk.chunk_hash(), partial_chunk);
     }
 
     pub fn save_block_merkle_tree(
@@ -2022,11 +2022,11 @@ impl<'a> ChainStoreUpdate<'a> {
             for chunk_hash in chunk_hashes {
                 // 1. Delete chunk-related data
                 let chunk = self.get_chunk(&chunk_hash)?.clone();
-                debug_assert_eq!(chunk.header.inner.height_created, height);
-                for transaction in chunk.transactions {
+                debug_assert_eq!(chunk.cloned_header().height_created(), height);
+                for transaction in chunk.transactions() {
                     self.gc_col(ColTransactions, &transaction.get_hash().into());
                 }
-                for receipt in chunk.receipts {
+                for receipt in chunk.receipts() {
                     self.gc_col(ColReceipts, &receipt.get_hash().into());
                 }
 
@@ -2127,7 +2127,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // We need to make sure all State Parts are removed.
             if let Ok(shard_state_header) = self.get_state_header(shard_id, block_hash) {
                 let state_num_parts =
-                    get_num_state_parts(shard_state_header.state_root_node.memory_usage);
+                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
                 let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
                 self.gc_col(ColStateHeaders, &key);
@@ -2175,9 +2175,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 6. Canonical Chain only clearing
                 // Delete chunks and chunk-indexed data
                 let mut min_chunk_height = self.tail()?;
-                for chunk_header in block.chunks() {
-                    if min_chunk_height > chunk_header.inner.height_created {
-                        min_chunk_height = chunk_header.inner.height_created;
+                for chunk_header in block.chunks().iter() {
+                    if min_chunk_height > chunk_header.height_created() {
+                        min_chunk_height = chunk_header.height_created();
                     }
                 }
                 self.clear_chunk_data(min_chunk_height)?;
@@ -2508,31 +2508,30 @@ impl<'a> ChainStoreUpdate<'a> {
                 continue;
             }
 
-            match chunk_hashes_by_height.entry(chunk.header.inner.height_created) {
+            let height_created = chunk.height_created();
+            match chunk_hashes_by_height.entry(height_created) {
                 Entry::Occupied(mut entry) => {
                     entry.get_mut().insert(chunk_hash.clone());
                 }
                 Entry::Vacant(entry) => {
-                    let mut hash_set = match self
-                        .chain_store
-                        .get_all_chunk_hashes_by_height(chunk.header.inner.height_created)
-                    {
-                        Ok(hash_set) => hash_set.clone(),
-                        Err(_) => HashSet::new(),
-                    };
+                    let mut hash_set =
+                        match self.chain_store.get_all_chunk_hashes_by_height(height_created) {
+                            Ok(hash_set) => hash_set.clone(),
+                            Err(_) => HashSet::new(),
+                        };
                     hash_set.insert(chunk_hash.clone());
                     entry.insert(hash_set);
                 }
             };
 
             // Increase transaction refcounts for all included txs
-            for tx in chunk.transactions.iter() {
+            for tx in chunk.transactions().iter() {
                 let bytes = tx.try_to_vec().expect("Borsh cannot fail");
                 store_update.update_refcount(ColTransactions, tx.get_hash().as_ref(), &bytes, 1);
             }
 
             // Increase receipt refcounts for all included receipts
-            for receipt in chunk.receipts.iter() {
+            for receipt in chunk.receipts().iter() {
                 let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
                 store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
             }

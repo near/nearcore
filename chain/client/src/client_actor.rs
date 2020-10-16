@@ -28,7 +28,7 @@ use near_crypto::Signature;
 use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
+use near_network::types::{NetworkInfo, ReasonForBan};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
@@ -342,15 +342,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 self.client.collect_block_approval(&approval, false);
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::StateResponse(StateResponseInfo {
-                shard_id,
-                sync_hash: hash,
-                state_response,
-            }) => {
+            NetworkClientMessages::StateResponse(state_response_info) => {
+                let shard_id = state_response_info.shard_id();
+                let hash = state_response_info.sync_hash();
+                let state_response = state_response_info.take_state_response();
+
                 trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
                     shard_id,
                     hash,
-                    state_response.part.as_ref().map(|(part_id,data)|(part_id, data.len()))
+                    state_response.part().as_ref().map(|(part_id,data)|(part_id, data.len()))
                 );
                 // Get the download that matches the shard_id and hash
                 let download = {
@@ -403,7 +403,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 if let Some(shard_sync_download) = download {
                     match shard_sync_download.status {
                         ShardSyncStatus::StateDownloadHeader => {
-                            if let Some(header) = state_response.header {
+                            if let Some(header) = state_response.take_header() {
                                 if !shard_sync_download.downloads[0].done {
                                     match self.client.chain.set_state_header(shard_id, hash, header)
                                     {
@@ -426,7 +426,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                         }
                         ShardSyncStatus::StateDownloadParts => {
-                            if let Some(part) = state_response.part {
+                            if let Some(part) = state_response.take_part() {
                                 let num_parts = shard_sync_download.downloads.len() as u64;
                                 let (part_id, data) = part;
                                 if part_id >= num_parts {
@@ -861,7 +861,7 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
-            let gas_used = Block::compute_gas_used(&block.chunks(), block.header().height());
+            let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 
             let last_final_hash = *block.header().last_final_block();
 
@@ -1286,11 +1286,7 @@ impl ClientActor {
                         );
 
                         self.client.shards_mgr.request_chunks(
-                            blocks_missing_chunks
-                                .write()
-                                .unwrap()
-                                .drain(..)
-                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
                             &self
                                 .client
                                 .chain

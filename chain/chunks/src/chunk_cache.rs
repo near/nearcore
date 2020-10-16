@@ -4,7 +4,7 @@ use cached::{Cached, SizedCache};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
+    ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 
@@ -32,7 +32,10 @@ impl EncodedChunksCacheEntry {
         EncodedChunksCacheEntry { header, parts: HashMap::new(), receipts: HashMap::new() }
     }
 
-    pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunk) {
+    pub fn merge_in_partial_encoded_chunk(
+        &mut self,
+        partial_encoded_chunk: &PartialEncodedChunkV2,
+    ) {
         for part_info in partial_encoded_chunk.parts.iter() {
             let part_ord = part_info.part_ord;
             self.parts.entry(part_ord).or_insert_with(|| part_info.clone());
@@ -65,7 +68,7 @@ impl EncodedChunksCache {
 
     pub fn insert(&mut self, chunk_hash: ChunkHash, entry: EncodedChunksCacheEntry) {
         self.height_map
-            .entry(entry.header.inner.height_created)
+            .entry(entry.header.height_created())
             .or_insert_with(|| HashSet::default())
             .insert(chunk_hash.clone());
         self.encoded_chunks.insert(chunk_hash, entry);
@@ -94,18 +97,21 @@ impl EncodedChunksCache {
         self.height_within_front_horizon(height) || self.height_within_rear_horizon(height)
     }
 
-    pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunk) {
+    pub fn merge_in_partial_encoded_chunk(
+        &mut self,
+        partial_encoded_chunk: &PartialEncodedChunkV2,
+    ) {
         let chunk_hash = partial_encoded_chunk.header.chunk_hash();
         let entry = self
             .get_or_insert_from_header(chunk_hash.clone(), partial_encoded_chunk.header.clone());
-        let height = entry.header.inner.height_created;
+        let height = entry.header.height_created();
         entry.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
         self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
     }
 
     pub fn remove_from_cache_if_outside_horizon(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
-            let height = entry.header.inner.height_created;
+            let height = entry.header.height_created();
             if !self.height_within_horizon(height) {
                 self.encoded_chunks.remove(chunk_hash);
             }
@@ -133,15 +139,15 @@ impl EncodedChunksCache {
     }
 
     pub fn insert_chunk_header(&mut self, shard_id: ShardId, header: ShardChunkHeader) {
-        let height = header.inner.height_created;
+        let height = header.height_created();
         if height >= self.largest_seen_height.saturating_sub(CHUNK_HEADER_HEIGHT_HORIZON)
             && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
         {
+            let prev_block_hash = header.prev_block_hash();
             let mut block_hash_to_chunk_headers = self
                 .block_hash_to_chunk_headers
-                .cache_remove(&header.inner.prev_block_hash)
+                .cache_remove(&prev_block_hash)
                 .unwrap_or_else(|| HashMap::new());
-            let prev_block_hash = header.inner.prev_block_hash;
             block_hash_to_chunk_headers.insert(shard_id, header);
             self.block_hash_to_chunk_headers
                 .cache_set(prev_block_hash, block_hash_to_chunk_headers);
@@ -171,7 +177,7 @@ mod tests {
 
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
+    use near_primitives::sharding::{PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;
@@ -181,8 +187,8 @@ mod tests {
     fn test_cache_removal() {
         let mut cache = EncodedChunksCache::new();
         let signer = InMemoryValidatorSigner::from_random("test".to_string(), KeyType::ED25519);
-        let partial_encoded_chunk = PartialEncodedChunk {
-            header: ShardChunkHeader::new(
+        let partial_encoded_chunk = PartialEncodedChunkV2 {
+            header: ShardChunkHeader::V2(ShardChunkHeaderV2::new(
                 CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
@@ -197,7 +203,7 @@ mod tests {
                 CryptoHash::default(),
                 vec![],
                 &signer,
-            ),
+            )),
             parts: vec![],
             receipts: vec![],
         };
