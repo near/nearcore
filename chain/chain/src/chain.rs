@@ -901,7 +901,7 @@ impl Chain {
         let mut chain_store_update = self.mut_store().store_update();
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
-        chain_store_update.clear_chunk_data(chunk_height)?;
+        chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
 
         // clear all trie data
