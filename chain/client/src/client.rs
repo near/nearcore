@@ -27,8 +27,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
-    ShardChunkHeader,
+    EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
@@ -721,21 +720,27 @@ impl Client {
         partial_encoded_chunk: PartialEncodedChunk,
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let block_hash = partial_encoded_chunk.prev_block();
-        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(block_hash)?;
-        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        let process_result = match self.runtime_adapter.get_epoch_id_from_prev_block(block_hash) {
+            Ok(epoch_id) => {
+                let protocol_version =
+                    self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
 
-        if !partial_encoded_chunk.version_range().contains(protocol_version) {
-            return Err(Error::Other("Invalid chunk version".to_string()));
-        }
+                if !partial_encoded_chunk.version_range().contains(protocol_version) {
+                    return Err(Error::Other("Invalid chunk version".to_string()));
+                };
 
-        let partial_encoded_chunk: PartialEncodedChunkV2 = partial_encoded_chunk.into();
+                self.shards_mgr.process_partial_encoded_chunk(
+                    partial_encoded_chunk.clone().into(),
+                    self.chain.mut_store(),
+                    &mut self.rs,
+                    protocol_version,
+                )?
+            }
 
-        let process_result = self.shards_mgr.process_partial_encoded_chunk(
-            partial_encoded_chunk.clone(),
-            self.chain.mut_store(),
-            &mut self.rs,
-            protocol_version,
-        )?;
+            // If the epoch_id cannot be looked up then we have not processed
+            // `partial_encoded_chunk.prev_block()` yet.
+            Err(_) => ProcessPartialEncodedChunkResult::NeedBlock,
+        };
 
         match process_result {
             ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
@@ -748,8 +753,10 @@ impl Client {
                 Ok(vec![])
             }
             ProcessPartialEncodedChunkResult::NeedBlock => {
-                self.shards_mgr
-                    .store_partial_encoded_chunk(self.chain.head_header()?, partial_encoded_chunk);
+                self.shards_mgr.store_partial_encoded_chunk(
+                    self.chain.head_header()?,
+                    partial_encoded_chunk.into(),
+                );
                 Ok(vec![])
             }
         }
