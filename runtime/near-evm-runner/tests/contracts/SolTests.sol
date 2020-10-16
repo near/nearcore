@@ -83,11 +83,15 @@ contract PrecompiledFunction {
     constructor() public payable {}
 
     function noop() public pure {
-
+        
     }
 
     function testSha256() public pure returns (bytes32) {
         return sha256("");
+    }
+
+    function testSha256_100bytes() public pure returns (bytes32) {
+        return sha256("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvw");
     }
 
     function testEcrecover() public pure returns (address) {
@@ -103,6 +107,10 @@ contract PrecompiledFunction {
         return ripemd160("");
     }
 
+    function testRipemd160_100bytes() public pure returns (bytes20) {
+        return ripemd160("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvw");
+    }
+
     function identity(bytes memory data) public returns (bytes memory) {
         bytes memory ret = new bytes(data.length);
         assembly {
@@ -116,7 +124,11 @@ contract PrecompiledFunction {
     }
 
     function test_identity() public returns (bytes memory) {
-        return identity("0");
+        return identity("");
+    }
+
+    function test_identity_100bytes() public returns (bytes memory) {
+        return identity("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvw");
     }
 
     function modexp(uint base, uint e, uint m) public view returns (uint o) {

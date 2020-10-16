@@ -8,6 +8,7 @@ use crate::testbed_runners::GasMetric;
 use ethabi_contract::use_contract;
 use ethereum_types::H160;
 use glob::glob;
+use indicatif::{ProgressBar, ProgressStyle};
 use lazy_static_include::lazy_static_include_str;
 use ndarray::prelude::*;
 use ndarray::Array;
@@ -26,6 +27,7 @@ use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
 use num_traits::cast::ToPrimitive;
 use rand::Rng;
+use rocksdb::Env;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
@@ -33,6 +35,7 @@ use std::fs;
 use std::sync::{Arc, Mutex, RwLock};
 use std::{
     hash::{Hash, Hasher},
+    path::Path,
     path::PathBuf,
 };
 use testlib::node::{Node, RuntimeNode};
@@ -165,12 +168,60 @@ pub struct EvmCost {
     pub cost: Ratio<u64>,
 }
 
-fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
+fn testbed_for_evm(
+    state_dump_path: &str,
+    accounts: usize,
+) -> (Arc<Mutex<RuntimeTestbed>>, Arc<Mutex<HashMap<usize, u64>>>) {
+    let path = PathBuf::from(state_dump_path);
+    let testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&path)));
+    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    let bar = ProgressBar::new(accounts as _);
+    println!("Prepare a testbed of {} accounts all having a deployed evm contract", accounts);
+    bar.set_style(ProgressStyle::default_bar().template(
+        "[elapsed {elapsed_precise} remaining {eta_precise}] Evm contracts {bar} {pos:>7}/{len:7} {msg}",
+    ));
+    let mut env = Env::default().unwrap();
+    env.set_background_threads(4);
+    for account_idx in 0..accounts {
+        let account_id = get_account_id(account_idx);
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let code = hex::decode(&TEST).unwrap();
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+
+        let block: Vec<_> = vec![SignedTransaction::from_actions(
+            nonce as u64,
+            account_id.clone(),
+            "evm".to_owned(),
+            &signer,
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "deploy_code".to_string(),
+                args: code,
+                gas: 10u64.pow(18),
+                deposit: 0,
+            })],
+            CryptoHash::default(),
+        )];
+        let mut testbed = testbed.lock().unwrap();
+        testbed.process_block(&block, false);
+        testbed.process_blocks_until_no_receipts(false);
+        bar.inc(1);
+    }
+    bar.finish();
+    reset_evm_gas_counter();
+    env.set_background_threads(0);
+    (testbed, Arc::new(Mutex::new(nonces)))
+}
+
+fn deploy_evm_contract(
+    code: &[u8],
+    config: &Config,
+    testbed: Arc<Mutex<RuntimeTestbed>>,
+    nonces: Arc<Mutex<HashMap<usize, u64>>>,
+) -> Option<EvmCost> {
     let path = PathBuf::from(config.state_dump_path.as_str());
     println!("{:?}. Preparing testbed. Loading state.", config.metric);
-    let testbed = Mutex::new(RuntimeTestbed::from_state_dump(&path));
     let allow_failures = false;
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    let mut nonces = nonces.lock().unwrap();
     let mut accounts_deployed = HashSet::new();
 
     let mut f = || {
@@ -233,9 +284,14 @@ fn deploy_evm_contract(code: &[u8], config: &Config) -> Option<EvmCost> {
     Some(EvmCost { evm_gas, size: code.len() as u64, cost: Ratio::new(total_cost, counts) })
 }
 
-fn load_and_deploy_evm_contract(path: &PathBuf, config: &Config) -> Option<EvmCost> {
+fn load_and_deploy_evm_contract(
+    path: &PathBuf,
+    config: &Config,
+    testbed: Arc<Mutex<RuntimeTestbed>>,
+    nonces: Arc<Mutex<HashMap<usize, u64>>>,
+) -> Option<EvmCost> {
     match fs::read(path) {
-        Ok(code) => deploy_evm_contract(&code, config),
+        Ok(code) => deploy_evm_contract(&code, config, testbed, nonces),
         _ => None,
     }
 }
@@ -268,7 +324,12 @@ pub struct EvmCostCoef {
     pub precompiled_function_cost: EvmPrecompiledFunctionCost,
 }
 
-pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef2D {
+pub fn measure_evm_deploy(
+    config: &Config,
+    verbose: bool,
+    testbed: Arc<Mutex<RuntimeTestbed>>,
+    nonces: Arc<Mutex<HashMap<usize, u64>>>,
+) -> Coef2D {
     let globbed_files = glob("./**/*.bin").expect("Failed to read glob pattern for bin files");
     let paths = globbed_files
         .filter_map(|x| match x {
@@ -286,7 +347,7 @@ pub fn measure_evm_deploy(config: &Config, verbose: bool) -> Coef2D {
             };
             // Evm counted gas already count on size of the contract, therefore we look for cost = m*evm_gas + b.
             if let Some(EvmCost { evm_gas, size, cost }) =
-                load_and_deploy_evm_contract(path, config)
+                load_and_deploy_evm_contract(path, config, testbed.clone(), nonces.clone())
             {
                 if verbose {
                     println!("({}, {}, {}),", evm_gas, size, cost);
@@ -340,7 +401,12 @@ pub fn create_evm_context<'a>(
     )
 }
 
-pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
+pub fn measure_evm_funcall(
+    config: &Config,
+    verbose: bool,
+    testbed: Arc<Mutex<RuntimeTestbed>>,
+    nonces: Arc<Mutex<HashMap<usize, u64>>>,
+) -> Coef {
     let measurements = vec![
         measure_evm_function(
             config,
@@ -349,6 +415,8 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
                 vec![sol_test_addr, soltest::functions::deploy_new_guy::call(8).0].concat()
             },
             "deploy_new_guy(8)",
+            testbed.clone(),
+            nonces.clone(),
         ),
         measure_evm_function(
             config,
@@ -357,6 +425,8 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
                 vec![sol_test_addr, soltest::functions::pay_new_guy::call(8).0].concat()
             },
             "pay_new_guy(8)",
+            testbed.clone(),
+            nonces.clone(),
         ),
         measure_evm_function(
             config,
@@ -365,12 +435,16 @@ pub fn measure_evm_funcall(config: &Config, verbose: bool) -> Coef {
                 vec![sol_test_addr, soltest::functions::return_some_funds::call().0].concat()
             },
             "return_some_funds()",
+            testbed.clone(),
+            nonces.clone(),
         ),
         measure_evm_function(
             config,
             verbose,
             |sol_test_addr| vec![sol_test_addr, soltest::functions::emit_it::call(8).0].concat(),
             "emit_it(8)",
+            testbed.clone(),
+            nonces.clone(),
         ),
     ];
     println!("{:?}", measurements);
@@ -419,12 +493,13 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
     verbose: bool,
     args_encoder: F,
     test_name: &str,
+    testbed: Arc<Mutex<RuntimeTestbed>>,
+    nonces: Arc<Mutex<HashMap<usize, u64>>>,
 ) -> EvmCost {
     let path = PathBuf::from(config.state_dump_path.as_str());
     println!("{:?}. Preparing testbed. Loading state.", config.metric);
-    let testbed = Mutex::new(RuntimeTestbed::from_state_dump(&path));
     let allow_failures = false;
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    let mut nonces = nonces.lock().unwrap();
     let mut accounts_deployed = HashSet::new();
     let code = hex::decode(&TEST).unwrap();
 
@@ -609,9 +684,10 @@ pub fn near_cost_to_evm_gas(funcall_cost: Coef, cost: Ratio<u64>) -> u64 {
 
 /// Cost of all evm related
 pub fn cost_of_evm(config: &Config, verbose: bool) -> EvmCostCoef {
+    let (testbed, nonces) = testbed_for_evm(&config.state_dump_path, config.active_accounts);
     let evm_cost_config = EvmCostCoef {
-        deploy_cost: measure_evm_deploy(config, verbose),
-        funcall_cost: measure_evm_funcall(config, verbose),
+        deploy_cost: measure_evm_deploy(config, verbose, testbed.clone(), nonces.clone()),
+        funcall_cost: measure_evm_funcall(config, verbose, testbed.clone(), nonces.clone()),
         precompiled_function_cost: measure_evm_precompiled(config, verbose),
     };
     evm_cost_config
@@ -710,7 +786,7 @@ fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D 
     let v1: Vec<_> = measurements.iter().map(|m| m.evm_gas as f64).collect();
     let (v1, _) = normalize(&v1);
     let v2: Vec<_> = measurements.iter().map(|m| m.size as f64).collect();
-    let (v2, _) = normalize(&v2); 
+    let (v2, _) = normalize(&v2);
     let a = dot(&v1, &v1);
     let b = dot(&v1, &v2);
     let c = dot(&v2, &v1);
@@ -722,8 +798,8 @@ fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D 
     let xt_y1 = dot(&v1, &y);
     let xt_y2 = dot(&v2, &y);
 
-    let beta1 = (xt_x_inverse.a*xt_y1 + xt_x_inverse.b*xt_y2);
-    let beta2 = (xt_x_inverse.c*xt_y1 + xt_x_inverse.d*xt_y2);
+    let beta1 = (xt_x_inverse.a * xt_y1 + xt_x_inverse.b * xt_y2);
+    let beta2 = (xt_x_inverse.c * xt_y1 + xt_x_inverse.d * xt_y2);
 
     let delta: Vec<_> = measurements
         .iter()
