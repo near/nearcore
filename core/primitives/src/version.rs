@@ -1,5 +1,7 @@
 use crate::types::Balance;
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Data structure for semver version and github tag or commit.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -17,8 +19,6 @@ pub const DB_VERSION: DbVersion = 14;
 /// Protocol version type.
 pub type ProtocolVersion = u32;
 
-/// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 41;
 /// Oldest supported version by this client.
 pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
 
@@ -61,4 +61,29 @@ impl ProtocolVersionRange {
     pub fn contains(&self, version: ProtocolVersion) -> bool {
         self.lower <= version && self.upper.map_or(true, |upper| version < upper)
     }
+}
+
+/// New Protocol features should go here. Nightly features are guarded by `#[cfg(feature = "nightly_protocol")]`.
+pub enum ProtocolFeature {}
+
+/// Current latest stable version of the protocol.
+#[cfg(not(feature = "nightly_protocol"))]
+pub const PROTOCOL_VERSION: ProtocolVersion = 40;
+
+/// Current latest nightly version of the protocol.
+#[cfg(feature = "nightly_protocol")]
+pub const PROTOCOL_VERSION: ProtocolVersion = 41;
+
+#[cfg(not(feature = "nightly_protocol"))]
+lazy_static! {
+    static ref PROTOCOL_VERSION_FEATURES_MAPPING: HashMap<ProtocolVersion, Vec<ProtocolFeature>> = vec![
+        /* add mapping here */
+    ].into_iter().collect();
+}
+
+#[cfg(feature = "nightly_protocol")]
+lazy_static! {
+    static ref PROTOCOL_VERSION_FEATURES_MAPPING: HashMap<ProtocolVersion, Vec<ProtocolFeature>> = vec![
+        /* add mapping here */
+    ].into_iter().collect();
 }
