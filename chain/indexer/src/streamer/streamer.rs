@@ -283,23 +283,25 @@ async fn fetch_outcomes(
         .map_err(|err| FailedToFetchData::String(err))?;
 
     let mut outcomes_with_receipts = ExecutionOutcomesWithReceipts::new();
-    for outcome in outcomes {
-        let receipt = match fetch_receipt_by_id(&client, outcome.id).await {
-            Ok(res) => res,
-            Err(e) => {
-                warn!(
-                    target: INDEXER,
-                    "Unable to fetch Receipt with id {}. Skipping it in ExecutionOutcome \n {:#?}",
-                    outcome.id,
-                    e,
-                );
-                None
-            }
-        };
-        outcomes_with_receipts.insert(
-            outcome.id,
-            IndexerExecutionOutcomeWithReceipt { execution_outcome: outcome, receipt },
-        );
+    for (_, shard_outcomes) in outcomes {
+        for outcome in shard_outcomes {
+            let receipt = match fetch_receipt_by_id(&client, outcome.id).await {
+                Ok(res) => res,
+                Err(e) => {
+                    warn!(
+                        target: INDEXER,
+                        "Unable to fetch Receipt with id {}. Skipping it in ExecutionOutcome \n {:#?}",
+                        outcome.id,
+                        e,
+                    );
+                    None
+                }
+            };
+            outcomes_with_receipts.insert(
+                outcome.id,
+                IndexerExecutionOutcomeWithReceipt { execution_outcome: outcome, receipt },
+            );
+        }
     }
 
     Ok(outcomes_with_receipts)

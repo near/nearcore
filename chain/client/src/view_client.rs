@@ -51,6 +51,7 @@ use crate::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
 use near_primitives::sharding::ShardChunk;
+use std::collections::HashMap;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -724,12 +725,8 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 
 /// Extract the list of execution outcomes that were produced in a given block
 /// (including those created for local receipts).
-///
-/// NOTE: The order of execution outcomes is NOT preserved (that would require
-/// data migration), so the order should be recovered from the transactions
-/// and receipts.
 impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
-    type Result = Result<Vec<ExecutionOutcomeWithIdView>, String>;
+    type Result = Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>;
 
     fn handle(&mut self, msg: GetExecutionOutcomesForBlock, _: &mut Self::Context) -> Self::Result {
         Ok(self
@@ -737,7 +734,7 @@ impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
             .get_block_execution_outcomes(&msg.block_hash)
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(Into::into)
+            .map(|(k, v)| (k, v.into_iter().map(Into::into).collect()))
             .collect())
     }
 }

@@ -104,7 +104,7 @@ pub enum DBCol {
     ColBlockOrdinal = 40,
     /// GC Count for each column
     ColGCCount = 41,
-    /// GC helper column to get all Outcome ids by Block Hash
+    /// All Outcome ids by Block Hash. For each block it is ordered by execution order.
     ColOutcomesByBlockHash = 42,
     /// Deprecated
     _ColTransactionRefCount = 43,

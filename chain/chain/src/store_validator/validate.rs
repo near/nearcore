@@ -578,7 +578,7 @@ pub(crate) fn chunk_of_height_exists(
 pub(crate) fn outcome_by_outcome_id_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
-    outcome_ids: &HashSet<CryptoHash>,
+    outcome_ids: &Vec<CryptoHash>,
 ) -> Result<(), StoreValidatorError> {
     for outcome_id in outcome_ids {
         let outcomes = unwrap_or_err_db!(
@@ -599,7 +599,7 @@ pub(crate) fn outcome_by_outcome_id_exists(
 pub(crate) fn outcome_id_block_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
-    _outcome_ids: &HashSet<CryptoHash>,
+    _outcome_ids: &Vec<CryptoHash>,
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
