@@ -621,10 +621,11 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis_chunks = genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0);
+        let genesis_chunks =
+            genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
-            genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+            genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::now(),
             0,
             100,

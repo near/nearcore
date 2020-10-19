@@ -742,18 +742,18 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
-        let epoch_id = self.get_epoch_id_from_prev_block(&header.inner.prev_block_hash)?;
+        let epoch_id = self.get_epoch_id_from_prev_block(&header.prev_block_hash())?;
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         if let Ok(chunk_producer) = epoch_manager.get_chunk_producer_info(
             &epoch_id,
-            header.inner.height_created,
-            header.inner.shard_id,
+            header.height_created(),
+            header.shard_id(),
         ) {
-            let slashed = epoch_manager.get_slashed_validators(&header.inner.prev_block_hash)?;
+            let slashed = epoch_manager.get_slashed_validators(&header.prev_block_hash())?;
             if slashed.contains_key(&chunk_producer.account_id) {
                 return Ok(false);
             }
-            Ok(header.signature.verify(header.chunk_hash().as_ref(), &chunk_producer.public_key))
+            Ok(header.signature().verify(header.chunk_hash().as_ref(), &chunk_producer.public_key))
         } else {
             Err(ErrorKind::NotAValidator.into())
         }

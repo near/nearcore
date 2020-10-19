@@ -18,7 +18,7 @@ success = Value('i', 0)
 class Handler(ProxyHandler):
     async def handle(self, msg, fr, to):
         if msg.enum == 'Block':
-            h = msg.Block.BlockV1.header.BlockHeaderV2.inner_lite.height
+            h = msg.Block.BlockV2.header.BlockHeaderV2.inner_lite.height
             print("Height:", h)
             if h >= 10:
                 print('SUCCESS')
