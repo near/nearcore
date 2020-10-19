@@ -62,7 +62,14 @@ impl ProtocolVersionRange {
     }
 }
 
-/// New Protocol features should go here. Nightly features are guarded by `#[cfg(feature = "nightly_protocol")]`.
+/// New Protocol features should go here. Features are guarded by their corresponding feature flag.
+/// For example, if we have `ProtocolFeature::EVM` and a corresponding feature flag `evm`, it will look
+/// like
+/// ```
+/// #[cfg(feature = "evm")]
+/// EVM
+/// ```
+#[derive(Hash, PartialEq, Eq)]
 pub enum ProtocolFeature {}
 
 /// Current latest stable version of the protocol.
@@ -73,16 +80,19 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 40;
 #[cfg(feature = "nightly_protocol")]
 pub const PROTOCOL_VERSION: ProtocolVersion = 40;
 
+/// Map of feature to the minimal protocol version that introduces the feature. We can determine
+/// whether to apply the new feature by comparing the current protocol version of the network to
+/// `PROTOCOL_FEATURES_TO_VERSION_MAPPING[feature]`.
 #[cfg(not(feature = "nightly_protocol"))]
 lazy_static! {
-    static ref PROTOCOL_VERSION_FEATURES_MAPPING: HashMap<ProtocolVersion, Vec<ProtocolFeature>> = vec![
+    static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
         /* add mapping here */
     ].into_iter().collect();
 }
 
 #[cfg(feature = "nightly_protocol")]
 lazy_static! {
-    static ref PROTOCOL_VERSION_FEATURES_MAPPING: HashMap<ProtocolVersion, Vec<ProtocolFeature>> = vec![
+    static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
         /* add mapping here */
     ].into_iter().collect();
 }
