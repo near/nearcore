@@ -64,11 +64,6 @@ fn address_to_key(prefix: KeyPrefix, address: &H160) -> Vec<u8> {
     result
 }
 
-#[cfg(feature = "costs_counting")]
-thread_local! {
-    static EVM_LAST_DEPLOYED: std::cell::RefCell<H160> = Default::default();
-}
-
 impl<'a> EvmState for EvmContext<'a> {
     fn code_at(&self, address: &H160) -> Result<Option<Vec<u8>>> {
         self.ext
@@ -626,16 +621,20 @@ pub fn run_evm(
     let result = match method_name.as_str() {
         // Change the state methods.
         "deploy_code" => context.deploy_code(args.clone()).map(|address| {
-            #[cfg(feature = "costs_counting")]
-            EVM_LAST_DEPLOYED.with(|addr| {
-                *addr.borrow_mut() = address.clone();
-            });
+            context.pay_gas_from_evm_gas(EvmOpForGas::Deploy(args.len())).unwrap();
             utils::address_to_vec(&address)
         }),
         // TODO: remove this function name if no one is using it.
-        "call_function" => context.call_function(args.clone()),
-        "call" => context.call_function(args.clone()),
-        "meta_call" => context.meta_call_function(args.clone()),
+        "call_function" | "call" => {
+            let r = context.call_function(args.clone());
+            context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();
+            r
+        }
+        "meta_call" => {
+            let r = context.meta_call_function(args.clone());
+            context.pay_gas_from_evm_gas(EvmOpForGas::Other).unwrap();
+            r
+        }
         "deposit" => {
             context.deposit(args.clone()).map(|balance| utils::u256_to_arr(&balance).to_vec())
         }
@@ -644,8 +643,11 @@ pub fn run_evm(
         "create" => context.create_evm(args.clone()).map(|_| vec![]),
         // View methods.
         // TODO: remove this function name if no one is using it.
-        "view_function_call" => context.view_call_function(args.clone()),
-        "view" => context.view_call_function(args.clone()),
+        "view_function_call" | "view" => {
+            let r = context.view_call_function(args.clone());
+            context.pay_gas_from_evm_gas(EvmOpForGas::Other).unwrap();
+            r
+        }
         "get_code" => context.get_code(args.clone()),
         "get_storage_at" => context.get_storage_at(args.clone()),
         "get_nonce" => {
@@ -656,15 +658,6 @@ pub fn run_evm(
         }
         _ => Err(VMLogicError::EvmError(EvmError::MethodNotFound)),
     };
-    context
-        .pay_gas_from_evm_gas(match method_name.as_str() {
-            "deploy_code" => EvmOpForGas::Deploy(args.len()),
-            "call_function" => EvmOpForGas::Funcall,
-            _ => EvmOpForGas::Other,
-        })
-        // It's not possible deduct near gas underflow, because even use full evm gas it's less than prepaid near gas
-        // If full evm gas isn't enough for evm operation, evm will revert result and all near gas is used to pay for evm gas
-        .unwrap();
 
     match result {
         Ok(value) => {
