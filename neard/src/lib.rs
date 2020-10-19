@@ -15,8 +15,9 @@ use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
 use near_store::migrations::{
-    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_6_to_7,
-    migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
+    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
+    migrate_11_to_12, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10,
+    set_store_version,
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
@@ -134,6 +135,18 @@ pub fn apply_store_migrations(path: &String, is_archival: bool) {
         // version 9 => 10;
         // populate partial encoded chunks for chunks that exist in storage
         migrate_9_to_10(path, is_archival);
+    }
+    if db_version <= 10 {
+        info!(target: "near", "Migrate DB from version 10 to 11");
+        // version 10 => 11
+        // Add final head
+        migrate_10_to_11(path);
+    }
+    if db_version <= 11 {
+        info!(target: "near", "Migrate DB from version 11 to 12");
+        // version 11 => 12;
+        // populate ColReceipts with existing receipts
+        migrate_11_to_12(path);
     }
 
     let db_version = get_store_version(path);

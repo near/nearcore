@@ -7,7 +7,7 @@ use evm::CreateContractAddress;
 use vm::{ContractCreateResult, MessageCallResult};
 
 use near_runtime_fees::{EvmCostConfig, RuntimeFeesConfig};
-use near_runtime_utils::is_valid_sub_account_id;
+use near_runtime_utils::{is_account_id_64_len_hex, is_valid_sub_account_id};
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
 use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
@@ -17,7 +17,10 @@ use crate::evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore};
 use crate::types::{
     AddressArg, GetStorageAtArgs, Result, TransferArgs, ViewCallArgs, WithdrawArgs,
 };
-use crate::utils::{ecrecover_address, near_erc721_domain, prepare_meta_call_args};
+use crate::utils::{
+    combine_data_key, ecrecover_address, near_erc721_domain, prepare_meta_call_args,
+};
+use near_vm_errors::InconsistentStateError::StorageError;
 
 mod builtins;
 mod evm_state;
@@ -78,11 +81,16 @@ impl<'a> EvmState for EvmContext<'a> {
     }
 
     fn get_account(&self, address: &Address) -> Result<Option<EvmAccount>> {
-        self.ext.storage_get(&address_to_key(KeyPrefix::Account, address)).map(|value| {
-            value.map(|x| {
-                EvmAccount::try_from_slice(&x.deref().expect("Failed to deref")).unwrap_or_default()
-            })
-        })
+        match self.ext.storage_get(&address_to_key(KeyPrefix::Account, address)).map(|value| {
+            value.map(|x| EvmAccount::try_from_slice(&x.deref().expect("Failed to deref")))
+        }) {
+            Ok(Some(Ok(value))) => Ok(Some(value)),
+            Ok(None) => Ok(None),
+            Ok(Some(Err(_))) => Err(VMLogicError::InconsistentStateError(StorageError(
+                "Failed to deserialize".to_string(),
+            ))),
+            Err(e) => Err(e),
+        }
     }
 
     fn set_account(&mut self, address: &Address, account: &EvmAccount) -> Result<()> {
@@ -93,11 +101,18 @@ impl<'a> EvmState for EvmContext<'a> {
     }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Result<Option<[u8; 32]>> {
-        self.ext.storage_get(&key).map(|value| {
-            value.map(|x| {
-                utils::vec_to_arr_32(x.deref().expect("Failed to deref")).expect("Must be 32 bytes")
-            })
-        })
+        match self
+            .ext
+            .storage_get(&key)
+            .map(|value| value.map(|x| utils::vec_to_arr_32(x.deref().expect("Failed to deref"))))
+        {
+            Ok(Some(Some(value))) => Ok(Some(value)),
+            Ok(Some(None)) => Err(VMLogicError::InconsistentStateError(StorageError(
+                "Must be 32 bytes".to_string(),
+            ))),
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 
     fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Result<()> {
@@ -112,21 +127,22 @@ impl<'a> EvmState for EvmContext<'a> {
             self.clear_contract_info(address)?;
         }
         for (address, code) in other.code.iter() {
-            self.set_code(&H160(*address), code)?;
+            self.set_code(address, code)?;
         }
         for (address, account) in other.accounts.iter() {
-            self.set_account(&H160(*address), account)?;
+            self.set_account(address, account)?;
         }
-        for (key, value) in other.storages.iter() {
-            let mut arr = [0; 52];
-            arr.copy_from_slice(&key);
-            self._set_contract_storage(arr, *value)?;
+        for (address, values) in other.storages.iter() {
+            for (key, value) in values.iter() {
+                let key = combine_data_key(address, key);
+                self._set_contract_storage(key, *value)?;
+            }
         }
         self.logs.extend_from_slice(&other.logs);
         Ok(())
     }
 
-    fn recreate(&mut self, _address: [u8; 20]) {
+    fn recreate(&mut self, _address: Address) {
         unreachable!()
     }
 }
@@ -176,8 +192,8 @@ impl<'a> EvmContext<'a> {
         }
     }
 
-    fn clear_contract_info(&mut self, other: &[u8; 20]) -> Result<()> {
-        self.ext.storage_remove_subtree(other)
+    fn clear_contract_info(&mut self, other: &Address) -> Result<()> {
+        self.ext.storage_remove_subtree(&other.0)
     }
 
     pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
@@ -382,13 +398,16 @@ impl<'a> EvmContext<'a> {
     pub fn withdraw(&mut self, args: Vec<u8>) -> Result<()> {
         let args = WithdrawArgs::try_from_slice(&args)
             .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
+        if args.account_id == self.account_id {
+            return Err(VMLogicError::EvmError(EvmError::FailSelfWithdraw));
+        }
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         let amount = U256::from(args.amount);
         if amount > self.balance_of(&sender)? {
             return Err(VMLogicError::EvmError(EvmError::InsufficientFunds));
         }
         self.sub_balance(&sender, amount)?;
-        let receipt_index = self.ext.create_receipt(vec![], args.account_id)?;
+        let receipt_index = self.ext.create_receipt(vec![], args.account_id.clone())?;
         // We use low_u128, because NEAR native currency fits into u128.
         let amount = amount.low_u128();
         self.current_amount = self
@@ -396,12 +415,7 @@ impl<'a> EvmContext<'a> {
             .checked_sub(amount)
             .ok_or_else(|| VMLogicError::EvmError(EvmError::InsufficientFunds))?;
         self.pay_gas_for_new_receipt(false, &[])?;
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.transfer_cost,
-            // TOOD: Hm, what if they withdraw to itself? We should probably close circuit that here.
-            false,
-            ActionCosts::transfer,
-        )?;
+        self.pay_gas_for_transfer(&args.account_id)?;
         self.ext.append_action_transfer(receipt_index, amount)
     }
 
@@ -434,7 +448,7 @@ impl<'a> EvmContext<'a> {
             .current_amount
             .checked_sub(self.attached_deposit)
             .ok_or_else(|| VMLogicError::EvmError(EvmError::InsufficientFunds))?;
-        let receipt_index = self.ext.create_receipt(vec![], new_account_id)?;
+        let receipt_index = self.ext.create_receipt(vec![], new_account_id.clone())?;
         self.pay_gas_for_new_receipt(false, &[])?;
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.create_account_cost,
@@ -442,11 +456,7 @@ impl<'a> EvmContext<'a> {
             ActionCosts::create_account,
         )?;
         self.ext.append_action_create_account(receipt_index)?;
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.transfer_cost,
-            false,
-            ActionCosts::transfer,
-        )?;
+        self.pay_gas_for_transfer(&new_account_id)?;
         self.ext.append_action_transfer(receipt_index, self.attached_deposit)
     }
 
@@ -501,6 +511,26 @@ impl<'a> EvmContext<'a> {
             EvmOpForGas::Other => fee_cfg.bootstrap_cost,
         };
         self.gas_counter.pay_evm_gas(gas)
+    }
+
+    fn pay_gas_for_transfer(&mut self, account_id: &AccountId) -> Result<()> {
+        if is_account_id_64_len_hex(&account_id) {
+            self.gas_counter.pay_action_base(
+                &self.fees_config.action_creation_config.create_account_cost,
+                false,
+                ActionCosts::transfer,
+            )?;
+            self.gas_counter.pay_action_base(
+                &self.fees_config.action_creation_config.add_key_cost.full_access_cost,
+                false,
+                ActionCosts::transfer,
+            )?;
+        }
+        self.gas_counter.pay_action_base(
+            &self.fees_config.action_creation_config.transfer_cost,
+            false,
+            ActionCosts::transfer,
+        )
     }
 }
 

@@ -34,7 +34,7 @@ pub fn deploy_code<T: EvmState>(
     let (address, _) = utils::evm_contract_address(address_type, &sender, &nonce, &code);
 
     if recreate {
-        state.recreate(address.0);
+        state.recreate(address);
     } else if state.code_at(&address)?.is_some() {
         return Err(VMLogicError::EvmError(EvmError::DuplicateContract(address.0.to_vec())));
     }

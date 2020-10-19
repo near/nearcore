@@ -12,14 +12,18 @@ use near_primitives::sharding::{
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
-use crate::db::DBCol::{ColChunks, ColPartialChunks, ColStateParts};
+use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts};
 use crate::db::{DBCol, RocksDB, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
-use crate::migrations::v8_to_v9::{repair_col_receipt_id_to_shard_id, repair_col_transactions};
-use crate::{create_store, Store, StoreUpdate};
+use crate::migrations::v8_to_v9::{
+    recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
+};
+use crate::{create_store, Store, StoreUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 use near_crypto::KeyType;
+use near_primitives::block::Tip;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::merkle::merklize;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 
@@ -203,4 +207,50 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
         store_update.commit().expect("storage update should not fail");
     }
     set_store_version(&store, 10);
+}
+
+pub fn migrate_10_to_11(path: &String) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    let head = store.get_ser::<Tip>(ColBlockMisc, HEAD_KEY).unwrap().expect("head must exist");
+    let block_header = store
+        .get_ser::<BlockHeader>(ColBlockHeader, head.last_block_hash.as_ref())
+        .unwrap()
+        .expect("head header must exist");
+    let last_final_block_hash = if block_header.last_final_block() == &CryptoHash::default() {
+        let mut cur_header = block_header;
+        while cur_header.prev_hash() != &CryptoHash::default() {
+            cur_header = store
+                .get_ser::<BlockHeader>(ColBlockHeader, cur_header.prev_hash().as_ref())
+                .unwrap()
+                .unwrap()
+        }
+        *cur_header.hash()
+    } else {
+        *block_header.last_final_block()
+    };
+    let last_final_header = store
+        .get_ser::<BlockHeader>(ColBlockHeader, last_final_block_hash.as_ref())
+        .unwrap()
+        .expect("last final block header must exist");
+    let final_head = Tip::from_header(&last_final_header);
+    store_update.set_ser(ColBlockMisc, FINAL_HEAD_KEY, &final_head).unwrap();
+    store_update.commit().unwrap();
+    set_store_version(&store, 11);
+}
+
+pub fn migrate_11_to_12(path: &String) {
+    let store = create_store(path);
+    recompute_col_rc(
+        &store,
+        DBCol::ColReceipts,
+        store
+            .iter(DBCol::ColChunks)
+            .map(|(_key, value)| {
+                ShardChunk::try_from_slice(&value).expect("BorshDeserialize should not fail")
+            })
+            .flat_map(|chunk: ShardChunk| chunk.receipts)
+            .map(|rx| (rx.receipt_id, rx.try_to_vec().unwrap())),
+    );
+    set_store_version(&store, 12);
 }

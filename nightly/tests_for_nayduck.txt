@@ -30,6 +30,7 @@ pytest --timeout=360 sanity/block_sync_archival.py
 pytest --timeout=240 sanity/validator_switch.py
 pytest --timeout=240 sanity/restaked.py
 pytest --timeout=240 sanity/rpc_state_changes.py
+pytest sanity/rpc_tx_status.py
 pytest --timeout=120 sanity/garbage_collection.py
 pytest --timeout=120 sanity/garbage_collection1.py
 pytest --timeout=300 sanity/gc_after_sync.py
@@ -48,6 +49,7 @@ pytest sanity/network_drop_package.py
 # TODO: enable them when we fix the issue with proxy shutdown (#2942)
 # pytest --timeout=900 sanity/sync_ban.py true
 # pytest --timeout=900 sanity/sync_ban.py false
+pytest sanity/block_chunk_signature.py
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
@@ -55,11 +57,11 @@ pytest --timeout=240 contracts/gibberish.py
 
 # python stress tests
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions
-pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions packets_drop
-pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network packets_drop
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop
+pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart wipe_data
+pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop wipe_data
 # pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set
 
 # pytest stress/network_stress.py

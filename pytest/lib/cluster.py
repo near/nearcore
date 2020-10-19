@@ -6,6 +6,7 @@ import os
 import sys
 import signal
 import atexit
+import signal
 import shutil
 import requests
 import time
@@ -138,8 +139,8 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self, check_storage=True):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=2)
+    def get_status(self, check_storage=True, timeout=2):
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=timeout)
         r.raise_for_status()
         status = json.loads(r.content)
         if check_storage and status['sync_info']['syncing'] == False:
@@ -533,11 +534,14 @@ def github_auth():
     return code
 
 class AzureNode(BaseNode):
-        def __init__(self, ip, token, node_dir):
+        def __init__(self, ip, token, node_dir, release):
             super(AzureNode, self).__init__()
             self.ip = ip
             self.token = token
-            self.near_root = '/datadrive/testnodes/worker/nearcore/target/debug'
+            if release:
+                self.near_root = '/datadrive/testnodes/worker/nearcore/target/release'
+            else:
+                self.near_root = '/datadrive/testnodes/worker/nearcore/target/debug'
             self.port = 24567
             self.rpc_port = 3030
             self.node_dir = node_dir
@@ -563,7 +567,7 @@ class AzureNode(BaseNode):
             self.signer_key = Key.from_json_file(
                 os.path.join(node_dir, "validator_key.json"))
 
-        def start(self, boot_key, boot_node_addr):
+        def start(self, boot_key, boot_node_addr, skip_starting_proxy):
             cmd = ('RUST_BACKTRACE=1 ADVERSARY_CONSENT=1 ' + ' '.join(
                 self._get_command_line(self.near_root,
                                        '.near', boot_key, boot_node_addr)).
@@ -574,6 +578,7 @@ class AzureNode(BaseNode):
             if json_res['stderr'] != '':
                 print(json_res['stderr'])
                 sys.exit()
+            self.wait_for_rpc(timeout=30)
 
         def kill(self):
             cmd = ('killall -9 neard')
@@ -593,7 +598,8 @@ class AzureNode(BaseNode):
 
 class PreexistingCluster():
         
-    def __init__(self, num_nodes, node_dirs):
+    def __init__(self, num_nodes, node_dirs, release):
+        self.already_cleaned_up = False
         if os.path.isfile(os.path.expanduser('~/.nayduck')):
             with open(os.path.expanduser('~/.nayduck'), 'r') as f:
                 self.token = f.read().strip()
@@ -602,7 +608,7 @@ class PreexistingCluster():
         self.nodes = []
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], universal_newlines=True).strip()
         requester = subprocess.check_output(['git', 'config', 'user.name'], universal_newlines=True).strip()
-        post = {'sha': sha, 'requester': requester, 
+        post = {'sha': sha, 'requester': requester, 'release': release,
                 'num_nodes': num_nodes, 'token': self.token}
         res = requests.post('http://40.112.59.229:5000/request_a_run', json=post)
         json_res = json.loads(res.text)
@@ -610,30 +616,45 @@ class PreexistingCluster():
             print(json_res['err'])
             return
         self.request_id = json_res['request_id']
+        print("GG request id: %s" % self.request_id)
         self.ips = []
-        atexit.register(self.atexit_cleanup_preexist)
+        atexit.register(self.atexit_cleanup_preexist, None)
+        signal.signal(signal.SIGTERM, self.atexit_cleanup_preexist)
+        signal.signal(signal.SIGINT, self.atexit_cleanup_preexist)
+        k = 0
         while True:
+            k += 1
             post = {'num_nodes': num_nodes, 'request_id': self.request_id,
                     'token': self.token}
             res = requests.post('http://40.112.59.229:5000/get_instances', json=post)
             json_res = json.loads(res.text)
             self.ips = json_res['ips']
-            for i in range(0, num_nodes):
-                node = AzureNode(json_res['ips'][i], self.token, node_dirs[i])
-                self.nodes.append(node)
             print('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
+            if requester == "NayDuck" and k == 3:
+                print("Postpone test for NayDuck.")
+                sys.exit(13)
+
+            if len(self.ips) != num_nodes:
+                time.sleep(10)
+                continue
+            for i in range(0, num_nodes):
+                node = AzureNode(json_res['ips'][i], self.token, node_dirs[i], release)
+                self.nodes.append(node)
             if len(self.nodes) == num_nodes:
                 break
-            time.sleep(10)
+
         print()
+        print("ips: %s" % self.ips)
         while True:
             status = {'BUILDING': 0, 'READY': 0, 'BUILD FAILED': 0}
             post = {'ips': self.ips, 'token': self.token}
             res = requests.post('http://40.112.59.229:5000/get_instances_status', json=post)
             json_res = json.loads(res.text)
-            for _, v in json_res.items():
+            for k, v in json_res.items():
                 if v in status:
                     status[v] += 1
+                else:
+                    print("Unexpected status %s for %s" % (v, k))
             print('%s nodes are building and %s nodes are ready' % (status['BUILDING'], status['READY']),  end='\r')
             if status['BUILD FAILED'] > 0:
                 print('Build failed for at least one instance')
@@ -646,7 +667,10 @@ class PreexistingCluster():
     def get_one_node(self, i):
         return self.nodes[i]
 
-    def atexit_cleanup_preexist(self):
+    def atexit_cleanup_preexist(self, *args):
+        if self.already_cleaned_up:
+            sys.exit(0)
+        print()
         post = {'request_id': self.request_id, 'token': self.token} 
         print("Starting cleaning up remote instances.")
         res = requests.post('http://40.112.59.229:5000/cancel_the_run', json=post)
@@ -661,6 +685,8 @@ class PreexistingCluster():
                     with open(fl, 'w') as f:
                         f.write(res.text)
                     print(f"Logs are available in {fl}")
+        self.already_cleaned_up = True
+        sys.exit(0)
 
 def spin_up_node(config,
                  near_root,
@@ -762,7 +788,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
         print("Use preexisting cluster.")
         # ips of azure nodes with build neard but not yet started.
         global preexisting
-        preexisting = PreexistingCluster(num_nodes + num_observers, node_dirs)
+        preexisting = PreexistingCluster(num_nodes + num_observers, node_dirs, config['release'])
     
     return near_root, node_dirs
 
@@ -858,7 +884,8 @@ DEFAULT_CONFIG = {
     'local': True,
     'preexist': False,
     'near_root': '../target/debug/',
-    'binary_name': 'neard'
+    'binary_name': 'neard',
+    'release': False
 }
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
@@ -870,7 +897,8 @@ def load_config():
     if config_file:
         try:
             with open(config_file) as f:
-                config = json.load(f)
+                new_config = json.load(f)
+                config.update(new_config)
                 print(f"Load config from {config_file}, config {config}")
         except FileNotFoundError:
             print(f"Failed to load config file, use default config {config}")

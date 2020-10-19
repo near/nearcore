@@ -110,10 +110,12 @@ pub enum DBCol {
     _ColTransactionRefCount = 43,
     /// Heights of blocks that have been processed
     ColProcessedBlockHeights = 44,
+    /// Receipts
+    ColReceipts = 45,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 45;
+pub const NUM_COLS: usize = 46;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -163,6 +165,7 @@ impl std::fmt::Display for DBCol {
             Self::ColOutcomesByBlockHash => "outcomes by block hash",
             Self::_ColTransactionRefCount => "refcount per transaction (deprecated)",
             Self::ColProcessedBlockHeights => "processed block heights",
+            Self::ColReceipts => "receipts",
         };
         write!(formatter, "{}", desc)
     }
@@ -216,6 +219,7 @@ lazy_static! {
         let mut col_rc = vec![false; NUM_COLS];
         col_rc[DBCol::ColState as usize] = true;
         col_rc[DBCol::ColTransactions as usize] = true;
+        col_rc[DBCol::ColReceipts as usize] = true;
         col_rc[DBCol::ColReceiptIdToShardId as usize] = true;
         col_rc
     };
@@ -226,6 +230,7 @@ pub const TAIL_KEY: &[u8; 4] = b"TAIL";
 pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";
 pub const FORK_TAIL_KEY: &[u8; 9] = b"FORK_TAIL";
 pub const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
+pub const FINAL_HEAD_KEY: &[u8; 10] = b"FINAL_HEAD";
 pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const VERSION_KEY: &[u8; 7] = b"VERSION";

@@ -10,6 +10,7 @@ use futures::{future, FutureExt};
 use num_rational::Rational;
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
+use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
     Block, ChainGenesis, ChainStore, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter,
@@ -39,7 +40,7 @@ use near_primitives::syncing::get_num_state_parts;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
 };
-use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ValidatorStake};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ValidatorStake};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -2077,4 +2078,90 @@ fn test_epoch_protocol_version_change() {
         .get_epoch_protocol_version(last_block.header().epoch_id())
         .unwrap();
     assert_eq!(protocol_version, PROTOCOL_VERSION + 1);
+}
+
+/// Final state should be consistent when a node switches between forks in the following scenario
+///                      /-----------h+2
+/// h-2 ---- h-1 ------ h
+///                      \------h+1
+/// even though from the perspective of h+2 the last final block is h-2.
+#[test]
+fn test_query_final_state() {
+    let epoch_length = 10;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".to_string(),
+        "test1".to_string(),
+        &signer,
+        100,
+        *genesis_block.hash(),
+    );
+    env.clients[0].process_tx(tx, false, false);
+
+    let mut blocks = vec![];
+
+    for i in 1..5 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        blocks.push(block.clone());
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+    }
+
+    let query_final_state = |chain: &mut near_chain::Chain,
+                             runtime_adapter: Arc<dyn RuntimeAdapter>,
+                             account_id: AccountId| {
+        let final_head = chain.store().final_head().unwrap();
+        let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap().clone();
+        let response = runtime_adapter
+            .query(
+                0,
+                &last_final_block.chunks()[0].inner.prev_state_root,
+                last_final_block.header().height(),
+                last_final_block.header().raw_timestamp(),
+                last_final_block.hash(),
+                last_final_block.header().epoch_id(),
+                &QueryRequest::ViewAccount { account_id },
+            )
+            .unwrap();
+        match response.kind {
+            QueryResponseKind::ViewAccount(account_view) => account_view,
+            _ => panic!("Wrong return value"),
+        }
+    };
+
+    let fork1_block = env.clients[0].produce_block(5).unwrap().unwrap();
+    env.clients[0]
+        .chain
+        .mut_store()
+        .save_latest_known(LatestKnown {
+            height: blocks.last().unwrap().header().height(),
+            seen: blocks.last().unwrap().header().raw_timestamp(),
+        })
+        .unwrap();
+    let fork2_block = env.clients[0].produce_block(6).unwrap().unwrap();
+    assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
+    env.process_block(0, fork1_block.clone(), Provenance::NONE);
+    assert_eq!(env.clients[0].chain.head().unwrap().height, 5);
+
+    let runtime_adapter = env.clients[0].runtime_adapter.clone();
+    let account_state1 =
+        query_final_state(&mut env.clients[0].chain, runtime_adapter.clone(), "test0".to_string());
+
+    env.process_block(0, fork2_block.clone(), Provenance::NONE);
+    assert_eq!(env.clients[0].chain.head().unwrap().height, 6);
+
+    let runtime_adapter = env.clients[0].runtime_adapter.clone();
+    let account_state2 =
+        query_final_state(&mut env.clients[0].chain, runtime_adapter.clone(), "test0".to_string());
+
+    assert_eq!(account_state1, account_state2);
+    assert!(account_state1.amount < TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
 }

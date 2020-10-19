@@ -77,6 +77,7 @@ pub struct RuntimeFeesConfig {
     pub evm_config: EvmCostConfig,
 
     /// New EVM deposit.
+    /// Fee to create new EVM account.
     #[serde(with = "u128_dec_format", default = "default_evm_deposit")]
     pub evm_deposit: Balance,
 }

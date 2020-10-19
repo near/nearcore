@@ -9,6 +9,7 @@ use near_vm_logic::types::AccountId;
 pub type RawAddress = [u8; 20];
 pub type RawHash = [u8; 32];
 pub type RawU256 = [u8; 32];
+pub type DataKey = [u8; 52];
 
 pub type Result<T> = std::result::Result<T, VMLogicError>;
 

@@ -16,7 +16,6 @@ use crate::interpreter;
 use crate::utils::format_log;
 
 // https://github.com/paritytech/parity-ethereum/blob/77643c13e80ca09d9a6b10631034f5a1568ba6d3/ethcore/machine/src/externalities.rs
-// #[derive(Debug)]
 pub struct NearExt<'a> {
     pub info: EnvInfo,
     pub origin: Address,
@@ -98,12 +97,12 @@ impl<'a> vm::Ext for NearExt<'a> {
 
     // TODO: research why these are different
     fn exists(&self, address: &Address) -> EvmResult<bool> {
-        Ok(self.sub_state.balance_of(address).unwrap_or_else(|_| U256::from(0)) > U256::from(0)
+        Ok(self.sub_state.balance_of(address).unwrap_or_else(|_| U256::zero()) > U256::zero()
             || self.sub_state.code_at(address).unwrap_or(None).is_some())
     }
 
     fn exists_and_not_null(&self, address: &Address) -> EvmResult<bool> {
-        Ok(self.sub_state.balance_of(address).unwrap_or_else(|_| U256::from(0)) > 0.into()
+        Ok(self.sub_state.balance_of(address).unwrap_or_else(|_| U256::zero()) > 0.into()
             || self.sub_state.code_at(address).unwrap_or(None).is_some())
     }
 
@@ -112,11 +111,16 @@ impl<'a> vm::Ext for NearExt<'a> {
     }
 
     fn balance(&self, address: &Address) -> EvmResult<U256> {
-        let account = self.sub_state.get_account(address).unwrap_or(None).unwrap_or_default();
-        Ok(account.balance.into())
+        Ok(self
+            .sub_state
+            .get_account(address)
+            .unwrap_or(None)
+            .map(|account| account.balance.into())
+            .unwrap_or(U256::zero()))
     }
 
     fn blockhash(&mut self, number: &U256) -> H256 {
+        // TODO(3456): Return actual block hashes.
         let mut buf = [0u8; 32];
         number.to_big_endian(&mut buf);
         keccak(&buf[..])
