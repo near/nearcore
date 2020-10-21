@@ -267,8 +267,11 @@ fn deploy_evm_contract(
         for block_size in config.block_sizes.clone() {
             let block: Vec<_> = (0..block_size).map(|_| f()).collect();
             let mut testbed = testbed.lock().unwrap();
-            let start = start_count(config.metric);
             testbed.process_block(&block, allow_failures);
+            // process_block create action receipt for FunctionCall Action, not count as gas used in evm.
+            // In real node, action receipt cost is deducted in validate_tx -> tx_cost so should only count
+            // and deduct evm execution cost
+            let start = start_count(config.metric);
             testbed.process_blocks_until_no_receipts(allow_failures);
             let cost = end_count(config.metric, &start);
             total_cost += cost;
@@ -452,15 +455,6 @@ pub fn measure_evm_funcall(
     measurements_to_coef(measurements, true)
 }
 
-pub fn action_receipt_fee() -> u64 {
-    // Because run --only-evm, don't have aggreggated metrics of Metric::noop and Metric::Receipt, so just deduct
-    // ReceiptFees::ActionFunctionCallBase from last run without --only-evm, which is this function returns
-    // TODO: it should be updated to only function_call_cost, after #3279 is merged into upstream branch: evm-precompile
-    let fees = RuntimeFeesConfig::default();
-
-    fees.action_receipt_creation_config.execution + fees.action_receipt_creation_config.send_not_sir
-}
-
 pub fn measure_evm_precompile_function(
     config: &Config,
     verbose: bool,
@@ -578,8 +572,8 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
         for block_size in config.block_sizes.clone() {
             let block: Vec<_> = (0..block_size).map(|_| f()).collect();
             let mut testbed = testbed.lock().unwrap();
-            let start = start_count(config.metric);
             testbed.process_block(&block, allow_failures);
+            let start = start_count(config.metric);
             testbed.process_blocks_until_no_receipts(allow_failures);
             let cost = end_count(config.metric, &start);
             total_cost += cost;
