@@ -270,16 +270,16 @@ impl Default for RuntimeFeesConfig {
                 // Got inside emu-cost docker, numbers differ slightly in different runs:
                 // cd /host/nearcore/runtime/near-evm-runner/tests
                 // ../../runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=../../runtime-params-estimator/emu-cost/counter_plugin/libcounter.so ../../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 200000 --iters 1 --warmup-iters 1 --evm-only
-                bootstrap_cost: 701340443790,
-                deploy_cost_per_evm_gas: 2428031,
-                deploy_cost_per_byte: 1328305,
-                funcall_cost_base: 675044695000,
-                funcall_cost_per_evm_gas: 73398498,
-                ecrecover_cost: 3825,
-                sha256_cost: 89,
-                ripemd160_cost: 82,
-                identity_cost: 182,
-                modexp_cost: 144,
+                bootstrap_cost: 373945633846,
+                deploy_cost_per_evm_gas: 3004467,
+                deploy_cost_per_byte: 2732257,
+                funcall_cost_base: 300126401250,
+                funcall_cost_per_evm_gas: 116076934,
+                ecrecover_cost: 2418,
+                sha256_cost: 56,
+                ripemd160_cost: 52,
+                identity_cost: 115,
+                modexp_cost: 90,
             },
             evm_deposit: EVM_DEPOSIT,
         }
