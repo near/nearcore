@@ -43,10 +43,6 @@ pub struct StreamerMessage {
     pub chunks: Vec<IndexerChunkView>,
     pub receipt_execution_outcomes: ExecutionOutcomesWithReceipts,
     pub state_changes: views::StateChangesKindsView,
-    /// Transaction where signer is receiver produces so called "local receipt"
-    /// these receipts will never get to chunks' `receipts` field. Anyway they can
-    /// contain actions that is necessary to handle in Indexers
-    pub local_receipts: Vec<views::ReceiptView>,
 }
 
 #[derive(Debug)]
@@ -226,11 +222,16 @@ async fn build_streamer_message(
             .await?,
         );
 
+        // Prepending local receipts with common receipts from current chunk
+        // local ones will be required below to attach them to corresponding execution outcomes
+        let mut chunk_receipts = local_receipts.clone();
+        chunk_receipts.extend(receipts);
+
         indexer_chunks.push(IndexerChunkView {
             author,
             header,
             transactions: indexer_transactions,
-            receipts,
+            receipts: chunk_receipts,
         });
     }
 
@@ -249,7 +250,6 @@ async fn build_streamer_message(
         chunks: indexer_chunks,
         receipt_execution_outcomes: outcomes,
         state_changes,
-        local_receipts,
     })
 }
 
