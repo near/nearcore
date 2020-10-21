@@ -98,7 +98,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
         let mut cur_height = genesis_height;
         while cur_height <= head.height {
             let mut store_update = store.store_update();
-            for height in cur_height..std::cmp::min(cur_height + 10000, head.height + 1) {
+            for height in cur_height..std::cmp::min(cur_height + 100, head.height + 1) {
                 if let Err(e) =
                     apply_block_at_height(&mut store_update, &mut chain_store, &runtime, height, 0)
                 {
@@ -108,7 +108,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
                     }
                 }
             }
-            cur_height += 10000;
+            cur_height += 100;
             store_update.commit().unwrap();
         }
     }
