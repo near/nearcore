@@ -186,9 +186,6 @@ pub fn run_wasmer<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    if cache.is_some() {
-        println!("Running from cache!");
-    }
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
         panic!(
