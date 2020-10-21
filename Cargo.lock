@@ -1203,12 +1203,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "dynasm"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62a59fbab09460c1569eeea9b5e4cf62f13f5198b1c2ba0e5196dd7fdd17cd42"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "lazy_static",
+ "proc-macro-error 1.0.4",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "dynasmrt"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a393aaeb4441a48bcf47b5b6155971f82cc1eb77e22855403ccc0415ac8328d"
 dependencies = [
  "byteorder",
+ "memmap",
+]
+
+[[package]]
+name = "dynasmrt"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85bec3edae2841d37b1c3dc7f3fd403c9061f26e9ffeeee97a3ea909b1bb2ef1"
+dependencies = [
+ "byteorder",
+ "dynasm 1.0.0",
  "memmap",
 ]
 
@@ -2126,8 +2152,8 @@ dependencies = [
  "capstone",
  "cranelift-codegen",
  "derive_more",
- "dynasm",
- "dynasmrt",
+ "dynasm 0.5.2",
+ "dynasmrt 0.5.2",
  "iter-enum",
  "itertools 0.8.2",
  "memoffset",
@@ -5064,8 +5090,7 @@ checksum = "daf76fe7d25ac79748a37538b7daeed1c7a6867c92d3245c12c6222e4a20d639"
 [[package]]
 name = "wasmer-runtime"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c92a9ae96b193c35c47fc829265198322cf980edc353a9de32bc87a1545d44f3"
+source = "git+https://github.com/near/wasmer?branch=0.17.2#b4284f82f1e7d9cafde5f30a3d31796ce2976201"
 dependencies = [
  "lazy_static",
  "memmap",
@@ -5078,8 +5103,7 @@ dependencies = [
 [[package]]
 name = "wasmer-runtime-core"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "740161245998752cf1a567e860fd6355df0336fedca6be1940ec7aaa59643220"
+source = "git+https://github.com/near/wasmer?branch=0.17.2#b4284f82f1e7d9cafde5f30a3d31796ce2976201"
 dependencies = [
  "bincode",
  "blake3",
@@ -5107,13 +5131,12 @@ dependencies = [
 [[package]]
 name = "wasmer-singlepass-backend"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41a434ebf512ae1c76de46d41935a9ae10775fd937071334bdf5878cc41d9140"
+source = "git+https://github.com/near/wasmer?branch=0.17.2#b4284f82f1e7d9cafde5f30a3d31796ce2976201"
 dependencies = [
  "bincode",
  "byteorder",
- "dynasm",
- "dynasmrt",
+ "dynasm 1.0.0",
+ "dynasmrt 1.0.0",
  "lazy_static",
  "libc",
  "nix",
