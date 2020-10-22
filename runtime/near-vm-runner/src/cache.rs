@@ -9,9 +9,9 @@ use std::fmt;
 use wasmer_runtime::{compiler_for_backend, Backend};
 use wasmer_runtime_core::cache::Artifact;
 use wasmer_runtime_core::load_cache_with;
+use std::convert::TryFrom;
 
 pub(crate) fn compile_module(
-    _code_and_config_hash: Vec<u8>,
     code: &[u8],
     config: &VMConfig,
 ) -> Result<wasmer_runtime::Module, VMError> {
@@ -19,8 +19,12 @@ pub(crate) fn compile_module(
     wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error())
 }
 
-pub fn get_hash(code: &[u8], config: &VMConfig) -> CryptoHash {
-    near_primitives::hash::hash(&[code, &config.non_crypto_hash().to_le_bytes()].concat())
+#[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
+enum ContractCacheKey {
+    Version1 {
+        code_hash: CryptoHash,
+        vm_config_non_crypto_hash: u64,
+    }
 }
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -29,26 +33,37 @@ enum CacheRecord {
     Code(Vec<u8>),
 }
 
+fn get_key(code_hash: &[u8], code: &[u8], config: &VMConfig) -> Vec<u8> {
+    let hash = if code_hash.is_empty() {
+        near_primitives::hash::hash(code)
+    } else {
+        CryptoHash::try_from(code_hash).unwrap()
+    };
+    let key = ContractCacheKey::Version1 {
+        code_hash: hash,
+        vm_config_non_crypto_hash: config.non_crypto_hash(),
+    };
+    key.try_to_vec().unwrap()
+}
+
 pub(crate) fn compile_module_cached(
-    _code_hash: &[u8],
+    code_hash: &[u8],
     code: &[u8],
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<wasmer_runtime::Module, VMError> {
     // Sometimes caller doesn't compute code_hash, so always hash the code ourselves.
-    let crypto_hash = get_hash(code, config);
-    let hash = (crypto_hash.0).0.to_vec();
+    let key = get_key(code_hash, code, config);
     /* Consider adding `|| cfg!(feature = "no_cache")` */
     if cache.is_none() {
-        return compile_module(hash.clone(), code, config);
+        return compile_module(code, config);
     }
     let cache = cache.unwrap();
-    match cache.get(&hash) {
+    match cache.get(key.as_slice()) {
         Ok(serialized) => {
             match serialized {
                 Some(serialized) => {
                     // We got cached code or error from DB cache.
-                    println!("Using DB cache");
                     let record = CacheRecord::try_from_slice(serialized.as_slice()).unwrap();
                     let code = match record {
                         CacheRecord::Error(err) => return Err(err),
@@ -64,9 +79,9 @@ pub(crate) fn compile_module_cached(
                 None => {
                     // Nothing found in cache, create new record.
                     let compiled: wasmer_runtime::Module =
-                        compile_module(hash.clone(), code, config).map_err(|e| {
+                        compile_module(code, config).map_err(|e| {
                             let record = CacheRecord::Error(e.clone());
-                            let e1 = cache.put(&hash, &record.try_to_vec().unwrap());
+                            let e1 = cache.put(key.as_slice(), &record.try_to_vec().unwrap());
                             if e1.is_err() {
                                 // That's fine, just cannot cache compilation error.
                                 println!("Cannot cache an error");
@@ -77,7 +92,7 @@ pub(crate) fn compile_module_cached(
                     let artifact = compiled.cache().map_err(|_e| {
                         let e = VMError::CacheError(SerializationError);
                         let record = CacheRecord::Error(e.clone());
-                        let e1 = cache.put(&hash, &record.try_to_vec().unwrap());
+                        let e1 = cache.put(key.as_slice(), &record.try_to_vec().unwrap());
                         if e1.is_err() {
                             // That's fine, just cannot cache compilation error.
                             println!("Cannot cache an error");
@@ -88,12 +103,12 @@ pub(crate) fn compile_module_cached(
                     let code = artifact.serialize().map_err(|_e| {
                         let e = VMError::CacheError(SerializationError);
                         let record = CacheRecord::Error(e.clone());
-                        cache.put(&hash, &record.try_to_vec().unwrap()).unwrap();
+                        cache.put(key.as_slice(), &record.try_to_vec().unwrap()).unwrap();
                         e
                     })?;
                     let record = CacheRecord::Code(code);
                     cache
-                        .put(&hash, &record.try_to_vec().unwrap())
+                        .put(key.as_slice(), &record.try_to_vec().unwrap())
                         .map_err(|_e| VMError::CacheError(WriteError))?;
                     Ok(compiled)
                 }
@@ -101,7 +116,8 @@ pub(crate) fn compile_module_cached(
         }
         Err(_) => {
             // Cache access error happened, avoid attempts to cache.
-            return compile_module(hash.clone(), code, config);
+            println!("Cannot use cache");
+            return compile_module(code, config);
         }
     }
 }
