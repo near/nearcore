@@ -37,13 +37,14 @@ fn get_key(code_hash: &[u8], code: &[u8], config: &VMConfig) -> Vec<u8> {
     let hash = if code_hash.is_empty() {
         near_primitives::hash::hash(code)
     } else {
+        // Sometimes caller doesn't compute code_hash, so hash the code ourselves.
         CryptoHash::try_from(code_hash).unwrap()
     };
     let key = ContractCacheKey::Version1 {
         code_hash: hash,
         vm_config_non_crypto_hash: config.non_crypto_hash(),
     };
-    key.try_to_vec().unwrap()
+    near_primitives::hash::hash(&key.try_to_vec().unwrap()).try_to_vec().unwrap()
 }
 
 pub(crate) fn compile_module_cached(
@@ -56,7 +57,6 @@ pub(crate) fn compile_module_cached(
     if cache.is_none() {
         return compile_module(code, config);
     }
-    // Sometimes caller doesn't compute code_hash, so always hash the code ourselves.
     let key = get_key(code_hash, code, config);
     let cache = cache.unwrap();
     match cache.get(key.as_slice()) {
