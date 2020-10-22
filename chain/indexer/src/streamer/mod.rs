@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info};
 
-pub use near_primitives::{types, views};
+pub use near_primitives::views;
 
 use crate::IndexerConfig;
 
@@ -14,7 +14,7 @@ use self::fetchers::{
     fetch_block_by_height, fetch_chunks, fetch_latest_block, fetch_outcomes, fetch_state_changes,
     fetch_status,
 };
-pub use self::fetchers::{
+pub use self::types::{
     ExecutionOutcomesWithReceipts, IndexerChunkView, IndexerExecutionOutcomeWithReceipt,
     IndexerTransactionWithOutcome, StreamerMessage,
 };
@@ -24,6 +24,7 @@ use utils::convert_transactions_sir_into_local_receipts;
 
 mod errors;
 mod fetchers;
+mod types;
 mod utils;
 
 const INDEXER: &str = "indexer";
@@ -127,7 +128,7 @@ pub(crate) async fn start(
 
     // TODO: implement proper error handling
     let db = DB::open_default(indexer_db_path).unwrap();
-    let mut last_synced_block_height: Option<types::BlockHeight> = None;
+    let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
 
     'main: loop {
         time::delay_for(INTERVAL).await;
