@@ -11,7 +11,6 @@ use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info, warn};
 
-use near_client;
 pub use near_primitives::hash::CryptoHash;
 pub use near_primitives::{types, views};
 use node_runtime::config::tx_cost;
@@ -71,7 +70,7 @@ async fn fetch_status(
     client
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(|err| FailedToFetchData::String(err))
+        .map_err(FailedToFetchData::String)
 }
 
 /// Fetches the status to retrieve `latest_block_height` to determine if we need to fetch
@@ -82,7 +81,7 @@ async fn fetch_latest_block(
     client
         .send(near_client::GetBlock(types::BlockReference::Finality(types::Finality::Final)))
         .await?
-        .map_err(|err| FailedToFetchData::String(err))
+        .map_err(FailedToFetchData::String)
 }
 
 /// Fetches specific block by it's height
@@ -95,7 +94,7 @@ async fn fetch_block_by_height(
             near_primitives::types::BlockId::Height(height),
         )))
         .await?
-        .map_err(|err| FailedToFetchData::String(err))
+        .map_err(FailedToFetchData::String)
 }
 
 /// Fetches specific block by it's hash
@@ -106,7 +105,7 @@ async fn fetch_block_by_hash(
     client
         .send(near_client::GetBlock(near_primitives::types::BlockId::Hash(hash).into()))
         .await?
-        .map_err(|err| FailedToFetchData::String(err))
+        .map_err(FailedToFetchData::String)
 }
 
 async fn convert_transactions_sir_into_local_receipts(
@@ -115,58 +114,53 @@ async fn convert_transactions_sir_into_local_receipts(
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
 ) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
-    let prev_block = fetch_block_by_hash(&client, block.header.prev_hash.clone()).await?;
+    let prev_block = fetch_block_by_hash(&client, block.header.prev_hash).await?;
     let prev_block_gas_price = prev_block.header.gas_price;
 
-    let local_receipts: Vec<views::ReceiptView> = txs
-        .into_iter()
-        .map(|tx| {
-            let cost = tx_cost(
-                &near_config.genesis.config.runtime_config.transaction_costs,
-                &near_primitives::transaction::Transaction {
-                    signer_id: tx.transaction.signer_id.clone(),
-                    public_key: tx.transaction.public_key.clone(),
-                    nonce: tx.transaction.nonce,
+    let local_receipts: Vec<views::ReceiptView> =
+        txs.into_iter()
+            .map(|tx| {
+                let cost = tx_cost(
+                    &near_config.genesis.config.runtime_config.transaction_costs,
+                    &near_primitives::transaction::Transaction {
+                        signer_id: tx.transaction.signer_id.clone(),
+                        public_key: tx.transaction.public_key.clone(),
+                        nonce: tx.transaction.nonce,
+                        receiver_id: tx.transaction.receiver_id.clone(),
+                        block_hash: block.header.hash,
+                        actions: tx
+                            .transaction
+                            .actions
+                            .clone()
+                            .into_iter()
+                            .map(|action| {
+                                near_primitives::transaction::Action::try_from(action).unwrap()
+                            })
+                            .collect(),
+                    },
+                    prev_block_gas_price,
+                    true,
+                    near_config.genesis.config.protocol_version,
+                );
+                views::ReceiptView {
+                    predecessor_id: tx.transaction.signer_id.clone(),
                     receiver_id: tx.transaction.receiver_id.clone(),
-                    block_hash: block.header.hash,
-                    actions: tx
-                        .transaction
-                        .actions
-                        .clone()
-                        .into_iter()
-                        .map(|action| {
-                            near_primitives::transaction::Action::try_from(action).unwrap()
-                        })
-                        .collect(),
-                },
-                prev_block_gas_price,
-                true,
-                near_config.genesis.config.protocol_version,
-            );
-            views::ReceiptView {
-                predecessor_id: tx.transaction.signer_id.clone(),
-                receiver_id: tx.transaction.receiver_id.clone(),
-                receipt_id: tx
-                    .outcome
-                    .execution_outcome
-                    .outcome
-                    .receipt_ids
-                    .first()
-                    .expect("The transaction ExecutionOutcome should have one receipt id in vec")
-                    .clone(),
-                receipt: views::ReceiptEnumView::Action {
-                    signer_id: tx.transaction.signer_id.clone(),
-                    signer_public_key: tx.transaction.public_key.clone(),
-                    gas_price: cost
-                        .expect("TransactionCost returned IntegerOverflowError")
-                        .receipt_gas_price,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: tx.transaction.actions.clone(),
-                },
-            }
-        })
-        .collect();
+                    receipt_id: *tx.outcome.execution_outcome.outcome.receipt_ids.first().expect(
+                        "The transaction ExecutionOutcome should have one receipt id in vec",
+                    ),
+                    receipt: views::ReceiptEnumView::Action {
+                        signer_id: tx.transaction.signer_id.clone(),
+                        signer_public_key: tx.transaction.public_key.clone(),
+                        gas_price: cost
+                            .expect("TransactionCost returned IntegerOverflowError")
+                            .receipt_gas_price,
+                        output_data_receivers: vec![],
+                        input_data_ids: vec![],
+                        actions: tx.transaction.actions.clone(),
+                    },
+                }
+            })
+            .collect();
 
     Ok(local_receipts)
 }
@@ -197,7 +191,8 @@ async fn build_streamer_message(
     let mut indexer_chunks: Vec<IndexerChunkView> = vec![];
 
     for chunk in chunks {
-        let views::ChunkView { transactions, author, header, receipts: non_local_receipts } = chunk;
+        let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
+            chunk;
 
         let indexer_transactions = transactions
         .into_iter()
@@ -223,7 +218,7 @@ async fn build_streamer_message(
         local_receipts.extend_from_slice(&chunk_local_receipts);
 
         let mut chunk_receipts = chunk_local_receipts;
-        chunk_receipts.extend(non_local_receipts);
+        chunk_receipts.extend(chunk_non_local_receipts);
 
         indexer_chunks.push(IndexerChunkView {
             author,
@@ -258,7 +253,7 @@ async fn fetch_state_changes(
     client
         .send(near_client::GetStateChangesInBlock { block_hash })
         .await?
-        .map_err(|err| FailedToFetchData::String(err))
+        .map_err(FailedToFetchData::String)
 }
 
 /// Fetches single chunk (as `near_primitives::views::ChunkView`) by provided `near_client::GetChunk` enum
@@ -266,7 +261,7 @@ async fn fetch_single_chunk(
     client: &Addr<near_client::ViewClientActor>,
     get_chunk: near_client::GetChunk,
 ) -> Result<views::ChunkView, FailedToFetchData> {
-    client.send(get_chunk).await?.map_err(|err| FailedToFetchData::String(err))
+    client.send(get_chunk).await?.map_err(FailedToFetchData::String)
 }
 
 /// Fetch all ExecutionOutcomeWithId for current block
@@ -278,7 +273,7 @@ async fn fetch_outcomes(
     let outcomes = client
         .send(near_client::GetExecutionOutcomesForBlock { block_hash })
         .await?
-        .map_err(|err| FailedToFetchData::String(err))?;
+        .map_err(FailedToFetchData::String)?;
 
     let mut outcomes_with_receipts = ExecutionOutcomesWithReceipts::new();
     for outcome in outcomes {
@@ -307,10 +302,7 @@ async fn fetch_receipt_by_id(
     client: &Addr<near_client::ViewClientActor>,
     receipt_id: CryptoHash,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    client
-        .send(near_client::GetReceipt { receipt_id })
-        .await?
-        .map_err(|err| FailedToFetchData::String(err))
+    client.send(near_client::GetReceipt { receipt_id }).await?.map_err(FailedToFetchData::String)
 }
 
 /// Fetches all the chunks by their hashes.
@@ -400,7 +392,7 @@ pub(crate) async fn start(
                 match response {
                     Ok(streamer_message) => {
                         debug!(target: INDEXER, "{:#?}", &streamer_message);
-                        if let Err(_) = blocks_sink.send(streamer_message).await {
+                        if blocks_sink.send(streamer_message).await.is_err() {
                             info!(
                                         target: INDEXER,
                                         "Unable to send StreamerMessage to listener, listener doesn't listen. terminating..."
