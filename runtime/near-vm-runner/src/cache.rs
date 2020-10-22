@@ -52,12 +52,12 @@ pub(crate) fn compile_module_cached(
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<wasmer_runtime::Module, VMError> {
-    // Sometimes caller doesn't compute code_hash, so always hash the code ourselves.
-    let key = get_key(code_hash, code, config);
     /* Consider adding `|| cfg!(feature = "no_cache")` */
     if cache.is_none() {
         return compile_module(code, config);
     }
+    // Sometimes caller doesn't compute code_hash, so always hash the code ourselves.
+    let key = get_key(code_hash, code, config);
     let cache = cache.unwrap();
     match cache.get(key.as_slice()) {
         Ok(serialized) => {
