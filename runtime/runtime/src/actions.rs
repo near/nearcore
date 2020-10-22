@@ -160,8 +160,8 @@ pub(crate) fn action_function_call(
         Some(VMError::InconsistentStateError(err)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
-        Some(VMError::CacheError(err)) => {
-            return Err(StorageError::StorageInconsistentState(err).into());
+        Some(VMError::CacheError(_err)) => {
+            return Err(StorageError::StorageInconsistentState("Cache error".to_string()).into());
         }
         None => true,
     };

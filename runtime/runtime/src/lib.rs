@@ -543,7 +543,6 @@ impl Runtime {
             // TODO storage error
             if let Err(ref mut res) = result.result {
                 res.index = Some(action_index as u64);
-                res.index = Some(action_index as u64);
                 break;
             }
         }

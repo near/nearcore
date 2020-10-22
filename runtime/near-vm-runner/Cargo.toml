@@ -13,6 +13,7 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
+borsh = "0.7.1"
 wasmer-runtime = { version = "=0.17.1", features = ["default-backend-singlepass"], default-features = false }
 wasmer-runtime-core = { version = "=0.17.1" }
 pwasm-utils = "0.12"

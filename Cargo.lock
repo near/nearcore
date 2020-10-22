@@ -2847,6 +2847,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "bencher",
+ "borsh",
  "near-primitives",
  "near-runtime-fees",
  "near-vm-errors",

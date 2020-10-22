@@ -1,7 +1,8 @@
 use crate::errors::IntoVMError;
 use crate::prepare;
-use near_primitives::borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
+use near_vm_errors::CacheError::{DeserializationError, SerializationError, WriteError};
 use near_vm_errors::VMError;
 use near_vm_logic::VMConfig;
 use std::fmt;
@@ -22,47 +23,86 @@ pub fn get_hash(code: &[u8], config: &VMConfig) -> CryptoHash {
     near_primitives::hash::hash(&[code, &config.non_crypto_hash().to_le_bytes()].concat())
 }
 
+#[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
+enum CacheRecord {
+    Error(VMError),
+    Code(Vec<u8>),
+}
+
 pub(crate) fn compile_module_cached(
-    code_hash: &[u8],
+    _code_hash: &[u8],
     code: &[u8],
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<wasmer_runtime::Module, VMError> {
-    let crypto_hash = get_hash(code_hash, config);
-    let hash = crypto_hash.try_to_vec().unwrap();
+    // Sometimes caller doesn't compute code_hash, so always hash the code ourselves.
+    let crypto_hash = get_hash(code, config);
+    let hash = (crypto_hash.0).0.to_vec();
     /* Consider adding `|| cfg!(feature = "no_cache")` */
     if cache.is_none() {
         return compile_module(hash.clone(), code, config);
     }
     let cache = cache.unwrap();
-    if let Some(serialized) = cache
-        .get(&hash)
-        .map_err(|_e| VMError::CacheError(format!("Cannot read from cache {:?}", &code_hash)))?
-    {
-        let artifact = Artifact::deserialize(&serialized).map_err(|_e| {
-            VMError::CacheError(format!("Cannot deserialize from cache {:?}", &code_hash))
-        })?;
-        unsafe {
-            load_cache_with(artifact, compiler_for_backend(Backend::Singlepass).unwrap().as_ref())
-                .map_err(|_e| {
-                    VMError::CacheError(format!("Cannot read from cache {:?}", &code_hash))
-                })
-        }
-    } else {
-        // TODO: cache compilation errors as well. Currently it's possible to deploy invalid code,
-        // and compile on every call
-        let compiled: wasmer_runtime::Module = compile_module(hash.clone(), code, config)?;
-        let artifact = compiled.cache().map_err(|_e| {
-            VMError::CacheError(format!("Cannot make cached artifact for {:?}", &code_hash))
-        })?;
+    match cache.get(&hash) {
+        Ok(serialized) => {
+            match serialized {
+                Some(serialized) => {
+                    // We got cached code or error from DB cache.
+                    println!("Using DB cache");
+                    let record = CacheRecord::try_from_slice(serialized.as_slice()).unwrap();
+                    let code = match record {
+                        CacheRecord::Error(err) => return Err(err),
+                        CacheRecord::Code(code) => code,
+                    };
+                    let artifact = Artifact::deserialize(code.as_slice())
+                        .map_err(|_e| VMError::CacheError(DeserializationError))?;
+                    unsafe {
+                        load_cache_with(artifact, compiler_for_backend(Backend::Singlepass).unwrap().as_ref())
+                            .map_err(|_e| VMError::CacheError(DeserializationError))
+                    }
+                }
+                None => {
+                    // Nothing found in cache, create new record.
+                    let compiled: wasmer_runtime::Module =
+                        compile_module(hash.clone(), code, config).map_err(|e| {
+                            let record = CacheRecord::Error(e.clone());
+                            let e1 = cache.put(&hash, &record.try_to_vec().unwrap());
+                            if e1.is_err() {
+                                // That's fine, just cannot cache compilation error.
+                                println!("Cannot cache an error");
+                            }
+                            e
+                        })?;
 
-        let serialized = artifact.serialize().map_err(|_e| {
-            VMError::CacheError(format!("Cannot serialize cached artifact for {:?}", &code_hash))
-        })?;
-        cache.put(&hash, &serialized).map_err(|_e| {
-            VMError::CacheError(format!("Error saving cached artifact for {:?}", &code_hash))
-        })?;
-        Ok(compiled)
+                    let artifact = compiled.cache().map_err(|_e| {
+                        let e = VMError::CacheError(SerializationError);
+                        let record = CacheRecord::Error(e.clone());
+                        let e1 = cache.put(&hash, &record.try_to_vec().unwrap());
+                        if e1.is_err() {
+                            // That's fine, just cannot cache compilation error.
+                            println!("Cannot cache an error");
+                        }
+                        e
+                    })?;
+
+                    let code = artifact.serialize().map_err(|_e| {
+                        let e = VMError::CacheError(SerializationError);
+                        let record = CacheRecord::Error(e.clone());
+                        cache.put(&hash, &record.try_to_vec().unwrap()).unwrap();
+                        e
+                    })?;
+                    let record = CacheRecord::Code(code);
+                    cache
+                        .put(&hash, &record.try_to_vec().unwrap())
+                        .map_err(|_e| VMError::CacheError(WriteError))?;
+                    Ok(compiled)
+                }
+            }
+        }
+        Err(_) => {
+            // Cache access error happened, avoid attempts to cache.
+            return compile_module(hash.clone(), code, config);
+        }
     }
 }
 
