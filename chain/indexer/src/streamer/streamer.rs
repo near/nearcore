@@ -197,7 +197,7 @@ async fn build_streamer_message(
     let mut indexer_chunks: Vec<IndexerChunkView> = vec![];
 
     for chunk in chunks {
-        let views::ChunkView { transactions, author, header, receipts } = chunk;
+        let views::ChunkView { transactions, author, header, receipts: non_local_receipts } = chunk;
 
         let indexer_transactions = transactions
         .into_iter()
@@ -209,23 +209,21 @@ async fn build_streamer_message(
         })
         .collect::<Vec<IndexerTransactionWithOutcome>>();
 
-        local_receipts.extend(
-            convert_transactions_sir_into_local_receipts(
-                &client,
-                near_config,
-                indexer_transactions
-                    .iter()
-                    .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
-                    .collect::<Vec<&IndexerTransactionWithOutcome>>(),
-                &block,
-            )
-            .await?,
-        );
+        let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
+            &client,
+            near_config,
+            indexer_transactions
+                .iter()
+                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
+                .collect::<Vec<&IndexerTransactionWithOutcome>>(),
+            &block,
+        )
+        .await?;
 
-        // Prepending local receipts with common receipts from current chunk
-        // local ones will be required below to attach them to corresponding execution outcomes
-        let mut chunk_receipts = local_receipts.clone();
-        chunk_receipts.extend(receipts);
+        local_receipts.extend_from_slice(&chunk_local_receipts);
+
+        let mut chunk_receipts = chunk_local_receipts;
+        chunk_receipts.extend(non_local_receipts);
 
         indexer_chunks.push(IndexerChunkView {
             author,
