@@ -10,6 +10,7 @@ pub use near_primitives::views;
 
 use crate::IndexerConfig;
 
+use self::errors::FailedToFetchData;
 use self::fetchers::{
     fetch_block_by_height, fetch_chunks, fetch_latest_block, fetch_outcomes, fetch_state_changes,
     fetch_status,
@@ -18,9 +19,7 @@ pub use self::types::{
     ExecutionOutcomesWithReceipts, IndexerChunkView, IndexerExecutionOutcomeWithReceipt,
     IndexerTransactionWithOutcome, StreamerMessage,
 };
-
-use errors::FailedToFetchData;
-use utils::convert_transactions_sir_into_local_receipts;
+use self::utils::convert_transactions_sir_into_local_receipts;
 
 mod errors;
 mod fetchers;
