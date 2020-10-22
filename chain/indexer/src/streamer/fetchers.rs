@@ -7,9 +7,9 @@ use tracing::warn;
 pub use near_primitives::hash::CryptoHash;
 pub use near_primitives::{types, views};
 
-use self::super::types::{ExecutionOutcomesWithReceipts, IndexerExecutionOutcomeWithReceipt};
+use super::errors::FailedToFetchData;
+use super::types::{ExecutionOutcomesWithReceipts, IndexerExecutionOutcomeWithReceipt};
 use super::INDEXER;
-use crate::streamer::errors::FailedToFetchData;
 
 pub(crate) async fn fetch_status(
     client: &Addr<near_client::ClientActor>,
