@@ -19,7 +19,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
-use near_network::types::PartialEncodedChunkResponseMsg;
+use near_network::types::{PartialEncodedChunkResponseMsg, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -40,6 +40,7 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use near_primitives::block_header::ApprovalType;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -61,7 +62,7 @@ pub struct Client {
     /// Signer for block producer (if present).
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Approvals for which we do not have the block yet
-    pending_approvals: SizedCache<ApprovalInner, HashMap<AccountId, Approval>>,
+    pending_approvals: SizedCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
@@ -807,7 +808,7 @@ impl Client {
         let next_block_producer =
             self.runtime_adapter.get_block_producer(&next_epoch_id, approval.target_height)?;
         if Some(&next_block_producer) == self.validator_signer.as_ref().map(|x| x.validator_id()) {
-            self.collect_block_approval(&approval, true);
+            self.collect_block_approval(&approval, ApprovalType::SelfApproval);
         } else {
             debug!(target: "client", "Sending an approval {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer.clone(), approval.target_height);
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
@@ -848,8 +849,10 @@ impl Client {
                 .cache_remove(&ApprovalInner::Skip(block.header().height()))
                 .unwrap_or_default();
 
-            for (_account_id, approval) in endorsements.into_iter().chain(skips.into_iter()) {
-                self.collect_block_approval(&approval, false);
+            for (_account_id, (approval, approval_type)) in
+                endorsements.into_iter().chain(skips.into_iter())
+            {
+                self.collect_block_approval(&approval, approval_type);
             }
 
             self.rebroadcast_block(block.clone());
@@ -1031,6 +1034,65 @@ impl Client {
         unwrapped_accepted_blocks
     }
 
+    pub fn is_validator(&self, epoch_id: &EpochId, block_hash: &CryptoHash) -> bool {
+        match self.validator_signer.as_ref() {
+            None => false,
+            Some(signer) => {
+                let account_id = signer.validator_id();
+                match self
+                    .runtime_adapter
+                    .get_validator_by_account_id(epoch_id, block_hash, account_id)
+                {
+                    Ok((validator_stake, is_slashed)) => {
+                        !is_slashed && validator_stake.public_key == signer.public_key()
+                    }
+                    Err(_) => false,
+                }
+            }
+        }
+    }
+
+    fn handle_process_approval_error(
+        &mut self,
+        approval: &Approval,
+        approval_type: ApprovalType,
+        check_validator: bool,
+        error: near_chain::Error,
+    ) {
+        let is_validator =
+            |epoch_id, block_hash, account_id, runtime_adapter: &Arc<dyn RuntimeAdapter>| {
+                match runtime_adapter.get_validator_by_account_id(epoch_id, block_hash, account_id)
+                {
+                    Ok((_, is_slashed)) => !is_slashed,
+                    Err(_) => false,
+                }
+            };
+        if let ErrorKind::DBNotFoundErr(_) = error.kind() {
+            if check_validator {
+                let head = unwrap_or_return!(self.chain.head());
+                if !is_validator(
+                    &head.epoch_id,
+                    &head.last_block_hash,
+                    &approval.account_id,
+                    &self.runtime_adapter,
+                ) && !is_validator(
+                    &head.next_epoch_id,
+                    &head.last_block_hash,
+                    &approval.account_id,
+                    &self.runtime_adapter,
+                ) {
+                    return;
+                }
+            }
+            let mut entry = self
+                .pending_approvals
+                .cache_remove(&approval.inner)
+                .unwrap_or_else(|| HashMap::new());
+            entry.insert(approval.account_id.clone(), (approval.clone(), approval_type));
+            self.pending_approvals.cache_set(approval.inner.clone(), entry);
+        }
+    }
+
     /// Collects block approvals. Returns false if block approval is invalid.
     ///
     /// We send the approval to doomslug given the epoch of the current tip iff:
@@ -1041,30 +1103,57 @@ impl Client {
     ///
     /// # Arguments
     /// * `approval` - the approval to be collected
-    /// * `is_ours`  - whether the approval was just produced by us (in which case skip validation,
-    ///                only check whether we are the next block producer and store in Doomslug)
-    pub fn collect_block_approval(&mut self, approval: &Approval, is_ours: bool) {
+    /// * `approval_type`  - whether the approval was just produced by us (in which case skip validation,
+    ///                      only check whether we are the next block producer and store in Doomslug)
+    pub fn collect_block_approval(&mut self, approval: &Approval, approval_type: ApprovalType) {
         let Approval { inner, account_id, target_height, signature } = approval;
 
-        let process_error = |e: near_chain::Error,
-                             approval: &Approval,
-                             pending_approvals: &mut SizedCache<_, _>| {
-            if let ErrorKind::DBNotFoundErr(_) = e.kind() {
-                let mut entry = pending_approvals
-                    .cache_remove(&approval.inner)
-                    .unwrap_or_else(|| HashMap::new());
-                entry.insert(approval.account_id.clone(), approval.clone());
-                pending_approvals.cache_set(approval.inner.clone(), entry);
-            }
-        };
-
+        //        let is_validator =
+        //            |epoch_id, block_hash, account_id, runtime_adapter: &Arc<dyn RuntimeAdapter>| {
+        //                match runtime_adapter.get_validator_by_account_id(epoch_id, block_hash, account_id)
+        //                {
+        //                    Ok((_, is_slashed)) => !is_slashed,
+        //                    Err(_) => false,
+        //                }
+        //            };
+        //
+        //        let process_error = |e: near_chain::Error,
+        //                             approval: &Approval,
+        //                             approval_type: ApprovalType,
+        //                             pending_approvals: &mut SizedCache<_, _>,
+        //                             check_validator: bool| {
+        //            if let ErrorKind::DBNotFoundErr(_) = e.kind() {
+        //                if check_validator {
+        //                    let head = unwrap_or_return!(self.chain.head());
+        //                    if !is_validator(
+        //                        &head.epoch_id,
+        //                        &head.last_block_hash,
+        //                        account_id,
+        //                        &self.runtime_adapter,
+        //                    ) && !is_validator(
+        //                        &head.next_epoch_id,
+        //                        &head.last_block_hash,
+        //                        account_id,
+        //                        &self.runtime_adapter,
+        //                    ) {
+        //                        return;
+        //                    }
+        //                }
+        //                let mut entry = pending_approvals
+        //                    .cache_remove(&approval.inner)
+        //                    .unwrap_or_else(|| HashMap::new());
+        //                entry.insert(approval.account_id.clone(), (approval.clone(), approval_type));
+        //                pending_approvals.cache_set(approval.inner.clone(), entry);
+        //            }
+        //        };
+        //
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => parent_hash.clone(),
             ApprovalInner::Skip(parent_height) => {
                 match self.chain.get_header_by_height(*parent_height) {
                     Ok(header) => *header.hash(),
                     Err(e) => {
-                        process_error(e, approval, &mut self.pending_approvals);
+                        self.handle_process_approval_error(approval, approval_type, true, e);
                         return;
                     }
                 }
@@ -1074,13 +1163,13 @@ impl Client {
         let next_block_epoch_id =
             match self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash) {
                 Err(e) => {
-                    process_error(e, approval, &mut self.pending_approvals);
+                    self.handle_process_approval_error(approval, approval_type, true, e);
                     return;
                 }
                 Ok(next_epoch_id) => next_epoch_id,
             };
 
-        if !is_ours {
+        if let ApprovalType::PeerApproval(ref peer_id) = approval_type {
             // Check signature is correct for given validator.
             // Note that on the epoch boundary the blocks contain approvals from both the current
             // and the next epoch. Here we try to fetch the validator for the epoch of the next block,
@@ -1111,6 +1200,10 @@ impl Client {
                 signature,
             ) {
                 Ok(true) => {}
+                Ok(false) => self.network_adapter.do_send(NetworkRequests::BanPeer {
+                    peer_id: peer_id.clone(),
+                    ban_reason: ReasonForBan::InvalidSignature,
+                }),
                 _ => return,
             }
         }
@@ -1134,7 +1227,7 @@ impl Client {
                     return;
                 }
                 Err(e) => {
-                    process_error(e, approval, &mut self.pending_approvals);
+                    self.handle_process_approval_error(approval, approval_type, false, e);
                     return;
                 }
             };
@@ -1487,37 +1580,77 @@ mod test {
     use neard::config::GenesisExt;
 
     use crate::test_utils::TestEnv;
+    use near_network::test_utils::MockNetworkAdapter;
+    use near_network::NetworkRequests;
+    use near_primitives::block_header::ApprovalType;
+    use near_primitives::network::PeerId;
     use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 
-    fn create_runtimes() -> Vec<Arc<dyn RuntimeAdapter>> {
-        let store = create_test_store();
+    fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
         let genesis = Genesis::test(vec!["test0", "test1"], 1);
-        vec![Arc::new(neard::NightshadeRuntime::new(
-            Path::new("."),
-            store,
-            &genesis,
-            vec![],
-            vec![],
-        ))]
+        (0..n)
+            .map(|_| {
+                Arc::new(neard::NightshadeRuntime::new(
+                    Path::new("."),
+                    create_test_store(),
+                    &genesis,
+                    vec![],
+                    vec![],
+                )) as Arc<dyn RuntimeAdapter>
+            })
+            .collect()
     }
 
     #[test]
     fn test_pending_approvals() {
-        let runtimes = create_runtimes();
+        let runtimes = create_runtimes(1);
         let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
-        let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
         let parent_hash = hash(&[1]);
         let approval = Approval::new(parent_hash, 0, 1, &signer);
-        env.clients[0].collect_block_approval(&approval, false);
+        let peer_id = PeerId::random();
+        env.clients[0]
+            .collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
         let approvals =
             env.clients[0].pending_approvals.cache_remove(&ApprovalInner::Endorsement(parent_hash));
-        let expected = vec![("test1".to_string(), approval)].into_iter().collect::<HashMap<_, _>>();
+        let expected = vec![("test0".to_string(), (approval, ApprovalType::PeerApproval(peer_id)))]
+            .into_iter()
+            .collect::<HashMap<_, _>>();
         assert_eq!(approvals, Some(expected));
     }
 
     #[test]
+    fn test_invalid_approvals() {
+        let runtimes = create_runtimes(1);
+        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let mut env = TestEnv::new_with_runtime_and_network_adapter(
+            ChainGenesis::test(),
+            1,
+            1,
+            runtimes,
+            vec![network_adapter.clone()],
+        );
+        let signer = InMemoryValidatorSigner::from_seed("random", KeyType::ED25519, "random");
+        let parent_hash = hash(&[1]);
+        // Approval not from a validator. Should be dropped
+        let approval = Approval::new(parent_hash, 1, 3, &signer);
+        let peer_id = PeerId::random();
+        env.clients[0]
+            .collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
+        assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
+        // Approval with invalid signature, peer should be banned
+        let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "random");
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let approval = Approval::new(genesis_hash, 0, 1, &signer);
+        env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
+        assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
+        assert_eq!(network_adapter.requests.read().unwrap().len(), 1);
+        assert!(matches!(network_adapter.pop().unwrap(), NetworkRequests::BanPeer {..}));
+    }
+
+    #[test]
     fn test_process_partial_encoded_chunk_with_missing_block() {
-        let runtimes = create_runtimes();
+        let runtimes = create_runtimes(1);
         let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
         let client = &mut env.clients[0];
         let chunk_producer = ChunkForwardingTestFixture::default();
