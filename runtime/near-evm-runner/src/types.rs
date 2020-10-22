@@ -2,6 +2,7 @@ use std::convert::TryInto;
 use std::io::{Read, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use ethereum_types::{Address, U256};
 
 use near_vm_errors::{EvmError, InconsistentStateError, VMLogicError};
 use near_vm_logic::types::AccountId;
@@ -42,6 +43,15 @@ pub struct ViewCallArgs {
     pub address: RawAddress,
     pub amount: RawU256,
     pub args: Vec<u8>,
+}
+
+pub struct MetaCallArgs {
+    pub sender: Address,
+    pub nonce: U256,
+    pub fee_amount: U256,
+    pub fee_address: Address,
+    pub contract_address: Address,
+    pub input: Vec<u8>,
 }
 
 impl BorshSerialize for ViewCallArgs {

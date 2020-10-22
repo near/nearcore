@@ -9,7 +9,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::types::{TransferArgs, WithdrawArgs};
 use near_evm_runner::utils::{
     address_from_arr, address_to_vec, encode_call_function_args, encode_view_call_function_args,
-    near_account_id_to_evm_address, u256_to_arr,
+    near_account_id_to_evm_address, near_erc721_domain, parse_meta_call, u256_to_arr,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{EvmError, VMLogicError};
@@ -261,9 +261,16 @@ fn test_meta_call() {
     let signer = InMemorySigner::from_random("doesnt".to_string(), KeyType::SECP256K1);
     let mut context =
         create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
-    let (input, _) = soltest::functions::return_some_funds::call();
-    let meta_tx =
-        encode_meta_call_function_args(&signer, CHAIN_ID, test_addr, U256::from(0), input);
+    let meta_tx = encode_meta_call_function_args(
+        &signer,
+        CHAIN_ID,
+        U256::from(0),
+        U256::from(0),
+        Address::from_slice(&[0u8; 20]),
+        test_addr,
+        "returnSomeFunds()",
+        vec![],
+    );
     let _ = context.meta_call_function(meta_tx.clone()).unwrap();
     let signer_addr = public_key_to_address(signer.public_key);
     assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(150));
@@ -272,4 +279,31 @@ fn test_meta_call() {
         context.meta_call_function(meta_tx).unwrap_err().to_string(),
         "EvmError(InvalidNonce)"
     );
+}
+
+#[test]
+fn test_meta_call_sig_recover() {
+    let (mut fake_external, _, vm_config, fees_config) = setup_and_deploy_test();
+    let mut context =
+        create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
+    let meta_tx = [
+        // signature: 65 bytes
+        hex::decode("754d8919d909c6e2cfd81d824fc392658f7497b5c53bbb2f60af5aba40848fd2074463b0c75b94925780a074f5f44498d1031846b57817b30398e8e36ebc083f1b").unwrap(),
+        // nonce: 14
+        u256_to_arr(&U256::from(14)).to_vec(),
+        // fee amount: 6
+        u256_to_arr(&U256::from(6)).to_vec(),
+        // fee token: 0x0
+        vec![0; 20],
+        // contract: address,
+        hex::decode("Ed2a1b3Fa739DAbBf8c07a059dE1333D20e8b482").unwrap(),
+        // contract method: length 1 byte + bytes for the name.
+        vec![14],
+        b"adopt(uint256)".to_vec(),
+        // arguments
+        u256_to_arr(&U256::from(9)).to_vec(),
+    ].concat();
+    let domain_separator = near_erc721_domain(U256::from(chain_id));
+    let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx).unwrap();
+    assert_eq!(result.sender, hex::decode("Ed2a1b3Fa739DAbBf8c07a059dE1333D20e8b482").unwrap());
 }
