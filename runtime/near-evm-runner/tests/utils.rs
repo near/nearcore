@@ -84,22 +84,16 @@ pub fn encode_meta_call_function_args(
     );
     match signer.sign(&msg) {
         Signature::ED25519(_) => panic!("Wrong Signer"),
-        Signature::SECP256K1(sig) => {
-            let sig: [u8; 65] = sig.into();
-            let mut vsr = [0u8; 65];
-            vsr[0] = sig[64] + 27;
-            vsr[1..].copy_from_slice(&sig[..64]);
-            [
-                vsr.to_vec(),
-                u256_to_arr(&nonce).to_vec(),
-                u256_to_arr(&fee_amount).to_vec(),
-                fee_token.0.to_vec(),
-                address.0.to_vec(),
-                vec![method_name.len() as u8],
-                method_name.as_bytes().to_vec(),
-                args,
-            ]
-            .concat()
-        }
+        Signature::SECP256K1(sig) => [
+            Into::<[u8; 65]>::into(sig).to_vec(),
+            u256_to_arr(&nonce).to_vec(),
+            u256_to_arr(&fee_amount).to_vec(),
+            fee_token.0.to_vec(),
+            address.0.to_vec(),
+            vec![method_name.len() as u8],
+            method_name.as_bytes().to_vec(),
+            args,
+        ]
+        .concat(),
     }
 }

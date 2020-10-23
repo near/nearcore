@@ -255,7 +255,9 @@ pub fn parse_meta_call(
         return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
     }
     let mut signature: [u8; 65] = [0; 65];
-    signature.copy_from_slice(&args[..65]);
+    // Signatures coming from outside are srv but ecrecover takes vsr, so move last byte to first position.
+    signature[0] = args[64] + 27;
+    signature[1..].copy_from_slice(&args[..64]);
     let nonce = U256::from_big_endian(&args[65..97]);
     let fee_amount = U256::from_big_endian(&args[97..129]);
     let fee_address = Address::from_slice(&args[129..149]);
