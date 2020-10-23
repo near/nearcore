@@ -3,11 +3,22 @@ use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::ApplyTransactionResult;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::migrations::set_store_version;
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
+
+fn get_chunk(chain_store: &ChainStore, chunk_hash: ChunkHash) -> ShardChunkV1 {
+    let store = chain_store.store();
+    let maybe_chunk = store.get_ser(DBCol::ColChunks, chunk_hash.as_ref()).unwrap();
+
+    match maybe_chunk {
+        Some(chunk) => chunk,
+        None => panic!("Could not find chunk {} in DB", chunk_hash.0),
+    }
+}
 
 fn apply_block_at_height(
     store_update: &mut StoreUpdate,
@@ -30,8 +41,9 @@ fn apply_block_at_height(
         prev_block.chunks()[shard_id as usize].height_included(),
     )?;
     let receipts = collect_receipts_from_response(&receipt_proof_response);
-    let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash())?;
-    let chunk_header = chunk.cloned_header();
+    let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
+    let chunk = get_chunk(&chain_store, chunk_hash);
+    let chunk_header = ShardChunkHeader::V1(chunk.header);
 
     let apply_result = runtime_adapter
         .apply_transactions(
@@ -42,7 +54,7 @@ fn apply_block_at_height(
             block.header().prev_hash(),
             block.hash(),
             &receipts,
-            chunk.transactions(),
+            &chunk.transactions,
             chunk_header.validator_proposals(),
             prev_block.header().gas_price(),
             chunk_header.gas_limit(),
