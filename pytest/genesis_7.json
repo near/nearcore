@@ -1,17 +1,17 @@
 {
   "protocol_version": 41,
-  "genesis_time": "2020-10-15T18:12:22.856472317Z",
+  "genesis_time": "2020-10-21T17:43:22.856472317Z",
   "chain_id": "mocknet",
   "genesis_height": 0,
-  "num_block_producer_seats": 100,
+  "num_block_producer_seats": 50,
   "num_block_producer_seats_per_shard": [
-    14,
-    14,
-    14,
-    14,
-    14,
-    14,
-    16
+    8,
+    7,
+    7,
+    7,
+    7,
+    7,
+    7
   ],
   "avg_hidden_validator_seats_per_shard": [
     0,
