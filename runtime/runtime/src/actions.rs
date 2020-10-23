@@ -163,7 +163,7 @@ pub(crate) fn action_function_call(
         Some(VMError::CacheError(err)) => {
             let message = match err {
                 CacheError::DeserializationError => "Cache deserialization error",
-                CacheError::SerializationError => "Cache serialization error",
+                CacheError::SerializationError { hash: _hash } => "Cache serialization error",
                 CacheError::WriteError => "Cache write error",
             };
             return Err(StorageError::StorageInconsistentState(message.to_string()).into());

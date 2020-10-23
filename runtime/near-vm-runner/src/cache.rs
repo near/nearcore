@@ -30,7 +30,7 @@ enum CacheRecord {
     Code(Vec<u8>),
 }
 
-fn get_key(code_hash: &[u8], code: &[u8], vm_kind: VMKind, config: &VMConfig) -> Vec<u8> {
+fn get_key(code_hash: &[u8], code: &[u8], vm_kind: VMKind, config: &VMConfig) -> CryptoHash {
     let hash = match CryptoHash::try_from(code_hash) {
         Ok(hash) => hash,
         // Sometimes caller doesn't compute code_hash, so hash the code ourselves.
@@ -41,12 +41,12 @@ fn get_key(code_hash: &[u8], code: &[u8], vm_kind: VMKind, config: &VMConfig) ->
         vm_config_non_crypto_hash: config.non_crypto_hash(),
         vm_kind: vm_kind as u32,
     };
-    near_primitives::hash::hash(&key.try_to_vec().unwrap()).try_to_vec().unwrap()
+    near_primitives::hash::hash(&key.try_to_vec().unwrap())
 }
 
-fn cache_error(error: VMError, key: &Vec<u8>, cache: &dyn CompiledContractCache) -> VMError {
+fn cache_error(error: VMError, key: &CryptoHash, cache: &dyn CompiledContractCache) -> VMError {
     let record = CacheRecord::Error(error.clone());
-    if cache.put(key.as_slice(), &record.try_to_vec().unwrap()).is_err() {
+    if cache.put(&(key.0).0, &record.try_to_vec().unwrap()).is_err() {
         // That's fine, just cannot cache compilation error.
         println!("Cannot cache an error");
     }
@@ -56,21 +56,25 @@ fn cache_error(error: VMError, key: &Vec<u8>, cache: &dyn CompiledContractCache)
 fn compile_and_serialize_wasmer(
     wasm_code: &[u8],
     config: &VMConfig,
-    key: &Vec<u8>,
+    key: &CryptoHash,
     cache: &dyn CompiledContractCache,
 ) -> Result<wasmer_runtime::Module, VMError> {
     let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
-    let artifact = module
-        .cache()
-        .map_err(|_e| cache_error(VMError::CacheError(SerializationError), &key, cache))?;
-    let code = artifact
-        .serialize()
-        .map_err(|_e| cache_error(VMError::CacheError(SerializationError), &key, cache))?;
+    let artifact = module.cache().map_err(|_e| {
+        cache_error(
+            VMError::CacheError(SerializationError { hash: (key.0).0 }),
+            &key,
+            cache,
+        )
+    })?;
+    let code = artifact.serialize().map_err(|_e| {
+        VMError::CacheError(SerializationError { hash: (key.0).0 })
+    })?;
     // If errors comes from serialization we shall not cache it.
-    let serialized = CacheRecord::Code(code)
-        .try_to_vec()
-        .map_err(|_e| VMError::CacheError(SerializationError))?;
-    cache.put(key.as_slice(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
+    let serialized = CacheRecord::Code(code).try_to_vec().map_err(|_e| {
+        VMError::CacheError(SerializationError { hash: (key.0).0 })
+    })?;
+    cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
     Ok(module)
 }
 
@@ -102,7 +106,7 @@ pub(crate) fn compile_module_cached_wasmer(
     }
     let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer, config);
     let cache = cache.unwrap();
-    match cache.get(key.as_slice()) {
+    match cache.get(&(key.0).0) {
         Ok(serialized) => match serialized {
             Some(serialized) => {
                 match deserialize_wasmer(serialized.as_slice()) {

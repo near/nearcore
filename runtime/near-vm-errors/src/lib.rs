@@ -38,7 +38,7 @@ pub enum FunctionCallError {
 pub enum CacheError {
     WriteError,
     DeserializationError,
-    SerializationError,
+    SerializationError { hash: [u8; 32] },
 }
 /// A kind of a trap happened during execution of a binary
 #[derive(
