@@ -1108,45 +1108,6 @@ impl Client {
     pub fn collect_block_approval(&mut self, approval: &Approval, approval_type: ApprovalType) {
         let Approval { inner, account_id, target_height, signature } = approval;
 
-        //        let is_validator =
-        //            |epoch_id, block_hash, account_id, runtime_adapter: &Arc<dyn RuntimeAdapter>| {
-        //                match runtime_adapter.get_validator_by_account_id(epoch_id, block_hash, account_id)
-        //                {
-        //                    Ok((_, is_slashed)) => !is_slashed,
-        //                    Err(_) => false,
-        //                }
-        //            };
-        //
-        //        let process_error = |e: near_chain::Error,
-        //                             approval: &Approval,
-        //                             approval_type: ApprovalType,
-        //                             pending_approvals: &mut SizedCache<_, _>,
-        //                             check_validator: bool| {
-        //            if let ErrorKind::DBNotFoundErr(_) = e.kind() {
-        //                if check_validator {
-        //                    let head = unwrap_or_return!(self.chain.head());
-        //                    if !is_validator(
-        //                        &head.epoch_id,
-        //                        &head.last_block_hash,
-        //                        account_id,
-        //                        &self.runtime_adapter,
-        //                    ) && !is_validator(
-        //                        &head.next_epoch_id,
-        //                        &head.last_block_hash,
-        //                        account_id,
-        //                        &self.runtime_adapter,
-        //                    ) {
-        //                        return;
-        //                    }
-        //                }
-        //                let mut entry = pending_approvals
-        //                    .cache_remove(&approval.inner)
-        //                    .unwrap_or_else(|| HashMap::new());
-        //                entry.insert(approval.account_id.clone(), (approval.clone(), approval_type));
-        //                pending_approvals.cache_set(approval.inner.clone(), entry);
-        //            }
-        //        };
-        //
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => parent_hash.clone(),
             ApprovalInner::Skip(parent_height) => {
