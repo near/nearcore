@@ -31,7 +31,7 @@ use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_configs::AccountCreationConfig;
-use near_vm_errors::{CompilationError, FunctionCallError};
+use near_vm_errors::{CompilationError, FunctionCallError, CacheError};
 use near_vm_runner::VMError;
 
 pub(crate) fn get_code_with_cache(
@@ -160,8 +160,13 @@ pub(crate) fn action_function_call(
         Some(VMError::InconsistentStateError(err)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
-        Some(VMError::CacheError(_err)) => {
-            return Err(StorageError::StorageInconsistentState("Cache error".to_string()).into());
+        Some(VMError::CacheError(err)) => {
+            let message = match err {
+                CacheError::DeserializationError => "Cache deserialization error",
+                CacheError::SerializationError => "Cache serialization error",
+                CacheError::WriteError => "Cache write error",
+            };
+           return Err(StorageError::StorageInconsistentState(message.to_string()).into());
         }
         None => true,
     };
