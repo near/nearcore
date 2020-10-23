@@ -206,7 +206,7 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::compile_module_cached(&code_hash, code, wasm_config, cache) {
+    let module = match cache::compile_module_cached_wasmer(&code_hash, code, wasm_config, cache) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
