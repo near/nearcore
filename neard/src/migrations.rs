@@ -6,8 +6,29 @@ use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter}
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::migrations::set_store_version;
-use near_store::{create_store, DBCol, StoreUpdate};
+use near_store::{create_store, DBCol, Store, StoreUpdate};
 use std::path::Path;
+
+fn delete_col(store: &Store, col: DBCol) -> Result<(), std::io::Error> {
+    let mut store_update = store.store_update();
+    let batch_size_limit = 10_000_000;
+    let mut batch_size = 0;
+    for (key, _) in store.iter_without_rc_logic(col) {
+        store_update.delete(col, &key);
+        batch_size += key.len() + 8;
+        if batch_size > batch_size_limit {
+            store_update.commit()?;
+            store_update = store.store_update();
+            batch_size = 0;
+        }
+    }
+
+    if batch_size > 0 {
+        store_update.commit()?;
+    }
+
+    Ok(())
+}
 
 fn apply_block_at_height(
     store_update: &mut StoreUpdate,
@@ -89,11 +110,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
             near_config.client_config.tracked_accounts.clone(),
             near_config.client_config.tracked_shards.clone(),
         );
-        let mut store_update = store.store_update();
-        for (key, _) in store.iter_without_rc_logic(DBCol::ColTransactionResult) {
-            store_update.delete(DBCol::ColTransactionResult, &key);
-        }
-        store_update.commit().unwrap();
+        delete_col(store.as_ref(), DBCol::ColTransactionResult).unwrap();
 
         let mut cur_height = genesis_height;
         while cur_height <= head.height {
