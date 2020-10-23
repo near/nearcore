@@ -707,28 +707,15 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     runtime_config.transaction_costs =
         get_runtime_fees_config(measurement, test_contract_compilation_cost);
 
-    // Shifting compilation costs from function call runtime to the deploy cost
-    runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.send_sir +=
-        runtime_config.wasm_config.ext_costs.contract_compile_base / 2;
-    runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.send_not_sir +=
-        runtime_config.wasm_config.ext_costs.contract_compile_base / 2;
+    // Shifting compilation costs from function call runtime to the deploy action cost at execution
+    // time.
     runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
-        runtime_config.wasm_config.ext_costs.contract_compile_base / 2;
+        runtime_config.wasm_config.ext_costs.contract_compile_base;
     runtime_config
         .transaction_costs
         .action_creation_config
         .deploy_contract_cost_per_byte
-        .send_sir += runtime_config.wasm_config.ext_costs.contract_compile_bytes / 2;
-    runtime_config
-        .transaction_costs
-        .action_creation_config
-        .deploy_contract_cost_per_byte
-        .send_not_sir += runtime_config.wasm_config.ext_costs.contract_compile_bytes / 2;
-    runtime_config
-        .transaction_costs
-        .action_creation_config
-        .deploy_contract_cost_per_byte
-        .execution += runtime_config.wasm_config.ext_costs.contract_compile_bytes / 2;
+        .execution += runtime_config.wasm_config.ext_costs.contract_compile_bytes;
     runtime_config.wasm_config.ext_costs.contract_compile_base = 0;
     runtime_config.wasm_config.ext_costs.contract_compile_bytes = 0;
 
