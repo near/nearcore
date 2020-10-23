@@ -15,11 +15,9 @@ use near_vm_logic::{ActionCosts, External, VMConfig, VMLogicError, VMOutcome};
 
 use crate::evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore};
 use crate::types::{
-    AddressArg, GetStorageAtArgs, Result, TransferArgs, ViewCallArgs, WithdrawArgs,
+    AddressArg, GetStorageAtArgs, RawU256, Result, TransferArgs, ViewCallArgs, WithdrawArgs,
 };
-use crate::utils::{
-    combine_data_key, ecrecover_address, near_erc721_domain, prepare_meta_call_args,
-};
+use crate::utils::{combine_data_key, near_erc721_domain, parse_meta_call};
 use near_vm_errors::InconsistentStateError::StorageError;
 
 mod builtins;
@@ -41,7 +39,7 @@ pub struct EvmContext<'a> {
     gas_counter: GasCounter,
     pub evm_gas_counter: EvmGasCounter,
     fees_config: &'a RuntimeFeesConfig,
-    domain_separator: [u8; 32],
+    domain_separator: RawU256,
 }
 
 // Different kind of evm operations that result in different gas calculation
@@ -259,41 +257,23 @@ impl<'a> EvmContext<'a> {
 
     /// Make an EVM call via a meta transaction pattern.
     /// Specifically, providing signature and NEAREvm message that determines which contract and arguments to be called.
-    /// Format
-    /// 0..95: signature: v - 32 bytes, s - 32 bytes, r - 32 bytes
-    /// 96..115: contract_id: address for contract to call
-    /// 116..: RLP encoded arguments.
+    /// See `parse_meta_call` for arguments format.
     pub fn meta_call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
-        if args.len() <= 148 {
-            return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
-        }
-        let mut signature: [u8; 96] = [0; 96];
-        signature.copy_from_slice(&args[..96]);
-        let nonce = U256::from_big_endian(&args[96..128]);
-        let args = &args[128..];
-        let sender = ecrecover_address(
-            &prepare_meta_call_args(&self.domain_separator, &self.account_id, nonce, args),
-            &signature,
-        );
-        if sender == Address::zero() {
-            return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
-        }
-        if self.next_nonce(&sender)? != nonce {
+        let meta_call_args = parse_meta_call(&self.domain_separator, &self.account_id, args)?;
+        if self.next_nonce(&meta_call_args.sender)? != meta_call_args.nonce {
             return Err(VMLogicError::EvmError(EvmError::InvalidNonce));
         }
-        let contract_address = Address::from_slice(&args[..20]);
-        let input = &args[20..];
-        self.add_balance(&sender, U256::from(self.attached_deposit))?;
+        self.add_balance(&meta_call_args.sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
         let result = interpreter::call(
             self,
-            &sender,
-            &sender,
+            &meta_call_args.sender,
+            &meta_call_args.sender,
             value,
             0,
-            &contract_address,
-            &input,
+            &meta_call_args.contract_address,
+            &meta_call_args.input,
             true,
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
@@ -345,6 +325,8 @@ impl<'a> EvmContext<'a> {
             }
             _ => unreachable!(),
         };
+        // Need to subtract amount back, because if view call is called inside the transaction state will be applied.
+        // The interpreter call is not committing changes, but `add_balance` did, so need to revert that.
         self.sub_balance(&sender, attached_amount)?;
         result
     }

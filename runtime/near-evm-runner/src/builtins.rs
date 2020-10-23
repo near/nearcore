@@ -163,8 +163,8 @@ impl Impl for EcRecover {
         input[..len].copy_from_slice(&i[..len]);
         let mut hash = [0; 32];
         hash.copy_from_slice(&input[..32]);
-        let mut signature = [0; 96];
-        signature.copy_from_slice(&input[32..]);
+        let mut signature = [0; 65];
+        signature.copy_from_slice(&input[63..]);
 
         let result = ecrecover_address(&hash, &signature);
         output.write(0, &[0, 12]);
