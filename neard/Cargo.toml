@@ -58,7 +58,8 @@ metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"
 no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache"]
 delay_detector = ["near-client/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
-nightly_protocol = ["near-primitives/nightly_protocol"]
+nightly_protocol = ["near-chunks/nightly_protocol", "forward_chunk_parts"]
+forward_chunk_parts = ["near-chunks/forward_chunk_parts"]
 
 [[bin]]
 path = "src/main.rs"

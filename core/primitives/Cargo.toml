@@ -35,7 +35,8 @@ near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 [features]
 default = ["jemallocator"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
-nightly_protocol = []
+nightly_protocol = ["forward_chunk_parts"]
+forward_chunk_parts = []
 
 [dev-dependencies]
 bencher = "0.1.5"

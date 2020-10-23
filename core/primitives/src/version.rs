@@ -46,7 +46,6 @@ pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
 pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
 
 pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 40;
-pub const CHUNK_FORWARD_UPGRADE_VERSION: ProtocolVersion = 41;
 
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
@@ -71,7 +70,10 @@ impl ProtocolVersionRange {
 /// EVM
 /// ```
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
-pub enum ProtocolFeature {}
+pub enum ProtocolFeature {
+    #[cfg(feature = "forward_chunk_parts")]
+    ForwardChunkParts,
+}
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
@@ -92,18 +94,24 @@ lazy_static! {
     /// Map of feature to the minimal protocol version that introduces the feature. We can determine
     /// whether to apply the new feature by comparing the current protocol version of the network to
     /// `PROTOCOL_FEATURES_TO_VERSION_MAPPING[feature]`.
-    static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
+    pub static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
         STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.clone();
 }
 
 #[cfg(feature = "nightly_protocol")]
 lazy_static! {
-    static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = {
-        let nightly_protocol_features_to_version_mapping: HashMap<ProtocolFeature, ProtocolVersion> = vec![
-            /* add mapping here */
-        ].into_iter().collect();
-        for (stable_protocol_feature, stable_protocol_version) in STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter() {
-            assert!(nightly_protocol_features_to_version_mapping[stable_protocol_feature] >= *stable_protocol_version);
+    pub static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = {
+        let nightly_protocol_features_to_version_mapping: HashMap<
+            ProtocolFeature,
+            ProtocolVersion,
+        > = vec![(ProtocolFeature::ForwardChunkParts, 41)].into_iter().collect();
+        for (stable_protocol_feature, stable_protocol_version) in
+            STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
+        {
+            assert!(
+                nightly_protocol_features_to_version_mapping[stable_protocol_feature]
+                    >= *stable_protocol_version
+            );
         }
         nightly_protocol_features_to_version_mapping
     };

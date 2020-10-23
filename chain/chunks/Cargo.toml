@@ -28,3 +28,5 @@ near-logger-utils = { path = "../../test-utils/logger" }
 [features]
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
+forward_chunk_parts = ["near-primitives/forward_chunk_parts"]
+nightly_protocol = ["near-primitives/nightly_protocol"]

@@ -35,7 +35,10 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolVersion, CHUNK_FORWARD_UPGRADE_VERSION};
+use near_primitives::version::ProtocolVersion;
+
+#[cfg(feature = "nightly_protocol")]
+use near_primitives::version::{ProtocolFeature, PROTOCOL_FEATURES_TO_VERSION_MAPPING};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
@@ -595,7 +598,7 @@ impl ShardsManager {
         &mut self,
         chunk_header: ShardChunkHeader,
         header_head: Option<&Tip>,
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
     ) {
         let parent_hash = chunk_header.prev_block_hash();
         let height = chunk_header.height_created();
@@ -633,8 +636,12 @@ impl ShardsManager {
             // will eventually be sent because of the `resend_chunk_requests` loop. However,
             // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
             // before we send requests.
-            if protocol_version < CHUNK_FORWARD_UPGRADE_VERSION || fetch_from_archival || old_block
-            {
+            #[cfg(feature = "forward_chunk_parts")]
+            let protocol_version_check = _protocol_version
+                < PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::ForwardChunkParts];
+            #[cfg(not(feature = "forward_chunk_parts"))]
+            let protocol_version_check = true;
+            if protocol_version_check || fetch_from_archival || old_block {
                 let request_result = self.request_partial_encoded_chunk(
                     height,
                     &parent_hash,
@@ -1198,7 +1205,10 @@ impl ShardsManager {
         self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
 
         // Forward my parts to others tracking this chunk's shard
-        if protocol_version >= CHUNK_FORWARD_UPGRADE_VERSION {
+        #[cfg(feature = "forward_chunk_parts")]
+        if protocol_version
+            >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::ForwardChunkParts]
+        {
             self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
         }
 
