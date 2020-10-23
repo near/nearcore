@@ -53,9 +53,15 @@ impl RuntimeConfig {
     /// TODO: https://github.com/nearprotocol/NEPs/issues/120
     pub fn from_protocol_version(
         genesis_runtime_config: &Arc<RuntimeConfig>,
-        _protocol_version: ProtocolVersion,
+        genesis_protocol_version: ProtocolVersion,
+        protocol_version: ProtocolVersion,
     ) -> Arc<Self> {
-        genesis_runtime_config.clone()
+        if genesis_protocol_version < PROTOCOL_FEE_UPGRADE
+            && protocol_version >= PROTOCOL_FEE_UPGRADE
+        {
+        } else {
+            genesis_runtime_config.clone()
+        }
     }
 }
 

@@ -443,6 +443,7 @@ impl NightshadeRuntime {
             current_protocol_version,
             config: RuntimeConfig::from_protocol_version(
                 &self.genesis_runtime_config,
+                self.genesis_config.protocol_version,
                 current_protocol_version,
             ),
         };
@@ -574,6 +575,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Option<InvalidTxError>, Error> {
         let runtime_config = RuntimeConfig::from_protocol_version(
             &self.genesis_runtime_config,
+            self.genesis_config.protocol_version,
             current_protocol_version,
         );
 
@@ -642,6 +644,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let runtime_config = RuntimeConfig::from_protocol_version(
             &self.genesis_runtime_config,
+            self.genesis_config.protocol_version,
             current_protocol_version,
         );
 
