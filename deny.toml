@@ -32,13 +32,21 @@ skip = [
     { name = "rand_chacha", version = "=0.1.1" },
     { name = "autocfg", version = "=0.1.7" },
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
-    { name = "base64", version = "=0.11.0"},
-    { name = "gimli", version = "=0.20"},
-    { name = "wasmparser", version = "=0.51.4"},
+    { name = "base64", version = "=0.11.0" },
+    { name = "gimli", version = "=0.20" },
+    { name = "wasmparser", version = "=0.51.4" },
     { name = "itertools", version = "=0.8.2" },
     { name = "rand_core", version = "=0.4.2" },
+    # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
+    { name = "sha2", version = "=0.8.1" },
+    { name = "digest", version = "=0.8.1" },
+    { name = "crypto-mac", version = "=0.7.0" },
+    { name = "block-padding", version = "=0.1.5" },
+    { name = "block-buffer", version = "=0.7.3" },
+    { name = "opaque-debug", version = "=0.2.3" },
+    { name = "generic-array", version = "=0.12.3" },
 
-    # rosetta-rpc pull paperclip which introduce the following duplocates (https://github.com/wafflespeanut/paperclip/pull/209)
+    # rosetta-rpc pull paperclip which introduce the following duplicates (https://github.com/wafflespeanut/paperclip/pull/209)
     { name = "url", version = "=1.7.2" },
     { name = "idna", version = "=0.1.5" },
     { name = "semver", version = "=0.9.0" },
