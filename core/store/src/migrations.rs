@@ -375,7 +375,7 @@ pub fn migrate_14_to_15(path: &String) {
                     let local_receipt_id = create_receipt_id_from_transaction(
                         protocol_version,
                         transaction,
-                        &block_hash,
+                        &block.header().prev_hash(),
                     );
                     if execution_outcome_ids.contains(&local_receipt_id) {
                         local_receipt_ids.push(local_receipt_id);
@@ -426,8 +426,10 @@ pub fn migrate_14_to_15(path: &String) {
             assert_eq!(
                 new_execution_outcome_ids.len(),
                 execution_outcome_ids.len(),
-                "inconsistent number of outcomes detected while migrating block {}",
-                block_hash
+                "inconsistent number of outcomes detected while migrating block {}: {:?} vs. {:?}",
+                block_hash,
+                new_execution_outcome_ids,
+                execution_outcome_ids
             );
             let value = new_execution_outcome_ids.try_to_vec().unwrap();
             store_update.set(

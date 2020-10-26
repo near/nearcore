@@ -1902,18 +1902,6 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
     }
 
-    pub fn save_outcome_with_proof(
-        &mut self,
-        id: CryptoHash,
-        outcome_with_proof: ExecutionOutcomeWithIdAndProof,
-    ) {
-        self.chain_store_cache_update
-            .outcomes
-            .entry(id)
-            .or_insert_with(Vec::new)
-            .push(outcome_with_proof);
-    }
-
     pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
         self.trie_changes.push(trie_changes);
     }
@@ -3180,6 +3168,8 @@ mod tests {
         for col in DBCol::iter() {
             println!("current column is {:?}", col);
             if gced_cols.contains(&col) {
+                // only genesis block includes new chunk.
+                let count = if col == DBCol::ColOutcomesByBlockHash { Some(1) } else { Some(8) };
                 assert_eq!(
                     chain
                         .store()
@@ -3189,7 +3179,7 @@ mod tests {
                             &col.try_to_vec().expect("Failed to serialize DBCol")
                         )
                         .unwrap(),
-                    Some(8)
+                    count
                 );
             } else {
                 assert_eq!(
