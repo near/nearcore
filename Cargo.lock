@@ -2829,6 +2829,7 @@ name = "near-vm-logic"
 version = "2.2.0"
 dependencies = [
  "base64 0.11.0",
+ "borsh",
  "bs58",
  "byteorder",
  "near-runtime-fees",

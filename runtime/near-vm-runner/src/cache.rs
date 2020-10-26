@@ -21,7 +21,7 @@ pub(crate) fn compile_module(
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
 enum ContractCacheKey {
-    Version1 { code_hash: CryptoHash, vm_config_non_crypto_hash: u64, vm_kind: u32 },
+    Version1 { code_hash: CryptoHash, vm_config_non_crypto_hash: u64, vm_kind: VMKind },
 }
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -39,7 +39,7 @@ fn get_key(code_hash: &[u8], code: &[u8], vm_kind: VMKind, config: &VMConfig) ->
     let key = ContractCacheKey::Version1 {
         code_hash: hash,
         vm_config_non_crypto_hash: config.non_crypto_hash(),
-        vm_kind: vm_kind as u32,
+        vm_kind: vm_kind,
     };
     near_primitives::hash::hash(&key.try_to_vec().unwrap())
 }
@@ -61,19 +61,15 @@ fn compile_and_serialize_wasmer(
 ) -> Result<wasmer_runtime::Module, VMError> {
     let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
     let artifact = module.cache().map_err(|_e| {
-        cache_error(
-            VMError::CacheError(SerializationError { hash: (key.0).0 }),
-            &key,
-            cache,
-        )
+        cache_error(VMError::CacheError(SerializationError { hash: (key.0).0 }), &key, cache)
     })?;
-    let code = artifact.serialize().map_err(|_e| {
-        VMError::CacheError(SerializationError { hash: (key.0).0 })
-    })?;
+    let code = artifact
+        .serialize()
+        .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
     // If errors comes from serialization we shall not cache it.
-    let serialized = CacheRecord::Code(code).try_to_vec().map_err(|_e| {
-        VMError::CacheError(SerializationError { hash: (key.0).0 })
-    })?;
+    let serialized = CacheRecord::Code(code)
+        .try_to_vec()
+        .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
     cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
     Ok(module)
 }
@@ -108,14 +104,12 @@ pub(crate) fn compile_module_cached_wasmer(
     let cache = cache.unwrap();
     match cache.get(&(key.0).0) {
         Ok(serialized) => match serialized {
-            Some(serialized) => {
-                match deserialize_wasmer(serialized.as_slice()) {
-                    Ok(module) => Ok(module),
-                    // We trying to be extra careful, and if cannot deserialize code,
-                    // try to serialize again.
-                    Err(_e) => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
+            Some(serialized) => match deserialize_wasmer(serialized.as_slice()) {
+                Ok(module) => Ok(module),
+                Err(e) => {
+                    panic!("Cannot deserialize cached contract: {:?}", e);
                 }
-            }
+            },
             None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
         },
         Err(_) => {
