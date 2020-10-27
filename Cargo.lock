@@ -716,6 +716,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "casey"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fabe85130dda9cf267715582ce6cf1ab581c8dfe3cb33f7065fee0f14e3fea14"
+dependencies = [
+ "syn",
+]
+
+[[package]]
 name = "cc"
 version = "1.0.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2439,6 +2448,7 @@ dependencies = [
  "actix",
  "borsh",
  "cached",
+ "casey",
  "chrono",
  "futures",
  "log",
@@ -2449,6 +2459,7 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-store",
+ "paste",
  "rand 0.7.3",
  "reed-solomon-erasure",
  "serde",
@@ -2674,6 +2685,7 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
+ "casey",
  "chrono",
  "derive_more",
  "easy-ext",
@@ -2684,6 +2696,7 @@ dependencies = [
  "near-rpc-error-macro",
  "near-vm-errors",
  "num-rational 0.2.4",
+ "paste",
  "primitive-types",
  "rand 0.7.3",
  "reed-solomon-erasure",
@@ -3325,6 +3338,12 @@ dependencies = [
  "smallvec",
  "winapi 0.3.8",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba7ae1a2180ed02ddfdb5ab70c70d596a26dd642e097bb6fe78b1bde8588ed97"
 
 [[package]]
 name = "peeking_take_while"

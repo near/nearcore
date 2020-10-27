@@ -1,4 +1,5 @@
 use crate::types::Balance;
+use casey::snake;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -109,10 +110,23 @@ lazy_static! {
             STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
         {
             assert!(
-                nightly_protocol_features_to_version_mapping[stable_protocol_feature]
                     >= *stable_protocol_version
             );
         }
         nightly_protocol_features_to_version_mapping
     };
+}
+
+#[macro_export]
+macro_rules! checked_feature {
+    ($feature:ident, $version:expr) => {{
+        paste! {
+            #[cfg(feature = $feature:snake)] {
+                PROTOCOL_FEATURES_TO_VERSION_MAPPING[ProtocolFeature::$feature] >= $version
+            }
+            #[cfg(not(feature = $feature:snake))] {
+                false
+            }
+        }
+    }};
 }

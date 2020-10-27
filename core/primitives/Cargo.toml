@@ -25,6 +25,8 @@ jemallocator = { version = "0.3", optional = true }
 hex = "0.4"
 num-rational = "0.2.4"
 primitive-types = { version = "0.7", default-features = false }
+casey = "0.3.3"
+paste = "1.0.2"
 
 borsh = "0.7.1"
 

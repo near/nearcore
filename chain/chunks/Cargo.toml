@@ -21,6 +21,8 @@ near-store = { path = "../../core/store" }
 near-network = { path = "../network" }
 near-chain = { path = "../chain" }
 near-pool = { path = "../pool" }
+paste = "1.0.2"
+casey = "0.3.3"
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
