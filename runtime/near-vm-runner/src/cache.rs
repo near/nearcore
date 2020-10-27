@@ -2,7 +2,7 @@ use crate::errors::IntoVMError;
 use crate::prepare;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
-use near_vm_errors::CacheError::{DeserializationError, SerializationError, WriteError};
+use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
 use near_vm_errors::VMError;
 use near_vm_logic::{VMConfig, VMKind};
 use std::convert::TryFrom;
@@ -48,7 +48,7 @@ fn cache_error(error: VMError, key: &CryptoHash, cache: &dyn CompiledContractCac
     let record = CacheRecord::Error(error.clone());
     if cache.put(&(key.0).0, &record.try_to_vec().unwrap()).is_err() {
         // That's fine, just cannot cache compilation error.
-        println!("Cannot cache an error");
+        panic!("Cannot cache an error");
     }
     error
 }
@@ -60,9 +60,8 @@ fn compile_and_serialize_wasmer(
     cache: &dyn CompiledContractCache,
 ) -> Result<wasmer_runtime::Module, VMError> {
     let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
-    let artifact = module.cache().map_err(|_e| {
-        cache_error(VMError::CacheError(SerializationError { hash: (key.0).0 }), &key, cache)
-    })?;
+    let artifact =
+        module.cache().map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
     let code = artifact
         .serialize()
         .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
@@ -112,11 +111,7 @@ pub(crate) fn compile_module_cached_wasmer(
             },
             None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
         },
-        Err(_) => {
-            // Cache access error happened, avoid attempts to cache.
-            println!("Cannot use cache");
-            compile_module(wasm_code, config)
-        }
+        Err(_) => Err(VMError::CacheError(ReadError)),
     }
 }
 

@@ -36,6 +36,7 @@ pub enum FunctionCallError {
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
 pub enum CacheError {
+    ReadError,
     WriteError,
     DeserializationError,
     SerializationError { hash: [u8; 32] },
