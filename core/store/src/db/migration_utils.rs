@@ -5,7 +5,7 @@ use crate::DBCol;
 
 impl RocksDB {
     /// Clears the column using delete_range_cf()
-    pub(crate) fn clear_column(&self, column: DBCol) {
+    pub fn clear_column(&self, column: DBCol) {
         let cf_handle = unsafe { &*self.cfs[column as usize] };
 
         let opt_first = self.db.iterator(IteratorMode::Start).next();

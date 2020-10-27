@@ -88,11 +88,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
             near_config.client_config.tracked_accounts.clone(),
             near_config.client_config.tracked_shards.clone(),
         );
-        let mut store_update = store.store_update();
-        for (key, _) in store.iter_without_rc_logic(DBCol::ColTransactionResult) {
-            store_update.delete(DBCol::ColTransactionResult, &key);
-        }
-        store_update.commit().unwrap();
+        store.get_rocksdb().unwrap().clear_column(DBCol::ColTransactionResult);
 
         let mut cur_height = genesis_height;
         while cur_height <= head.height {
