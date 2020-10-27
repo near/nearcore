@@ -172,9 +172,12 @@ def chain_measure_bps_and_tps(archival_node,
     while curr_time > start_time:
         if curr_time < end_time:
             block_times.append(curr_time)
-            chunk_hash = curr_block['chunks'][0]['chunk_hash']
-            chunk = archival_node.get_chunk(chunk_hash)['result']
-            tx_count.append(len(chunk['transactions']))
+            block_tx_count = 0
+            for curr_block_chunk_data in curr_block['chunks']:
+                chunk_hash = curr_block_chunk_data['chunk_hash']
+                chunk = archival_node.get_chunk(chunk_hash)['result']
+                block_tx_count += len(chunk['transactions'])
+            tx_count.append(block_tx_count)
         prev_hash = curr_block['header']['prev_hash']
         curr_block = archival_node.get_block(prev_hash)['result']
         curr_time = get_timestamp(curr_block)
