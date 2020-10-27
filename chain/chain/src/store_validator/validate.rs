@@ -15,7 +15,7 @@ use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
-    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColStateHeaders,
+    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomeIds, ColStateHeaders,
     ColTransactionResult, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, FORK_TAIL_KEY,
     HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
 };
@@ -631,7 +631,7 @@ pub(crate) fn outcome_indexed_by_block_hash(
                     ) {
                         outcome_ids.extend(unwrap_or_err_db!(
                             sv.store.get_ser::<Vec<CryptoHash>>(
-                                ColOutcomesByBlockHash,
+                                ColOutcomeIds,
                                 &get_block_shard_id(block.hash(), chunk_header.shard_id())
                             ),
                             "Can't get Outcome ids by Block Hash"
@@ -641,7 +641,7 @@ pub(crate) fn outcome_indexed_by_block_hash(
             }
         }
         if !outcome_ids.contains(outcome_id) {
-            err!("Outcome id {:?} is not found in ColOutcomesByBlockHash", outcome_id);
+            err!("Outcome id {:?} is not found in ColOutcomeIds", outcome_id);
         }
     }
     Ok(())

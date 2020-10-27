@@ -38,7 +38,7 @@ use near_store::{
     ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight,
     ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColGCCount, ColIncomingReceipts,
     ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes, ColNextBlockWithNewChunk,
-    ColOutcomesByBlockHash, ColOutgoingReceipts, ColPartialChunks, ColProcessedBlockHeights,
+    ColOutcomeIds, ColOutgoingReceipts, ColPartialChunks, ColProcessedBlockHeights,
     ColReceiptIdToShardId, ColReceipts, ColState, ColStateChanges, ColStateDlInfos,
     ColStateHeaders, ColStateParts, ColTransactionResult, ColTransactions, ColTrieChanges, DBCol,
     KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges, WrappedTrieChanges,
@@ -844,7 +844,7 @@ impl ChainStoreAccess for ChainStore {
     ) -> Result<Vec<CryptoHash>, Error> {
         Ok(self
             .store
-            .get_ser(ColOutcomesByBlockHash, &get_block_shard_id(block_hash, shard_id))?
+            .get_ser(ColOutcomeIds, &get_block_shard_id(block_hash, shard_id))?
             .unwrap_or_default())
     }
 
@@ -2276,26 +2276,25 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
         let mut store_update = self.store().store_update();
-        for chunk_header in block.chunks().iter() {
-            if chunk_header.height_included() == block.header().height() {
-                let shard_id = chunk_header.shard_id();
-                let outcome_ids =
-                    self.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
-                for outcome_id in outcome_ids {
-                    let mut outcomes_with_id = self.get_outcomes_by_id(&outcome_id)?;
-                    outcomes_with_id.retain(|outcome| &outcome.block_hash != block_hash);
-                    if outcomes_with_id.is_empty() {
-                        self.gc_col(ColTransactionResult, &outcome_id.as_ref().into());
-                    } else {
-                        store_update.set_ser(
-                            ColTransactionResult,
-                            outcome_id.as_ref(),
-                            &outcomes_with_id,
-                        )?;
-                    }
+        for chunk_header in
+            block.chunks().iter().filter(|h| h.height_included() == block.header().height())
+        {
+            let shard_id = chunk_header.shard_id();
+            let outcome_ids = self.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
+            for outcome_id in outcome_ids {
+                let mut outcomes_with_id = self.get_outcomes_by_id(&outcome_id)?;
+                outcomes_with_id.retain(|outcome| &outcome.block_hash != block_hash);
+                if outcomes_with_id.is_empty() {
+                    self.gc_col(ColTransactionResult, &outcome_id.as_ref().into());
+                } else {
+                    store_update.set_ser(
+                        ColTransactionResult,
+                        outcome_id.as_ref(),
+                        &outcomes_with_id,
+                    )?;
                 }
-                self.gc_col(ColOutcomesByBlockHash, &get_block_shard_id(block_hash, shard_id));
             }
+            self.gc_col(ColOutcomeIds, &get_block_shard_id(block_hash, shard_id));
         }
         self.merge(store_update);
         Ok(())
@@ -2394,7 +2393,7 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColTransactionResult => {
                 store_update.delete(col, key);
             }
-            DBCol::ColOutcomesByBlockHash => {
+            DBCol::ColOutcomeIds => {
                 store_update.delete(col, key);
             }
             DBCol::ColStateDlInfos => {
@@ -2590,7 +2589,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for ((block_hash, shard_id), ids) in self.chain_store_cache_update.outcome_ids.iter() {
             store_update.set_ser(
-                ColOutcomesByBlockHash,
+                ColOutcomeIds,
                 &get_block_shard_id(block_hash, *shard_id),
                 &ids,
             )?;
@@ -3162,14 +3161,14 @@ mod tests {
             DBCol::ColNextBlockWithNewChunk,
             DBCol::ColChunkPerHeightShard,
             DBCol::ColBlockRefCount,
-            DBCol::ColOutcomesByBlockHash,
+            DBCol::ColOutcomeIds,
             DBCol::ColChunkExtra,
         ];
         for col in DBCol::iter() {
             println!("current column is {:?}", col);
             if gced_cols.contains(&col) {
                 // only genesis block includes new chunk.
-                let count = if col == DBCol::ColOutcomesByBlockHash { Some(1) } else { Some(8) };
+                let count = if col == DBCol::ColOutcomeIds { Some(1) } else { Some(8) };
                 assert_eq!(
                     chain
                         .store()

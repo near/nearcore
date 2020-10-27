@@ -215,7 +215,7 @@ impl StoreValidator {
                     // ShardChunk which can be indexed by Height exists
                     self.check(&validate::chunk_of_height_exists, &height, &chunk_hashes, col);
                 }
-                DBCol::ColOutcomesByBlockHash => {
+                DBCol::ColOutcomeIds => {
                     let (block_hash, _) = get_block_shard_id_rev(key_ref)?;
                     let outcome_ids = Vec::<CryptoHash>::try_from_slice(value_ref)?;
                     // TransactionResult which can be indexed by Outcome id exists

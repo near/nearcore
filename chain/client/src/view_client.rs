@@ -2,6 +2,7 @@
 //! Useful for querying from RPC.
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -26,6 +27,7 @@ use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
+use near_primitives::sharding::ShardChunk;
 use near_primitives::syncing::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
     ShardStateSyncResponseV2,
@@ -50,8 +52,6 @@ use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
-use near_primitives::sharding::ShardChunk;
-use std::collections::HashMap;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;

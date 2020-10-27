@@ -56,7 +56,7 @@ pub fn set_store_version(store: &Store, db_version: u32) {
 }
 
 fn get_outcomes_by_block_hash(store: &Store, block_hash: &CryptoHash) -> HashSet<CryptoHash> {
-    match store.get_ser(DBCol::ColOutcomesByBlockHash, block_hash.as_ref()) {
+    match store.get_ser(DBCol::ColOutcomeIds, block_hash.as_ref()) {
         Ok(Some(hash_set)) => hash_set,
         Ok(None) => HashSet::new(),
         Err(e) => panic!("Can't read DB, {:?}", e),
@@ -87,7 +87,7 @@ pub fn fill_col_outcomes_by_hash(store: &Store) {
     }
     for (block_hash, hash_set) in block_hash_to_outcomes {
         store_update
-            .set_ser(DBCol::ColOutcomesByBlockHash, block_hash.as_ref(), &hash_set)
+            .set_ser(DBCol::ColOutcomeIds, block_hash.as_ref(), &hash_set)
             .expect("BorshSerialize should not fail");
     }
     store_update.commit().expect("Failed to migrate");
@@ -327,6 +327,7 @@ pub fn migrate_13_to_14(path: &String) {
     set_store_version(&store, 14);
 }
 
+/// Make execution outcome ids in `ColOutcomeIds` ordered by replaying the chunks.
 pub fn migrate_14_to_15(path: &String) {
     let store = create_store(path);
     let trie_store = Box::new(TrieCachingStorage::new(store.clone(), TrieCache::new(), 0));
@@ -336,16 +337,18 @@ pub fn migrate_14_to_15(path: &String) {
     let batch_size_limit = 10_000_000;
     let mut batch_size = 0;
 
-    for (key, value) in store.iter_without_rc_logic(DBCol::ColOutcomesByBlockHash) {
+    for (key, value) in store.iter_without_rc_logic(DBCol::ColOutcomeIds) {
         let block_hash = CryptoHash::try_from_slice(&key).unwrap();
         let block =
             store.get_ser::<Block>(DBCol::ColBlock, &key).unwrap().expect("block should exist");
 
-        if block.chunks()[0].height_included() == block.header().height() {
+        for chunk_header in
+            block.chunks().iter().filter(|h| h.height_included() == block.header().height())
+        {
             let execution_outcome_ids = <HashSet<CryptoHash>>::try_from_slice(&value).unwrap();
 
             let chunk = store
-                .get_ser::<ShardChunk>(DBCol::ColChunks, block.chunks()[0].chunk_hash().as_ref())
+                .get_ser::<ShardChunk>(DBCol::ColChunks, chunk_header.chunk_hash().as_ref())
                 .unwrap()
                 .expect("chunk should exist");
 
@@ -433,11 +436,11 @@ pub fn migrate_14_to_15(path: &String) {
             );
             let value = new_execution_outcome_ids.try_to_vec().unwrap();
             store_update.set(
-                DBCol::ColOutcomesByBlockHash,
-                &get_block_shard_id(&block_hash, 0),
+                DBCol::ColOutcomeIds,
+                &get_block_shard_id(&block_hash, chunk_header.shard_id()),
                 &value,
             );
-            store_update.delete(DBCol::ColOutcomesByBlockHash, &key);
+            store_update.delete(DBCol::ColOutcomeIds, &key);
             batch_size += key.len() + value.len() + 40;
             if batch_size > batch_size_limit {
                 store_update.commit().unwrap();
