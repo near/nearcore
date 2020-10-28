@@ -32,7 +32,7 @@ use crate::{
 use delay_detector::DelayDetector;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const ROUTE_BACK_CACHE_SIZE: u64 = 1_000_000;
+const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
 const ROUTE_BACK_CACHE_EVICT_TIMEOUT: u64 = 120_000; // 120 seconds
 const ROUTE_BACK_CACHE_REMOVE_BATCH: u64 = 100;
 const PING_PONG_CACHE_SIZE: usize = 1_000;
