@@ -21,7 +21,6 @@ use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
@@ -43,6 +42,9 @@ use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use serde::export::fmt::Error;
 use serde::export::Formatter;
 use std::{fmt::Debug, io};
+
+#[cfg(feature = "protocol_feature_forward_chunk_parts")]
+use near_primitives::merkle::combine_hash;
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 /// Number of hops a message is allowed to travel before being dropped.
@@ -467,6 +469,7 @@ pub enum RoutedMessageBody {
     Pong(Pong),
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     VersionedStateResponse(StateResponseInfo),
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
@@ -535,6 +538,7 @@ impl Debug for RoutedMessageBody {
                 response.shard_id(),
                 response.sync_hash()
             ),
+            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
             RoutedMessageBody::PartialEncodedChunkForward(forward) => write!(
                 f,
                 "PartialChunkForward({:?}, {:?})",
@@ -785,10 +789,11 @@ impl PeerMessage {
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
                 | RoutedMessageBody::PartialEncodedChunkResponse(_)
-                | RoutedMessageBody::PartialEncodedChunkForward(_)
                 | RoutedMessageBody::StateResponse(_)
                 | RoutedMessageBody::VersionedPartialEncodedChunk(_)
                 | RoutedMessageBody::VersionedStateResponse(_) => true,
+                #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+                RoutedMessageBody::PartialEncodedChunkForward(_) => true,
                 _ => false,
             },
             _ => false,
@@ -1411,6 +1416,7 @@ pub enum NetworkClientMessages {
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
     /// Forwarding parts to those tracking the shard (so they don't need to send requests)
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 
     /// A challenge to invalidate the block.
@@ -1586,6 +1592,7 @@ pub struct PartialEncodedChunkResponseMsg {
 /// This reduces the number of requests a node tracking a shard needs to send to obtain enough
 /// parts to reconstruct the message (in the best case no such requests are needed).
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 pub struct PartialEncodedChunkForwardMsg {
     pub chunk_hash: ChunkHash,
     pub inner_header_hash: CryptoHash,
@@ -1597,6 +1604,7 @@ pub struct PartialEncodedChunkForwardMsg {
     pub parts: Vec<PartialEncodedChunkPart>,
 }
 
+#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 impl PartialEncodedChunkForwardMsg {
     pub fn from_header_and_parts(
         header: &ShardChunkHeader,

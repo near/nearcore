@@ -13,9 +13,11 @@ use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
 };
+#[cfg(feature = "protocol_feature_forward_chunk_parts")]
+use near_network::types::PartialEncodedChunkForwardMsg;
 use near_network::types::{
-    AccountIdOrPeerTrackingShard, NetworkAdapter, PartialEncodedChunkForwardMsg,
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+    AccountIdOrPeerTrackingShard, NetworkAdapter, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg,
 };
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
@@ -987,6 +989,7 @@ impl ShardsManager {
         }
     }
 
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn validate_partial_encoded_chunk_forward(
         &mut self,
         forward: &PartialEncodedChunkForwardMsg,
@@ -1041,6 +1044,7 @@ impl ShardsManager {
         Ok(header)
     }
 
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn insert_forwarded_chunk(&mut self, forward: PartialEncodedChunkForwardMsg) {
         let chunk_hash = forward.chunk_hash.clone();
         let num_total_parts = self.runtime_adapter.num_total_parts() as u64;
@@ -1702,6 +1706,7 @@ mod test {
     };
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::sharding::{ChunkHash, PartialEncodedChunkV2};
@@ -1991,6 +1996,7 @@ mod test {
         assert!(requests_count > 0);
     }
 
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     #[test]
     fn test_receive_forward_before_header() {
         // When a node receives a chunk forward before the chunk header, it should store
