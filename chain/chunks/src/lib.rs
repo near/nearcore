@@ -37,9 +37,6 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::{checked_feature, unwrap_or_return};
 
-#[cfg(feature = "nightly_protocol")]
-use near_primitives::version::{ProtocolFeature, PROTOCOL_FEATURES_TO_VERSION_MAPPING};
-
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
 use rand::Rng;
@@ -598,7 +595,7 @@ impl ShardsManager {
         &mut self,
         chunk_header: ShardChunkHeader,
         header_head: Option<&Tip>,
-        _protocol_version: ProtocolVersion,
+        protocol_version: ProtocolVersion,
     ) {
         let parent_hash = chunk_header.prev_block_hash();
         let height = chunk_header.height_created();
@@ -639,7 +636,7 @@ impl ShardsManager {
             let is_chunk_forwarding_enabled = checked_feature!(
                 "protocol_feature_forward_chunk_parts",
                 ForwardChunkParts,
-                _protocol_version
+                protocol_version
             );
             if !is_chunk_forwarding_enabled || fetch_from_archival || old_block {
                 let request_result = self.request_partial_encoded_chunk(
@@ -1205,10 +1202,11 @@ impl ShardsManager {
         self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
 
         // Forward my parts to others tracking this chunk's shard
-        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-        if protocol_version
-            >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::ForwardChunkParts]
-        {
+        if checked_feature!(
+            "protocol_feature_forward_chunk_parts",
+            ForwardChunkParts,
+            protocol_version
+        ) {
             self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
         }
 

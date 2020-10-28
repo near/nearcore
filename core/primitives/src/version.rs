@@ -1,7 +1,9 @@
-use crate::types::Balance;
+use std::collections::HashMap;
+
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::types::Balance;
 
 /// Data structure for semver version and github tag or commit.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -121,7 +123,8 @@ lazy_static! {
 macro_rules! checked_feature {
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
         #[cfg(feature = $feature_name)]
-        let is_feature_enabled = PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::$feature]
+        let is_feature_enabled = near_primitives::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
+            [&near_primitives::version::ProtocolFeature::$feature]
             >= $current_protocol_version;
         #[cfg(not(feature = $feature_name))]
         let is_feature_enabled = false;
