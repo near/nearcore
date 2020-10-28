@@ -1202,6 +1202,7 @@ impl ShardsManager {
         self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
 
         // Forward my parts to others tracking this chunk's shard
+        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
         if checked_feature!(
             "protocol_feature_forward_chunk_parts",
             ForwardChunkParts,
