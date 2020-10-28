@@ -127,7 +127,24 @@ macro_rules! checked_feature {
             [&near_primitives::version::ProtocolFeature::$feature]
             >= $current_protocol_version;
         #[cfg(not(feature = $feature_name))]
-        let is_feature_enabled = false;
+        let is_feature_enabled = {
+            // Workaround unused variable warning
+            let _ = $current_protocol_version;
+
+            false
+        };
         is_feature_enabled
+    }};
+
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{
+        #[cfg(feature = $feature_name)]
+        {
+            if checked_feature!($feature_name, $feature, $current_protocol_version) {
+                $feature_block
+            }
+        }
+        // Workaround unused variable warning
+        #[cfg(not(feature = $feature_name))]
+        let _ = $current_protocol_version;
     }};
 }

@@ -205,6 +205,7 @@ fn chunks_produced_and_distributed_common(
                             return (NetworkResponses::NoResponse, false);
                         }
                     }
+                    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                     NetworkRequests::PartialEncodedChunkForward {
                         account_id: to_whom,
                         ..

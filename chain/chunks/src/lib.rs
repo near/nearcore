@@ -1202,14 +1202,14 @@ impl ShardsManager {
         self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
 
         // Forward my parts to others tracking this chunk's shard
-        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-        if checked_feature!(
+        checked_feature!(
             "protocol_feature_forward_chunk_parts",
             ForwardChunkParts,
-            protocol_version
-        ) {
-            self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
-        }
+            protocol_version,
+            {
+                self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
+            }
+        );
 
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
@@ -1961,9 +1961,11 @@ mod test {
             _ => panic!("Expected to need more parts!"),
         }
         let count_forwards_and_requests = |fixture: &ChunkForwardingTestFixture| -> (usize, usize) {
+            #[allow(unused_mut)]
             let mut forwards_count = 0;
             let mut requests_count = 0;
             fixture.mock_network.requests.read().unwrap().iter().for_each(|r| match r {
+                #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                 NetworkRequests::PartialEncodedChunkForward { .. } => forwards_count += 1,
                 NetworkRequests::PartialEncodedChunkRequest { .. } => requests_count += 1,
                 _ => (),
