@@ -47,10 +47,10 @@ fn get_key(code_hash: &[u8], code: &[u8], vm_kind: VMKind, config: &VMConfig) ->
 fn cache_error(error: VMError, key: &CryptoHash, cache: &dyn CompiledContractCache) -> VMError {
     let record = CacheRecord::Error(error.clone());
     if cache.put(&(key.0).0, &record.try_to_vec().unwrap()).is_err() {
-        // That's fine, just cannot cache compilation error.
-        panic!("Cannot cache an error");
+        VMError::CacheError(WriteError)
+    } else {
+        error
     }
-    error
 }
 
 fn compile_and_serialize_wasmer(
@@ -76,11 +76,11 @@ fn compile_and_serialize_wasmer(
 fn deserialize_wasmer(serialized: &[u8]) -> Result<wasmer_runtime::Module, VMError> {
     let record = CacheRecord::try_from_slice(serialized)
         .map_err(|_e| VMError::CacheError(DeserializationError))?;
-    let code = match record {
+    let serialized_artifact = match record {
         CacheRecord::Error(err) => return Err(err),
         CacheRecord::Code(code) => code,
     };
-    let artifact = Artifact::deserialize(code.as_slice())
+    let artifact = Artifact::deserialize(serialized_artifact.as_slice())
         .map_err(|_e| VMError::CacheError(DeserializationError))?;
     unsafe {
         let compiler = compiler_for_backend(Backend::Singlepass).unwrap();
@@ -106,7 +106,8 @@ pub(crate) fn compile_module_cached_wasmer(
             Some(serialized) => match deserialize_wasmer(serialized.as_slice()) {
                 Ok(module) => Ok(module),
                 Err(e) => {
-                    panic!("Cannot deserialize cached contract: {:?}", e);
+                    println!("Cannot deserialize cached contract: {:?}", e);
+                    Err(VMError::CacheError(DeserializationError))
                 }
             },
             None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
