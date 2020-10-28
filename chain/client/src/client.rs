@@ -19,7 +19,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
-use near_network::types::{PartialEncodedChunkResponseMsg, ReasonForBan};
+use near_network::types::PartialEncodedChunkResponseMsg;
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -1130,7 +1130,7 @@ impl Client {
                 Ok(next_epoch_id) => next_epoch_id,
             };
 
-        if let ApprovalType::PeerApproval(ref peer_id) = approval_type {
+        if let ApprovalType::PeerApproval(_) = approval_type {
             // Check signature is correct for given validator.
             // Note that on the epoch boundary the blocks contain approvals from both the current
             // and the next epoch. Here we try to fetch the validator for the epoch of the next block,
@@ -1161,10 +1161,6 @@ impl Client {
                 signature,
             ) {
                 Ok(true) => {}
-                Ok(false) => self.network_adapter.do_send(NetworkRequests::BanPeer {
-                    peer_id: peer_id.clone(),
-                    ban_reason: ReasonForBan::InvalidSignature,
-                }),
                 _ => return,
             }
         }
@@ -1542,7 +1538,6 @@ mod test {
 
     use crate::test_utils::TestEnv;
     use near_network::test_utils::MockNetworkAdapter;
-    use near_network::NetworkRequests;
     use near_primitives::block_header::ApprovalType;
     use near_primitives::network::PeerId;
     use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
@@ -1599,14 +1594,12 @@ mod test {
         env.clients[0]
             .collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
         assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
-        // Approval with invalid signature, peer should be banned
+        // Approval with invalid signature. Should be dropped
         let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "random");
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let approval = Approval::new(genesis_hash, 0, 1, &signer);
         env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
         assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
-        assert_eq!(network_adapter.requests.read().unwrap().len(), 1);
-        assert!(matches!(network_adapter.pop().unwrap(), NetworkRequests::BanPeer {..}));
     }
 
     #[test]
