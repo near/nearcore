@@ -551,6 +551,7 @@ pub fn setup_mock_all_validators(
                                 create_msg,
                             );
                         }
+                        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                             let create_msg = || {
                                 NetworkClientMessages::PartialEncodedChunkForward(forward.clone())

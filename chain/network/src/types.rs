@@ -1203,6 +1203,7 @@ pub enum NetworkRequests {
         partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
     },
     /// Forwarding a chunk part to a validator tracking the shard
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     PartialEncodedChunkForward {
         account_id: AccountId,
         forward: PartialEncodedChunkForwardMsg,

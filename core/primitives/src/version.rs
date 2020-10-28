@@ -1,5 +1,4 @@
 use crate::types::Balance;
-use casey::snake;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -72,7 +71,7 @@ impl ProtocolVersionRange {
 /// ```
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolFeature {
-    #[cfg(feature = "forward_chunk_parts")]
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     ForwardChunkParts,
 }
 
@@ -110,6 +109,7 @@ lazy_static! {
             STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
         {
             assert!(
+                PROTOCOL_FEATURES_TO_VERSION_MAPPING[&stable_protocol_feature]
                     >= *stable_protocol_version
             );
         }
@@ -119,14 +119,12 @@ lazy_static! {
 
 #[macro_export]
 macro_rules! checked_feature {
-    ($feature:ident, $version:expr) => {{
-        paste! {
-            #[cfg(feature = $feature:snake)] {
-                PROTOCOL_FEATURES_TO_VERSION_MAPPING[ProtocolFeature::$feature] >= $version
-            }
-            #[cfg(not(feature = $feature:snake))] {
-                false
-            }
-        }
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
+        #[cfg(feature = $feature_name)]
+        let is_feature_enabled = PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::$feature]
+            >= $current_protocol_version;
+        #[cfg(not(feature = $feature_name))]
+        let is_feature_enabled = false;
+        is_feature_enabled
     }};
 }

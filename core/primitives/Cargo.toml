@@ -25,8 +25,6 @@ jemallocator = { version = "0.3", optional = true }
 hex = "0.4"
 num-rational = "0.2.4"
 primitive-types = { version = "0.7", default-features = false }
-casey = "0.3.3"
-paste = "1.0.2"
 
 borsh = "0.7.1"
 
@@ -37,8 +35,10 @@ near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 [features]
 default = ["jemallocator"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
-nightly_protocol = ["forward_chunk_parts"]
-forward_chunk_parts = []
+protocol_feature_forward_chunk_parts = []
+nightly_protocol_features = ["protocol_feature_forward_chunk_parts"]
+nightly_protocol = []
+
 
 [dev-dependencies]
 bencher = "0.1.5"
