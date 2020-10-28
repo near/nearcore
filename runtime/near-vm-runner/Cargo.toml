@@ -14,8 +14,8 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 cached = "0.12"
-wasmer-runtime = {  git = "https://github.com/near/wasmer", branch = "0.17.2", features = ["default-backend-singlepass"], default-features = false }
-wasmer-runtime-core = { git = "https://github.com/near/wasmer", branch = "0.17.2" }
+wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near" }
+wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.17.0", features = ["lightbeam"], default-features = false, optional = true }
