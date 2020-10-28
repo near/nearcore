@@ -11,6 +11,11 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::PathBuf;
 use std::time::Instant;
+use std::{
+    fs::File,
+    io::Read,
+    os::unix::io::FromRawFd,
+};
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {
@@ -108,18 +113,16 @@ pub fn measure_actions(
 }
 
 // TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
-#[cfg(any(target_arch = "x86_64"))]
+#[cfg(target_family = "unix")]
 #[inline(always)]
-pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
-    llvm_asm!("syscall"
-         : "+{rax}"(n)
-         : "{rdi}"(a1) "{rsi}"(a2) "{rdx}"(a3)
-         : "rcx", "r11", "memory"
-         : "volatile");
-    n
+pub unsafe fn syscall3(fd: u32, buf: &mut [u8]) -> usize {
+    let mut f = File::from_raw_fd(std::mem::transmute::<u32, i32>(fd));
+    let res = f.read(buf).unwrap();
+    std::mem::forget(f); // Skips closing the file descriptor, but free
+    res
 }
 
-const CATCH_BASE: usize = 0xcafebabe;
+const CATCH_BASE: u32 = 0xcafebabe;
 
 pub enum Consumed {
     Instant(Instant),
@@ -130,10 +133,8 @@ fn start_count_instructions() -> Consumed {
     let mut buf: i8 = 0;
     unsafe {
         syscall3(
-            0, /* sys_read */
             CATCH_BASE,
-            std::mem::transmute::<*mut i8, usize>(&mut buf),
-            1,
+            std::mem::transmute::<*mut i8, &mut [u8;1]>(&mut buf),
         );
     }
     Consumed::None
@@ -143,10 +144,8 @@ fn end_count_instructions() -> u64 {
     let mut result: u64 = 0;
     unsafe {
         syscall3(
-            0, /* sys_read */
             CATCH_BASE + 1,
-            std::mem::transmute::<*mut u64, usize>(&mut result),
-            8,
+            std::mem::transmute::<*mut u64, &mut [u8;8]>(&mut result),
         );
     }
     result
