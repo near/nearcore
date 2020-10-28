@@ -1935,6 +1935,7 @@ mod test {
         assert!(seals_manager.past_seals.get(&fixture.mock_height).is_none());
     }*/
 
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     #[test]
     fn test_chunk_forwarding() {
         // When ShardsManager receives parts it owns, it should forward them to the shard trackers
@@ -1961,11 +1962,9 @@ mod test {
             _ => panic!("Expected to need more parts!"),
         }
         let count_forwards_and_requests = |fixture: &ChunkForwardingTestFixture| -> (usize, usize) {
-            #[allow(unused_mut)]
             let mut forwards_count = 0;
             let mut requests_count = 0;
             fixture.mock_network.requests.read().unwrap().iter().for_each(|r| match r {
-                #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                 NetworkRequests::PartialEncodedChunkForward { .. } => forwards_count += 1,
                 NetworkRequests::PartialEncodedChunkRequest { .. } => requests_count += 1,
                 _ => (),
