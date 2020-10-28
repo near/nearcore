@@ -30,21 +30,21 @@ use testlib::test_helpers::heavy_test;
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(1, false, 3 * CHUNK_REQUEST_RETRY_MS);
+        chunks_produced_and_distributed_common(1, false, 15 * CHUNK_REQUEST_RETRY_MS);
     });
 }
 
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, false, 3 * CHUNK_REQUEST_RETRY_MS);
+        chunks_produced_and_distributed_common(2, false, 15 * CHUNK_REQUEST_RETRY_MS);
     });
 }
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, false, 3 * CHUNK_REQUEST_RETRY_MS);
+        chunks_produced_and_distributed_common(4, false, 15 * CHUNK_REQUEST_RETRY_MS);
     });
 }
 
@@ -56,7 +56,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 #[test]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, true, 3 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
+        chunks_produced_and_distributed_common(2, true, 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
     });
 }
 
@@ -68,7 +68,7 @@ fn chunks_recovered_from_others() {
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, true, 3 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS / 2);
+        chunks_produced_and_distributed_common(4, true, 2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
     });
 }
 
