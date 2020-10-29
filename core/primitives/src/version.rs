@@ -71,7 +71,7 @@ impl ProtocolVersionRange {
 /// #[cfg(feature = "evm")]
 /// EVM
 /// ```
-#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     ForwardChunkParts,
