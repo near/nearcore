@@ -52,9 +52,33 @@ We do that by computing following operation:
     ./emu-cost/counter_plugin/qemu-x86_64  -d plugin -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so \
         ../../target/release/genesis-populate --home /tmp/data --additional-accounts-num <NUM_ACCOUNTS>
 
-and checking how much data to be read/written depending on number of accounts in system. If amount of data grows lineraly with
-the number of instructions, it could be used as a metrics describing IO cost. I.e. we can arbitrary assume,
-that n bytes read during this operation
+and checking how much data to be read/written depending on number of create accounts.
+Then we could figure out:
+   * 1 account creation cost in instructions
+   * 1 account creation cost in bytes read and written
+For example, experiments performed in mid Oct 2020 shown the following numbers:
+10M accounts:
+    * 6_817_684_914_212 instructions executed
+    * 168_398_590_013 bytes read
+    * 48_486_537_178 bytes written
+
+Thus 1 account approximately costs:
+    * 681_768 instructions executed
+    * 16840 bytes read
+    * 4849 bytes written
+
+Let's presume that execution, read and write each takes following shares in account cost creation.
+   * Execution: *3/6*
+   * Read: *2/6*
+   * Write: *1/6*
+
+Then we could conclude that:
+   * 1 byte read costs 681768 * 2 / 3 / 16840 = 27 instructions
+   * 1 byte written costs 681768 * 1 / 3 / 4849 = 47 instructions
+
+Thus, when measuring costs we set the operation cost to be:
+
+    cost = number_of_instructions + bytes_read * 27 + bytes_written * 47
 
 ## Optional: re-building QEMU and the instruction counter plugin
 
