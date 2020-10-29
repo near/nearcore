@@ -56,7 +56,7 @@
 //! ```
 
 pub use prometheus::{
-    Encoder, Histogram, IntCounter, IntCounterVec, IntGauge, Result, TextEncoder,
+    Encoder, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, Result, TextEncoder,
 };
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
@@ -107,10 +107,32 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     Ok(histogram)
 }
 
+/// Attempts to create a `HistogramVector`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
+pub fn try_create_histogram_vec(name: &str, help: &str, labels: &[&str]) -> Result<HistogramVec> {
+    let opts = HistogramOpts::new(name, help);
+    let histogram = HistogramVec::new(opts, labels)?;
+    prometheus::register(Box::new(histogram.clone()))?;
+    Ok(histogram)
+}
+
 /// Starts a timer for the given `Histogram`, stopping when it gets dropped or given to `stop_timer(..)`.
 pub fn start_timer(histogram: &Result<Histogram>) -> Option<HistogramTimer> {
     if let Ok(histogram) = histogram {
         Some(histogram.start_timer())
+    } else {
+        error!(target: "metrics", "Failed to fetch histogram");
+        None
+    }
+}
+
+/// Starts a timer for the given `HistogramVec` and labels, stopping when it gets dropped or given to `stop_timer(..)`.
+pub fn start_timer_vec(
+    histogram: &Result<HistogramVec>,
+    label_values: &[&str],
+) -> Option<HistogramTimer> {
+    if let Ok(histogram) = histogram {
+        Some(histogram.with_label_values(label_values).start_timer())
     } else {
         error!(target: "metrics", "Failed to fetch histogram");
         None
