@@ -193,6 +193,7 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
+    use near_chain_configs::TEST_EVM_CHAIN_ID;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::StateChangeCause;
@@ -222,7 +223,7 @@ mod tests {
             &mut logs,
             &MockEpochInfoProvider::default(),
             PROTOCOL_VERSION,
-            0x99,
+            TEST_EVM_CHAIN_ID,
         );
 
         assert_eq!(result.unwrap(), encode_int(10));
@@ -246,7 +247,7 @@ mod tests {
             &mut logs,
             &MockEpochInfoProvider::default(),
             PROTOCOL_VERSION,
-            0x99,
+            TEST_EVM_CHAIN_ID,
         );
 
         let err = result.unwrap_err();

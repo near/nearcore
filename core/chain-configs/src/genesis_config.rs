@@ -22,7 +22,8 @@ use near_runtime_configs::RuntimeConfig;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
-const TEST_EVM_CHAIN_ID: u128 = 0x99;
+/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
+pub const TEST_EVM_CHAIN_ID: u128 = 1313161555;
 
 fn default_online_min_threshold() -> Rational {
     Rational::new(90, 100)
