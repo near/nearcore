@@ -25,7 +25,6 @@ pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/lightclnt.py
 pytest sanity/rpc_light_client_execution_outcome_proof.py
-pytest --timeout=240 sanity/rpc_query.py
 pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
 pytest --timeout=240 sanity/restaked.py

@@ -146,7 +146,7 @@ fn test_execution_outcome_for_chunk() {
                 }
             };
 
-            let execution_outcomes_in_block = view_client
+            let mut execution_outcomes_in_block = view_client
                 .send(GetExecutionOutcomesForBlock {
                     block_hash: feo.transaction_outcome.block_hash,
                 })
@@ -154,7 +154,8 @@ fn test_execution_outcome_for_chunk() {
                 .unwrap()
                 .unwrap();
             assert_eq!(execution_outcomes_in_block.len(), 1);
-            assert_eq!(execution_outcomes_in_block[0].id, tx_hash);
+            let outcomes = execution_outcomes_in_block.remove(&0).unwrap();
+            assert_eq!(outcomes[0].id, tx_hash);
             System::current().stop();
         });
         near_network::test_utils::wait_or_panic(5000);
