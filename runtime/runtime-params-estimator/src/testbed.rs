@@ -14,6 +14,7 @@ use near_vm_logic::VMLimitConfig;
 use neard::get_store_path;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
+use std::sync::Arc;
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -71,7 +72,7 @@ impl RuntimeTestbed {
             ..Default::default()
         };
 
-        let runtime = Runtime::new(runtime_config);
+        let runtime = Runtime::new();
         let prev_receipts = vec![];
 
         let apply_state = ApplyState {
@@ -86,7 +87,8 @@ impl RuntimeTestbed {
             gas_limit: None,
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
-            evm_chain_id: 0x99,
+            config: Arc::new(runtime_config),
+            evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
         };
         Self {
             workdir,

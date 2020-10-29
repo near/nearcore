@@ -18,6 +18,7 @@ use near_primitives::views::{
 };
 use near_store::{ShardTries, TrieUpdate};
 use neard::config::{MIN_GAS_PRICE, TEST_EVM_CHAIN_ID};
+use node_runtime::config::RuntimeConfig;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -29,6 +30,7 @@ pub struct MockClient {
     pub tries: ShardTries,
     pub state_root: MerkleHash,
     pub epoch_length: BlockHeightDelta,
+    pub runtime_config: RuntimeConfig,
 }
 
 impl MockClient {
@@ -48,10 +50,12 @@ pub struct RuntimeUser {
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
     pub transactions: RefCell<HashSet<SignedTransaction>>,
     pub epoch_info_provider: MockEpochInfoProvider,
+    pub runtime_config: Arc<RuntimeConfig>,
 }
 
 impl RuntimeUser {
     pub fn new(account_id: &str, signer: Arc<dyn Signer>, client: Arc<RwLock<MockClient>>) -> Self {
+        let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
         RuntimeUser {
             signer,
             trie_viewer: TrieViewer::new(),
@@ -61,6 +65,7 @@ impl RuntimeUser {
             receipts: Default::default(),
             transactions: RefCell::new(Default::default()),
             epoch_info_provider: MockEpochInfoProvider::default(),
+            runtime_config,
         }
     }
 
@@ -129,6 +134,7 @@ impl RuntimeUser {
             random_seed: Default::default(),
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            config: self.runtime_config.clone(),
             evm_chain_id: TEST_EVM_CHAIN_ID,
         }
     }

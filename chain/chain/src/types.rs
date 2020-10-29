@@ -13,7 +13,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReceiptList, ShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
@@ -231,6 +231,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns trie.
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
 
+    /// Returns trie with view cache
+    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,
@@ -299,7 +302,24 @@ pub trait RuntimeAdapter: Send + Sync {
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 
     /// Verify chunk header signature.
-    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
+    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
+        self.verify_chunk_signature_with_header_parts(
+            &header.chunk_hash(),
+            header.signature(),
+            &header.prev_block_hash(),
+            header.height_created(),
+            header.shard_id(),
+        )
+    }
+
+    fn verify_chunk_signature_with_header_parts(
+        &self,
+        chunk_hash: &ChunkHash,
+        signature: &Signature,
+        prev_block_hash: &CryptoHash,
+        height_created: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<bool, Error>;
 
     /// Verify aggregated bls signature
     fn verify_approval(
@@ -620,10 +640,11 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis_chunks = genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0);
+        let genesis_chunks =
+            genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
-            genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+            genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::now(),
             0,
             100,

@@ -125,13 +125,13 @@ impl std::ops::Neg for Amount {
 
 impl Amount {
     pub(crate) fn from_yoctonear(amount: near_primitives::types::Balance) -> Self {
-        Self { value: amount.into(), currency: Currency::yoctonear() }
+        Self { value: amount.into(), currency: Currency::near() }
     }
 
     pub(crate) fn from_yoctonear_diff(
         amount: crate::utils::SignedDiff<near_primitives::types::Balance>,
     ) -> Self {
-        Self { value: amount, currency: Currency::yoctonear() }
+        Self { value: amount, currency: Currency::near() }
     }
 }
 
@@ -444,8 +444,7 @@ pub(crate) struct ConstructionHashRequest {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) enum CurrencySymbol {
-    #[serde(rename = "yoctoNEAR")]
-    YoctoNEAR,
+    NEAR,
 }
 
 /// Currency is composed of a canonical Symbol and Decimals. This Decimals value
@@ -471,8 +470,8 @@ pub(crate) struct Currency {
 }
 
 impl Currency {
-    fn yoctonear() -> Self {
-        Self { symbol: CurrencySymbol::YoctoNEAR, decimals: 0 }
+    fn near() -> Self {
+        Self { symbol: CurrencySymbol::NEAR, decimals: 24 }
     }
 }
 

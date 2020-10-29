@@ -22,6 +22,7 @@ use near_vm_logic::ReturnData;
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
 use crate::ApplyState;
+use std::sync::Arc;
 
 pub struct TrieViewer {}
 
@@ -125,7 +126,7 @@ impl TrieViewer {
             epoch_info_provider,
             current_protocol_version,
         );
-        let config = RuntimeConfig::default();
+        let config = Arc::new(RuntimeConfig::default());
         let apply_state = ApplyState {
             block_index: block_height,
             last_block_hash: last_block_hash.clone(),
@@ -136,6 +137,7 @@ impl TrieViewer {
             gas_limit: None,
             random_seed: root,
             current_protocol_version,
+            config: config.clone(),
             evm_chain_id,
         };
         let action_receipt = ActionReceipt {

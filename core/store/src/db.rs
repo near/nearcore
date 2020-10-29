@@ -104,8 +104,8 @@ pub enum DBCol {
     ColBlockOrdinal = 40,
     /// GC Count for each column
     ColGCCount = 41,
-    /// GC helper column to get all Outcome ids by Block Hash
-    ColOutcomesByBlockHash = 42,
+    /// All Outcome ids by block hash and shard id. For each shard it is ordered by execution order.
+    ColOutcomeIds = 42,
     /// Deprecated
     _ColTransactionRefCount = 43,
     /// Heights of blocks that have been processed
@@ -162,7 +162,7 @@ impl std::fmt::Display for DBCol {
             Self::ColChunkHashesByHeight => "chunk hashes indexed by height_created",
             Self::ColBlockOrdinal => "block ordinal",
             Self::ColGCCount => "gc count",
-            Self::ColOutcomesByBlockHash => "outcomes by block hash",
+            Self::ColOutcomeIds => "outcome ids",
             Self::_ColTransactionRefCount => "refcount per transaction (deprecated)",
             Self::ColProcessedBlockHeights => "processed block heights",
             Self::ColReceipts => "receipts",
@@ -234,6 +234,8 @@ pub const FINAL_HEAD_KEY: &[u8; 10] = b"FINAL_HEAD";
 pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const VERSION_KEY: &[u8; 7] = b"VERSION";
+pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
+pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,

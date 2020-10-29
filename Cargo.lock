@@ -864,18 +864,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clicolors-control"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90082ee5dcdd64dc4e9e0d37fbf3ee325419e39c0092191e0393df65518f741e"
-dependencies = [
- "atty",
- "lazy_static",
- "libc",
- "winapi 0.3.8",
-]
-
-[[package]]
 name = "cloudabi"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -904,18 +892,19 @@ dependencies = [
 
 [[package]]
 name = "console"
-version = "0.10.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6728a28023f207181b193262711102bfbaf47cc9d13bc71d0736607ef8efe88c"
+checksum = "c0b1aacfaffdbff75be81c15a399b4bedf78aaefe840e8af1d299ac2ade885d2"
 dependencies = [
- "clicolors-control",
  "encode_unicode",
  "lazy_static",
  "libc",
  "regex",
+ "terminal_size",
  "termios",
  "unicode-width",
  "winapi 0.3.8",
+ "winapi-util",
 ]
 
 [[package]]
@@ -1183,6 +1172,12 @@ dependencies = [
  "quote 1.0.3",
  "syn 1.0.38",
 ]
+
+[[package]]
+name = "difference"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "524cbf6897b527295dff137cec09ecf3a05f4fddffd7dfcd1585403449e74198"
 
 [[package]]
 name = "digest"
@@ -2189,6 +2184,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "insta"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3463f26c58ee98b72e4eae1a6b4c28bc3320ab69d4836b55162362c2ec63fa6"
+dependencies = [
+ "console",
+ "difference",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2746,6 +2755,7 @@ dependencies = [
  "num-rational 0.2.4",
  "serde",
  "serde_json",
+ "sha2",
  "smart-default",
 ]
 
@@ -2891,7 +2901,7 @@ dependencies = [
 
 [[package]]
 name = "near-indexer"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "actix",
  "futures",
@@ -3032,6 +3042,7 @@ dependencies = [
  "easy-ext",
  "hex",
  "jemallocator",
+ "lazy_static",
  "near-crypto",
  "near-rpc-error-macro",
  "near-vm-errors",
@@ -3050,7 +3061,7 @@ dependencies = [
 
 [[package]]
 name = "near-rosetta-rpc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "actix",
  "actix-cors",
@@ -3058,6 +3069,7 @@ dependencies = [
  "derive_more",
  "futures",
  "hex",
+ "insta",
  "lazy_static",
  "near-chain-configs",
  "near-client",
@@ -4401,6 +4413,7 @@ dependencies = [
  "glob 0.3.0",
  "gnuplot",
  "indicatif 0.15.0",
+ "near-chain-configs",
  "near-crypto",
  "near-primitives",
  "near-runtime-fees",
@@ -4978,6 +4991,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb6bfa289a4d7c5766392812c0a1f4c1ba45afa1ad47803c11e1f407d846d75f"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "terminal_size"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a14cd9f8c72704232f0bfc8455c0e861f0ad4eb60cc9ec8a170e231414c1e13"
+dependencies = [
+ "libc",
+ "winapi 0.3.8",
 ]
 
 [[package]]

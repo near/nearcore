@@ -2,6 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::hash::CryptoHash;
@@ -12,9 +13,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::create_random_seed;
-use near_primitives::version::{
-    ProtocolVersion, EVM_PRECOMPILE_PROTOCOL_VERSION, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
-};
+use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_configs::AccountCreationConfig;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::{
@@ -51,7 +50,7 @@ pub(crate) fn execute_function_call(
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
-    if runtime_ext.protocol_version() >= EVM_PRECOMPILE_PROTOCOL_VERSION
+    if checked_feature!("protocol_feature_evm", EVM, runtime_ext.protocol_version())
         && is_account_evm(&account_id)
     {
         near_evm_runner::run_evm(

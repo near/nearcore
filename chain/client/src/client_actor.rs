@@ -28,7 +28,7 @@ use near_crypto::Signature;
 use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
+use near_network::types::{NetworkInfo, ReasonForBan};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
@@ -342,15 +342,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 self.client.collect_block_approval(&approval, false);
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::StateResponse(StateResponseInfo {
-                shard_id,
-                sync_hash: hash,
-                state_response,
-            }) => {
+            NetworkClientMessages::StateResponse(state_response_info) => {
+                let shard_id = state_response_info.shard_id();
+                let hash = state_response_info.sync_hash();
+                let state_response = state_response_info.take_state_response();
+
                 trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
                     shard_id,
                     hash,
-                    state_response.part.as_ref().map(|(part_id,data)|(part_id, data.len()))
+                    state_response.part().as_ref().map(|(part_id,data)|(part_id, data.len()))
                 );
                 // Get the download that matches the shard_id and hash
                 let download = {
@@ -403,7 +403,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 if let Some(shard_sync_download) = download {
                     match shard_sync_download.status {
                         ShardSyncStatus::StateDownloadHeader => {
-                            if let Some(header) = state_response.header {
+                            if let Some(header) = state_response.take_header() {
                                 if !shard_sync_download.downloads[0].done {
                                     match self.client.chain.set_state_header(shard_id, hash, header)
                                     {
@@ -426,7 +426,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                         }
                         ShardSyncStatus::StateDownloadParts => {
-                            if let Some(part) = state_response.part {
+                            if let Some(part) = state_response.take_part() {
                                 let num_parts = shard_sync_download.downloads.len() as u64;
                                 let (part_id, data) = part;
                                 if part_id >= num_parts {
@@ -481,6 +481,18 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     self.client.process_partial_encoded_chunk(partial_encoded_chunk)
                 {
                     self.process_accepted_blocks(accepted_blocks);
+                }
+                NetworkClientResponses::NoResponse
+            }
+            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+            NetworkClientMessages::PartialEncodedChunkForward(forward) => {
+                match self.client.process_partial_encoded_chunk_forward(forward) {
+                    Ok(accepted_blocks) => self.process_accepted_blocks(accepted_blocks),
+                    // Unknown chunk is normal if we get parts before the header
+                    Err(Error::Chunk(near_chunks::Error::UnknownChunk)) => (),
+                    Err(err) => {
+                        error!(target: "client", "Error processing forwarded chunk: {}", err)
+                    }
                 }
                 NetworkClientResponses::NoResponse
             }
@@ -830,6 +842,8 @@ impl ClientActor {
             Ok(Some(block)) => {
                 let block_hash = *block.hash();
                 let peer_id = self.node_id.clone();
+                let prev_hash = *block.header().prev_hash();
+                let block_protocol_version = block.header().latest_protocol_version();
                 let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
@@ -842,9 +856,18 @@ impl ClientActor {
                                 missing_chunks,
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
+                            let protocol_version = self
+                                .client
+                                .runtime_adapter
+                                .get_epoch_id_from_prev_block(&prev_hash)
+                                .and_then(|epoch| {
+                                    self.client.runtime_adapter.get_epoch_protocol_version(&epoch)
+                                })
+                                .unwrap_or(block_protocol_version);
                             self.client.shards_mgr.request_chunks(
                                 missing_chunks,
                                 &self.client.chain.header_head().expect("header_head must be available when processing newly produced block"),
+                                protocol_version,
                             );
                             Ok(())
                         }
@@ -870,7 +893,7 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
-            let gas_used = Block::compute_gas_used(&block.chunks(), block.header().height());
+            let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 
             let last_final_hash = *block.header().last_final_block();
 
@@ -931,6 +954,7 @@ impl ClientActor {
             return;
         }
         let prev_hash = *block.header().prev_hash();
+        let block_protocol_version = block.header().latest_protocol_version();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(block, provenance, &peer_id) {
@@ -962,11 +986,20 @@ impl ClientActor {
                         missing_chunks,
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
+                    let protocol_version = self
+                        .client
+                        .runtime_adapter
+                        .get_epoch_id_from_prev_block(&prev_hash)
+                        .and_then(|epoch| {
+                            self.client.runtime_adapter.get_epoch_protocol_version(&epoch)
+                        })
+                        .unwrap_or(block_protocol_version);
                     self.client.shards_mgr.request_chunks(
                         missing_chunks,
                         &self.client.chain.header_head().expect(
                             "header_head should always be available when block is received",
                         ),
+                        protocol_version,
                     );
                 }
                 _ => {
@@ -1295,16 +1328,16 @@ impl ClientActor {
                         );
 
                         self.client.shards_mgr.request_chunks(
-                            blocks_missing_chunks
-                                .write()
-                                .unwrap()
-                                .drain(..)
-                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
                             &self
                                 .client
                                 .chain
                                 .header_head()
                                 .expect("header_head must be available during sync"),
+                            // It is ok to pass the latest protocol version here since we are likely
+                            // syncing old blocks, which means the protocol version will not change
+                            // the logic.
+                            PROTOCOL_VERSION,
                         );
 
                         self.client.sync_status =

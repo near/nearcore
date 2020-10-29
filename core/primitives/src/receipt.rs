@@ -162,3 +162,12 @@ impl fmt::Debug for ReceivedData {
             .finish()
     }
 }
+
+/// Stores indices for a persistent queue for delayed receipts that didn't fit into a block.
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq)]
+pub struct DelayedReceiptIndices {
+    // First inclusive index in the queue.
+    pub first_index: u64,
+    // Exclusive end index of the queue
+    pub next_available_index: u64,
+}

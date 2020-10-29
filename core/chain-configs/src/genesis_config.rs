@@ -3,6 +3,8 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
+use std::fs::File;
+use std::io::BufReader;
 use std::marker::PhantomData;
 use std::path::Path;
 
@@ -11,6 +13,7 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
+use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
@@ -171,9 +174,8 @@ impl GenesisConfig {
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        Self::from_json(
-            &std::fs::read_to_string(path).expect("Could not read genesis config file."),
-        )
+        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
+        serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.")
     }
 
     /// Writes GenesisConfig to the file.
@@ -199,9 +201,8 @@ impl GenesisRecords {
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        Self::from_json(
-            &std::fs::read_to_string(path).expect("Could not read genesis records file."),
-        )
+        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
+        serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.")
     }
 
     /// Writes GenesisRecords to the file.
@@ -223,8 +224,8 @@ impl Genesis {
 
     /// Reads Genesis from a single file.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        serde_json::from_str(&std::fs::read_to_string(path).expect("Could not read genesis file."))
-            .expect("Failed to deserialize the genesis records.")
+        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
+        serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.")
     }
 
     /// Reads Genesis from config and records files.
@@ -245,6 +246,16 @@ impl Genesis {
             serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
         )
         .expect("Failed to create / write a genesis config file.");
+    }
+
+    /// Hash of the json-serialized input.
+    /// DEVNOTE: the representation is not unique, and could change on upgrade.
+    pub fn json_hash(&self) -> CryptoHash {
+        let mut digest = sha2::Sha256::default();
+        use sha2::digest::Digest;
+        serde_json::to_writer_pretty(&mut digest, self)
+            .expect("Error serializing the genesis config.");
+        CryptoHash(near_primitives::hash::Digest(digest.result().into()))
     }
 }
 

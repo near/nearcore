@@ -69,7 +69,7 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
 
 pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTries, StateRoot) {
     let tries = create_tries();
-    let runtime = Runtime::new(genesis.config.runtime_config.clone());
+    let runtime = Runtime::new();
     let (store_update, genesis_root) = runtime.apply_genesis_state(
         tries.clone(),
         0,
@@ -86,6 +86,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
             })
             .collect::<Vec<_>>(),
         &genesis.records.as_ref(),
+        &genesis.config.runtime_config,
     );
     store_update.commit().unwrap();
     (runtime, tries, genesis_root)
