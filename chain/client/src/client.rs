@@ -19,7 +19,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
-use near_network::types::{PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg};
+use near_network::types::PartialEncodedChunkResponseMsg;
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -27,8 +27,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
-    ShardChunkHeader,
+    EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
@@ -42,6 +41,11 @@ use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+
+#[cfg(feature = "protocol_feature_forward_chunk_parts")]
+use near_network::types::PartialEncodedChunkForwardMsg;
+#[cfg(feature = "protocol_feature_forward_chunk_parts")]
+use near_primitives::sharding::PartialEncodedChunkV2;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -726,6 +730,7 @@ impl Client {
         self.process_partial_encoded_chunk(partial_chunk)
     }
 
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn process_partial_encoded_chunk_forward(
         &mut self,
         forward: PartialEncodedChunkForwardMsg,
@@ -1601,6 +1606,8 @@ mod test {
                 header.init();
             }
         }
+
+        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
         let mock_forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
             &mock_chunk.header,
             mock_chunk.parts.clone(),
@@ -1626,10 +1633,13 @@ mod test {
 
         // process_partial_encoded_chunk_forward should return UnknownChunk if it is based on a
         // a missing block.
-        let result = client.process_partial_encoded_chunk_forward(mock_forward);
-        assert!(matches!(
-            result,
-            Err(crate::types::Error::Chunk(near_chunks::Error::UnknownChunk))
-        ));
+        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+        {
+            let result = client.process_partial_encoded_chunk_forward(mock_forward);
+            assert!(matches!(
+                result,
+                Err(crate::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+            ));
+        }
     }
 }

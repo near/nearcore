@@ -1294,6 +1294,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 if self.send_message_to_account(
                     ctx,

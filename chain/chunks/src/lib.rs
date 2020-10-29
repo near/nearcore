@@ -13,9 +13,11 @@ use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
 };
+#[cfg(feature = "protocol_feature_forward_chunk_parts")]
+use near_network::types::PartialEncodedChunkForwardMsg;
 use near_network::types::{
-    AccountIdOrPeerTrackingShard, NetworkAdapter, PartialEncodedChunkForwardMsg,
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+    AccountIdOrPeerTrackingShard, NetworkAdapter, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg,
 };
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
@@ -33,9 +35,9 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
     ValidatorStake,
 };
-use near_primitives::unwrap_or_return;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolVersion, CHUNK_FORWARD_UPGRADE_VERSION};
+use near_primitives::version::ProtocolVersion;
+use near_primitives::{checked_feature, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
@@ -633,8 +635,12 @@ impl ShardsManager {
             // will eventually be sent because of the `resend_chunk_requests` loop. However,
             // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
             // before we send requests.
-            if protocol_version < CHUNK_FORWARD_UPGRADE_VERSION || fetch_from_archival || old_block
-            {
+            let is_chunk_forwarding_enabled = checked_feature!(
+                "protocol_feature_forward_chunk_parts",
+                ForwardChunkParts,
+                protocol_version
+            );
+            if !is_chunk_forwarding_enabled || fetch_from_archival || old_block {
                 let request_result = self.request_partial_encoded_chunk(
                     height,
                     &parent_hash,
@@ -983,6 +989,7 @@ impl ShardsManager {
         }
     }
 
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn validate_partial_encoded_chunk_forward(
         &mut self,
         forward: &PartialEncodedChunkForwardMsg,
@@ -1037,6 +1044,7 @@ impl ShardsManager {
         Ok(header)
     }
 
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn insert_forwarded_chunk(&mut self, forward: PartialEncodedChunkForwardMsg) {
         let chunk_hash = forward.chunk_hash.clone();
         let num_total_parts = self.runtime_adapter.num_total_parts() as u64;
@@ -1198,9 +1206,14 @@ impl ShardsManager {
         self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
 
         // Forward my parts to others tracking this chunk's shard
-        if protocol_version >= CHUNK_FORWARD_UPGRADE_VERSION {
-            self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
-        }
+        checked_feature!(
+            "protocol_feature_forward_chunk_parts",
+            ForwardChunkParts,
+            protocol_version,
+            {
+                self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
+            }
+        );
 
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
@@ -1310,6 +1323,7 @@ impl ShardsManager {
 
     /// Send the parts of the partial_encoded_chunk that are owned by `self.me` to the
     /// other validators that are tracking the shard.
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn send_partial_encoded_chunk_to_chunk_trackers(
         &mut self,
         partial_encoded_chunk: PartialEncodedChunkV2,
@@ -1692,6 +1706,7 @@ mod test {
     };
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::sharding::{ChunkHash, PartialEncodedChunkV2};
@@ -1925,6 +1940,7 @@ mod test {
         assert!(seals_manager.past_seals.get(&fixture.mock_height).is_none());
     }*/
 
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     #[test]
     fn test_chunk_forwarding() {
         // When ShardsManager receives parts it owns, it should forward them to the shard trackers
@@ -1980,6 +1996,7 @@ mod test {
         assert!(requests_count > 0);
     }
 
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     #[test]
     fn test_receive_forward_before_header() {
         // When a node receives a chunk forward before the chunk header, it should store
