@@ -96,64 +96,6 @@ def check_slow_blocks(initial_metrics, final_metrics):
 
 
 if __name__ == '__main__':
-    print('INFO: Starting Load test.')
-    nodes = mocknet.get_nodes()
-    initial_validator_accounts = mocknet.list_validators(nodes[0])
-    test_passed = True
-
-    print('INFO: Performing baseline block time measurement')
-    # We do not include tps here because there are no transactions on mocknet normally.
-    time.sleep(120)
-    baseline_measurement = mocknet.chain_measure_bps_and_tps(
-        archival_node=nodes[-1], start_time=None, end_time=None, duration=120)
-    baseline_measurement['in_tps'] = 0.0
-    # quit test early if the baseline is poor.
-    assert baseline_measurement['bps'] > 1.0
-    print(f'INFO: {baseline_measurement}')
-    print('INFO: Baseline block time measurement complete')
-
-    print('INFO: Setting remote python environments.')
-    mocknet.setup_python_environments(nodes, wasm_contract())
-    print('INFO: Starting transaction spamming scripts.')
-    mocknet.start_load_test_helpers(nodes, 'load_testing_helper.py')
-
-    initial_metrics = mocknet.get_metrics(nodes[-1])
-    print('INFO: Waiting for transfer only period to complete.')
-    time.sleep(TRANSFER_ONLY_TIMEOUT)
-    transfer_final_metrics = mocknet.get_metrics(nodes[-1])
-
-    # wait before doing measurement to ensure tx_events written by helpers
-    time.sleep(5)
-    print('INFO: Transfer-only results:')
-    transfer_only_measurement = measure_tps_bps(nodes)
-    test_passed = (transfer_only_measurement['bps'] > 0.5) and test_passed
-    test_passed = check_tps(transfer_only_measurement, MAX_TPS) and test_passed
-    test_passed = check_memory_usage(nodes[0]) and test_passed
-    test_passed = check_slow_blocks(initial_metrics,
-                                    transfer_final_metrics) and test_passed
-    print('')
-
-    print('INFO: Waiting for contracts to be deployed.')
-    measurement_duration = transfer_final_metrics.timestamp - time.time()
-    time.sleep(CONTRACT_DEPLOY_TIME - measurement_duration)
-
-    print('INFO: Waiting for random transactions period to complete.')
-    all_tx_initial_metrics = mocknet.get_metrics(nodes[-1])
-    time.sleep(ALL_TX_TIMEOUT)
-    final_metrics = mocknet.get_metrics(nodes[-1])
-
-    time.sleep(5)
-    print('INFO: All transaction types results:')
-    all_tx_measurement = measure_tps_bps(nodes)
-    test_passed = (all_tx_measurement['bps'] > 0.5) and test_passed
-    test_passed = check_memory_usage(nodes[0]) and test_passed
-    test_passed = check_slow_blocks(all_tx_initial_metrics,
-                                    final_metrics) and test_passed
-    print('')
-
-    final_validator_accounts = mocknet.list_validators(nodes[0])
-    assert initial_validator_accounts == final_validator_accounts
-
-    assert test_passed
-
-    print('INFO: Load test complete.')
+    print('INFO: Sleeping for 6 hours.')
+    time.sleep(21600)
+    print('INFO: Done.')
