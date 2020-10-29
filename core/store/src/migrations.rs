@@ -20,12 +20,18 @@ use crate::migrations::v6_to_v7::{
 use crate::migrations::v8_to_v9::{
     recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
 };
-use crate::{create_store, Store, StoreUpdate, FINAL_HEAD_KEY, HEAD_KEY};
+use crate::{create_store, Store, StoreUpdate, Trie, FINAL_HEAD_KEY, HEAD_KEY};
+
+use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
-use near_primitives::block::Tip;
+use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
+use near_primitives::epoch_manager::EpochInfo;
 use near_primitives::merkle::merklize;
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
+use near_primitives::trie_key::TrieKey;
+use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 
 pub mod v6_to_v7;
@@ -50,7 +56,7 @@ pub fn set_store_version(store: &Store, db_version: u32) {
 }
 
 fn get_outcomes_by_block_hash(store: &Store, block_hash: &CryptoHash) -> HashSet<CryptoHash> {
-    match store.get_ser(DBCol::ColOutcomesByBlockHash, block_hash.as_ref()) {
+    match store.get_ser(DBCol::ColOutcomeIds, block_hash.as_ref()) {
         Ok(Some(hash_set)) => hash_set,
         Ok(None) => HashSet::new(),
         Err(e) => panic!("Can't read DB, {:?}", e),
@@ -81,7 +87,7 @@ pub fn fill_col_outcomes_by_hash(store: &Store) {
     }
     for (block_hash, hash_set) in block_hash_to_outcomes {
         store_update
-            .set_ser(DBCol::ColOutcomesByBlockHash, block_hash.as_ref(), &hash_set)
+            .set_ser(DBCol::ColOutcomeIds, block_hash.as_ref(), &hash_set)
             .expect("BorshSerialize should not fail");
     }
     store_update.commit().expect("Failed to migrate");
@@ -319,4 +325,130 @@ pub fn migrate_13_to_14(path: &String) {
     .unwrap();
 
     set_store_version(&store, 14);
+}
+
+/// Make execution outcome ids in `ColOutcomeIds` ordered by replaying the chunks.
+pub fn migrate_14_to_15(path: &String) {
+    let store = create_store(path);
+    let trie_store = Box::new(TrieCachingStorage::new(store.clone(), TrieCache::new(), 0));
+    let trie = Trie::new(trie_store, 0);
+
+    let mut store_update = store.store_update();
+    let batch_size_limit = 10_000_000;
+    let mut batch_size = 0;
+
+    for (key, value) in store.iter_without_rc_logic(DBCol::ColOutcomeIds) {
+        let block_hash = CryptoHash::try_from_slice(&key).unwrap();
+        let block =
+            store.get_ser::<Block>(DBCol::ColBlock, &key).unwrap().expect("block should exist");
+
+        for chunk_header in
+            block.chunks().iter().filter(|h| h.height_included() == block.header().height())
+        {
+            let execution_outcome_ids = <HashSet<CryptoHash>>::try_from_slice(&value).unwrap();
+
+            let chunk = store
+                .get_ser::<ShardChunk>(DBCol::ColChunks, chunk_header.chunk_hash().as_ref())
+                .unwrap()
+                .expect("chunk should exist");
+
+            let epoch_info = store
+                .get_ser::<EpochInfo>(DBCol::ColEpochInfo, block.header().epoch_id().as_ref())
+                .unwrap()
+                .expect("epoch id should exist");
+            let protocol_version = epoch_info.protocol_version;
+
+            let mut new_execution_outcome_ids = vec![];
+            let mut local_receipt_ids = vec![];
+            let mut local_receipt_congestion = false;
+
+            // Step 0: execution outcomes of transactions
+            for transaction in chunk.transactions() {
+                let tx_hash = transaction.get_hash();
+                // Transactions must all be executed since when chunk is produced, there is a gas
+                // limit check.
+                assert!(
+                    execution_outcome_ids.contains(&tx_hash),
+                    "transaction hash {} does not exist in block {}",
+                    tx_hash,
+                    block_hash
+                );
+                new_execution_outcome_ids.push(tx_hash);
+                if transaction.transaction.signer_id == transaction.transaction.receiver_id {
+                    let local_receipt_id = create_receipt_id_from_transaction(
+                        protocol_version,
+                        transaction,
+                        &block.header().prev_hash(),
+                    );
+                    if execution_outcome_ids.contains(&local_receipt_id) {
+                        local_receipt_ids.push(local_receipt_id);
+                    } else {
+                        local_receipt_congestion = true;
+                    }
+                }
+            }
+
+            // Step 1: local receipts
+            new_execution_outcome_ids.extend(local_receipt_ids);
+
+            // Step 2: delayed receipts
+            if !local_receipt_congestion {
+                let state_root = chunk.prev_state_root();
+                let mut delayed_receipt_indices: DelayedReceiptIndices = trie
+                    .get(&state_root, &TrieKey::DelayedReceiptIndices.to_vec())
+                    .unwrap()
+                    .map(|bytes| DelayedReceiptIndices::try_from_slice(&bytes).unwrap())
+                    .unwrap_or_default();
+
+                while delayed_receipt_indices.first_index
+                    < delayed_receipt_indices.next_available_index
+                {
+                    let receipt: Receipt = trie
+                        .get(
+                            &state_root,
+                            &TrieKey::DelayedReceipt { index: delayed_receipt_indices.first_index }
+                                .to_vec(),
+                        )
+                        .unwrap()
+                        .map(|bytes| Receipt::try_from_slice(&bytes).unwrap())
+                        .unwrap();
+                    if !execution_outcome_ids.contains(&receipt.receipt_id) {
+                        break;
+                    }
+                    new_execution_outcome_ids.push(receipt.receipt_id);
+                    delayed_receipt_indices.first_index += 1;
+                }
+            }
+
+            // Step 3: receipts
+            for receipt in chunk.receipts() {
+                if execution_outcome_ids.contains(&receipt.receipt_id) {
+                    new_execution_outcome_ids.push(receipt.receipt_id);
+                }
+            }
+            assert_eq!(
+                new_execution_outcome_ids.len(),
+                execution_outcome_ids.len(),
+                "inconsistent number of outcomes detected while migrating block {}: {:?} vs. {:?}",
+                block_hash,
+                new_execution_outcome_ids,
+                execution_outcome_ids
+            );
+            let value = new_execution_outcome_ids.try_to_vec().unwrap();
+            store_update.set(
+                DBCol::ColOutcomeIds,
+                &get_block_shard_id(&block_hash, chunk_header.shard_id()),
+                &value,
+            );
+            store_update.delete(DBCol::ColOutcomeIds, &key);
+            batch_size += key.len() + value.len() + 40;
+            if batch_size > batch_size_limit {
+                store_update.commit().unwrap();
+                store_update = store.store_update();
+                batch_size = 0;
+            }
+        }
+    }
+    store_update.commit().unwrap();
+    set_store_version(&store, 15);
 }

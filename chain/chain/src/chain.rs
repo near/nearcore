@@ -1974,17 +1974,34 @@ impl Chain {
     pub fn get_block_execution_outcomes(
         &mut self,
         block_hash: &CryptoHash,
-    ) -> Result<Vec<ExecutionOutcomeWithIdAndProof>, Error> {
-        Ok(self
-            .mut_store()
-            .get_outcomes_by_block_hash(block_hash)?
-            .into_iter()
-            .flat_map(|id| {
-                let mut outcomes = self.store.get_outcomes_by_id(&id).unwrap_or_else(|_| vec![]);
-                outcomes.retain(|outcome| &outcome.block_hash == block_hash);
-                outcomes
-            })
-            .collect())
+    ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
+        let block = self.get_block(block_hash)?;
+        let block_height = block.header().height();
+        let chunk_headers = block
+            .chunks()
+            .iter()
+            .filter_map(
+                |h| if h.height_included() == block_height { Some(h.clone()) } else { None },
+            )
+            .collect::<Vec<_>>();
+
+        let mut res = HashMap::new();
+        for chunk_header in chunk_headers {
+            let shard_id = chunk_header.shard_id();
+            let outcomes = self
+                .mut_store()
+                .get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?
+                .into_iter()
+                .flat_map(|id| {
+                    let mut outcomes =
+                        self.store.get_outcomes_by_id(&id).unwrap_or_else(|_| vec![]);
+                    outcomes.retain(|outcome| &outcome.block_hash == block_hash);
+                    outcomes
+                })
+                .collect::<Vec<_>>();
+            res.insert(shard_id, outcomes);
+        }
+        Ok(res)
     }
 }
 
@@ -2791,6 +2808,7 @@ impl<'a> ChainUpdate<'a> {
                     // Save receipt and transaction results.
                     self.chain_store_update.save_outcomes_with_proofs(
                         &block.hash(),
+                        shard_id,
                         apply_result.outcomes,
                         outcome_paths,
                     );
@@ -3471,6 +3489,7 @@ impl<'a> ChainUpdate<'a> {
         // Saving transaction results.
         self.chain_store_update.save_outcomes_with_proofs(
             block_header.hash(),
+            shard_id,
             apply_result.outcomes,
             outcome_proofs,
         );

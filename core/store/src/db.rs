@@ -104,8 +104,8 @@ pub enum DBCol {
     ColBlockOrdinal = 40,
     /// GC Count for each column
     ColGCCount = 41,
-    /// GC helper column to get all Outcome ids by Block Hash
-    ColOutcomesByBlockHash = 42,
+    /// All Outcome ids by block hash and shard id. For each shard it is ordered by execution order.
+    ColOutcomeIds = 42,
     /// Deprecated
     _ColTransactionRefCount = 43,
     /// Heights of blocks that have been processed
@@ -164,7 +164,7 @@ impl std::fmt::Display for DBCol {
             Self::ColChunkHashesByHeight => "chunk hashes indexed by height_created",
             Self::ColBlockOrdinal => "block ordinal",
             Self::ColGCCount => "gc count",
-            Self::ColOutcomesByBlockHash => "outcomes by block hash",
+            Self::ColOutcomeIds => "outcome ids",
             Self::_ColTransactionRefCount => "refcount per transaction (deprecated)",
             Self::ColProcessedBlockHeights => "processed block heights",
             Self::ColReceipts => "receipts",
