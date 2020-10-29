@@ -1559,6 +1559,7 @@ mod test {
     use neard::config::GenesisExt;
 
     use crate::test_utils::TestEnv;
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 
