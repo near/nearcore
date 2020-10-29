@@ -2,6 +2,7 @@
 //! Useful for querying from RPC.
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -24,8 +25,9 @@ use near_network::types::{
 use near_network::{NetworkAdapter, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
+use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
+use near_primitives::sharding::ShardChunk;
 use near_primitives::syncing::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
     ShardStateSyncResponseV2,
@@ -50,7 +52,6 @@ use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
-use near_primitives::sharding::ShardChunk;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -724,12 +725,8 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 
 /// Extract the list of execution outcomes that were produced in a given block
 /// (including those created for local receipts).
-///
-/// NOTE: The order of execution outcomes is NOT preserved (that would require
-/// data migration), so the order should be recovered from the transactions
-/// and receipts.
 impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
-    type Result = Result<Vec<ExecutionOutcomeWithIdView>, String>;
+    type Result = Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>;
 
     fn handle(&mut self, msg: GetExecutionOutcomesForBlock, _: &mut Self::Context) -> Self::Result {
         Ok(self
@@ -737,7 +734,7 @@ impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
             .get_block_execution_outcomes(&msg.block_hash)
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(Into::into)
+            .map(|(k, v)| (k, v.into_iter().map(Into::into).collect()))
             .collect())
     }
 }
@@ -860,41 +857,42 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     NetworkViewClientResponses::NoResponse
                 }
             }
-            NetworkViewClientMessages::ReceiptOutcomeResponse(response) => {
-                let have_request = {
-                    let mut request_manager =
-                        self.request_manager.write().expect(POISONED_LOCK_ERR);
-                    request_manager.receipt_outcome_requests.cache_remove(response.id()).is_some()
-                };
-
-                if have_request {
-                    if let Ok(&shard_id) = self.chain.get_shard_id_for_receipt_id(response.id()) {
-                        let block_hash = response.block_hash;
-                        if let Ok(Some(&next_block_hash)) =
-                            self.chain.get_next_block_hash_with_new_chunk(&block_hash, shard_id)
-                        {
-                            if let Ok(block) = self.chain.get_block(&next_block_hash) {
-                                if shard_id < block.chunks().len() as u64 {
-                                    if verify_path(
-                                        block.chunks()[shard_id as usize].outcome_root(),
-                                        &response.proof,
-                                        &response.outcome_with_id.to_hashes(),
-                                    ) {
-                                        let mut chain_store_update =
-                                            self.chain.mut_store().store_update();
-                                        chain_store_update.save_outcome_with_proof(
-                                            response.outcome_with_id.id,
-                                            *response,
-                                        );
-                                        if let Err(e) = chain_store_update.commit() {
-                                            error!(target: "view_client", "Error committing to chain store: {}", e);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            NetworkViewClientMessages::ReceiptOutcomeResponse(_response) => {
+                // TODO: remove rpc routing in (#3204)
+                //                let have_request = {
+                //                    let mut request_manager =
+                //                        self.request_manager.write().expect(POISONED_LOCK_ERR);
+                //                    request_manager.receipt_outcome_requests.cache_remove(response.id()).is_some()
+                //                };
+                //
+                //                if have_request {
+                //                    if let Ok(&shard_id) = self.chain.get_shard_id_for_receipt_id(response.id()) {
+                //                        let block_hash = response.block_hash;
+                //                        if let Ok(Some(&next_block_hash)) =
+                //                            self.chain.get_next_block_hash_with_new_chunk(&block_hash, shard_id)
+                //                        {
+                //                            if let Ok(block) = self.chain.get_block(&next_block_hash) {
+                //                                if shard_id < block.chunks().len() as u64 {
+                //                                    if verify_path(
+                //                                        block.chunks()[shard_id as usize].outcome_root(),
+                //                                        &response.proof,
+                //                                        &response.outcome_with_id.to_hashes(),
+                //                                    ) {
+                //                                        let mut chain_store_update =
+                //                                            self.chain.mut_store().store_update();
+                //                                        chain_store_update.save_outcome_with_proof(
+                //                                            response.outcome_with_id.id,
+                //                                            *response,
+                //                                        );
+                //                                        if let Err(e) = chain_store_update.commit() {
+                //                                            error!(target: "view_client", "Error committing to chain store: {}", e);
+                //                                        }
+                //                                    }
+                //                                }
+                //                            }
+                //                        }
+                //                    }
+                //                }
                 NetworkViewClientResponses::NoResponse
             }
             NetworkViewClientMessages::BlockRequest(hash) => {
