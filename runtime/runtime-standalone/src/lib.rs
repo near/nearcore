@@ -24,7 +24,8 @@ use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 
 const DEFAULT_EPOCH_LENGTH: u64 = 3;
 
-const CHAIN_ID: u128 = 0x99;
+/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
+const CHAIN_ID: u128 = 1313161555;
 
 pub fn init_runtime_and_signer(root_account_id: &AccountId) -> (RuntimeStandalone, InMemorySigner) {
     let mut genesis = GenesisConfig::default();
@@ -117,6 +118,7 @@ impl Block {
 
 pub struct RuntimeStandalone {
     genesis: GenesisConfig,
+    runtime_config: Arc<RuntimeConfig>,
     tx_pool: TransactionPool,
     transactions: HashMap<CryptoHash, SignedTransaction>,
     outcomes: HashMap<CryptoHash, ExecutionOutcome>,
@@ -131,16 +133,23 @@ impl RuntimeStandalone {
     pub fn new(genesis: GenesisConfig, store: Arc<Store>) -> Self {
         let mut genesis_block = Block::genesis(&genesis);
         let mut store_update = store.store_update();
-        let runtime = Runtime::new(genesis.runtime_config.clone());
+        let runtime = Runtime::new();
         let tries = ShardTries::new(store, 1);
-        let (s_update, state_root) =
-            runtime.apply_genesis_state(tries.clone(), 0, &[], &genesis.state_records);
+        let runtime_config = Arc::new(genesis.runtime_config.clone());
+        let (s_update, state_root) = runtime.apply_genesis_state(
+            tries.clone(),
+            0,
+            &[],
+            &genesis.state_records,
+            &runtime_config,
+        );
         store_update.merge(s_update);
         store_update.commit().unwrap();
         genesis_block.state_root = state_root;
         let validators = genesis.validators.clone();
         Self {
             genesis,
+            runtime_config,
             tries,
             runtime,
             transactions: HashMap::new(),
@@ -218,6 +227,7 @@ impl RuntimeStandalone {
             last_block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            config: self.runtime_config.clone(),
             evm_chain_id: CHAIN_ID,
         };
 

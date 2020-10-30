@@ -5,12 +5,13 @@ use num_rational::Rational;
 use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
-use crate::block::{Block, BlockV1};
+use crate::block::Block;
 use crate::block_header::{BlockHeader, BlockHeaderV2};
 use crate::errors::{EpochError, TxExecutionError};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::serialize::from_base64;
+use crate::sharding::ShardChunkHeader;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -270,12 +271,27 @@ impl Block {
     pub fn mut_header(&mut self) -> &mut BlockHeader {
         match self {
             Block::BlockV1(block) => &mut block.header,
+            Block::BlockV2(block) => &mut block.header,
         }
     }
 
-    pub fn get_mut(&mut self) -> &mut BlockV1 {
+    pub fn set_chunks(&mut self, chunks: Vec<ShardChunkHeader>) {
         match self {
-            Block::BlockV1(block) => block.as_mut(),
+            Block::BlockV1(block) => {
+                let legacy_chunks = chunks
+                    .into_iter()
+                    .map(|chunk| match chunk {
+                        ShardChunkHeader::V1(header) => header,
+                        ShardChunkHeader::V2(_) => {
+                            panic!("Attempted to set V1 block chunks with V2")
+                        }
+                    })
+                    .collect();
+                block.as_mut().chunks = legacy_chunks;
+            }
+            Block::BlockV2(block) => {
+                block.as_mut().chunks = chunks;
+            }
         }
     }
 
@@ -368,7 +384,7 @@ impl Block {
             PROTOCOL_VERSION,
             prev.header(),
             height,
-            prev.chunks().clone(),
+            prev.chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
             approvals,

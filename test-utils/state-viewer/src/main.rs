@@ -88,7 +88,7 @@ fn load_trie_stop_at_height(
         }
         LoadTrieMode::Latest => chain_store.get_block(&head.last_block_hash).unwrap().clone(),
     };
-    let state_roots = last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
+    let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     (runtime, state_roots, last_block.header().clone())
 }
 
@@ -210,7 +210,7 @@ fn apply_block_at_height(
     );
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();
-    assert_eq!(block.chunks()[shard_id as usize].height_included, height);
+    assert_eq!(block.chunks()[shard_id as usize].height_included(), height);
     let chunk =
         chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap().clone();
     let prev_block = chain_store.get_block(&block.header().prev_hash()).unwrap().clone();
@@ -219,24 +219,25 @@ fn apply_block_at_height(
         .get_incoming_receipts_for_shard(
             shard_id,
             block_hash,
-            prev_block.chunks()[shard_id as usize].height_included,
+            prev_block.chunks()[shard_id as usize].height_included(),
         )
         .unwrap();
     let receipts = collect_receipts_from_response(&receipt_proof_response);
 
+    let chunk_inner = chunk.cloned_header().take_inner();
     let apply_result = runtime
         .apply_transactions(
             shard_id,
-            &chunk.header.inner.prev_state_root,
+            &chunk_inner.prev_state_root,
             height,
             block.header().raw_timestamp(),
             block.header().prev_hash(),
             block.hash(),
             &receipts,
-            &chunk.transactions,
-            &chunk.header.inner.validator_proposals,
+            chunk.transactions(),
+            &chunk_inner.validator_proposals,
             prev_block.header().gas_price(),
-            chunk.header.inner.gas_limit,
+            chunk_inner.gas_limit,
             &block.header().challenges_result(),
             *block.header().random_value(),
         )
@@ -247,7 +248,7 @@ fn apply_block_at_height(
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
-        chunk.header.inner.gas_limit,
+        chunk_inner.gas_limit,
         apply_result.total_balance_burnt,
     );
 
@@ -287,12 +288,12 @@ fn view_chain(
     let mut chunk_extras = vec![];
     let mut chunks = vec![];
     for (i, chunk_header) in block.chunks().iter().enumerate() {
-        if chunk_header.height_included == block.header().height() {
+        if chunk_header.height_included() == block.header().height() {
             chunk_extras.push((
                 i,
                 chain_store.get_chunk_extra(&block.hash(), i as ShardId).unwrap().clone(),
             ));
-            chunks.push((i, chain_store.get_chunk(&chunk_header.hash).unwrap().clone()));
+            chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).unwrap().clone()));
         }
     }
     let chunk_extras = block
@@ -300,7 +301,7 @@ fn view_chain(
         .iter()
         .enumerate()
         .filter_map(|(i, chunk_header)| {
-            if chunk_header.height_included == block.header().height() {
+            if chunk_header.height_included() == block.header().height() {
                 Some((i, chain_store.get_chunk_extra(&block.hash(), i as ShardId).unwrap().clone()))
             } else {
                 None
@@ -335,8 +336,8 @@ fn check_block_chunk_existence(store: Arc<Store>, near_config: &NearConfig) {
     let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
     while cur_block.header().height() > genesis_height {
         for chunk_header in cur_block.chunks().iter() {
-            if chunk_header.height_included == cur_block.header().height() {
-                if let Err(_) = chain_store.get_chunk(&chunk_header.hash) {
+            if chunk_header.height_included() == cur_block.header().height() {
+                if let Err(_) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
                     panic!(
                         "chunk {:?} cannot be found in storage, last block {:?}",
                         chunk_header, cur_block

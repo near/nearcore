@@ -35,13 +35,15 @@ use crate::types::{
     NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
     PeerMessage, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
     PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    RoutedMessageFrom, SendMessage, StateResponseInfo, Unregister,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
+use near_primitives::sharding::PartialEncodedChunk;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -420,9 +422,16 @@ impl Peer {
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
-                        let body = Box::new(RoutedMessageBody::StateResponse(*state_response));
+                        let body = match *state_response {
+                            StateResponseInfo::V1(state_response) => {
+                                RoutedMessageBody::StateResponse(state_response)
+                            }
+                            state_response @ StateResponseInfo::V2(_) => {
+                                RoutedMessageBody::VersionedStateResponse(state_response)
+                            }
+                        };
                         act.peer_manager_addr
-                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                            .do_send(PeerRequest::RouteBack(Box::new(body), msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::Block(block)) => {
                         // MOO need protocol version
@@ -488,6 +497,9 @@ impl Peer {
                     }
 
                     RoutedMessageBody::StateResponse(info) => {
+                        NetworkClientMessages::StateResponse(StateResponseInfo::V1(info))
+                    }
+                    RoutedMessageBody::VersionedStateResponse(info) => {
                         NetworkClientMessages::StateResponse(info)
                     }
                     RoutedMessageBody::PartialEncodedChunkRequest(request) => {
@@ -497,7 +509,16 @@ impl Peer {
                         NetworkClientMessages::PartialEncodedChunkResponse(response)
                     }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
-                        NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk)
+                        NetworkClientMessages::PartialEncodedChunk(PartialEncodedChunk::V1(
+                            partial_encoded_chunk,
+                        ))
+                    }
+                    RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
+                        NetworkClientMessages::PartialEncodedChunk(chunk)
+                    }
+                    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+                    RoutedMessageBody::PartialEncodedChunkForward(forward) => {
+                        NetworkClientMessages::PartialEncodedChunkForward(forward)
                     }
                     RoutedMessageBody::Ping(_)
                     | RoutedMessageBody::Pong(_)

@@ -38,7 +38,7 @@ use crate::types::{
     NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
     PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
     QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, SyncData, Unregister,
+    RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData, Unregister,
 };
 use crate::types::{
     EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
@@ -1195,12 +1195,15 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
             }
             NetworkRequests::StateResponse { route_back, response } => {
+                let body = match response {
+                    StateResponseInfo::V1(response) => RoutedMessageBody::StateResponse(response),
+                    response @ StateResponseInfo::V2(_) => {
+                        RoutedMessageBody::VersionedStateResponse(response)
+                    }
+                };
                 if self.send_message_to_peer(
                     ctx,
-                    RawRoutedMessage {
-                        target: AccountOrPeerIdOrHash::Hash(route_back),
-                        body: RoutedMessageBody::StateResponse(response),
-                    },
+                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(route_back), body },
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1285,10 +1288,18 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
+                if self.send_message_to_account(ctx, &account_id, partial_encoded_chunk.into()) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+            NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 if self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk.into()),
+                    RoutedMessageBody::PartialEncodedChunkForward(forward),
                 ) {
                     NetworkResponses::NoResponse
                 } else {

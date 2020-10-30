@@ -10,9 +10,6 @@ use ethereum_types::H160;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use lazy_static_include::lazy_static_include_str;
-use ndarray::prelude::*;
-use ndarray::Array;
-use ndarray_linalg::{LeastSquaresSvd, LeastSquaresSvdInPlace, LeastSquaresSvdInto};
 use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::utils::encode_call_function_args;
 use near_evm_runner::EvmContext;
@@ -514,7 +511,8 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
         let runtime_node = RuntimeNode {
             signer: Arc::new(signer.clone()),
             client: Arc::new(RwLock::new(MockClient {
-                runtime: testbed.runtime.clone(),
+                runtime: testbed.runtime,
+                runtime_config: testbed.genesis.config.runtime_config.clone(),
                 tries: testbed.tries.clone(),
                 state_root: testbed.root,
                 epoch_length: testbed.genesis.config.epoch_length,
@@ -539,7 +537,7 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
 
         testbed.tries = runtime_node.client.read().unwrap().tries.clone();
         testbed.root = runtime_node.client.read().unwrap().state_root;
-        testbed.runtime = runtime_node.client.read().unwrap().runtime.clone();
+        testbed.runtime = runtime_node.client.read().unwrap().runtime;
 
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(

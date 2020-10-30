@@ -581,7 +581,7 @@ class AzureNode(BaseNode):
             self.wait_for_rpc(timeout=30)
 
         def kill(self):
-            cmd = ('killall -9 neard')
+            cmd = ('killall -9 neard; pkill -9 -e -f companion.py')
             post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
             res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
             json_res = json.loads(res.text)
@@ -595,6 +595,14 @@ class AzureNode(BaseNode):
         def rpc_addr(self):
             return (self.ip, self.rpc_port)
 
+        def companion(self, *args):
+            post = {'ip': self.ip, 'args': ' '.join(map(str, args)), 'token': self.token}
+            res = requests.post('http://40.112.59.229:5000/companion', json=post)
+            json_res = json.loads(res.text)
+            if json_res['stderr'] != '':
+                print(json_res['stderr'])
+                sys.exit()
+            
 
 class PreexistingCluster():
         
@@ -680,7 +688,10 @@ class PreexistingCluster():
         for i in range(len(self.ips)):
             for log in logs:
                 if self.ips[i] in log:
-                    fl = os.path.expanduser('~/.near/test' + str(i) + "/remote.log")
+                    if 'companion' in log:
+                        fl = os.path.expanduser('~/.near/test' + str(i) + "/companion.log")
+                    else:
+                        fl = os.path.expanduser('~/.near/test' + str(i) + "/remote.log")
                     res = requests.get(log)
                     with open(fl, 'w') as f:
                         f.write(res.text)
