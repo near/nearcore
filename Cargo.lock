@@ -2849,6 +2849,7 @@ dependencies = [
  "assert_matches",
  "bencher",
  "borsh",
+ "log",
  "near-primitives",
  "near-runtime-fees",
  "near-vm-errors",

@@ -24,6 +24,7 @@ near-runtime-fees = { path="../near-runtime-fees", version = "2.2.0" }
 near-vm-logic = { path="../near-vm-logic", version = "2.2.0", default-features = false, features = []}
 near-vm-errors = { path = "../near-vm-errors", version = "2.2.0" }
 near-primitives = { path = "../../core/primitives" }
+log = "0.4"
 
 [dev-dependencies]
 assert_matches = "1.3"

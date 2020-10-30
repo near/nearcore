@@ -1,6 +1,7 @@
 use crate::errors::IntoVMError;
 use crate::prepare;
 use borsh::{BorshDeserialize, BorshSerialize};
+use log::error;
 use near_primitives::hash::CryptoHash;
 use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
 use near_vm_errors::VMError;
@@ -62,10 +63,7 @@ fn compile_and_serialize_wasmer(
     let code = artifact
         .serialize()
         .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
-    // If errors comes from serialization we shall not cache it.
-    let serialized = CacheRecord::Code(code)
-        .try_to_vec()
-        .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
+    let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
     cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
     Ok(module)
 }
@@ -103,7 +101,7 @@ pub(crate) fn compile_module_cached_wasmer(
             Some(serialized) => match deserialize_wasmer(serialized.as_slice()) {
                 Ok(module) => Ok(module),
                 Err(e) => {
-                    println!("Cannot deserialize cached contract: {:?}", e);
+                    error!(target: "runtime", "Cannot deserialize cached contract: {:?}", e);
                     Err(VMError::CacheError(DeserializationError))
                 }
             },
