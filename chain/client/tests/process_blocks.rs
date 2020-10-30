@@ -1832,7 +1832,8 @@ fn test_validate_chunk_extra() {
         .shards_mgr
         .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store)
         .unwrap();
-    let accepted_blocks = env.clients[0].process_blocks_with_missing_chunks(*last_block.hash());
+    let accepted_blocks =
+        env.clients[0].process_blocks_with_missing_chunks(*last_block.hash(), PROTOCOL_VERSION);
     assert_eq!(accepted_blocks.len(), 2);
     for (i, accepted_block) in accepted_blocks.into_iter().enumerate() {
         if i == 0 {
