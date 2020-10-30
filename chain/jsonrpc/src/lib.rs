@@ -198,6 +198,24 @@ impl JsonRpcHandler {
         }
     }
 
+    async fn error_collection_middleware<T>(
+        &self,
+        res_future: T,
+        request_method: &str,
+    ) -> Result<Value, RpcError>
+    where
+        T: Future<Output = Result<Value, RpcError>>,
+    {
+        let res = res_future.await;
+        if res.is_err() {
+            let err = res.unwrap_err();
+            let err_code = err.code.to_string();
+            near_metrics::inc_counter_vec(&metrics::RPC_ERROR_COUNT, &[request_method, &err_code]);
+            return Err(err);
+        }
+        return res;
+    }
+
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
         near_metrics::inc_counter_vec(&metrics::HTTP_RPC_REQUEST_COUNT, &[request.method.as_ref()]);
         let _rpc_processing_time = near_metrics::start_timer_vec(
@@ -227,29 +245,138 @@ impl JsonRpcHandler {
         }
 
         match request.method.as_ref() {
-            "broadcast_tx_async" => self.send_tx_async(request.params).await,
-            "EXPERIMENTAL_broadcast_tx_sync" => self.send_tx_sync(request.params).await,
-            "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
-            "EXPERIMENTAL_check_tx" => self.check_tx(request.params).await,
-            "validators" => self.validators(request.params).await,
-            "EXPERIMENTAL_validators_ordered" => self.validators_ordered(request.params).await,
-            "query" => self.query(request.params).await,
-            "health" => self.health().await,
-            "status" => self.status().await,
-            "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
-            "tx" => self.tx_status_common(request.params, false).await,
-            "EXPERIMENTAL_tx_status" => self.tx_status_common(request.params, true).await,
-            "block" => self.block(request.params).await,
-            "chunk" => self.chunk(request.params).await,
-            "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
-            "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
-            "next_light_client_block" => self.next_light_client_block(request.params).await,
-            "EXPERIMENTAL_light_client_proof" => {
-                self.light_client_execution_outcome_proof(request.params).await
+            "broadcast_tx_async" => {
+                self.error_collection_middleware(
+                    self.send_tx_async(request.params),
+                    request.method.as_ref(),
+                )
+                .await
             }
-            "light_client_proof" => self.light_client_execution_outcome_proof(request.params).await,
-            "network_info" => self.network_info().await,
-            "gas_price" => self.gas_price(request.params).await,
+            "EXPERIMENTAL_broadcast_tx_sync" => {
+                self.error_collection_middleware(
+                    self.send_tx_sync(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "broadcast_tx_commit" => {
+                self.error_collection_middleware(
+                    self.send_tx_commit(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "EXPERIMENTAL_check_tx" => {
+                self.error_collection_middleware(
+                    self.check_tx(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "validators" => {
+                self.error_collection_middleware(
+                    self.validators(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "EXPERIMENTAL_validators_ordered" => {
+                self.error_collection_middleware(
+                    self.validators_ordered(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "query" => {
+                self.error_collection_middleware(
+                    self.query(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "health" => {
+                self.error_collection_middleware(self.health(), request.method.as_ref()).await
+            }
+            "status" => {
+                self.error_collection_middleware(self.status(), request.method.as_ref()).await
+            }
+            "EXPERIMENTAL_genesis_config" => {
+                self.error_collection_middleware(self.genesis_config(), request.method.as_ref())
+                    .await
+            }
+            "tx" => {
+                self.error_collection_middleware(
+                    self.tx_status_common(request.params, false),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "EXPERIMENTAL_tx_status" => {
+                self.error_collection_middleware(
+                    self.tx_status_common(request.params, true),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "block" => {
+                self.error_collection_middleware(
+                    self.block(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "chunk" => {
+                self.error_collection_middleware(
+                    self.chunk(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "EXPERIMENTAL_changes" => {
+                self.error_collection_middleware(
+                    self.changes_in_block_by_type(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "EXPERIMENTAL_changes_in_block" => {
+                self.error_collection_middleware(
+                    self.changes_in_block(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "next_light_client_block" => {
+                self.error_collection_middleware(
+                    self.next_light_client_block(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "EXPERIMENTAL_light_client_proof" => {
+                self.error_collection_middleware(
+                    self.light_client_execution_outcome_proof(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "light_client_proof" => {
+                self.error_collection_middleware(
+                    self.light_client_execution_outcome_proof(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
+            "network_info" => {
+                self.error_collection_middleware(self.network_info(), request.method.as_ref()).await
+            }
+            "gas_price" => {
+                self.error_collection_middleware(
+                    self.gas_price(request.params),
+                    request.method.as_ref(),
+                )
+                .await
+            }
             _ => Err(RpcError::method_not_found(request.method)),
         }
     }
