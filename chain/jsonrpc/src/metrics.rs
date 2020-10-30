@@ -1,11 +1,12 @@
 use lazy_static::lazy_static;
-use near_metrics::{Histogram, IntCounter, IntCounterVec};
+use near_metrics::{HistogramVec, IntCounter, IntCounterVec};
 
 lazy_static! {
-    pub static ref RPC_PROCESSING_TIME: near_metrics::Result<Histogram> =
-        near_metrics::try_create_histogram(
+    pub static ref RPC_PROCESSING_TIME: near_metrics::Result<HistogramVec> =
+        near_metrics::try_create_histogram_vec(
             "near_rpc_processing_time",
-            "Time taken to process rpc queries"
+            "Time taken to process rpc queries",
+            &["method"]
         );
     pub static ref RPC_TIMEOUT_TOTAL: near_metrics::Result<IntCounter> =
         near_metrics::try_create_int_counter(
