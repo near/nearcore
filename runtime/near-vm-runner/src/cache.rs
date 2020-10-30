@@ -30,12 +30,9 @@ enum CacheRecord {
     Code(Vec<u8>),
 }
 
-fn get_key(code_hash: &[u8], code: &[u8], vm_kind: VMKind, config: &VMConfig) -> CryptoHash {
-    let hash = match CryptoHash::try_from(code_hash) {
-        Ok(hash) => hash,
-        // Sometimes caller doesn't compute code_hash, so hash the code ourselves.
-        Err(_e) => near_primitives::hash::hash(code),
-    };
+fn get_key(code_hash: &[u8], vm_kind: VMKind, config: &VMConfig) -> CryptoHash {
+    // If we not passed valid hash - panic.
+    let hash = CryptoHash::try_from(code_hash).unwrap();
     let key = ContractCacheKey::Version1 {
         code_hash: hash,
         vm_config_non_crypto_hash: config.non_crypto_hash(),
@@ -99,7 +96,7 @@ pub(crate) fn compile_module_cached_wasmer(
     if cache.is_none() {
         return compile_module(wasm_code, config);
     }
-    let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer, config);
+    let key = get_key(wasm_code_hash, VMKind::Wasmer, config);
     let cache = cache.unwrap();
     match cache.get(&(key.0).0) {
         Ok(serialized) => match serialized {
