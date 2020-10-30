@@ -200,7 +200,10 @@ impl JsonRpcHandler {
 
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
         near_metrics::inc_counter_vec(&metrics::HTTP_RPC_REQUEST_COUNT, &[request.method.as_ref()]);
-        let _rpc_processing_time = near_metrics::start_timer(&metrics::RPC_PROCESSING_TIME);
+        let _rpc_processing_time = near_metrics::start_timer_vec(
+            &metrics::RPC_PROCESSING_TIME,
+            &[request.method.as_ref()],
+        );
 
         #[cfg(feature = "adversarial")]
         {
