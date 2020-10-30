@@ -24,7 +24,7 @@ near-vm-logic = {path = "../../runtime/near-vm-logic" , features = ["costs_count
 near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting", "no_cache", "no_cpu_compatibility_checks", "wasmtime_vm" ]}
 node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", "no_cache"]}
 near-store = { path = "../../core/store", features = ["no_cache", "single_thread_rocksdb"]}
-near-primitives = { path = "../../core/primitives" }
+near-primitives = { path = "../../core/primitives", features = ["protocol_feature_evm"] }
 testlib = { path = "../../test-utils/testlib" }
 state-viewer = { path = "../../test-utils/state-viewer" }
 neard = { path = "../../neard" }
