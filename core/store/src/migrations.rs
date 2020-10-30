@@ -28,7 +28,7 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::EpochInfo;
 use near_primitives::merkle::merklize;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
@@ -392,8 +392,8 @@ pub fn migrate_14_to_15(path: &String) {
             new_execution_outcome_ids.extend(local_receipt_ids);
 
             // Step 2: delayed receipts
+            let state_root = chunk.prev_state_root();
             if !local_receipt_congestion {
-                let state_root = chunk.prev_state_root();
                 let mut delayed_receipt_indices: DelayedReceiptIndices = trie
                     .get(&state_root, &TrieKey::DelayedReceiptIndices.to_vec())
                     .unwrap()
@@ -422,8 +422,46 @@ pub fn migrate_14_to_15(path: &String) {
 
             // Step 3: receipts
             for receipt in chunk.receipts() {
-                if execution_outcome_ids.contains(&receipt.receipt_id) {
-                    new_execution_outcome_ids.push(receipt.receipt_id);
+                match &receipt.receipt {
+                    ReceiptEnum::Action(_) => {
+                        if execution_outcome_ids.contains(&receipt.receipt_id) {
+                            new_execution_outcome_ids.push(receipt.receipt_id);
+                        }
+                    }
+                    ReceiptEnum::Data(data_receipt) => {
+                        if let Some(bytes) = trie
+                            .get(
+                                &state_root,
+                                &TrieKey::PostponedReceiptId {
+                                    receiver_id: receipt.receiver_id.clone(),
+                                    data_id: data_receipt.data_id,
+                                }
+                                .to_vec(),
+                            )
+                            .unwrap()
+                        {
+                            let receipt_id = CryptoHash::try_from_slice(&bytes).unwrap();
+                            let pending_receipt_count = u32::try_from_slice(
+                                &trie
+                                    .get(
+                                        &state_root,
+                                        &TrieKey::PendingDataCount {
+                                            receiver_id: receipt.receiver_id.clone(),
+                                            receipt_id,
+                                        }
+                                        .to_vec(),
+                                    )
+                                    .unwrap()
+                                    .unwrap(),
+                            )
+                            .unwrap();
+                            if pending_receipt_count == 1
+                                && execution_outcome_ids.contains(&receipt_id)
+                            {
+                                new_execution_outcome_ids.push(receipt_id);
+                            }
+                        }
+                    }
                 }
             }
             assert_eq!(
