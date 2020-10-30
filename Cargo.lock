@@ -1457,7 +1457,7 @@ dependencies = [
 [[package]]
 name = "ethjson"
 version = "0.1.0"
-source = "git+https://github.com/paritytech/parity-ethereum?rev=eed630a002bbebed3a3097127f2483213ff52079#eed630a002bbebed3a3097127f2483213ff52079"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
 dependencies = [
  "ethereum-types",
  "rustc-hex 1.0.0",
@@ -1469,16 +1469,16 @@ dependencies = [
 [[package]]
 name = "evm"
 version = "0.1.0"
-source = "git+https://github.com/paritytech/parity-ethereum?rev=eed630a002bbebed3a3097127f2483213ff52079#eed630a002bbebed3a3097127f2483213ff52079"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
 dependencies = [
  "bit-set",
  "ethereum-types",
- "heapsize",
  "keccak-hash",
  "lazy_static",
  "log",
  "memory-cache",
  "parity-bytes",
+ "parity-util-mem",
  "parking_lot 0.7.1",
  "vm",
 ]
@@ -1896,9 +1896,15 @@ dependencies = [
 
 [[package]]
 name = "hash-db"
-version = "0.11.0"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b03501f6e1a2a97f1618879aba3156f14ca2847faa530c4e28859638bd11483"
+checksum = "0b3c95a428c86ed4633d83e07ef9e0a147a906da01e931f07e74a85bedce5a43"
+
+[[package]]
+name = "hashmap_core"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d6852e5a86250521973b0c1d39677166d8a9c0047c908d7e04f1aa04177973c"
 
 [[package]]
 name = "heapsize"
@@ -2317,7 +2323,7 @@ dependencies = [
 [[package]]
 name = "keccak-hasher"
 version = "0.1.1"
-source = "git+https://github.com/paritytech/parity-ethereum?rev=eed630a002bbebed3a3097127f2483213ff52079#eed630a002bbebed3a3097127f2483213ff52079"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
 dependencies = [
  "ethereum-types",
  "hash-db",
@@ -2534,6 +2540,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "malloc_size_of_derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e37c5d4cd9473c5f4c9c111f033f15d4df9bd378fdf615944e360a4f55a05f0b"
+dependencies = [
+ "proc-macro2 1.0.20",
+ "syn 1.0.38",
+ "synstructure",
+]
+
+[[package]]
 name = "match_cfg"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2588,10 +2605,10 @@ dependencies = [
 [[package]]
 name = "memory-cache"
 version = "0.1.0"
-source = "git+https://github.com/paritytech/parity-ethereum?rev=eed630a002bbebed3a3097127f2483213ff52079#eed630a002bbebed3a3097127f2483213ff52079"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
 dependencies = [
- "heapsize",
  "lru-cache",
+ "parity-util-mem",
 ]
 
 [[package]]
@@ -3670,6 +3687,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "parity-util-mem"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89e80f22052161e0cb55cb5a8a75890420c525031f95c9d262dbb0434aa85dc1"
+dependencies = [
+ "cfg-if",
+ "clear_on_drop",
+ "elastic-array 0.10.3",
+ "ethereum-types",
+ "malloc_size_of_derive",
+ "parking_lot 0.7.1",
+ "winapi 0.3.8",
+]
+
+[[package]]
 name = "parity-wasm"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3751,7 +3783,7 @@ dependencies = [
 [[package]]
 name = "patricia-trie-ethereum"
 version = "0.1.0"
-source = "git+https://github.com/paritytech/parity-ethereum?rev=eed630a002bbebed3a3097127f2483213ff52079#eed630a002bbebed3a3097127f2483213ff52079"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
 dependencies = [
  "elastic-array 0.10.3",
  "ethereum-types",
@@ -5305,12 +5337,13 @@ checksum = "efd1f82c56340fdf16f2a953d7bda4f8fdffba13d93b00844c25572110b26079"
 
 [[package]]
 name = "trie-db"
-version = "0.11.0"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c7319e28ca295f27359d944a682f7f65b419158bf1590c92cadc0000258d788"
+checksum = "ae063390324bfcf36c7e8e4fb1f85f6f0fb5dd04e1cd282581eb7b8b34b32de7"
 dependencies = [
  "elastic-array 0.10.3",
  "hash-db",
+ "hashmap_core",
  "log",
  "rand 0.6.5",
 ]
@@ -5547,17 +5580,14 @@ checksum = "078775d0255232fb988e6fccf26ddc9d1ac274299aaedcedce21c6f72cc533ce"
 [[package]]
 name = "vm"
 version = "0.1.0"
-source = "git+https://github.com/paritytech/parity-ethereum?rev=eed630a002bbebed3a3097127f2483213ff52079#eed630a002bbebed3a3097127f2483213ff52079"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
 dependencies = [
- "byteorder",
  "ethereum-types",
  "ethjson",
  "keccak-hash",
- "log",
  "parity-bytes",
  "patricia-trie-ethereum",
  "rlp",
- "trie-db",
 ]
 
 [[package]]

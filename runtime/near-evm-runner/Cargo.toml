@@ -24,8 +24,8 @@ keccak-hash = "0.2.0"
 ripemd160 = "0.9.0"
 libsecp256k1 = "0.3.5"
 
-evm = { git = "https://github.com/paritytech/parity-ethereum", rev = "eed630a002bbebed3a3097127f2483213ff52079" }
-vm = { git = "https://github.com/paritytech/parity-ethereum", rev = "eed630a002bbebed3a3097127f2483213ff52079" }
+evm = { git = "https://github.com/openethereum/openethereum", rev = "v2.6.2" }
+vm = { git = "https://github.com/openethereum/openethereum", rev = "v2.6.2" }
 bn = { git = "https://github.com/paritytech/bn", default-features = false }
 parity-bytes = "0.1.0"
 ethereum-types = "0.6.0"
