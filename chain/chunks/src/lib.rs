@@ -1709,7 +1709,6 @@ mod test {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::hash::{hash, CryptoHash};
-    #[cfg(feature = "expensive_tests")]
     use near_primitives::sharding::{ChunkHash, PartialEncodedChunkV2};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
