@@ -7,6 +7,7 @@ use near_crypto::{KeyType, PublicKey, Signature};
 use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
+use crate::network::PeerId;
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, ValidatorStake};
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
@@ -119,6 +120,13 @@ pub struct Approval {
     pub target_height: BlockHeight,
     pub signature: Signature,
     pub account_id: AccountId,
+}
+
+/// The type of approvals. It is either approval from self or from a peer
+#[derive(PartialEq, Eq, Debug)]
+pub enum ApprovalType {
+    SelfApproval,
+    PeerApproval(PeerId),
 }
 
 /// Block approval by other block producers.
