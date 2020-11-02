@@ -108,7 +108,9 @@ lazy_static! {
         let nightly_protocol_features_to_version_mapping: HashMap<
             ProtocolFeature,
             ProtocolVersion,
-        > = vec![(ProtocolFeature::ForwardChunkParts, 41)].into_iter().collect();
+        > = vec![(ProtocolFeature::ForwardChunkParts, 41), (ProtocolFeature::EVM, 41)]
+            .into_iter()
+            .collect();
         for (stable_protocol_feature, stable_protocol_version) in
             STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
         {
