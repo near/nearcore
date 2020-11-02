@@ -50,11 +50,6 @@ pub(crate) fn execute_function_call(
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
-    if checked_feature!("protocol_feature_evm", EVM, runtime_ext.protocol_version()) {
-        println!("has protocol_feature_evm");
-    } else {
-        println!("does not have protocol_feature_evm");
-    }
     if checked_feature!("protocol_feature_evm", EVM, runtime_ext.protocol_version())
         && is_account_evm(&account_id)
     {
