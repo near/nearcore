@@ -1,5 +1,5 @@
 use near_runtime_fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
+    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, EvmCostConfig, Fee,
     RuntimeFeesConfig, StorageUsageConfig,
 };
 use node_runtime::config::RuntimeConfig;
@@ -46,6 +46,18 @@ pub fn random_config() -> RuntimeConfig {
                 (101 + rng.next_u32() % 10).try_into().unwrap(),
                 100,
             ),
+            evm_config: EvmCostConfig {
+                bootstrap_cost: rng.next_u64() % 1000,
+                deploy_cost_per_evm_gas: rng.next_u64() % 1000,
+                deploy_cost_per_byte: rng.next_u64() % 1000,
+                funcall_cost_base: rng.next_u64() % 1000,
+                funcall_cost_per_evm_gas: rng.next_u64() % 1000,
+                ecrecover_cost: rng.next_u64() % 1000,
+                sha256_cost: rng.next_u64() % 1000,
+                ripemd160_cost: rng.next_u64() % 1000,
+                identity_cost: rng.next_u64() % 1000,
+                modexp_cost: rng.next_u64() % 1000,
+            },
             evm_deposit: (rng.next_u64() % 10000) as u128 * 10u128.pow(23),
         },
         ..Default::default()

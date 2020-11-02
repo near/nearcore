@@ -4,15 +4,16 @@ extern crate enum_primitive_derive;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
+use vm::{ContractCreateResult, MessageCallResult};
 
-use near_runtime_fees::RuntimeFeesConfig;
+use near_runtime_fees::{EvmCostConfig, RuntimeFeesConfig};
 use near_runtime_utils::{is_account_id_64_len_hex, is_valid_sub_account_id};
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
 use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
 use near_vm_logic::{ActionCosts, External, VMConfig, VMLogicError, VMOutcome};
 
-use crate::evm_state::{EvmAccount, EvmState, StateStore};
+use crate::evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore};
 use crate::types::{
     AddressArg, GetStorageAtArgs, RawU256, Result, TransferArgs, ViewCallArgs, WithdrawArgs,
 };
@@ -32,12 +33,21 @@ pub struct EvmContext<'a> {
     signer_id: AccountId,
     predecessor_id: AccountId,
     current_amount: Balance,
-    attached_deposit: Balance,
+    pub attached_deposit: Balance,
     storage_usage: StorageUsage,
     pub logs: Vec<String>,
     gas_counter: GasCounter,
+    pub evm_gas_counter: EvmGasCounter,
     fees_config: &'a RuntimeFeesConfig,
     domain_separator: RawU256,
+}
+
+// Different kind of evm operations that result in different gas calculation
+pub enum EvmOpForGas {
+    // size of deployed evm contract after it's decoded from hex (0.5x)
+    Deploy(usize),
+    Funcall,
+    Other,
 }
 
 enum KeyPrefix {
@@ -144,6 +154,7 @@ impl<'a> EvmContext<'a> {
         storage_usage: StorageUsage,
         prepaid_gas: Gas,
         is_view: bool,
+        evm_gas: U256,
     ) -> Self {
         let max_gas_burnt = if is_view {
             config.limit_config.max_gas_burnt_view
@@ -168,6 +179,7 @@ impl<'a> EvmContext<'a> {
                 is_view,
                 None,
             ),
+            evm_gas_counter: EvmGasCounter::new(0.into(), evm_gas),
             fees_config,
             domain_separator,
         }
@@ -180,7 +192,7 @@ impl<'a> EvmContext<'a> {
     pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
-        interpreter::deploy_code(
+        match interpreter::deploy_code(
             self,
             &sender,
             &sender,
@@ -189,7 +201,19 @@ impl<'a> EvmContext<'a> {
             CreateContractAddress::FromSenderAndNonce,
             false,
             &bytecode,
-        )
+            &self.evm_gas_counter.gas_left(),
+            &self.fees_config.evm_config,
+        )? {
+            ContractCreateResult::Created(address, gas_left) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Ok(address)
+            }
+            ContractCreateResult::Reverted(gas_left, return_data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Err(VMLogicError::EvmError(EvmError::DeployFail(return_data.to_vec())))
+            }
+            _ => unreachable!(),
+        }
     }
 
     /// Make an EVM transaction. Calls `contract_address` with RLP encoded `input`. Execution
@@ -206,8 +230,29 @@ impl<'a> EvmContext<'a> {
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
-        interpreter::call(self, &origin, &sender, value, 0, &contract_address, &input, true)
-            .map(|rd| rd.to_vec())
+        let result = interpreter::call(
+            self,
+            &sender,
+            &sender,
+            value,
+            0,
+            &contract_address,
+            &input,
+            true,
+            &self.evm_gas_counter.gas_left(),
+            &self.fees_config.evm_config,
+        )?;
+        match result {
+            MessageCallResult::Success(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Ok(data.to_vec())
+            }
+            MessageCallResult::Reverted(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
+            }
+            _ => unreachable!(),
+        }
     }
 
     /// Make an EVM call via a meta transaction pattern.
@@ -221,7 +266,7 @@ impl<'a> EvmContext<'a> {
         self.add_balance(&meta_call_args.sender, U256::from(self.attached_deposit))?;
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
-        interpreter::call(
+        let result = interpreter::call(
             self,
             &meta_call_args.sender,
             &meta_call_args.sender,
@@ -230,8 +275,20 @@ impl<'a> EvmContext<'a> {
             &meta_call_args.contract_address,
             &meta_call_args.input,
             true,
-        )
-        .map(|rd| rd.to_vec())
+            &self.evm_gas_counter.gas_left(),
+            &self.fees_config.evm_config,
+        )?;
+        match result {
+            MessageCallResult::Success(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Ok(data.to_vec())
+            }
+            MessageCallResult::Reverted(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
+            }
+            _ => unreachable!(),
+        }
     }
 
     /// Make an EVM transaction. Calls `contract_address` with `encoded_input`. Execution
@@ -254,8 +311,20 @@ impl<'a> EvmContext<'a> {
             &Address::from(&args.address),
             &args.args,
             false,
-        )
-        .map(|rd| rd.to_vec());
+            &self.evm_gas_counter.gas_left(),
+            &self.fees_config.evm_config,
+        )?;
+        let result = match result {
+            MessageCallResult::Success(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Ok(data.to_vec())
+            }
+            MessageCallResult::Reverted(gas_left, data) => {
+                self.evm_gas_counter.set_gas_left(gas_left);
+                Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
+            }
+            _ => unreachable!(),
+        };
         // Need to subtract amount back, because if view call is called inside the transaction state will be applied.
         // The interpreter call is not committing changes, but `add_balance` did, so need to revert that.
         self.sub_balance(&sender, attached_amount)?;
@@ -400,6 +469,27 @@ impl<'a> EvmContext<'a> {
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_receipt)
     }
 
+    fn pay_gas_from_evm_gas(&mut self, op: EvmOpForGas) -> Result<()> {
+        let fee_cfg = &self.fees_config.evm_config;
+        let evm_gas = self.evm_gas_counter.used_gas.as_u64();
+        self.gas_counter.inc_evm_gas_counter(evm_gas);
+        let gas = match op {
+            EvmOpForGas::Deploy(decoded_len) => {
+                // gas per byte is counting hex encoded contract size (solc output, 2x of decoded len)
+                (decoded_len as u64 * 2) * fee_cfg.deploy_cost_per_byte
+                    + evm_gas * fee_cfg.deploy_cost_per_evm_gas
+                    + fee_cfg.bootstrap_cost
+            }
+            EvmOpForGas::Funcall => {
+                evm_gas * fee_cfg.funcall_cost_per_evm_gas
+                    + fee_cfg.funcall_cost_base
+                    + fee_cfg.bootstrap_cost
+            }
+            EvmOpForGas::Other => fee_cfg.bootstrap_cost,
+        };
+        self.gas_counter.pay_evm_gas(gas)
+    }
+
     fn pay_gas_for_transfer(&mut self, account_id: &AccountId) -> Result<()> {
         if is_account_id_64_len_hex(&account_id) {
             self.gas_counter.pay_action_base(
@@ -421,6 +511,45 @@ impl<'a> EvmContext<'a> {
     }
 }
 
+fn max_evm_gas_from_near_gas(
+    near_gas: Gas,
+    evm_gas_config: &EvmCostConfig,
+    method_name: &str,
+    decoded_code_size: Option<usize>,
+) -> Option<U256> {
+    match method_name {
+        "deploy_code" => {
+            if near_gas < evm_gas_config.bootstrap_cost {
+                return None;
+            }
+            Some(
+                ((near_gas
+                    - evm_gas_config.bootstrap_cost
+                    - evm_gas_config.deploy_cost_per_byte
+                        * (2 * decoded_code_size.unwrap() as u64))
+                    / evm_gas_config.deploy_cost_per_evm_gas)
+                    .into(),
+            )
+        }
+        "call_function" => {
+            if near_gas < evm_gas_config.bootstrap_cost + evm_gas_config.funcall_cost_base {
+                return None;
+            }
+            Some(
+                ((near_gas - evm_gas_config.bootstrap_cost - evm_gas_config.funcall_cost_base)
+                    / evm_gas_config.funcall_cost_per_evm_gas)
+                    .into(),
+            )
+        }
+        _ => {
+            if near_gas < evm_gas_config.bootstrap_cost {
+                return None;
+            }
+            Some(evm_gas_config.bootstrap_cost.into())
+        }
+    }
+}
+
 pub fn run_evm(
     ext: &mut dyn External,
     chain_id: u128,
@@ -437,6 +566,22 @@ pub fn run_evm(
     prepaid_gas: Gas,
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    let evm_gas_result = max_evm_gas_from_near_gas(
+        prepaid_gas,
+        &fees_config.evm_config,
+        &method_name,
+        if &method_name == "deploy_code" { Some(args.len()) } else { None },
+    );
+
+    if evm_gas_result.is_none() {
+        return (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::EvmError(EvmError::Revert(
+                "Not enough to run EVM".as_bytes().to_vec(),
+            )))),
+        );
+    }
+    let evm_gas = evm_gas_result.unwrap();
     let mut context = EvmContext::new(
         ext,
         chain_id,
@@ -452,30 +597,50 @@ pub fn run_evm(
         storage_usage,
         prepaid_gas,
         is_view,
+        evm_gas,
     );
+
     let result = match method_name.as_str() {
         // Change the state methods.
-        "deploy_code" => context.deploy_code(args).map(|address| utils::address_to_vec(&address)),
+        "deploy_code" => context.deploy_code(args.clone()).map(|address| {
+            context.pay_gas_from_evm_gas(EvmOpForGas::Deploy(args.len())).unwrap();
+            utils::address_to_vec(&address)
+        }),
         // TODO: remove this function name if no one is using it.
-        "call_function" => context.call_function(args),
-        "call" => context.call_function(args),
-        "meta_call" => context.meta_call_function(args),
-        "deposit" => context.deposit(args).map(|balance| utils::u256_to_arr(&balance).to_vec()),
-        "withdraw" => context.withdraw(args).map(|_| vec![]),
-        "transfer" => context.transfer(args).map(|_| vec![]),
-        "create" => context.create_evm(args).map(|_| vec![]),
+        "call_function" | "call" => {
+            let r = context.call_function(args.clone());
+            context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();
+            r
+        }
+        "meta_call" => {
+            let r = context.meta_call_function(args.clone());
+            context.pay_gas_from_evm_gas(EvmOpForGas::Other).unwrap();
+            r
+        }
+        "deposit" => {
+            context.deposit(args.clone()).map(|balance| utils::u256_to_arr(&balance).to_vec())
+        }
+        "withdraw" => context.withdraw(args.clone()).map(|_| vec![]),
+        "transfer" => context.transfer(args.clone()).map(|_| vec![]),
+        "create" => context.create_evm(args.clone()).map(|_| vec![]),
         // View methods.
         // TODO: remove this function name if no one is using it.
-        "view_function_call" => context.view_call_function(args),
-        "view" => context.view_call_function(args),
-        "get_code" => context.get_code(args),
-        "get_storage_at" => context.get_storage_at(args),
-        "get_nonce" => context.get_nonce(args).map(|nonce| utils::u256_to_arr(&nonce).to_vec()),
+        "view_function_call" | "view" => {
+            let r = context.view_call_function(args.clone());
+            context.pay_gas_from_evm_gas(EvmOpForGas::Other).unwrap();
+            r
+        }
+        "get_code" => context.get_code(args.clone()),
+        "get_storage_at" => context.get_storage_at(args.clone()),
+        "get_nonce" => {
+            context.get_nonce(args.clone()).map(|nonce| utils::u256_to_arr(&nonce).to_vec())
+        }
         "get_balance" => {
-            context.get_balance(args).map(|balance| utils::u256_to_arr(&balance).to_vec())
+            context.get_balance(args.clone()).map(|balance| utils::u256_to_arr(&balance).to_vec())
         }
         _ => Err(VMLogicError::EvmError(EvmError::MethodNotFound)),
     };
+
     match result {
         Ok(value) => {
             let outcome = VMOutcome {
@@ -531,6 +696,7 @@ mod tests {
             0,
             0,
             false,
+            1_000_000_000.into(),
         )
     }
 

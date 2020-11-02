@@ -4,9 +4,9 @@ use std::{
     mem::size_of,
 };
 
-use bn::arith::U256;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
-use ethereum_types::Address;
+use ethereum_types::{Address, H256, U256};
+use near_runtime_fees::EvmCostConfig;
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
 use parity_bytes::BytesRef;
@@ -48,13 +48,23 @@ pub fn precompile(id: u64) -> Result<Box<dyn Impl>, String> {
     })
 }
 
-pub fn process_precompile(addr: &Address, input: &[u8]) -> MessageCallResult {
+pub fn process_precompile(
+    addr: &Address,
+    input: &[u8],
+    gas: &U256,
+    evm_gas_config: &EvmCostConfig,
+) -> MessageCallResult {
     let f = match precompile(addr.to_low_u64_be()) {
         Ok(f) => f,
         Err(_) => return MessageCallResult::Failed,
     };
     let mut bytes = vec![];
     let mut output = parity_bytes::BytesRef::Flexible(&mut bytes);
+    let cost = f.gas(input, evm_gas_config);
+
+    if cost > *gas {
+        return MessageCallResult::Failed;
+    }
 
     // mutates bytes
     match f.execute(input, &mut output) {
@@ -63,8 +73,7 @@ pub fn process_precompile(addr: &Address, input: &[u8]) -> MessageCallResult {
     };
     let size = bytes.len();
 
-    // TODO: add gas usage here.
-    MessageCallResult::Success(1_000_000_000.into(), ReturnData::new(bytes, 0, size))
+    MessageCallResult::Success(*gas - cost, ReturnData::new(bytes, 0, size))
 }
 
 /** the following is copied from ethcore/src/builtin.rs **/
@@ -131,12 +140,18 @@ pub struct Blake2FImpl;
 pub trait Impl: Send + Sync {
     /// execute this built-in on the given input, writing to the given output.
     fn execute(&self, input: &[u8], output: &mut BytesRef) -> Result<(), Error>;
+    fn gas(&self, _input: &[u8], _evm_gas_config: &EvmCostConfig) -> U256 {
+        0.into()
+    }
 }
 
 impl Impl for Identity {
     fn execute(&self, input: &[u8], output: &mut BytesRef) -> Result<(), Error> {
         output.write(0, input);
         Ok(())
+    }
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.identity_cost.into()
     }
 }
 
@@ -157,6 +172,10 @@ impl Impl for EcRecover {
 
         Ok(())
     }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.ecrecover_cost.into()
+    }
 }
 
 impl Impl for Sha256 {
@@ -166,6 +185,10 @@ impl Impl for Sha256 {
         output.write(0, &*d);
         Ok(())
     }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.sha256_cost.into()
+    }
 }
 
 impl Impl for Ripemd160 {
@@ -174,6 +197,10 @@ impl Impl for Ripemd160 {
         output.write(0, &[0; 12][..]);
         output.write(12, &hash);
         Ok(())
+    }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.ripemd160_cost.into()
     }
 }
 
@@ -282,6 +309,10 @@ impl Impl for ModexpImpl {
         }
 
         Ok(())
+    }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.modexp_cost.into()
     }
 }
 
@@ -431,7 +462,7 @@ impl Bn128PairingImpl {
         };
 
         let mut buf = [0u8; 32];
-        ret_val.to_big_endian(&mut buf).expect("Can't fail");
+        ret_val.to_big_endian(&mut buf);
         output.write(0, &buf);
 
         Ok(())

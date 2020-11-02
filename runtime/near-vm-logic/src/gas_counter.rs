@@ -1,12 +1,24 @@
 use crate::config::{ActionCosts, ExtCosts, ExtCostsConfig};
 use crate::types::{Gas, ProfileData};
 use crate::{HostError, VMLogicError};
-use near_runtime_fees::Fee;
+use near_runtime_fees::{EvmGas, Fee};
 
 #[cfg(feature = "costs_counting")]
 thread_local! {
     pub static EXT_COSTS_COUNTER: std::cell::RefCell<std::collections::HashMap<ExtCosts, u64>> =
         Default::default();
+
+    pub static EVM_GAS_COUNTER: std::cell::RefCell<EvmGas> = Default::default();
+}
+
+#[cfg(feature = "costs_counting")]
+pub fn reset_evm_gas_counter() -> u64 {
+    let mut ret = 0;
+    EVM_GAS_COUNTER.with(|f| {
+        ret = *f.borrow();
+        *f.borrow_mut() = 0;
+    });
+    ret
 }
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
@@ -24,6 +36,13 @@ pub struct GasCounter {
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
     profile: Option<ProfileData>,
+}
+
+use std::fmt;
+impl fmt::Debug for GasCounter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("").finish()
+    }
 }
 
 impl GasCounter {
@@ -75,6 +94,18 @@ impl GasCounter {
 
     #[cfg(feature = "costs_counting")]
     #[inline]
+    pub fn inc_evm_gas_counter(&mut self, value: EvmGas) {
+        EVM_GAS_COUNTER.with(|f| {
+            *f.borrow_mut() += value;
+        })
+    }
+
+    #[cfg(not(feature = "costs_counting"))]
+    #[inline]
+    pub fn inc_evm_gas_counter(&mut self, _value: EvmGas) {}
+
+    #[cfg(feature = "costs_counting")]
+    #[inline]
     fn inc_ext_costs_counter(&mut self, cost: ExtCosts, value: u64) {
         EXT_COSTS_COUNTER.with(|f| {
             *f.borrow_mut().entry(cost).or_default() += value;
@@ -114,6 +145,10 @@ impl GasCounter {
     fn update_profile_action(&mut self, action: ActionCosts, _value: u64) {}
 
     pub fn pay_wasm_gas(&mut self, value: u64) -> Result<()> {
+        self.deduct_gas(value, value)
+    }
+
+    pub fn pay_evm_gas(&mut self, value: u64) -> Result<()> {
         self.deduct_gas(value, value)
     }
 

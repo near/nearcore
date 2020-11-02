@@ -1,6 +1,6 @@
 [package]
 name = "near-evm-runner"
-version = "0.1.0"
+version = "2.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -35,6 +35,8 @@ near-vm-errors = { path = "../near-vm-errors" }
 near-runtime-utils = { path = "../near-runtime-utils" }
 near-runtime-fees = { path = "../near-runtime-fees" }
 
+derivative = "2.1.1"
+
 [dev-dependencies]
 ethabi = "8.0.0"
 ethabi-contract = "8.0.0"
@@ -43,3 +45,7 @@ lazy_static = "1.4"
 lazy-static-include = "2.2.2"
 
 near-crypto = { path = "../../core/crypto" }
+
+[features]
+default = []
+costs_counting = []

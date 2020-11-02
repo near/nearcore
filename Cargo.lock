@@ -1152,6 +1152,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derivative"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb582b60359da160a9477ee80f15c8d784c477e69c217ef2cdd4169c24ea380f"
+dependencies = [
+ "proc-macro2 1.0.20",
+ "quote 1.0.3",
+ "syn 1.0.38",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2883,11 +2894,12 @@ dependencies = [
 
 [[package]]
 name = "near-evm-runner"
-version = "0.1.0"
+version = "2.2.0"
 dependencies = [
  "bn",
  "borsh",
  "byteorder",
+ "derivative",
  "enum-primitive-derive",
  "ethabi",
  "ethabi-contract",
@@ -3204,6 +3216,7 @@ name = "near-vm-errors"
 version = "2.2.0"
 dependencies = [
  "borsh",
+ "ethereum-types",
  "hex",
  "near-rpc-error-macro",
  "serde",
@@ -3233,6 +3246,7 @@ dependencies = [
  "assert_matches",
  "bencher",
  "cached",
+ "near-evm-runner",
  "near-runtime-fees",
  "near-vm-errors",
  "near-vm-logic",
@@ -4442,11 +4456,18 @@ dependencies = [
  "borsh",
  "clap 2.33.0",
  "csv",
+ "ethabi",
+ "ethabi-contract",
+ "ethabi-derive",
+ "ethereum-types",
  "glob 0.3.0",
  "gnuplot",
+ "hex",
  "indicatif 0.15.0",
+ "lazy-static-include",
  "near-chain-configs",
  "near-crypto",
+ "near-evm-runner",
  "near-primitives",
  "near-runtime-fees",
  "near-store",
@@ -4455,11 +4476,14 @@ dependencies = [
  "neard",
  "node-runtime",
  "num-rational 0.3.0",
+ "num-traits",
  "rand 0.7.3",
  "rand_xorshift 0.2.0",
  "rocksdb",
  "serde_json",
+ "state-viewer",
  "tempfile",
+ "testlib",
  "walrus",
 ]
 

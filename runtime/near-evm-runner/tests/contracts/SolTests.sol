@@ -78,3 +78,83 @@ contract SubContract is ExposesBalance {
 
     function () external payable {}
 }
+
+contract PrecompiledFunction {
+    constructor() public payable {}
+
+    function noop() public pure {
+        
+    }
+
+    function testSha256() public pure returns (bytes32) {
+        return sha256("");
+    }
+
+    function testSha256_100bytes() public pure returns (bytes32) {
+        return sha256("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvw");
+    }
+
+    function testEcrecover() public pure returns (address) {
+        return ecrecover(
+            hex"1111111111111111111111111111111111111111111111111111111111111111",
+            27,
+            hex"b9f0bb08640d3c1c00761cdd0121209268f6fd3816bc98b9e6f3cc77bf82b698", // r
+            hex"12ac7a61788a0fdc0e19180f14c945a8e1088a27d92a74dce81c0981fb644744"  // s
+        );
+    }
+
+    function testRipemd160() public pure returns (bytes20) {
+        return ripemd160("");
+    }
+
+    function testRipemd160_1kb() public pure returns (bytes20) {
+        return ripemd160("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghij");
+    }
+
+    function identity(bytes memory data) public returns (bytes memory) {
+        bytes memory ret = new bytes(data.length);
+        assembly {
+            let len := mload(data)
+            if iszero(call(gas, 0x04, 0, add(data, 0x20), len, add(ret,0x20), len)) {
+                invalid()
+            }
+        }
+
+        return ret;
+    }
+
+    function test_identity() public returns (bytes memory) {
+        return identity("");
+    }
+
+    function test_identity_100bytes() public returns (bytes memory) {
+        return identity("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvw");
+    }
+
+    function modexp(uint base, uint e, uint m) public view returns (uint o) {
+        assembly {
+            // define pointer
+            let p := mload(0x40)
+            // store data assembly-favouring ways
+            mstore(p, 0x20)             // Length of Base
+            mstore(add(p, 0x20), 0x20)  // Length of Exponent
+            mstore(add(p, 0x40), 0x20)  // Length of Modulus
+            mstore(add(p, 0x60), base)  // Base
+            mstore(add(p, 0x80), e)     // Exponent
+            mstore(add(p, 0xa0), m)     // Modulus
+            if iszero(staticcall(sub(gas, 2000), 0x05, p, 0xc0, p, 0x20)) {
+                revert(0, 0)
+            }
+            // data
+            o := mload(p)
+        }
+    }
+
+    function testModExp() public view returns (uint) {
+        return modexp(12345, 173, 101);
+    }
+
+    function testBn128Add() public pure returns (uint) {
+
+    }
+}

@@ -3,16 +3,16 @@ use std::sync::Arc;
 use ethereum_types::{Address, H256, U256};
 use evm::ActionParams;
 use keccak_hash::keccak;
+use near_runtime_fees::EvmCostConfig;
 use parity_bytes::Bytes;
 use vm::{
     CallType, ContractCreateResult, CreateContractAddress, EnvInfo, Error as VmError,
     MessageCallResult, Result as EvmResult, ReturnData, Schedule, TrapKind,
 };
 
-use near_vm_errors::{EvmError, VMLogicError};
-
 use crate::evm_state::{EvmState, SubState};
 use crate::interpreter;
+
 use crate::utils::format_log;
 
 // https://github.com/openethereum/openethereum/blob/77643c13e80ca09d9a6b10631034f5a1568ba6d3/ethcore/machine/src/externalities.rs
@@ -25,6 +25,7 @@ pub struct NearExt<'a> {
     pub sub_state: &'a mut SubState<'a>,
     pub static_flag: bool,
     pub depth: usize,
+    pub evm_gas_config: &'a EvmCostConfig,
 }
 
 impl std::fmt::Debug for NearExt<'_> {
@@ -46,6 +47,7 @@ impl<'a> NearExt<'a> {
         sub_state: &'a mut SubState<'a>,
         depth: usize,
         static_flag: bool,
+        evm_gas_config: &'a EvmCostConfig,
     ) -> Self {
         Self {
             info: Default::default(),
@@ -56,6 +58,7 @@ impl<'a> NearExt<'a> {
             sub_state,
             static_flag,
             depth,
+            evm_gas_config,
         }
     }
 }
@@ -125,7 +128,7 @@ impl<'a> vm::Ext for NearExt<'a> {
 
     fn create(
         &mut self,
-        _gas: &U256,
+        gas: &U256,
         value: &U256,
         code: &[u8],
         address_type: CreateContractAddress,
@@ -136,7 +139,6 @@ impl<'a> vm::Ext for NearExt<'a> {
         }
 
         // TODO: better error propagation.
-        // TODO: gas metering.
         interpreter::deploy_code(
             self.sub_state,
             &self.origin,
@@ -146,9 +148,9 @@ impl<'a> vm::Ext for NearExt<'a> {
             address_type,
             true,
             &code.to_vec(),
+            gas,
+            &self.evm_gas_config,
         )
-        // TODO: gas usage.
-        .map(|result| ContractCreateResult::Created(result, 1_000_000_000.into()))
         .map_err(|_| TrapKind::Call(ActionParams::default()))
     }
 
@@ -159,7 +161,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     /// and true if subcall was successful.
     fn call(
         &mut self,
-        _gas: &U256,
+        gas: &U256,
         sender_address: &Address,
         receive_address: &Address,
         value: Option<U256>,
@@ -174,7 +176,12 @@ impl<'a> vm::Ext for NearExt<'a> {
 
         // hijack builtins
         if crate::builtins::is_precompile(receive_address) {
-            return Ok(crate::builtins::process_precompile(receive_address, data));
+            return Ok(crate::builtins::process_precompile(
+                receive_address,
+                data,
+                gas,
+                &self.evm_gas_config,
+            ));
         }
 
         let result = match call_type {
@@ -191,6 +198,8 @@ impl<'a> vm::Ext for NearExt<'a> {
                 receive_address,
                 &data.to_vec(),
                 true, // should_commit
+                gas,
+                &self.evm_gas_config,
             ),
             CallType::StaticCall => interpreter::static_call(
                 self.sub_state,
@@ -199,6 +208,8 @@ impl<'a> vm::Ext for NearExt<'a> {
                 self.depth,
                 receive_address,
                 &data.to_vec(),
+                gas,
+                &self.evm_gas_config,
             ),
             CallType::CallCode => {
                 // Call another contract using storage of the current contract. No longer used.
@@ -212,29 +223,11 @@ impl<'a> vm::Ext for NearExt<'a> {
                 receive_address,
                 code_address,
                 &data.to_vec(),
+                gas,
+                &self.evm_gas_config,
             ),
         };
-
-        let msg_call_result = match result {
-            // TODO: gas usage.
-            Ok(data) => MessageCallResult::Success(1_000_000_000.into(), data),
-            Err(err) => {
-                let message = match err {
-                    VMLogicError::EvmError(EvmError::Revert(encoded_message)) => {
-                        hex::decode(encoded_message).unwrap_or(vec![])
-                    }
-                    // TODO(3455): Pass errors indirectly via state of the object.
-                    _ => vec![],
-                };
-                let message_len = message.len();
-                // TODO: gas usage.
-                MessageCallResult::Reverted(
-                    1_000_000_000.into(),
-                    ReturnData::new(message, 0, message_len),
-                )
-            }
-        };
-        Ok(msg_call_result)
+        result.map_err(|_| TrapKind::Call(ActionParams::default()))
     }
 
     /// Returns code at given address

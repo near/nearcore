@@ -195,6 +195,7 @@ impl Default for ActionResult {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Runtime {}
 
 impl Runtime {
@@ -303,6 +304,7 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
+        // println!("enter apply_action");
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(
             &apply_state.config.transaction_costs,
