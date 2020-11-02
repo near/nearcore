@@ -1468,7 +1468,7 @@ dependencies = [
 [[package]]
 name = "ethjson"
 version = "0.1.0"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.7#ba1b879e9f9aae0e949c1530268d0ff7c0347cca"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "ethereum-types",
  "rustc-hex 1.0.0",
@@ -1479,7 +1479,7 @@ dependencies = [
 [[package]]
 name = "evm"
 version = "0.1.0"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.7#ba1b879e9f9aae0e949c1530268d0ff7c0347cca"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "bit-set",
  "ethereum-types",
@@ -2333,7 +2333,7 @@ dependencies = [
 [[package]]
 name = "keccak-hasher"
 version = "0.1.1"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.7#ba1b879e9f9aae0e949c1530268d0ff7c0347cca"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "ethereum-types",
  "hash-db",
@@ -2615,7 +2615,7 @@ dependencies = [
 [[package]]
 name = "memory-cache"
 version = "0.1.0"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.7#ba1b879e9f9aae0e949c1530268d0ff7c0347cca"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "lru-cache",
  "parity-util-mem",
@@ -3822,7 +3822,7 @@ dependencies = [
 [[package]]
 name = "patricia-trie-ethereum"
 version = "0.1.0"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.7#ba1b879e9f9aae0e949c1530268d0ff7c0347cca"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "elastic-array 0.10.3",
  "ethereum-types",
@@ -5629,7 +5629,7 @@ checksum = "078775d0255232fb988e6fccf26ddc9d1ac274299aaedcedce21c6f72cc533ce"
 [[package]]
 name = "vm"
 version = "0.1.0"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.7#ba1b879e9f9aae0e949c1530268d0ff7c0347cca"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "ethereum-types",
  "ethjson",
