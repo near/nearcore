@@ -25,12 +25,20 @@ near-runtime-fees = { path = "../near-runtime-fees", version = "2.2.0" }
 near-vm-errors = { path = "../near-vm-errors", version = "2.2.0" }
 near-runtime-utils = { path = "../near-runtime-utils", version = "2.2.0" }
 
+[dependencies.bn]
+package = "zeropool-bn"
+version = "0.5.7"
+features = []
+
 [dev-dependencies]
 serde_json = {version= "1", features= ["preserve_order"]}
 
 [features]
 default = ["costs_counting"]
 wasmtime_default = []
+protocol_feature_alt_bn128 = []
+nightly_protocol = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_alt_bn128"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []

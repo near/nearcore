@@ -23,14 +23,16 @@ macro_rules! rust2wasm {
     };
 }
 
+
 macro_rules! wrapped_imports {
-        ( $( $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
+        ( $($(#[$attr:meta])* $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             pub mod wasmer_ext {
             use near_vm_logic::VMLogic;
             use wasmer_runtime::Ctx;
             type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
             $(
                 #[allow(unused_parens)]
+                $(#[$attr])*
                 pub fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
@@ -54,6 +56,7 @@ macro_rules! wrapped_imports {
             $(
                 #[allow(unused_parens)]
                 #[cfg(feature = "wasmtime_vm")]
+                $(#[$attr])*
                 pub fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> VMResult<($( rust2wasm!($returns)),*)> {
                     let data = CALLER_CONTEXT.with(|caller_context| {
                         unsafe {
@@ -80,18 +83,20 @@ macro_rules! wrapped_imports {
                 wasmer_runtime::ImportObject {
                 let raw_ptr = logic as *mut _ as *mut c_void;
                 let import_reference = ImportReference(raw_ptr);
-                wasmer_runtime::imports! {
-                    move || {
-                        let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
-                        (import_reference.0, dtor)
-                    },
-                    "env" => {
-                        "memory" => memory,
-                        $(
-                            stringify!($func) => wasmer_runtime::func!(wasmer_ext::$func),
-                        )*
-                    },
-                }
+                let mut import_object = wasmer_runtime::ImportObject::new_with_data(move || {
+                    let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
+                    (import_reference.0, dtor)
+                });
+
+                let mut ns = wasmer_runtime_core::import::Namespace::new();
+                ns.insert("memory", memory);
+                $({
+                    $(#[$attr])*
+                    ns.insert(stringify!($func), wasmer_runtime::func!(wasmer_ext::$func));
+                })*
+
+                import_object.register("env", ns);
+                import_object
             }
 
             #[cfg(feature = "wasmtime_vm")]
@@ -108,6 +113,7 @@ macro_rules! wrapped_imports {
                 linker.define("env", "memory", memory).
                     expect("cannot define memory");
                 $(
+                   $(#[$attr])*
                    linker.func("env", stringify!($func), wasmtime_ext::$func).
                     expect("cannot link external");
                   )*
@@ -157,6 +163,9 @@ wrapped_imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[cfg(feature="protocol_feature_alt_bn128")] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[cfg(feature="protocol_feature_alt_bn128")] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[cfg(feature="protocol_feature_alt_bn128")] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
     // #####################
     // # Miscellaneous API #
     // #####################

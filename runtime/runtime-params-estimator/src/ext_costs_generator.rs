@@ -65,6 +65,16 @@ impl ExtCostsGenerator {
         self.extract(keccak512_10b_10k, keccak512_base);
         self.extract(keccak512_10kib_10k, keccak512_byte);
 
+        self.extract(alt_bn128_g1_multiexp_1_1k, alt_bn128_g1_multiexp_base);
+        self.extract(alt_bn128_g1_multiexp_10_1k, alt_bn128_g1_multiexp_byte);
+        self.extract(alt_bn128_g1_multiexp_10_1k, alt_bn128_g1_multiexp_sublinear);
+
+        self.extract(alt_bn128_g1_sum_1_1k, alt_bn128_g1_sum_base);
+        self.extract(alt_bn128_g1_sum_10_1k, alt_bn128_g1_sum_byte);
+
+        self.extract(alt_bn128_pairing_check_1_1k, alt_bn128_pairing_check_base);
+        self.extract(alt_bn128_pairing_check_10_1k, alt_bn128_pairing_check_byte);
+
         // TODO: Redo storage costs once we have counting of nodes and we have size peek.
         self.extract(storage_write_10b_key_10b_value_1k, storage_write_base);
         self.extract(storage_write_10kib_key_10b_value_1k, storage_write_key_byte);

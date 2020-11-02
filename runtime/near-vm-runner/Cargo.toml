@@ -44,6 +44,10 @@ costs_counting = ["near-vm-logic/costs_counting"]
 
 no_cache = []
 
+protocol_feature_alt_bn128 = []
+nightly_protocol = []
+nightly_protocol_features = ["nightly_protocol", "near-vm-logic/nightly_protocol_features"]
+
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
 normal = ["cached"]

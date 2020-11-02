@@ -19,9 +19,9 @@ num-rational = "0.3.0"
 
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-crypto = { path = "../../core/crypto" }
-near-vm-logic = {path = "../../runtime/near-vm-logic" , features = ["costs_counting"]}
-near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting", "no_cache", "no_cpu_compatibility_checks", "wasmtime_vm" ]}
-node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", "no_cache"]}
+near-vm-logic = {path = "../../runtime/near-vm-logic" , features = ["costs_counting", "nightly_protocol_features"]}
+near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting", "nightly_protocol_features", "no_cache", "no_cpu_compatibility_checks", "wasmtime_vm" ]}
+node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", "nightly_protocol_features", "no_cache"]}
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 neard = { path = "../../neard" }

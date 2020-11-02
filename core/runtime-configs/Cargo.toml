@@ -10,3 +10,8 @@ serde = { version = "1", features = ["derive"] }
 near-primitives = { path = "../primitives" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
+
+[features]
+protocol_feature_alt_bn128 = []
+nightly_protocol = []
+nightly_protocol_features = ["nightly_protocol", "near-vm-logic/nightly_protocol_features"]

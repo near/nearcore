@@ -59,7 +59,7 @@ no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache
 delay_detector = ["near-client/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
 protocol_feature_forward_chunk_parts = ["near-client/protocol_feature_forward_chunk_parts"]
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "near-client/nightly_protocol_features"]
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "near-client/nightly_protocol_features", "node-runtime/nightly_protocol_features"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 
 [[bin]]
