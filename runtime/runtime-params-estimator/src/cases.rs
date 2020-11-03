@@ -699,7 +699,7 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     )
     .unwrap();
 
-    let test_contract_compilation_cost = ratio_to_gas(config.metric, compile_cost.1);
+    // let test_contract_compilation_cost = ratio_to_gas(config.metric, compile_cost.1);
 
     runtime_config.transaction_costs = get_runtime_fees_config(measurement);
 
