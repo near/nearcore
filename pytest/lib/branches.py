@@ -61,14 +61,13 @@ def escaped(branch):
     return branch.replace('/', '-')
 
 
-def compile_current():
+def compile_current(features=None):
     """Compile current branch."""
     branch = current_branch()
-    try:
-        # Accommodate rename from near to neard
+    if features is not None:
+        subprocess.check_output(['cargo', 'build', '-p', 'neard', '--features', ','.join(features)])
+    else:
         subprocess.check_output(['cargo', 'build', '-p', 'neard'])
-    except:
-        subprocess.check_output(['cargo', 'build', '-p', 'near'])
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
     branch = escaped(branch)
     if os.path.exists('../target/debug/near'):
@@ -98,7 +97,7 @@ def download_binary(uname, branch):
         ['chmod', '+x', f'../target/debug/state-viewer-{branch}'])
 
 
-def prepare_ab_test(other_branch):
+def prepare_ab_test(other_branch, features=None):
     # Use NEAR_AB_BINARY_EXISTS to avoid rebuild / re-download when testing locally.
     #if not os.environ.get('NEAR_AB_BINARY_EXISTS'):
     #    compile_current()
@@ -107,7 +106,7 @@ def prepare_ab_test(other_branch):
     #        download_binary(uname, other_branch)
     #    else:
     # TODO: re-enable caching
-    compile_current()
+    compile_current(features)
     uname = os.uname()[0]
     try:
         download_binary(uname, other_branch)
