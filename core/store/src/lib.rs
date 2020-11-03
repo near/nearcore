@@ -44,6 +44,7 @@ pub mod migrations;
 pub mod test_utils;
 mod trie;
 
+#[derive(Clone)]
 pub struct Store {
     storage: Pin<Arc<dyn Database>>,
 }
@@ -144,7 +145,7 @@ impl Store {
         self.storage.write(transaction).map_err(|e| e.into())
     }
 
-    pub(crate) fn get_rocksdb(&self) -> Option<&RocksDB> {
+    pub fn get_rocksdb(&self) -> Option<&RocksDB> {
         self.storage.as_rocksdb()
     }
 }

@@ -1,10 +1,11 @@
 use crate::types::Gas;
+use borsh::{BorshDeserialize, BorshSerialize};
 use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-#[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum VMKind {
     /// Wasmer VM.
     Wasmer,

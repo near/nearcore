@@ -104,18 +104,20 @@ pub enum DBCol {
     ColBlockOrdinal = 40,
     /// GC Count for each column
     ColGCCount = 41,
-    /// GC helper column to get all Outcome ids by Block Hash
-    ColOutcomesByBlockHash = 42,
+    /// All Outcome ids by block hash and shard id. For each shard it is ordered by execution order.
+    ColOutcomeIds = 42,
     /// Deprecated
     _ColTransactionRefCount = 43,
     /// Heights of blocks that have been processed
     ColProcessedBlockHeights = 44,
     /// Receipts
     ColReceipts = 45,
+    /// Precompiled machine code of the contract
+    ColCachedContractCode = 46,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 46;
+pub const NUM_COLS: usize = 47;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -162,10 +164,11 @@ impl std::fmt::Display for DBCol {
             Self::ColChunkHashesByHeight => "chunk hashes indexed by height_created",
             Self::ColBlockOrdinal => "block ordinal",
             Self::ColGCCount => "gc count",
-            Self::ColOutcomesByBlockHash => "outcomes by block hash",
+            Self::ColOutcomeIds => "outcome ids",
             Self::_ColTransactionRefCount => "refcount per transaction (deprecated)",
             Self::ColProcessedBlockHeights => "processed block heights",
             Self::ColReceipts => "receipts",
+            Self::ColCachedContractCode => "cached code",
         };
         write!(formatter, "{}", desc)
     }
@@ -196,6 +199,7 @@ lazy_static! {
         col_gc[DBCol::ColBlockOrdinal as usize] = false;
         col_gc[DBCol::ColEpochInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
         col_gc[DBCol::ColEpochStart as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+        col_gc[DBCol::ColCachedContractCode as usize] = false;
         col_gc
     };
 }

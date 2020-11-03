@@ -330,7 +330,7 @@ pub struct GetExecutionOutcomesForBlock {
 }
 
 impl Message for GetExecutionOutcomesForBlock {
-    type Result = Result<Vec<ExecutionOutcomeWithIdView>, String>;
+    type Result = Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>;
 }
 
 pub struct GetBlockProof {

@@ -1,7 +1,7 @@
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
 use log::debug;
 
 use near_crypto::PublicKey;
@@ -9,7 +9,9 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
+use near_primitives::receipt::{
+    ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
+};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
@@ -31,6 +33,7 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
+use near_vm_runner::CompiledContractCache;
 #[cfg(feature = "costs_counting")]
 pub use near_vm_runner::EXT_COSTS_COUNTER;
 
@@ -84,6 +87,8 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
+    /// Cache for compiled contracts.
+    pub cache: Option<Arc<dyn CompiledContractCache>>,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -132,15 +137,6 @@ pub struct ApplyResult {
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ApplyStats,
     pub proof: Option<PartialStorage>,
-}
-
-/// Stores indices for a persistent queue for delayed receipts that didn't fit into a block.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq)]
-pub struct DelayedReceiptIndices {
-    // First inclusive index in the queue.
-    first_index: u64,
-    // Exclusive end index of the queue
-    next_available_index: u64,
 }
 
 #[derive(Debug)]
@@ -1445,6 +1441,7 @@ impl Runtime {
 mod tests {
     use super::*;
 
+    use crate::cache::StoreCompiledContractCache;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
@@ -1503,7 +1500,6 @@ mod tests {
         let tries = create_tries();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
-
         let account_id = alice_account();
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
@@ -1534,6 +1530,7 @@ mod tests {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::default()),
+            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
