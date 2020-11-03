@@ -452,7 +452,13 @@ fn test_validators_ordered() {
 fn test_genesis_config() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
-        assert_eq!(genesis_config["protocol_version"].as_u64().unwrap(), PROTOCOL_VERSION as u64);
+        #[cfg(not(feature = "nightly_protocol"))]
+        {
+            assert_eq!(
+                genesis_config["protocol_version"].as_u64().unwrap(),
+                PROTOCOL_VERSION as u64
+            );
+        }
         assert!(!genesis_config["chain_id"].as_str().unwrap().is_empty());
         assert!(!genesis_config.as_object().unwrap().contains_key("records"));
     });
