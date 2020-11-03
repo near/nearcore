@@ -15,7 +15,7 @@ use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
-    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColStateHeaders,
+    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomeIds, ColStateHeaders,
     ColTransactionResult, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, FORK_TAIL_KEY,
     HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
 };
@@ -83,7 +83,7 @@ macro_rules! unwrap_or_err {
 }
 
 macro_rules! unwrap_or_err_db {
-    ($obj: expr, $($x: tt),*) => {
+    ($obj: expr, $($x: expr),*) => {
         match $obj {
             Ok(Some(value)) => value,
             Err(e) => {
@@ -578,7 +578,7 @@ pub(crate) fn chunk_of_height_exists(
 pub(crate) fn outcome_by_outcome_id_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
-    outcome_ids: &HashSet<CryptoHash>,
+    outcome_ids: &Vec<CryptoHash>,
 ) -> Result<(), StoreValidatorError> {
     for outcome_id in outcome_ids {
         let outcomes = unwrap_or_err_db!(
@@ -599,7 +599,7 @@ pub(crate) fn outcome_by_outcome_id_exists(
 pub(crate) fn outcome_id_block_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
-    _outcome_ids: &HashSet<CryptoHash>,
+    _outcome_ids: &Vec<CryptoHash>,
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
@@ -614,15 +614,34 @@ pub(crate) fn outcome_indexed_by_block_hash(
     outcomes: &Vec<ExecutionOutcomeWithIdAndProof>,
 ) -> Result<(), StoreValidatorError> {
     for outcome in outcomes {
-        let outcome_ids = unwrap_or_err_db!(
-            sv.store.get_ser::<HashSet<CryptoHash>>(
-                ColOutcomesByBlockHash,
-                outcome.block_hash.as_ref()
-            ),
-            "Can't get Outcome ids by Block Hash"
+        let block = unwrap_or_err_db!(
+            sv.store.get_ser::<Block>(ColBlock, outcome.block_hash.as_ref()),
+            "Can't get Block {} from DB",
+            outcome.block_hash
         );
+        let mut outcome_ids = vec![];
+        for chunk_header in block.chunks().iter() {
+            if chunk_header.height_included() == block.header().height() {
+                if let Some(me) = &sv.me {
+                    if sv.runtime_adapter.cares_about_shard(
+                        Some(&me),
+                        block.header().prev_hash(),
+                        chunk_header.shard_id(),
+                        true,
+                    ) {
+                        outcome_ids.extend(unwrap_or_err_db!(
+                            sv.store.get_ser::<Vec<CryptoHash>>(
+                                ColOutcomeIds,
+                                &get_block_shard_id(block.hash(), chunk_header.shard_id())
+                            ),
+                            "Can't get Outcome ids by Block Hash"
+                        ));
+                    }
+                }
+            }
+        }
         if !outcome_ids.contains(outcome_id) {
-            err!("Outcome id {:?} is not found in ColOutcomesByBlockHash", outcome_id);
+            err!("Outcome id {:?} is not found in ColOutcomeIds", outcome_id);
         }
     }
     Ok(())

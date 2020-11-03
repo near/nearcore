@@ -124,6 +124,9 @@ class PartialEncodedChunkResponseMsg:
     pass
 
 
+class PartialEncodedChunkForwardMsg:
+    pass
+
 class ValidatorStake:
     pass
 
@@ -411,6 +414,21 @@ block_schema = [
                 ['chunk_hash', [32]],
                 ['parts', [PartialEncodedChunkPart]],
                 ['receipts', [ReceiptProof]]
+            ]
+        }
+    ],
+    [
+        PartialEncodedChunkForwardMsg, {
+            'kind': 'struct',
+            'fields': [
+                ['chunk_hash', [32]],
+                ['inner_header_hash', [32]],
+                ['merkle_root', [32]],
+                ['signature', Signature],
+                ['prev_block_hash', [32]],
+                ['height_created', 'u64'],
+                ['shard_id', 'u64'],
+                ['parts', [PartialEncodedChunkPart]]
             ]
         }
     ],
