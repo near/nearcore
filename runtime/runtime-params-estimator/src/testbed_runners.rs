@@ -11,11 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::PathBuf;
 use std::time::Instant;
-use std::{
-    fs::File,
-    io::Read,
-    os::unix::io::FromRawFd,
-};
+use std::{fs::File, io::Read, os::unix::io::FromRawFd};
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {
@@ -132,10 +128,7 @@ pub enum Consumed {
 fn start_count_instructions() -> Consumed {
     let mut buf: i8 = 0;
     unsafe {
-        syscall3(
-            CATCH_BASE,
-            std::mem::transmute::<*mut i8, &mut [u8;1]>(&mut buf),
-        );
+        syscall3(CATCH_BASE, std::mem::transmute::<*mut i8, &mut [u8; 1]>(&mut buf));
     }
     Consumed::None
 }
@@ -143,10 +136,7 @@ fn start_count_instructions() -> Consumed {
 fn end_count_instructions() -> u64 {
     let mut result: u64 = 0;
     unsafe {
-        syscall3(
-            CATCH_BASE + 1,
-            std::mem::transmute::<*mut u64, &mut [u8;8]>(&mut result),
-        );
+        syscall3(CATCH_BASE + 1, std::mem::transmute::<*mut u64, &mut [u8; 8]>(&mut result));
     }
     result
 }
