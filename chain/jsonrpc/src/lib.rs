@@ -226,7 +226,7 @@ impl JsonRpcHandler {
             }
         }
 
-        match request.method.as_ref() {
+        let response = match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params).await,
             "EXPERIMENTAL_broadcast_tx_sync" => self.send_tx_sync(request.params).await,
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
@@ -250,8 +250,17 @@ impl JsonRpcHandler {
             "light_client_proof" => self.light_client_execution_outcome_proof(request.params).await,
             "network_info" => self.network_info().await,
             "gas_price" => self.gas_price(request.params).await,
-            _ => Err(RpcError::method_not_found(request.method)),
+            _ => Err(RpcError::method_not_found(request.method.clone())),
+        };
+
+        if let Err(err) = &response {
+            near_metrics::inc_counter_vec(
+                &metrics::RPC_ERROR_COUNT,
+                &[request.method.as_ref(), &err.code.to_string()],
+            );
         }
+
+        response
     }
 
     async fn send_tx_async(&self, params: Option<Value>) -> Result<Value, RpcError> {

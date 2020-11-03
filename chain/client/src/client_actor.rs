@@ -54,6 +54,7 @@ use crate::types::{
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
+use near_primitives::block_header::ApprovalType;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -338,8 +339,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
                 }
             }
-            NetworkClientMessages::BlockApproval(approval, _) => {
-                self.client.collect_block_approval(&approval, false);
+            NetworkClientMessages::BlockApproval(approval, peer_id) => {
+                self.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(state_response_info) => {
@@ -657,25 +658,17 @@ impl ClientActor {
             .get_next_epoch_id_from_prev_block(&prev_block_hash));
 
         // Check client is part of the futures validators
-        if let Ok((validator_stake, is_slashed)) =
-            self.client.runtime_adapter.get_validator_by_account_id(
-                &next_epoch_id,
-                &prev_block_hash,
-                validator_signer.validator_id(),
-            )
-        {
-            if !is_slashed && validator_stake.public_key == validator_signer.public_key() {
-                debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
-                self.last_validator_announce_time = Some(now);
-                let signature = self.sign_announce_account(&next_epoch_id).unwrap();
+        if self.client.is_validator(&next_epoch_id, &prev_block_hash) {
+            debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
+            self.last_validator_announce_time = Some(now);
+            let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
-                self.network_adapter.do_send(NetworkRequests::AnnounceAccount(AnnounceAccount {
-                    account_id: validator_signer.validator_id().clone(),
-                    peer_id: self.node_id.clone(),
-                    epoch_id: next_epoch_id,
-                    signature,
-                }));
-            }
+            self.network_adapter.do_send(NetworkRequests::AnnounceAccount(AnnounceAccount {
+                account_id: validator_signer.validator_id().clone(),
+                peer_id: self.node_id.clone(),
+                epoch_id: next_epoch_id,
+                signature,
+            }));
         }
     }
 
@@ -814,11 +807,16 @@ impl ClientActor {
 
         match chain_store_update.commit() {
             Ok(_) => {
-                for approval in approvals {
-                    if let Err(e) =
-                        self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
-                    {
-                        error!("Error while sending an approval {:?}", e);
+                let head = unwrap_or_return!(self.client.chain.head());
+                if self.client.is_validator(&head.epoch_id, &head.last_block_hash)
+                    || self.client.is_validator(&head.next_epoch_id, &head.last_block_hash)
+                {
+                    for approval in approvals {
+                        if let Err(e) =
+                            self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
+                        {
+                            error!("Error while sending an approval {:?}", e);
+                        }
                     }
                 }
             }

@@ -13,12 +13,13 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
-byteorder = "1.2"
-bs58 = "0.3"
 base64 = "0.11"
+borsh = "0.7.1"
+bs58 = "0.3"
+byteorder = "1.2"
 serde = { version = "1", features = ["derive"] }
-sha2 = "0.8"
-sha3 = "0.8"
+sha2 = ">=0.8,<0.10"
+sha3 = ">=0.8,<0.10"
 
 near-runtime-fees = { path = "../near-runtime-fees", version = "2.2.0" }
 near-vm-errors = { path = "../near-vm-errors", version = "2.2.0" }

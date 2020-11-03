@@ -6,14 +6,13 @@ edition = "2018"
 
 [dependencies]
 arrayref = "0.3"
-blake2 = "0.8"
+blake2 = "0.9.1"
 borsh = "0.7.1"
 bs58 = "0.3"
 c2-chacha = "0.2"
-curve25519-dalek = "2"
+curve25519-dalek = "3"
 derive_more = "0.99.9"
-digest = "0.8"
-ed25519-dalek = "=1.0.0-pre.3"
+ed25519-dalek = "1"
 lazy_static = "1.4"
 libc = "0.2"
 parity-secp256k1 = "0.7"
@@ -21,9 +20,9 @@ rand = "0.7"
 rand_core = "0.5"
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
-sha2 = "0.8"
 subtle = "2.2"
 thiserror = "1"
 
 [dev-dependencies]
 hex-literal = "0.2"
+sha2 = ">=0.8,<0.10"
