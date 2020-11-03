@@ -18,7 +18,7 @@ wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], 
 wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
-wasmtime = { version = "0.20.0", default-features = true, optional = true }
+wasmtime = { version = "0.20.0", default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
 near-runtime-fees = { path="../near-runtime-fees", version = "2.2.0" }
 near-vm-logic = { path="../near-vm-logic", version = "2.2.0", default-features = false, features = []}
