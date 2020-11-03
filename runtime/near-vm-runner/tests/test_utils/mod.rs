@@ -65,6 +65,7 @@ pub fn make_simple_contract_call_with_gas_vm(
         &promise_results,
         vm_kind,
         LATEST_PROTOCOL_VERSION,
+        None,
     )
 }
 
