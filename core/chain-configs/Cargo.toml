@@ -16,3 +16,7 @@ sha2 = "0.8"
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
 near-runtime-configs = { path = "../runtime-configs" }
+
+[features]
+default = []
+protocol_feature_evm = ["near-primitives/protocol_feature_evm"]

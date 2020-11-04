@@ -1368,8 +1368,14 @@ impl RuntimeAdapter for NightshadeRuntime {
             && chunk_epoch_id != head_next_epoch_id)
     }
 
+    #[cfg(feature = "protocol_feature_evm")]
     fn evm_chain_id(&self) -> u128 {
         self.genesis_config.evm_chain_id
+    }
+
+    #[cfg(not(feature = "protocol_feature_evm"))]
+    fn evm_chain_id(&self) -> u128 {
+        0
     }
 }
 

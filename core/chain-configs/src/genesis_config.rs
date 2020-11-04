@@ -59,6 +59,7 @@ pub struct GenesisConfig {
     /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
     pub chain_id: String,
     /// ID of the EVM chain: https://github.com/ethereum-lists/chains
+    #[cfg(feature = "protocol_feature_evm")]
     #[default(TEST_EVM_CHAIN_ID)]
     #[serde(with = "u128_dec_format_compatible", default = "default_evm_chain_id")]
     pub evm_chain_id: u128,

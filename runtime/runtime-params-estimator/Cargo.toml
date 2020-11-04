@@ -17,7 +17,7 @@ clap = "2.33"
 borsh = "0.7.1"
 num-rational = "0.3.0"
 
-near-chain-configs = { path = "../../core/chain-configs" }
+near-chain-configs = { path = "../../core/chain-configs", features = ["protocol_feature_evm"] }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic" , features = ["costs_counting"]}
