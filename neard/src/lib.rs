@@ -14,18 +14,21 @@ use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
-use near_store::migrations::{
-    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_6_to_7,
-    migrate_7_to_8, set_store_version,
-};
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+use crate::migrations::migrate_12_to_13;
 pub use crate::runtime::NightshadeRuntime;
+use near_store::migrations::{
+    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
+    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_6_to_7, migrate_7_to_8,
+    migrate_8_to_9, migrate_9_to_10, set_store_version,
+};
 
 pub mod config;
 pub mod genesis_validate;
+mod migrations;
 mod runtime;
 mod shard_tracker;
 
@@ -60,7 +63,7 @@ pub fn get_default_home() -> String {
 }
 
 /// Function checks current version of the database and applies migrations to the database.
-pub fn apply_store_migrations(path: &String) {
+pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
     let db_version = get_store_version(path);
     if db_version > near_primitives::version::DB_VERSION {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
@@ -123,16 +126,58 @@ pub fn apply_store_migrations(path: &String) {
         // delete values in column `StateColParts`
         migrate_7_to_8(path);
     }
+    if db_version <= 8 {
+        info!(target: "near", "Migrate DB from version 8 to 9");
+        // version 8 => 9:
+        // Repair `ColTransactions`, `ColReceiptIdToShardId`
+        migrate_8_to_9(path);
+    }
+    if db_version <= 9 {
+        info!(target: "near", "Migrate DB from version 9 to 10");
+        // version 9 => 10;
+        // populate partial encoded chunks for chunks that exist in storage
+        migrate_9_to_10(path, near_config.client_config.archive);
+    }
+    if db_version <= 10 {
+        info!(target: "near", "Migrate DB from version 10 to 11");
+        // version 10 => 11
+        // Add final head
+        migrate_10_to_11(path);
+    }
+    if db_version <= 11 {
+        info!(target: "near", "Migrate DB from version 11 to 12");
+        // version 11 => 12;
+        // populate ColReceipts with existing receipts
+        migrate_11_to_12(path);
+    }
+    if db_version <= 12 {
+        info!(target: "near", "Migrate DB from version 12 to 13");
+        // version 12 => 13;
+        // migrate ColTransactionResult to fix the inconsistencies there
+        migrate_12_to_13(path, near_config);
+    }
+    if db_version <= 13 {
+        info!(target: "near", "Migrate DB from version 13 to 14");
+        // version 13 => 14;
+        // store versioned enums for shard chunks
+        migrate_13_to_14(path);
+    }
+    if db_version <= 14 {
+        info!(target: "near", "Migrate DB from version 14 to 15");
+        // version 14 => 15;
+        // Change ColOutcomesByBlockHash to be ordered within each shard
+        migrate_14_to_15(path);
+    }
 
     let db_version = get_store_version(path);
     debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
 }
 
-pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {
+pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<Store> {
     let path = get_store_path(home_dir);
     let store_exists = store_path_exists(&path);
     if store_exists {
-        apply_store_migrations(&path);
+        apply_store_migrations(&path, near_config);
     }
     let store = create_store(&path);
     if !store_exists {
@@ -145,13 +190,13 @@ pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<Arbiter>) {
-    let store = init_and_migrate_store(home_dir);
+    let store = init_and_migrate_store(home_dir, &config);
     near_actix_utils::init_stop_on_panic();
 
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
         Arc::clone(&store),
-        Arc::clone(&config.genesis),
+        &config.genesis,
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),
     ));
@@ -186,7 +231,7 @@ pub fn start_with_config(
     );
     start_http(
         config.rpc_config,
-        Arc::clone(&config.genesis),
+        config.genesis.config.clone(),
         client_actor.clone(),
         view_client.clone(),
     );
@@ -194,7 +239,7 @@ pub fn start_with_config(
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
         start_rosetta_rpc(
             rosetta_rpc_config,
-            Arc::clone(&config.genesis),
+            Arc::new(config.genesis.clone()),
             client_actor.clone(),
             view_client.clone(),
         );

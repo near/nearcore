@@ -28,7 +28,7 @@ use near_crypto::Signature;
 use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
+use near_network::types::{NetworkInfo, ReasonForBan};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
@@ -54,6 +54,7 @@ use crate::types::{
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
+use near_primitives::block_header::ApprovalType;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -338,19 +339,19 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
                 }
             }
-            NetworkClientMessages::BlockApproval(approval, _) => {
-                self.client.collect_block_approval(&approval, false);
+            NetworkClientMessages::BlockApproval(approval, peer_id) => {
+                self.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::StateResponse(StateResponseInfo {
-                shard_id,
-                sync_hash: hash,
-                state_response,
-            }) => {
+            NetworkClientMessages::StateResponse(state_response_info) => {
+                let shard_id = state_response_info.shard_id();
+                let hash = state_response_info.sync_hash();
+                let state_response = state_response_info.take_state_response();
+
                 trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
                     shard_id,
                     hash,
-                    state_response.part.as_ref().map(|(part_id,data)|(part_id, data.len()))
+                    state_response.part().as_ref().map(|(part_id,data)|(part_id, data.len()))
                 );
                 // Get the download that matches the shard_id and hash
                 let download = {
@@ -403,7 +404,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 if let Some(shard_sync_download) = download {
                     match shard_sync_download.status {
                         ShardSyncStatus::StateDownloadHeader => {
-                            if let Some(header) = state_response.header {
+                            if let Some(header) = state_response.take_header() {
                                 if !shard_sync_download.downloads[0].done {
                                     match self.client.chain.set_state_header(shard_id, hash, header)
                                     {
@@ -426,7 +427,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                         }
                         ShardSyncStatus::StateDownloadParts => {
-                            if let Some(part) = state_response.part {
+                            if let Some(part) = state_response.take_part() {
                                 let num_parts = shard_sync_download.downloads.len() as u64;
                                 let (part_id, data) = part;
                                 if part_id >= num_parts {
@@ -481,6 +482,18 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     self.client.process_partial_encoded_chunk(partial_encoded_chunk)
                 {
                     self.process_accepted_blocks(accepted_blocks);
+                }
+                NetworkClientResponses::NoResponse
+            }
+            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+            NetworkClientMessages::PartialEncodedChunkForward(forward) => {
+                match self.client.process_partial_encoded_chunk_forward(forward) {
+                    Ok(accepted_blocks) => self.process_accepted_blocks(accepted_blocks),
+                    // Unknown chunk is normal if we get parts before the header
+                    Err(Error::Chunk(near_chunks::Error::UnknownChunk)) => (),
+                    Err(err) => {
+                        error!(target: "client", "Error processing forwarded chunk: {}", err)
+                    }
                 }
                 NetworkClientResponses::NoResponse
             }
@@ -645,25 +658,17 @@ impl ClientActor {
             .get_next_epoch_id_from_prev_block(&prev_block_hash));
 
         // Check client is part of the futures validators
-        if let Ok((validator_stake, is_slashed)) =
-            self.client.runtime_adapter.get_validator_by_account_id(
-                &next_epoch_id,
-                &prev_block_hash,
-                validator_signer.validator_id(),
-            )
-        {
-            if !is_slashed && validator_stake.public_key == validator_signer.public_key() {
-                debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
-                self.last_validator_announce_time = Some(now);
-                let signature = self.sign_announce_account(&next_epoch_id).unwrap();
+        if self.client.is_validator(&next_epoch_id, &prev_block_hash) {
+            debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
+            self.last_validator_announce_time = Some(now);
+            let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
-                self.network_adapter.do_send(NetworkRequests::AnnounceAccount(AnnounceAccount {
-                    account_id: validator_signer.validator_id().clone(),
-                    peer_id: self.node_id.clone(),
-                    epoch_id: next_epoch_id,
-                    signature,
-                }));
-            }
+            self.network_adapter.do_send(NetworkRequests::AnnounceAccount(AnnounceAccount {
+                account_id: validator_signer.validator_id().clone(),
+                peer_id: self.node_id.clone(),
+                epoch_id: next_epoch_id,
+                signature,
+            }));
         }
     }
 
@@ -768,7 +773,11 @@ impl ClientActor {
             self.client.config.chunk_request_retry_period,
             self.chunk_request_retry_next_attempt,
             ctx,
-            |act, _ctx| act.client.shards_mgr.resend_chunk_requests(),
+            |act, _ctx| {
+                if let Ok(header_head) = act.client.chain.header_head() {
+                    act.client.shards_mgr.resend_chunk_requests(&header_head)
+                }
+            },
         );
         core::cmp::min(
             delay,
@@ -798,11 +807,16 @@ impl ClientActor {
 
         match chain_store_update.commit() {
             Ok(_) => {
-                for approval in approvals {
-                    if let Err(e) =
-                        self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
-                    {
-                        error!("Error while sending an approval {:?}", e);
+                let head = unwrap_or_return!(self.client.chain.head());
+                if self.client.is_validator(&head.epoch_id, &head.last_block_hash)
+                    || self.client.is_validator(&head.next_epoch_id, &head.last_block_hash)
+                {
+                    for approval in approvals {
+                        if let Err(e) =
+                            self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
+                        {
+                            error!("Error while sending an approval {:?}", e);
+                        }
                     }
                 }
             }
@@ -817,6 +831,8 @@ impl ClientActor {
             Ok(Some(block)) => {
                 let block_hash = *block.hash();
                 let peer_id = self.node_id.clone();
+                let prev_hash = *block.header().prev_hash();
+                let block_protocol_version = block.header().latest_protocol_version();
                 let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
@@ -829,7 +845,19 @@ impl ClientActor {
                                 missing_chunks,
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
-                            self.client.shards_mgr.request_chunks(missing_chunks);
+                            let protocol_version = self
+                                .client
+                                .runtime_adapter
+                                .get_epoch_id_from_prev_block(&prev_hash)
+                                .and_then(|epoch| {
+                                    self.client.runtime_adapter.get_epoch_protocol_version(&epoch)
+                                })
+                                .unwrap_or(block_protocol_version);
+                            self.client.shards_mgr.request_chunks(
+                                missing_chunks,
+                                &self.client.chain.header_head().expect("header_head must be available when processing newly produced block"),
+                                protocol_version,
+                            );
                             Ok(())
                         }
                         _ => {
@@ -854,7 +882,7 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
-            let gas_used = Block::compute_gas_used(&block.chunks(), block.header().height());
+            let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 
             let last_final_hash = *block.header().last_final_block();
 
@@ -883,6 +911,7 @@ impl ClientActor {
                     if (head.height < block.header().height()
                         || &head.epoch_id == block.header().epoch_id())
                         && provenance == Provenance::NONE
+                        && !self.client.sync_status.is_syncing()
                     {
                         self.client.rebroadcast_block(block.clone());
                     }
@@ -914,6 +943,7 @@ impl ClientActor {
             return;
         }
         let prev_hash = *block.header().prev_hash();
+        let block_protocol_version = block.header().latest_protocol_version();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(block, provenance, &peer_id) {
@@ -945,7 +975,21 @@ impl ClientActor {
                         missing_chunks,
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.client.shards_mgr.request_chunks(missing_chunks);
+                    let protocol_version = self
+                        .client
+                        .runtime_adapter
+                        .get_epoch_id_from_prev_block(&prev_hash)
+                        .and_then(|epoch| {
+                            self.client.runtime_adapter.get_epoch_protocol_version(&epoch)
+                        })
+                        .unwrap_or(block_protocol_version);
+                    self.client.shards_mgr.request_chunks(
+                        missing_chunks,
+                        &self.client.chain.header_head().expect(
+                            "header_head should always be available when block is received",
+                        ),
+                        protocol_version,
+                    );
                 }
                 _ => {
                     debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
@@ -1072,8 +1116,20 @@ impl ClientActor {
         for _ in 0..self.client.config.state_fetch_horizon {
             sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
         }
-        let epoch_start_sync_hash =
+        let mut epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
+
+        if &epoch_start_sync_hash == self.client.chain.genesis().hash() {
+            // If we are within `state_fetch_horizon` blocks of the second epoch, the sync hash will
+            // be the first block of the first epoch (or, the genesis block). Due to implementation
+            // details of the state sync, we can't state sync to the genesis block, so redo the
+            // search without going back `state_fetch_horizon` blocks.
+            epoch_start_sync_hash = StateSync::get_epoch_start_sync_hash(
+                &mut self.client.chain,
+                &header_head.last_block_hash,
+            )?;
+            assert_ne!(&epoch_start_sync_hash, self.client.chain.genesis().hash());
+        }
         Ok(epoch_start_sync_hash)
     }
 
@@ -1261,11 +1317,16 @@ impl ClientActor {
                         );
 
                         self.client.shards_mgr.request_chunks(
-                            blocks_missing_chunks
-                                .write()
-                                .unwrap()
-                                .drain(..)
-                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
+                            &self
+                                .client
+                                .chain
+                                .header_head()
+                                .expect("header_head must be available during sync"),
+                            // It is ok to pass the latest protocol version here since we are likely
+                            // syncing old blocks, which means the protocol version will not change
+                            // the logic.
+                            PROTOCOL_VERSION,
                         );
 
                         self.client.sync_status =

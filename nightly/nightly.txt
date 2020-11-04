@@ -19,13 +19,12 @@ pytest --timeout=900 sanity/state_sync3.py
 pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115
 pytest --timeout=300 sanity/state_sync_late.py notx
-pytest --timeout=900 sanity/state_sync_massive.py
+pytest --timeout=1500 sanity/state_sync_massive.py
 pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/lightclnt.py
 pytest sanity/rpc_light_client_execution_outcome_proof.py
-pytest --timeout=240 sanity/rpc_query.py
 pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
 pytest --timeout=240 sanity/restaked.py
@@ -37,6 +36,7 @@ pytest --timeout=300 sanity/gc_after_sync1.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
 pytest --timeout=300 sanity/large_messages.py
+pytest --timeout=120 sanity/handshake_tie_resolution.py
 pytest sanity/controlled_edge_nonce.py
 pytest sanity/repro_2916.py
 pytest --timeout=240 sanity/switch_node_key.py
@@ -63,6 +63,7 @@ pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
 
 # python spec tests
 pytest spec/network/handshake.py
+pytest spec/network/future_handshake.py
 pytest spec/network/peers_request.py
 
 # python adversarial tests
@@ -153,7 +154,7 @@ expensive --timeout=1200 near-chain gc tests::test_gc_boundaries_large
 expensive --timeout=900 near-chain gc tests::test_gc_random_large
 expensive --timeout=600 near-chain gc tests::test_gc_pine
 expensive --timeout=600 near-chain gc tests::test_gc_star_large
-expensive near-client process_blocks test_gc_after_state_sync
+expensive --timeout=600 near-client process_blocks test_gc_after_state_sync
 
 # lib tests
 lib near-chunks test::test_seal_removal

@@ -62,7 +62,7 @@ impl GenesisBuilder {
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
             store.clone(),
-            Arc::clone(&genesis),
+            &genesis,
             // Since we are not using runtime as an actor
             // there is no reason to track accounts or shards.
             vec![],
@@ -163,7 +163,11 @@ impl GenesisBuilder {
             self.state_updates.remove(&shard_idx).expect("State updates are always available");
 
         // Compute storage usage and update accounts.
-        for (account_id, storage_usage) in self.runtime.runtime.compute_storage_usage(&records) {
+        for (account_id, storage_usage) in self
+            .runtime
+            .runtime
+            .compute_storage_usage(&records, &self.genesis.config.runtime_config)
+        {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
             account.storage_usage = storage_usage;
@@ -186,10 +190,11 @@ impl GenesisBuilder {
             self.runtime.num_shards(),
             self.genesis.config.gas_limit,
             self.genesis.config.genesis_height,
+            self.genesis.config.protocol_version,
         );
         let genesis = Block::genesis(
             self.genesis.config.protocol_version,
-            genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+            genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             self.genesis.config.genesis_time,
             self.genesis.config.genesis_height,
             self.genesis.config.min_gas_price,
@@ -209,7 +214,7 @@ impl GenesisBuilder {
         for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             store_update.save_chunk_extra(
                 &genesis.hash(),
-                chunk_header.inner.shard_id,
+                chunk_header.shard_id(),
                 ChunkExtra::new(
                     state_root,
                     CryptoHash::default(),
@@ -223,7 +228,7 @@ impl GenesisBuilder {
 
         let head = Tip::from_header(&genesis.header());
         store_update.save_head(&head).unwrap();
-        store_update.save_sync_head(&head);
+        store_update.save_final_head(&head).unwrap();
         store_update.commit().unwrap();
 
         Ok(())

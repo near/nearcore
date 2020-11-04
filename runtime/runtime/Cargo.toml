@@ -19,7 +19,6 @@ hex = "0.4.2"
 ethereum-types = "0.6.0"
 
 borsh = "0.7.1"
-cached = "0.12.0"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

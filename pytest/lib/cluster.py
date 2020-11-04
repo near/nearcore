@@ -6,6 +6,7 @@ import os
 import sys
 import signal
 import atexit
+import signal
 import shutil
 import requests
 import time
@@ -24,6 +25,7 @@ from proxy import NodesProxy
 os.environ["ADVERSARY_CONSENT"] = "1"
 
 remote_nodes = []
+preexisting = None
 remote_nodes_lock = threading.Lock()
 cleanup_remote_nodes_atexit_registered = False
 
@@ -87,6 +89,8 @@ class BaseNode(object):
         self._start_proxy = None
         self._proxy_local_stopped = None
         self.proxy = None
+        self.store_tests = 0
+        self.is_check_store = True
 
 
     def _get_command_line(self,
@@ -135,11 +139,11 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=2)
+    def get_status(self, check_storage=True, timeout=2):
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=timeout)
         r.raise_for_status()
         status = json.loads(r.content)
-        if status['sync_info']['syncing'] == False:
+        if check_storage and status['sync_info']['syncing'] == False:
             # Storage is not guaranteed to be in consistent state while syncing
             self.check_store()
         return status
@@ -267,8 +271,6 @@ class LocalNode(BaseNode):
         self.near_root = near_root
         self.node_dir = node_dir
         self.binary_name = binary_name
-        self.store_tests = 0
-        self.is_check_store = True
         self.cleaned = False
         with open(os.path.join(node_dir, "config.json")) as f:
             config_json = json.loads(f.read())
@@ -302,7 +304,12 @@ class LocalNode(BaseNode):
     def rpc_addr(self):
         return ("127.0.0.1", self.rpc_port)
 
-    def start(self, boot_key, boot_node_addr):
+    def start_proxy_if_needed(self):
+        if self._start_proxy is not None:
+            self._proxy_local_stopped = self._start_proxy()
+
+
+    def start(self, boot_key, boot_node_addr, skip_starting_proxy=False):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
                 logging.debug(f'Waiting for previous proxy instance to close')
@@ -324,8 +331,8 @@ class LocalNode(BaseNode):
                                           stderr=self.stderr,
                                           env=env).pid
 
-        if self._start_proxy is not None:
-            self._proxy_local_stopped = self._start_proxy()
+        if not skip_starting_proxy:
+            self.start_proxy_if_needed()
 
         try:
             self.wait_for_rpc(10)
@@ -516,6 +523,182 @@ chmod +x near
                             f'/home/{self.machine.username}/.near/')
 
 
+def github_auth():
+    print("Go to the following link in your browser:")
+    print()
+    print("http://nayduck.eastus.cloudapp.azure.com:3000/local_auth")
+    print()
+    code = input("Enter verification code: ")
+    with open(os.path.expanduser('~/.nayduck'), 'w') as f:
+        f.write(code)
+    return code
+
+class AzureNode(BaseNode):
+        def __init__(self, ip, token, node_dir, release):
+            super(AzureNode, self).__init__()
+            self.ip = ip
+            self.token = token
+            if release:
+                self.near_root = '/datadrive/testnodes/worker/nearcore/target/release'
+            else:
+                self.near_root = '/datadrive/testnodes/worker/nearcore/target/debug'
+            self.port = 24567
+            self.rpc_port = 3030
+            self.node_dir = node_dir
+            self._upload_config_files(node_dir)
+
+        def _upload_config_files(self, node_dir):
+            post = {'ip': self.ip, 'token': self.token}
+            res = requests.post('http://40.112.59.229:5000/cleanup', json=post)
+            for f in os.listdir(node_dir):
+                if f.endswith(".json"):
+                    with open(os.path.join(node_dir, f), "r") as fl:
+                        cnt = fl.read()
+                    post = {'ip': self.ip, 'cnt': cnt, 'fl_name': f, 'token': self.token}
+                    res = requests.post('http://40.112.59.229:5000/upload', json=post)
+                    json_res = json.loads(res.text)
+                    if json_res['stderr'] != '':
+                        print(json_res['stderr'])
+                        sys.exit()
+            self.validator_key = Key.from_json_file(
+                os.path.join(node_dir, "validator_key.json"))
+            self.node_key = Key.from_json_file(
+                os.path.join(node_dir, "node_key.json"))
+            self.signer_key = Key.from_json_file(
+                os.path.join(node_dir, "validator_key.json"))
+
+        def start(self, boot_key, boot_node_addr, skip_starting_proxy):
+            cmd = ('RUST_BACKTRACE=1 ADVERSARY_CONSENT=1 ' + ' '.join(
+                self._get_command_line(self.near_root,
+                                       '.near', boot_key, boot_node_addr)).
+                                     replace("--verbose", '--verbose ""'))
+            post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
+            res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
+            json_res = json.loads(res.text)
+            if json_res['stderr'] != '':
+                print(json_res['stderr'])
+                sys.exit()
+            self.wait_for_rpc(timeout=30)
+
+        def kill(self):
+            cmd = ('killall -9 neard; pkill -9 -e -f companion.py')
+            post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
+            res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
+            json_res = json.loads(res.text)
+            if json_res['stderr'] != '':
+                print(json_res['stderr'])
+            sys.exit()
+
+        def addr(self):
+            return (self.ip, self.port)
+
+        def rpc_addr(self):
+            return (self.ip, self.rpc_port)
+
+        def companion(self, *args):
+            post = {'ip': self.ip, 'args': ' '.join(map(str, args)), 'token': self.token}
+            res = requests.post('http://40.112.59.229:5000/companion', json=post)
+            json_res = json.loads(res.text)
+            if json_res['stderr'] != '':
+                print(json_res['stderr'])
+                sys.exit()
+            
+
+class PreexistingCluster():
+        
+    def __init__(self, num_nodes, node_dirs, release):
+        self.already_cleaned_up = False
+        if os.path.isfile(os.path.expanduser('~/.nayduck')):
+            with open(os.path.expanduser('~/.nayduck'), 'r') as f:
+                self.token = f.read().strip()
+        else:
+            self.token = github_auth().strip()
+        self.nodes = []
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], universal_newlines=True).strip()
+        requester = subprocess.check_output(['git', 'config', 'user.name'], universal_newlines=True).strip()
+        post = {'sha': sha, 'requester': requester, 'release': release,
+                'num_nodes': num_nodes, 'token': self.token}
+        res = requests.post('http://40.112.59.229:5000/request_a_run', json=post)
+        json_res = json.loads(res.text)
+        if json_res['code'] == -1:
+            print(json_res['err'])
+            return
+        self.request_id = json_res['request_id']
+        print("GG request id: %s" % self.request_id)
+        self.ips = []
+        atexit.register(self.atexit_cleanup_preexist, None)
+        signal.signal(signal.SIGTERM, self.atexit_cleanup_preexist)
+        signal.signal(signal.SIGINT, self.atexit_cleanup_preexist)
+        k = 0
+        while True:
+            k += 1
+            post = {'num_nodes': num_nodes, 'request_id': self.request_id,
+                    'token': self.token}
+            res = requests.post('http://40.112.59.229:5000/get_instances', json=post)
+            json_res = json.loads(res.text)
+            self.ips = json_res['ips']
+            print('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
+            if requester == "NayDuck" and k == 3:
+                print("Postpone test for NayDuck.")
+                sys.exit(13)
+
+            if len(self.ips) != num_nodes:
+                time.sleep(10)
+                continue
+            for i in range(0, num_nodes):
+                node = AzureNode(json_res['ips'][i], self.token, node_dirs[i], release)
+                self.nodes.append(node)
+            if len(self.nodes) == num_nodes:
+                break
+
+        print()
+        print("ips: %s" % self.ips)
+        while True:
+            status = {'BUILDING': 0, 'READY': 0, 'BUILD FAILED': 0}
+            post = {'ips': self.ips, 'token': self.token}
+            res = requests.post('http://40.112.59.229:5000/get_instances_status', json=post)
+            json_res = json.loads(res.text)
+            for k, v in json_res.items():
+                if v in status:
+                    status[v] += 1
+                else:
+                    print("Unexpected status %s for %s" % (v, k))
+            print('%s nodes are building and %s nodes are ready' % (status['BUILDING'], status['READY']),  end='\r')
+            if status['BUILD FAILED'] > 0:
+                print('Build failed for at least one instance')
+                self.nodes = []
+                break
+            if status['READY'] == num_nodes:
+                break
+            time.sleep(10)
+
+    def get_one_node(self, i):
+        return self.nodes[i]
+
+    def atexit_cleanup_preexist(self, *args):
+        if self.already_cleaned_up:
+            sys.exit(0)
+        print()
+        post = {'request_id': self.request_id, 'token': self.token} 
+        print("Starting cleaning up remote instances.")
+        res = requests.post('http://40.112.59.229:5000/cancel_the_run', json=post)
+        json_res = json.loads(res.text)
+        logs = json_res['logs']
+        print("Getting logs from remote instances")
+        for i in range(len(self.ips)):
+            for log in logs:
+                if self.ips[i] in log:
+                    if 'companion' in log:
+                        fl = os.path.expanduser('~/.near/test' + str(i) + "/companion.log")
+                    else:
+                        fl = os.path.expanduser('~/.near/test' + str(i) + "/remote.log")
+                    res = requests.get(log)
+                    with open(fl, 'w') as f:
+                        f.write(res.text)
+                    print(f"Logs are available in {fl}")
+        self.already_cleaned_up = True
+        sys.exit(0)
+
 def spin_up_node(config,
                  near_root,
                  node_dir,
@@ -523,7 +706,8 @@ def spin_up_node(config,
                  boot_key,
                  boot_addr,
                  blacklist=[],
-                 proxy=None):
+                 proxy=None,
+                 skip_starting_proxy=False):
     is_local = config['local']
 
     print("Starting node %s %s" % (ordinal,
@@ -542,21 +726,25 @@ def spin_up_node(config,
         assert len(
             blacklist) == 0, "Blacklist is only supported in LOCAL deployment."
 
-        instance_name = '{}-{}-{}'.format(
-            config['remote'].get('instance_name', 'near-pytest'), ordinal,
-            uuid.uuid4())
-        zones = config['remote']['zones']
-        zone = zones[ordinal % len(zones)]
-        node = GCloudNode(instance_name, zone, node_dir,
-                          config['remote']['binary'])
-        with remote_nodes_lock:
-            remote_nodes.append(node)
-        print(f"node {ordinal} machine created")
+        if config['preexist']:
+            global preexisting
+            node = preexisting.get_one_node(ordinal)
+        else:
+            instance_name = '{}-{}-{}'.format(
+                config['remote'].get('instance_name', 'near-pytest'), ordinal,
+                uuid.uuid4())
+            zones = config['remote']['zones']
+            zone = zones[ordinal % len(zones)]
+            node = GCloudNode(instance_name, zone, node_dir,
+                            config['remote']['binary'])
+            with remote_nodes_lock:
+                remote_nodes.append(node)
+            print(f"node {ordinal} machine created")
 
     if proxy is not None:
         proxy.proxify_node(node)
 
-    node.start(boot_key, boot_addr)
+    node.start(boot_key, boot_addr, skip_starting_proxy)
     time.sleep(3)
     print(f"node {ordinal} started")
     return node
@@ -607,6 +795,12 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
             client_config_change = client_config_changes[i]
             apply_config_changes(node_dir, client_config_change)
 
+    if config['preexist']:
+        print("Use preexisting cluster.")
+        # ips of azure nodes with build neard but not yet started.
+        global preexisting
+        preexisting = PreexistingCluster(num_nodes + num_observers, node_dirs, config['release'])
+    
     return near_root, node_dirs
 
 
@@ -672,7 +866,7 @@ def start_cluster(num_nodes,
 
     def spin_up_node_and_push(i, boot_key, boot_addr):
         node = spin_up_node(config, near_root, node_dirs[i], i, boot_key,
-                            boot_addr, [], proxy)
+                            boot_addr, [], proxy, skip_starting_proxy=True)
         while len(ret) < i:
             time.sleep(0.01)
         ret.append(node)
@@ -691,13 +885,18 @@ def start_cluster(num_nodes,
     for handle in handles:
         handle.join()
 
+    for node in ret:
+        node.start_proxy_if_needed()
+
     return ret
 
 
 DEFAULT_CONFIG = {
     'local': True,
+    'preexist': False,
     'near_root': '../target/debug/',
-    'binary_name': 'neard'
+    'binary_name': 'neard',
+    'release': False
 }
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
@@ -709,7 +908,8 @@ def load_config():
     if config_file:
         try:
             with open(config_file) as f:
-                config = json.load(f)
+                new_config = json.load(f)
+                config.update(new_config)
                 print(f"Load config from {config_file}, config {config}")
         except FileNotFoundError:
             print(f"Failed to load config file, use default config {config}")

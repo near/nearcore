@@ -20,9 +20,9 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeView, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    QueryRequest, QueryResponse, StateChangesKindsView, StateChangesRequestView, StateChangesView,
-    ValidatorStakeView,
+    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
+    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
+    StateChangesView, ValidatorStakeView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -185,7 +185,7 @@ impl Message for GetChunk {
 }
 
 /// Queries client for given path / data.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Query {
     pub query_id: String,
     pub block_reference: BlockReference,
@@ -249,6 +249,7 @@ pub struct NetworkInfoResponse {
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
+    pub fetch_receipt: bool,
 }
 
 #[derive(Debug)]
@@ -275,7 +276,7 @@ impl From<TxStatusError> for String {
 }
 
 impl Message for TxStatus {
-    type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
+    type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
 }
 
 pub struct GetValidatorInfo {
@@ -324,6 +325,14 @@ impl Message for GetExecutionOutcome {
     type Result = Result<GetExecutionOutcomeResponse, String>;
 }
 
+pub struct GetExecutionOutcomesForBlock {
+    pub block_hash: CryptoHash,
+}
+
+impl Message for GetExecutionOutcomesForBlock {
+    type Result = Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>;
+}
+
 pub struct GetBlockProof {
     pub block_hash: CryptoHash,
     pub head_block_hash: CryptoHash,
@@ -336,4 +345,12 @@ pub struct GetBlockProofResponse {
 
 impl Message for GetBlockProof {
     type Result = Result<GetBlockProofResponse, String>;
+}
+
+pub struct GetReceipt {
+    pub receipt_id: CryptoHash,
+}
+
+impl Message for GetReceipt {
+    type Result = Result<Option<ReceiptView>, String>;
 }

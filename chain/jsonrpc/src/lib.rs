@@ -1,8 +1,5 @@
-use std::borrow::Cow;
-use std::convert::TryFrom;
 use std::fmt::Display;
 use std::string::FromUtf8Error;
-use std::sync::Arc;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
@@ -16,15 +13,13 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::time::{delay_for, timeout};
-use validator::Validate;
 
-use near_chain_configs::Genesis;
+use near_chain_configs::GenesisConfig;
 use near_client::{
     ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
     GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus, TxStatusError, ViewClientActor,
 };
-use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::message::{Message, Request, RpcError};
 use near_jsonrpc_client::ChunkId;
@@ -35,7 +30,7 @@ use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{
-    RpcBroadcastTxSyncResponse, RpcGenesisRecordsRequest, RpcLightClientExecutionProofRequest,
+    RpcBroadcastTxSyncResponse, RpcLightClientExecutionProofRequest,
     RpcLightClientExecutionProofResponse, RpcQueryRequest, RpcStateChangesInBlockRequest,
     RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
     RpcValidatorsOrderedRequest, TransactionInfo,
@@ -44,7 +39,9 @@ use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId};
 use near_primitives::utils::is_valid_account_id;
-use near_primitives::views::{FinalExecutionOutcomeView, GenesisRecordsView, QueryRequest};
+use near_primitives::views::{
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest,
+};
 mod metrics;
 
 /// Max size of the query path (soft-deprecated)
@@ -187,7 +184,7 @@ struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
-    genesis: Arc<Genesis>,
+    genesis_config: GenesisConfig,
 }
 
 impl JsonRpcHandler {
@@ -202,7 +199,11 @@ impl JsonRpcHandler {
     }
 
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
-        let _rpc_processing_time = near_metrics::start_timer(&metrics::RPC_PROCESSING_TIME);
+        near_metrics::inc_counter_vec(&metrics::HTTP_RPC_REQUEST_COUNT, &[request.method.as_ref()]);
+        let _rpc_processing_time = near_metrics::start_timer_vec(
+            &metrics::RPC_PROCESSING_TIME,
+            &[request.method.as_ref()],
+        );
 
         #[cfg(feature = "adversarial")]
         {
@@ -225,7 +226,7 @@ impl JsonRpcHandler {
             }
         }
 
-        match request.method.as_ref() {
+        let response = match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params).await,
             "EXPERIMENTAL_broadcast_tx_sync" => self.send_tx_sync(request.params).await,
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
@@ -236,8 +237,8 @@ impl JsonRpcHandler {
             "health" => self.health().await,
             "status" => self.status().await,
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
-            "EXPERIMENTAL_genesis_records" => self.genesis_records(request.params).await,
-            "tx" => self.tx_status(request.params).await,
+            "tx" => self.tx_status_common(request.params, false).await,
+            "EXPERIMENTAL_tx_status" => self.tx_status_common(request.params, true).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
             "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
@@ -249,8 +250,17 @@ impl JsonRpcHandler {
             "light_client_proof" => self.light_client_execution_outcome_proof(request.params).await,
             "network_info" => self.network_info().await,
             "gas_price" => self.gas_price(request.params).await,
-            _ => Err(RpcError::method_not_found(request.method)),
+            _ => Err(RpcError::method_not_found(request.method.clone())),
+        };
+
+        if let Err(err) = &response {
+            near_metrics::inc_counter_vec(
+                &metrics::RPC_ERROR_COUNT,
+                &[request.method.as_ref(), &err.code.to_string()],
+            );
         }
+
+        response
     }
 
     async fn send_tx_async(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -275,7 +285,11 @@ impl JsonRpcHandler {
                 // status without the information about execution outcomes.
                 match self
                     .view_client_addr
-                    .send(TxStatus { tx_hash, signer_account_id: signer_account_id.clone() })
+                    .send(TxStatus {
+                        tx_hash,
+                        signer_account_id: signer_account_id.clone(),
+                        fetch_receipt: false,
+                    })
                     .await
                 {
                     Ok(Ok(Some(_))) => {
@@ -300,7 +314,8 @@ impl JsonRpcHandler {
     async fn tx_status_fetch(
         &self,
         tx_info: TransactionInfo,
-    ) -> Result<FinalExecutionOutcomeView, TxStatusError> {
+        fetch_receipt: bool,
+    ) -> Result<FinalExecutionOutcomeViewEnum, TxStatusError> {
         let (tx_hash, account_id) = match &tx_info {
             TransactionInfo::Transaction(tx) => (tx.get_hash(), tx.transaction.signer_id.clone()),
             TransactionInfo::TransactionId { hash, account_id } => (*hash, account_id.clone()),
@@ -309,7 +324,11 @@ impl JsonRpcHandler {
             loop {
                 let tx_status_result = self
                     .view_client_addr
-                    .send(TxStatus { tx_hash, signer_account_id: account_id.clone() })
+                    .send(TxStatus {
+                        tx_hash,
+                        signer_account_id: account_id.clone(),
+                        fetch_receipt,
+                    })
                     .await;
                 match tx_status_result {
                     Ok(Ok(Some(outcome))) => break Ok(outcome),
@@ -340,7 +359,7 @@ impl JsonRpcHandler {
     async fn tx_polling(&self, tx_info: TransactionInfo) -> Result<Value, RpcError> {
         timeout(self.polling_config.polling_timeout, async {
             loop {
-                match self.tx_status_fetch(tx_info.clone()).await {
+                match self.tx_status_fetch(tx_info.clone(), false).await {
                     Ok(tx_status) => break jsonify(Ok(Ok(tx_status))),
                     // If transaction is missing, keep polling.
                     Err(TxStatusError::MissingTransaction(_)) => {}
@@ -447,7 +466,7 @@ impl JsonRpcHandler {
 
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
-        match self.tx_status_fetch(TransactionInfo::Transaction(tx.clone())).await {
+        match self.tx_status_fetch(TransactionInfo::Transaction(tx.clone()), false).await {
             Ok(outcome) => {
                 return jsonify(Ok(Ok(outcome)));
             }
@@ -491,26 +510,7 @@ impl JsonRpcHandler {
     ///
     /// See also `genesis_records` API.
     pub async fn genesis_config(&self) -> Result<Value, RpcError> {
-        jsonify(Ok(Ok(&self.genesis.config)))
-    }
-
-    /// Expose Genesis State Records with pagination.
-    ///
-    /// See also `genesis_config` API.
-    async fn genesis_records(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let params: RpcGenesisRecordsRequest = parse_params(params)?;
-        params.validate().map_err(RpcError::invalid_params)?;
-        let RpcGenesisRecordsRequest { pagination } = params;
-        let mut records = &self.genesis.records.as_ref()[..];
-        if records.len() < pagination.offset {
-            records = &[];
-        } else {
-            records = &records[pagination.offset..];
-            if records.len() > pagination.limit {
-                records = &records[..pagination.limit];
-            }
-        }
-        jsonify(Ok(Ok(GenesisRecordsView { pagination, records: Cow::Borrowed(records) })))
+        jsonify(Ok(Ok(&self.genesis_config)))
     }
 
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -542,7 +542,8 @@ impl JsonRpcHandler {
                     None => QueryRequest::ViewAccessKeyList { account_id },
                     Some(pk) => QueryRequest::ViewAccessKey {
                         account_id,
-                        public_key: PublicKey::try_from(pk)
+                        public_key: pk
+                            .parse()
                             .map_err(|_| RpcError::server_error(Some("Invalid public key")))?,
                     },
                 },
@@ -593,7 +594,11 @@ impl JsonRpcHandler {
         })?
     }
 
-    async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
+    async fn tx_status_common(
+        &self,
+        params: Option<Value>,
+        fetch_receipt: bool,
+    ) -> Result<Value, RpcError> {
         let tx_status_request =
             if let Ok((hash, account_id)) = parse_params::<(CryptoHash, String)>(params.clone()) {
                 if !is_valid_account_id(&account_id) {
@@ -608,7 +613,10 @@ impl JsonRpcHandler {
                 TransactionInfo::Transaction(tx)
             };
 
-        jsonify(Ok(self.tx_status_fetch(tx_status_request).await.map_err(|err| err.into())))
+        jsonify(Ok(self
+            .tx_status_fetch(tx_status_request, fetch_receipt)
+            .await
+            .map_err(|err| err.into())))
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -859,8 +867,6 @@ fn rpc_handler(
     message: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
-    near_metrics::inc_counter(&metrics::HTTP_RPC_REQUEST_COUNT);
-
     let response = async move {
         let message = handler.process(message.0).await?;
         Ok(HttpResponse::Ok().json(message))
@@ -936,7 +942,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
 
 pub fn start_http(
     config: RpcConfig,
-    genesis: Arc<Genesis>,
+    genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
@@ -948,7 +954,7 @@ pub fn start_http(
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
-                genesis: Arc::clone(&genesis),
+                genesis_config: genesis_config.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())

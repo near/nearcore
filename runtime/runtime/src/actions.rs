@@ -12,12 +12,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::{
-    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
+    create_random_seed, is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
 };
-use near_primitives::version::{
-    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
-};
+use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_configs::AccountCreationConfig;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::is_account_id_64_len_hex;
@@ -25,7 +22,7 @@ use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
 };
-use near_vm_errors::{CompilationError, FunctionCallError, InconsistentStateError};
+use near_vm_errors::{CacheError, CompilationError, FunctionCallError, InconsistentStateError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 use near_vm_runner::VMError;
@@ -68,12 +65,16 @@ pub(crate) fn execute_function_call(
             is_view,
         )
     } else {
+        let cache = match &apply_state.cache {
+            Some(cache) => Some((*cache).as_ref()),
+            None => None,
+        };
         let code = match runtime_ext.get_code(account.code_hash) {
             Ok(Some(code)) => code,
             Ok(None) => {
                 let error =
                     FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                        account_id: runtime_ext.account_id().clone(),
+                        account_id: account_id.clone(),
                     });
                 return (None, Some(VMError::FunctionCallError(error)));
             }
@@ -92,6 +93,11 @@ pub(crate) fn execute_function_call(
         } else {
             vec![]
         };
+        let random_seed = create_random_seed(
+            apply_state.current_protocol_version,
+            *action_hash,
+            apply_state.random_seed,
+        );
         let context = VMContext {
             current_account_id: runtime_ext.account_id().clone(),
             signer_account_id: action_receipt.signer_id.clone(),
@@ -109,13 +115,7 @@ pub(crate) fn execute_function_call(
             storage_usage: account.storage_usage,
             attached_deposit: function_call.deposit,
             prepaid_gas: function_call.gas,
-            random_seed: if apply_state.current_protocol_version
-                < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
-            {
-                action_hash.as_ref().to_vec()
-            } else {
-                apply_state.random_seed.as_ref().to_vec()
-            },
+            random_seed,
             is_view,
             output_data_receivers,
         };
@@ -130,6 +130,7 @@ pub(crate) fn execute_function_call(
             &config.transaction_costs,
             promise_results,
             apply_state.current_protocol_version,
+            cache,
         )
     }
 }
@@ -165,6 +166,7 @@ pub(crate) fn action_function_call(
         &apply_state.epoch_id,
         &apply_state.last_block_hash,
         epoch_info_provider,
+        apply_state.current_protocol_version,
     );
     let (outcome, err) = execute_function_call(
         apply_state,
@@ -194,6 +196,15 @@ pub(crate) fn action_function_call(
         }
         Some(VMError::InconsistentStateError(err)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
+        }
+        Some(VMError::CacheError(err)) => {
+            let message = match err {
+                CacheError::DeserializationError => "Cache deserialization error",
+                CacheError::SerializationError { hash: _hash } => "Cache serialization error",
+                CacheError::ReadError => "Cache read error",
+                CacheError::WriteError => "Cache write error",
+            };
+            return Err(StorageError::StorageInconsistentState(message.to_string()).into());
         }
         None => true,
     };

@@ -36,7 +36,6 @@ delay-detector = { path = "../../tools/delay_detector", optional = true}
 near-logger-utils = {path = "../../test-utils/logger"}
 tempfile = "3"
 bencher = "0.1.5"
-num-rational = "0.2.4"
 
 near-client = { path = "../client" }
 near-telemetry = { path = "../telemetry" }
@@ -45,6 +44,9 @@ near-telemetry = { path = "../telemetry" }
 adversarial = []
 metric_recorder = []
 delay_detector = ["delay-detector"]
+protocol_feature_forward_chunk_parts = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts"]
+nightly_protocol = []
 
 [[bench]]
 name = "graph"

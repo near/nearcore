@@ -50,10 +50,10 @@ impl StandaloneRuntime {
         runtime_config.transaction_costs.data_receipt_creation_config.base_cost.execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
-        let runtime = Runtime::new(runtime_config);
+        let runtime = Runtime::new();
 
         let (store_update, root) =
-            runtime.apply_genesis_state(tries.clone(), 0, &[], state_records);
+            runtime.apply_genesis_state(tries.clone(), 0, &[], state_records, &runtime_config);
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -66,6 +66,8 @@ impl StandaloneRuntime {
             gas_limit: None,
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            config: Arc::new(runtime_config),
+            cache: None,
         };
 
         Self {

@@ -64,6 +64,7 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
         &fees,
         &promise_results,
         PROTOCOL_VERSION,
+        None,
     )
 }
 
@@ -121,7 +122,11 @@ fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<Compil
     Some((code.len() as u64, Ratio::new(end, NUM_ITERATIONS)))
 }
 
-fn load_and_compile(path: &PathBuf, gas_metric: GasMetric, vm_kind: VMKind) -> Option<CompileCost> {
+pub fn load_and_compile(
+    path: &PathBuf,
+    gas_metric: GasMetric,
+    vm_kind: VMKind,
+) -> Option<CompileCost> {
     match fs::read(path) {
         Ok(mut code) => match delete_all_data(&mut code) {
             Ok(code) => compile(&code, gas_metric, vm_kind),
@@ -153,7 +158,7 @@ pub fn cost_to_compile(
     let base = Ratio::new(u64::MAX, 1);
     if verbose {
         println!(
-            "Abount to compile {}",
+            "About to compile {}",
             match vm_kind {
                 VMKind::Wasmer => "wasmer",
                 VMKind::Wasmtime => {

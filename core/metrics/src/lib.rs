@@ -55,7 +55,9 @@
 //! }
 //! ```
 
-pub use prometheus::{Encoder, Histogram, IntCounter, IntGauge, Result, TextEncoder};
+pub use prometheus::{
+    Encoder, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, Result, TextEncoder,
+};
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
 use log::error;
@@ -70,6 +72,19 @@ pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
 pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
     let opts = Opts::new(name, help);
     let counter = IntCounter::with_opts(opts)?;
+    prometheus::register(Box::new(counter.clone()))?;
+    Ok(counter)
+}
+
+/// Attempts to crate an `IntCounterVec`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
+pub fn try_create_int_counter_vec(
+    name: &str,
+    help: &str,
+    labels: &[&str],
+) -> Result<IntCounterVec> {
+    let opts = Opts::new(name, help);
+    let counter = IntCounterVec::new(opts, labels)?;
     prometheus::register(Box::new(counter.clone()))?;
     Ok(counter)
 }
@@ -92,10 +107,32 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     Ok(histogram)
 }
 
+/// Attempts to create a `HistogramVector`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
+pub fn try_create_histogram_vec(name: &str, help: &str, labels: &[&str]) -> Result<HistogramVec> {
+    let opts = HistogramOpts::new(name, help);
+    let histogram = HistogramVec::new(opts, labels)?;
+    prometheus::register(Box::new(histogram.clone()))?;
+    Ok(histogram)
+}
+
 /// Starts a timer for the given `Histogram`, stopping when it gets dropped or given to `stop_timer(..)`.
 pub fn start_timer(histogram: &Result<Histogram>) -> Option<HistogramTimer> {
     if let Ok(histogram) = histogram {
         Some(histogram.start_timer())
+    } else {
+        error!(target: "metrics", "Failed to fetch histogram");
+        None
+    }
+}
+
+/// Starts a timer for the given `HistogramVec` and labels, stopping when it gets dropped or given to `stop_timer(..)`.
+pub fn start_timer_vec(
+    histogram: &Result<HistogramVec>,
+    label_values: &[&str],
+) -> Option<HistogramTimer> {
+    if let Ok(histogram) = histogram {
+        Some(histogram.with_label_values(label_values).start_timer())
     } else {
         error!(target: "metrics", "Failed to fetch histogram");
         None
@@ -121,6 +158,14 @@ pub fn stop_timer(timer: Option<HistogramTimer>) {
 pub fn inc_counter(counter: &Result<IntCounter>) {
     if let Ok(counter) = counter {
         counter.inc();
+    } else {
+        error!(target: "metrics", "Failed to fetch counter");
+    }
+}
+
+pub fn inc_counter_vec(counter: &Result<IntCounterVec>, label_values: &[&str]) {
+    if let Ok(counter) = counter {
+        counter.with_label_values(label_values).inc();
     } else {
         error!(target: "metrics", "Failed to fetch counter");
     }

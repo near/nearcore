@@ -15,7 +15,7 @@ mod tests {
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::AccountOrPeerIdOrHash;
+    use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash};
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::hash as hash_func;
     use near_primitives::hash::CryptoHash;
@@ -224,15 +224,14 @@ mod tests {
                                         .collect();
                                     if receipts.len() > 0 {
                                         assert_eq!(
-                                            partial_encoded_chunk.header.inner.shard_id,
+                                            partial_encoded_chunk.header.shard_id(),
                                             source_shard_id
                                         );
-                                        seen_heights_with_receipts.insert(
-                                            partial_encoded_chunk.header.inner.height_created,
-                                        );
+                                        seen_heights_with_receipts
+                                            .insert(partial_encoded_chunk.header.height_created());
                                     } else {
                                         assert_ne!(
-                                            partial_encoded_chunk.header.inner.shard_id,
+                                            partial_encoded_chunk.header.shard_id(),
                                             source_shard_id
                                         );
                                     }
@@ -580,15 +579,13 @@ mod tests {
                                     ..
                                 } = msg
                                 {
-                                    if partial_encoded_chunk.header.inner.height_created == 22 {
-                                        seen_heights_same_block.insert(
-                                            partial_encoded_chunk.header.inner.prev_block_hash,
-                                        );
+                                    if partial_encoded_chunk.header.height_created() == 22 {
+                                        seen_heights_same_block
+                                            .insert(partial_encoded_chunk.header.prev_block_hash());
                                     }
                                     if skip_15 {
-                                        if partial_encoded_chunk.header.inner.height_created == 14
-                                            || partial_encoded_chunk.header.inner.height_created
-                                                == 15
+                                        if partial_encoded_chunk.header.height_created() == 14
+                                            || partial_encoded_chunk.header.height_created() == 15
                                         {
                                             return (NetworkResponses::NoResponse, false);
                                         }
@@ -736,8 +733,8 @@ mod tests {
                                     account_id,
                                 } = msg
                                 {
-                                    let height = partial_encoded_chunk.header.inner.height_created;
-                                    let shard_id = partial_encoded_chunk.header.inner.shard_id;
+                                    let height = partial_encoded_chunk.header.height_created();
+                                    let shard_id = partial_encoded_chunk.header.shard_id();
                                     if height == 12 && shard_id == 0 {
                                         // "test3.6" is the chunk producer on height 12, shard_id 0
                                         assert_eq!(sender_account_id, malicious_node);
@@ -768,15 +765,30 @@ mod tests {
                             ChunkGrievingPhases::SecondAttack => {
                                 if let NetworkRequests::PartialEncodedChunkRequest {
                                     request,
-                                    account_id,
+                                    target:
+                                        AccountIdOrPeerTrackingShard {
+                                            account_id: Some(account_id),
+                                            ..
+                                        },
                                 } = msg
                                 {
                                     if request.chunk_hash == *grieving_chunk_hash {
-                                        if *account_id == malicious_node {
+                                        if account_id == &malicious_node {
                                             // holding grieving_chunk_hash by malicious node
                                             return (NetworkResponses::NoResponse, false);
                                         }
                                     }
+                                } else if let NetworkRequests::PartialEncodedChunkRequest {
+                                    request: _,
+                                    target: _,
+                                } = msg
+                                {
+                                    // this test was written before the feature that allows
+                                    // sending requests directly to the peer. The test likely never
+                                    // triggers this path, but if this assert triggers, the above
+                                    // `if let` needs to be extended to block messages sent to the
+                                    // malicious node directly via the peer id
+                                    assert!(false);
                                 }
                                 if let NetworkRequests::PartialEncodedChunkResponse {
                                     route_back: _,
@@ -794,8 +806,8 @@ mod tests {
                                     account_id,
                                 } = msg
                                 {
-                                    let height = partial_encoded_chunk.header.inner.height_created;
-                                    let shard_id = partial_encoded_chunk.header.inner.shard_id;
+                                    let height = partial_encoded_chunk.header.height_created();
+                                    let shard_id = partial_encoded_chunk.header.shard_id();
                                     if height == 42 && shard_id == 2 {
                                         // "test3.6" is the chunk producer on height 42, shard_id 2
                                         assert_eq!(sender_account_id, malicious_node);
@@ -891,22 +903,20 @@ mod tests {
                             let header = &partial_encoded_chunk.header;
                             if seen_chunk_same_sender.contains(&(
                                 account_id.clone(),
-                                header.inner.height_created,
-                                header.inner.shard_id,
+                                header.height_created(),
+                                header.shard_id(),
                             )) {
                                 println!("=== SAME CHUNK AGAIN!");
                                 assert!(false);
                             };
                             seen_chunk_same_sender.insert((
                                 account_id.clone(),
-                                header.inner.height_created,
-                                header.inner.shard_id,
+                                header.height_created(),
+                                header.shard_id(),
                             ));
                         }
-                        if let NetworkRequests::PartialEncodedChunkRequest {
-                            account_id: _,
-                            request,
-                        } = msg
+                        if let NetworkRequests::PartialEncodedChunkRequest { target: _, request } =
+                            msg
                         {
                             if verbose {
                                 if requested.contains(&(

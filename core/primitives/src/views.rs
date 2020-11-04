@@ -3,7 +3,6 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
-use std::borrow::Cow;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
@@ -25,13 +24,13 @@ use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
-use crate::rpc::RpcPagination;
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
     u128_dec_format, u64_dec_format,
 };
-use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
-use crate::state_record::StateRecord;
+use crate::sharding::{
+    ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV2,
+};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
@@ -149,12 +148,6 @@ impl From<AccessKeyView> for AccessKey {
     fn from(view: AccessKeyView) -> Self {
         Self { nonce: view.nonce, permission: view.permission.into() }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GenesisRecordsView<'a> {
-    pub pagination: RpcPagination,
-    pub records: Cow<'a, [StateRecord]>,
 }
 
 /// Set of serialized TrieNodes that are encoded in base64. Represent proof of inclusion of some TrieNode in the MerkleTrie.
@@ -571,37 +564,36 @@ pub struct ChunkHeaderView {
 
 impl From<ShardChunkHeader> for ChunkHeaderView {
     fn from(chunk: ShardChunkHeader) -> Self {
+        let hash = chunk.chunk_hash();
+        let signature = chunk.signature().clone();
+        let height_included = chunk.height_included();
+        let inner = chunk.take_inner();
         ChunkHeaderView {
-            chunk_hash: chunk.hash.0,
-            prev_block_hash: chunk.inner.prev_block_hash,
-            outcome_root: chunk.inner.outcome_root,
-            prev_state_root: chunk.inner.prev_state_root,
-            encoded_merkle_root: chunk.inner.encoded_merkle_root,
-            encoded_length: chunk.inner.encoded_length,
-            height_created: chunk.inner.height_created,
-            height_included: chunk.height_included,
-            shard_id: chunk.inner.shard_id,
-            gas_used: chunk.inner.gas_used,
-            gas_limit: chunk.inner.gas_limit,
+            chunk_hash: hash.0,
+            prev_block_hash: inner.prev_block_hash,
+            outcome_root: inner.outcome_root,
+            prev_state_root: inner.prev_state_root,
+            encoded_merkle_root: inner.encoded_merkle_root,
+            encoded_length: inner.encoded_length,
+            height_created: inner.height_created,
+            height_included,
+            shard_id: inner.shard_id,
+            gas_used: inner.gas_used,
+            gas_limit: inner.gas_limit,
             rent_paid: 0,
             validator_reward: 0,
-            balance_burnt: chunk.inner.balance_burnt,
-            outgoing_receipts_root: chunk.inner.outgoing_receipts_root,
-            tx_root: chunk.inner.tx_root,
-            validator_proposals: chunk
-                .inner
-                .validator_proposals
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            signature: chunk.signature,
+            balance_burnt: inner.balance_burnt,
+            outgoing_receipts_root: inner.outgoing_receipts_root,
+            tx_root: inner.tx_root,
+            validator_proposals: inner.validator_proposals.into_iter().map(Into::into).collect(),
+            signature,
         }
     }
 }
 
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
-        let mut header = ShardChunkHeader {
+        let mut header = ShardChunkHeaderV2 {
             inner: ShardChunkHeaderInner {
                 prev_block_hash: view.prev_block_hash,
                 prev_state_root: view.prev_state_root,
@@ -622,7 +614,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
             hash: ChunkHash::default(),
         };
         header.init();
-        header
+        ShardChunkHeader::V2(header)
     }
 }
 
@@ -653,11 +645,19 @@ pub struct ChunkView {
 
 impl ChunkView {
     pub fn from_author_chunk(author: AccountId, chunk: ShardChunk) -> Self {
-        Self {
-            author,
-            header: chunk.header.into(),
-            transactions: chunk.transactions.into_iter().map(Into::into).collect(),
-            receipts: chunk.receipts.into_iter().map(Into::into).collect(),
+        match chunk {
+            ShardChunk::V1(chunk) => Self {
+                author,
+                header: ShardChunkHeader::V1(chunk.header).into(),
+                transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+                receipts: chunk.receipts.into_iter().map(Into::into).collect(),
+            },
+            ShardChunk::V2(chunk) => Self {
+                author,
+                header: chunk.header.into(),
+                transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+                receipts: chunk.receipts.into_iter().map(Into::into).collect(),
+            },
         }
     }
 }
@@ -923,6 +923,13 @@ impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FinalExecutionOutcomeViewEnum {
+    FinalExecutionOutcome(FinalExecutionOutcomeView),
+    FinalExecutionOutcomeWithReceipt(FinalExecutionOutcomeWithReceiptView),
+}
+
 /// Final execution outcome of the transaction and all of subsequent the receipts.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FinalExecutionOutcomeView {
@@ -950,6 +957,23 @@ impl fmt::Debug for FinalExecutionOutcomeView {
     }
 }
 
+/// Final execution outcome of the transaction and all of subsequent the receipts. Also includes
+/// the generated receipt.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub struct FinalExecutionOutcomeWithReceiptView {
+    /// Final outcome view without receipts
+    #[serde(flatten)]
+    pub final_outcome: FinalExecutionOutcomeView,
+    /// Receipts generated from the transaction
+    pub receipts: Vec<ReceiptView>,
+}
+
+impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
+    fn from(final_outcome_view: FinalExecutionOutcomeWithReceiptView) -> Self {
+        final_outcome_view.final_outcome
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
@@ -970,7 +994,7 @@ impl From<ValidatorStakeView> for ValidatorStake {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
@@ -979,13 +1003,13 @@ pub struct ReceiptView {
     pub receipt: ReceiptEnumView,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DataReceiverView {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,

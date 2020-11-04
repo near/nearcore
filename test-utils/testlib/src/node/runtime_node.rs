@@ -46,6 +46,7 @@ impl RuntimeNode {
             tries,
             state_root: root,
             epoch_length: genesis.config.epoch_length,
+            runtime_config: genesis.config.runtime_config.clone(),
         }));
         RuntimeNode { signer, client, genesis }
     }

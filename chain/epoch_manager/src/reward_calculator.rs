@@ -4,13 +4,14 @@ use num_rational::Rational;
 use primitive_types::U256;
 
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
+use near_primitives::version::{ProtocolVersion, ENABLE_INFLATION_PROTOCOL_VERSION};
 
 #[derive(Clone, Debug)]
 pub struct RewardCalculator {
     pub max_inflation_rate: Rational,
     pub num_blocks_per_year: u64,
     pub epoch_length: u64,
-    pub protocol_reward_percentage: Rational,
+    pub protocol_reward_rate: Rational,
     pub protocol_treasury_account: AccountId,
     pub online_min_threshold: Rational,
     pub online_max_threshold: Rational,
@@ -25,18 +26,26 @@ impl RewardCalculator {
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
         validator_stake: &HashMap<AccountId, Balance>,
         total_supply: Balance,
+        protocol_version: ProtocolVersion,
+        genesis_protocol_version: ProtocolVersion,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        let epoch_total_reward = (U256::from(*self.max_inflation_rate.numer() as u64)
+        let use_hardcoded_value = genesis_protocol_version < protocol_version
+            && protocol_version >= ENABLE_INFLATION_PROTOCOL_VERSION;
+        let max_inflation_rate =
+            if use_hardcoded_value { Rational::new_raw(1, 20) } else { self.max_inflation_rate };
+        let protocol_reward_rate =
+            if use_hardcoded_value { Rational::new_raw(1, 10) } else { self.protocol_reward_rate };
+        let epoch_total_reward = (U256::from(*max_inflation_rate.numer() as u64)
             * U256::from(total_supply)
             * U256::from(self.epoch_length)
             / (U256::from(self.num_blocks_per_year)
-                * U256::from(*self.max_inflation_rate.denom() as u64)))
+                * U256::from(*max_inflation_rate.denom() as u64)))
         .as_u128();
         let epoch_protocol_treasury = (U256::from(epoch_total_reward)
-            * U256::from(*self.protocol_reward_percentage.numer() as u64)
-            / U256::from(*self.protocol_reward_percentage.denom() as u64))
+            * U256::from(*protocol_reward_rate.numer() as u64)
+            / U256::from(*protocol_reward_rate.denom() as u64))
         .as_u128();
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
         if num_validators == 0 {
@@ -94,6 +103,7 @@ impl RewardCalculator {
 mod tests {
     use crate::RewardCalculator;
     use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
+    use near_primitives::version::{ENABLE_INFLATION_PROTOCOL_VERSION, PROTOCOL_VERSION};
     use num_rational::Rational;
     use std::collections::HashMap;
 
@@ -103,7 +113,7 @@ mod tests {
             max_inflation_rate: Rational::new(0, 1),
             num_blocks_per_year: 1000000,
             epoch_length: 1,
-            protocol_reward_percentage: Rational::new(0, 1),
+            protocol_reward_rate: Rational::new(0, 1),
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(9, 10),
             online_max_threshold: Rational::new(1, 1),
@@ -134,6 +144,8 @@ mod tests {
             validator_block_chunk_stats,
             &validator_stake,
             total_supply,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         );
         assert_eq!(
             result.0,
@@ -154,7 +166,7 @@ mod tests {
             max_inflation_rate: Rational::new(1, 100),
             num_blocks_per_year: 1000,
             epoch_length: 1000,
-            protocol_reward_percentage: Rational::new(0, 10),
+            protocol_reward_rate: Rational::new(0, 10),
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(9, 10),
             online_max_threshold: Rational::new(99, 100),
@@ -196,6 +208,8 @@ mod tests {
             validator_block_chunk_stats,
             &validator_stake,
             total_supply,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         );
         // Total reward is 10_000_000. Divided by 3 equal stake validators - each gets 3_333_333.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -222,7 +236,7 @@ mod tests {
             num_blocks_per_year: 60 * 60 * 24 * 365,
             // half a day
             epoch_length: 60 * 60 * 12,
-            protocol_reward_percentage: Rational::new(1, 10),
+            protocol_reward_rate: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(9, 10),
             online_max_threshold: Rational::new(1, 1),
@@ -245,6 +259,48 @@ mod tests {
             validator_block_chunk_stats,
             &validator_stake,
             total_supply,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         );
+    }
+
+    #[test]
+    fn test_enable_inflation() {
+        // no inflation at the beginning
+        let reward_calculator = RewardCalculator {
+            max_inflation_rate: Rational::new(0, 1),
+            num_blocks_per_year: 1000,
+            epoch_length: 1000,
+            protocol_reward_rate: Rational::new(0, 1),
+            protocol_treasury_account: "near".to_string(),
+            online_min_threshold: Rational::new(9, 10),
+            online_max_threshold: Rational::new(99, 100),
+        };
+        let validator_block_chunk_stats = vec![(
+            "test1".to_string(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 990, expected: 1000 },
+                chunk_stats: ValidatorStats { produced: 990, expected: 1000 },
+            },
+        )]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+        let validator_stake =
+            vec![("test1".to_string(), 100_000)].into_iter().collect::<HashMap<_, _>>();
+        let total_supply = 1_000_000_000;
+        let (account_rewards, epoch_total_reward) = reward_calculator.calculate_reward(
+            validator_block_chunk_stats,
+            &validator_stake,
+            total_supply,
+            ENABLE_INFLATION_PROTOCOL_VERSION,
+            ENABLE_INFLATION_PROTOCOL_VERSION - 1,
+        );
+        assert_eq!(
+            account_rewards,
+            vec![("test1".to_string(), 45000000), ("near".to_string(), 5000000)]
+                .into_iter()
+                .collect()
+        );
+        assert_eq!(epoch_total_reward, 50000000);
     }
 }

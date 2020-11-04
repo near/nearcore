@@ -7,6 +7,7 @@ mod runner;
 mod wasmer_runner;
 #[cfg(feature = "wasmtime_vm")]
 mod wasmtime_runner;
+pub use cache::CompiledContractCache;
 pub use near_vm_errors::VMError;
 pub use runner::compile_module;
 pub use runner::run;

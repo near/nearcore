@@ -26,8 +26,8 @@ def main():
         shutil.rmtree(node_root)
     subprocess.check_output('mkdir -p /tmp/near', shell=True)
 
-    branch = branches.latest_beta_branch()
-    print(f"Latest beta release branch is {branch}")
+    branch = branches.latest_rc_branch()
+    print(f"Latest rc release branch is {branch}")
     near_root, (stable_branch,
                 current_branch) = branches.prepare_ab_test(branch)
 
@@ -90,22 +90,6 @@ def main():
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
-    # hex_account_id = (b"I'm hex!" * 4).hex()
-    hex_account_id = '49276d206865782149276d206865782149276d206865782149276d2068657821'
-    tx = sign_payment_tx(key=nodes[0].signer_key,
-                         to=hex_account_id,
-                         amount=10**25,
-                         nonce=3,
-                         blockHash=base58.b58decode(hash.encode('utf8')))
-    res = nodes[0].send_tx_and_wait(tx, timeout=20)
-    # Account doesn't exist
-    assert 'error' not in res, res
-    assert 'Failure' in res['result']['status'], res
-
-    # No account
-    res = nodes[0].get_account(hex_account_id)
-    assert 'error' in res, res
-
     wait_for_blocks_or_timeout(nodes[0], 20, 120)
 
     # Restart stable nodes into new version.
@@ -133,6 +117,8 @@ def main():
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
+    # hex_account_id = (b"I'm hex!" * 4).hex()
+    hex_account_id = '49276d206865782149276d206865782149276d206865782149276d2068657821'
     tx = sign_payment_tx(key=nodes[0].signer_key,
                          to=hex_account_id,
                          amount=10**25,

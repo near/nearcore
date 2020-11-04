@@ -9,7 +9,7 @@ use near_primitives::block::Block;
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::ShardChunkV1;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, NumShards, ShardId};
 
@@ -63,18 +63,18 @@ pub(crate) fn migrate_col_transaction_refcount(store: &Store, store_update: &mut
     }
 }
 
-fn get_num_shards(store: &Store) -> NumShards {
+pub(crate) fn get_num_shards(store: &Store) -> NumShards {
     store
         .iter(DBCol::ColBlock)
         .map(|(_key, value)| {
             Block::try_from_slice(value.as_ref()).expect("BorshDeserialize should not fail")
         })
-        .map(|block| block.chunks().len())
+        .map(|block| block.chunks().len() as u64)
         .next()
-        .expect("No blocks found") as u64
+        .unwrap_or(1)
 }
 
-fn account_id_to_shard_id_v6(account_id: &AccountId, num_shards: NumShards) -> ShardId {
+pub(crate) fn account_id_to_shard_id_v6(account_id: &AccountId, num_shards: NumShards) -> ShardId {
     let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
     cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }
@@ -84,10 +84,10 @@ pub(crate) fn migrate_receipts_refcount(store: &Store, store_update: &mut StoreU
     let receipt_id_to_shard_id: HashMap<_, _> =
         store.iter_without_rc_logic(DBCol::ColReceiptIdToShardId).collect();
 
-    let chunks: Vec<ShardChunk> = store
+    let chunks: Vec<ShardChunkV1> = store
         .iter(DBCol::ColChunks)
         .map(|(_key, value)| {
-            ShardChunk::try_from_slice(&value).expect("BorshDeserialize should not fail")
+            ShardChunkV1::try_from_slice(&value).expect("BorshDeserialize should not fail")
         })
         .collect();
 

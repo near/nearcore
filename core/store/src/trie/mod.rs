@@ -18,9 +18,9 @@ use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 use crate::trie::trie_storage::{
-    TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
-    TrieStorage,
+    TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage,
 };
+pub(crate) use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::StorageError;
 
 mod insert_delete;
@@ -425,8 +425,7 @@ pub struct Trie {
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
 #[derive(BorshSerialize, BorshDeserialize, Clone)]
 pub struct TrieChanges {
-    #[allow(dead_code)]
-    old_root: StateRoot,
+    pub old_root: StateRoot,
     pub new_root: StateRoot,
     insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
     deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
@@ -435,11 +434,6 @@ pub struct TrieChanges {
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
-    }
-
-    #[cfg(feature = "adversarial")]
-    pub fn adv_get_old_root(&self) -> StateRoot {
-        self.old_root
     }
 }
 
