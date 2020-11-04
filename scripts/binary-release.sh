@@ -13,8 +13,6 @@ then
 	exit 1
 fi
 
-echo $release
-
 branch=${BUILDKITE_BRANCH:-${GITHUB_REF##*/}}
 commit=${BUILDKITE_COMMIT:-${GITHUB_SHA}}
 if [[ ${commit} == "HEAD" ]]; then
