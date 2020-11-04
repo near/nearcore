@@ -1,6 +1,9 @@
 docker-nearcore:
 	DOCKER_BUILDKIT=1 docker build -t nearcore -f Dockerfile .
 
+docker-nearcore-nightly:
+	DOCKER_BUILDKIT=1 docker build -t nearcore-nightly -f Dockerfile.nightly .
+
 release:
 	cargo build -p neard --release
 	cargo build -p keypair-generator --release
