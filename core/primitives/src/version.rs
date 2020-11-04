@@ -16,7 +16,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 15;
+pub const DB_VERSION: DbVersion = 16;
 
 /// Protocol version type.
 pub type ProtocolVersion = u32;
