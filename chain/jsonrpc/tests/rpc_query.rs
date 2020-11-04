@@ -13,7 +13,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::RpcQueryRequest;
 use near_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[macro_use]
@@ -456,7 +455,7 @@ fn test_genesis_config() {
         {
             assert_eq!(
                 genesis_config["protocol_version"].as_u64().unwrap(),
-                PROTOCOL_VERSION as u64
+                near_primitives::version::PROTOCOL_VERSION as u64
             );
         }
         assert!(!genesis_config["chain_id"].as_str().unwrap().is_empty());
