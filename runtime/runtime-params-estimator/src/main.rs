@@ -21,7 +21,15 @@ fn main() {
         .arg(
             Arg::with_name("warmup-iters")
                 .long("warmup-iters")
-                .default_value("3")
+                .default_value("0")
+                .required(true)
+                .takes_value(true)
+                .help("How many warm up iterations per block should we run."),
+        )
+        .arg(
+            Arg::with_name("warmup-transactions")
+                .long("warmup-transactions")
+                .default_value("0")
                 .required(true)
                 .takes_value(true)
                 .help("How many warm up iterations per block should we run."),
@@ -75,6 +83,7 @@ fn main() {
 
     let state_dump_path = matches.value_of("home").unwrap().to_string();
     let warmup_iters_per_block = matches.value_of("warmup-iters").unwrap().parse().unwrap();
+    let warmup_transactions = matches.value_of("warmup-transactions").unwrap().parse().unwrap();
     let iter_per_block = matches.value_of("iters").unwrap().parse().unwrap();
     let active_accounts = matches.value_of("accounts-num").unwrap().parse().unwrap();
     let metric = match matches.value_of("metric").unwrap() {
@@ -92,6 +101,7 @@ fn main() {
     let runtime_config = run(
         Config {
             warmup_iters_per_block,
+            warmup_transactions,
             iter_per_block,
             active_accounts,
             block_sizes: vec![],

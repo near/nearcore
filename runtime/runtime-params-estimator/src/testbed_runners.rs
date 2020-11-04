@@ -39,6 +39,9 @@ pub enum GasMetric {
 pub struct Config {
     /// How many warm up iterations per block should we run.
     pub warmup_iters_per_block: usize,
+    /// How many warm up transactions to do. We need this to avoid running useless warmup iters, but
+    /// do at least one contract compilation for a contract calls.
+    pub warmup_transactions: usize,
     /// How many iterations per block are we going to try.
     pub iter_per_block: usize,
     /// Total active accounts.
@@ -201,6 +204,12 @@ where
             RuntimeTestbed::from_state_dump(&path)
         }
     };
+
+    if config.warmup_transactions > 0 {
+        let block = vec![(*f)()];
+        testbed.process_block(&block, allow_failures);
+        testbed.process_blocks_until_no_receipts(allow_failures);
+    }
 
     if config.warmup_iters_per_block > 0 {
         let bar = ProgressBar::new(warmup_total_transactions(config) as _);
