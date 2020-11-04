@@ -30,13 +30,15 @@ near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
-near-evm-runner = { path = "../../runtime/near-evm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
+
+[target.'cfg(feature = "protocol_feature_evm")'.dependencies]
+near-evm-runner = { path = "../../runtime/near-evm-runner" }
 
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
-protocol_feature_evm = ["near-primitives/protocol_feature_evm"]
+protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
