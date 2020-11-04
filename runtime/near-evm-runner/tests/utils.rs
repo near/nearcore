@@ -1,14 +1,15 @@
 use ethereum_types::{Address, U256};
 use keccak_hash::keccak;
 use near_crypto::{PublicKey, Signature, Signer};
-use near_evm_runner::utils::{
-    encode_call_function_args, near_erc721_domain, prepare_meta_call_args,
-};
+use near_evm_runner::utils::{near_erc721_domain, prepare_meta_call_args, u256_to_arr};
 use near_evm_runner::EvmContext;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::Balance;
 use near_vm_logic::VMConfig;
+
+/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
+pub const CHAIN_ID: u128 = 1313161555;
 
 pub fn accounts(num: usize) -> String {
     ["evm", "alice", "bob", "chad"][num].to_string()
@@ -30,6 +31,7 @@ pub fn create_context<'a>(
 ) -> EvmContext<'a> {
     EvmContext::new(
         external,
+        CHAIN_ID,
         vm_config,
         fees_config,
         1000,
@@ -40,9 +42,17 @@ pub fn create_context<'a>(
         0,
         10u64.pow(14),
         false,
+        1_000_000_000.into(),
     )
 }
 
+#[cfg(test)]
+pub fn show_evm_gas_used(context: &EvmContext) {
+    println!("Accumulated EVM gas used: {}", &context.evm_gas_counter.used_gas);
+}
+
+/// Linter is suboptimal, because doesn't see that this is used in standard_ops.rs.
+#[allow(dead_code)]
 pub fn public_key_to_address(public_key: PublicKey) -> Address {
     match public_key {
         PublicKey::ED25519(_) => panic!("Wrong PublicKey"),
@@ -56,22 +66,41 @@ pub fn public_key_to_address(public_key: PublicKey) -> Address {
     }
 }
 
+/// Linter is suboptimal, because doesn't see that this is used in standard_ops.rs.
+#[allow(dead_code)]
 pub fn encode_meta_call_function_args(
     signer: &dyn Signer,
+    chain_id: u128,
+    nonce: U256,
+    fee_amount: U256,
+    fee_token: Address,
     address: Address,
-    input: Vec<u8>,
+    method_name: &str,
+    args: Vec<u8>,
 ) -> Vec<u8> {
-    let domain_separator = near_erc721_domain(U256::from(0x4e454152));
-    let call_args = encode_call_function_args(address, input);
-    let args = prepare_meta_call_args(&domain_separator, &"evm".to_string(), &call_args);
-    match signer.sign(&args) {
+    let domain_separator = near_erc721_domain(U256::from(chain_id));
+    let msg = prepare_meta_call_args(
+        &domain_separator,
+        &"evm".to_string(),
+        nonce,
+        fee_amount,
+        fee_token,
+        address,
+        method_name,
+        &args,
+    );
+    match signer.sign(&msg) {
         Signature::ED25519(_) => panic!("Wrong Signer"),
-        Signature::SECP256K1(sig) => {
-            let sig: [u8; 65] = sig.into();
-            let mut vsr = vec![0u8; 96];
-            vsr[31] = sig[64] + 27;
-            vsr[32..].copy_from_slice(&sig[..64]);
-            [vsr, call_args].concat()
-        }
+        Signature::SECP256K1(sig) => [
+            Into::<[u8; 65]>::into(sig).to_vec(),
+            u256_to_arr(&nonce).to_vec(),
+            u256_to_arr(&fee_amount).to_vec(),
+            fee_token.0.to_vec(),
+            address.0.to_vec(),
+            vec![method_name.len() as u8],
+            method_name.as_bytes().to_vec(),
+            args,
+        ]
+        .concat(),
     }
 }

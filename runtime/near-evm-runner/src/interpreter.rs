@@ -2,13 +2,17 @@ use std::sync::Arc;
 
 use ethereum_types::{Address, U256};
 use evm::{CreateContractAddress, Factory};
-use vm::{ActionParams, ActionValue, CallType, Ext, GasLeft, ParamsType, ReturnData, Schedule};
+use near_runtime_fees::EvmCostConfig;
+use vm::{
+    ActionParams, ActionValue, CallType, ContractCreateResult, ExecTrapResult, Ext, GasLeft,
+    MessageCallResult, ParamsType, ReturnData, Schedule,
+};
 
 use near_vm_errors::{EvmError, VMLogicError};
 
 use crate::evm_state::{EvmState, StateStore, SubState};
 use crate::near_ext::NearExt;
-use crate::types::Result;
+use crate::types::{convert_vm_error, Result};
 use crate::utils;
 
 pub fn deploy_code<T: EvmState>(
@@ -20,40 +24,52 @@ pub fn deploy_code<T: EvmState>(
     address_type: CreateContractAddress,
     recreate: bool,
     code: &[u8],
-) -> Result<Address> {
-    let mut nonce = U256::default();
+    gas: &U256,
+    evm_gas_config: &EvmCostConfig,
+) -> Result<ContractCreateResult> {
+    let mut nonce = U256::zero();
     if address_type == CreateContractAddress::FromSenderAndNonce {
         nonce = state.next_nonce(&sender)?;
     };
     let (address, _) = utils::evm_contract_address(address_type, &sender, &nonce, &code);
 
     if recreate {
-        state.recreate(address.0);
+        state.recreate(address);
     } else if state.code_at(&address)?.is_some() {
-        return Err(VMLogicError::EvmError(EvmError::DuplicateContract(hex::encode(address.0))));
+        return Err(VMLogicError::EvmError(EvmError::DuplicateContract(address.0.to_vec())));
     }
 
-    let (result, state_updates) =
-        _create(state, origin, sender, value, call_stack_depth, &address, code)?;
+    let (result, state_updates) = _create(
+        state,
+        origin,
+        sender,
+        value,
+        call_stack_depth,
+        &address,
+        code,
+        gas,
+        evm_gas_config,
+    )?;
 
     // Apply known gas amount changes (all reverts are NeedsReturn)
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
-    let (return_data, apply) = match result {
-        Some(GasLeft::Known(_)) => (ReturnData::empty(), true),
-        Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state }) => (data, apply_state),
-        _ => return Err(VMLogicError::EvmError(EvmError::UnknownError)),
+    let (return_data, apply, gas_left) = match result {
+        Ok(Ok(GasLeft::Known(left))) => (ReturnData::empty(), true, left),
+        Ok(Ok(GasLeft::NeedsReturn { gas_left: left, data, apply_state })) => {
+            (data, apply_state, left)
+        }
+        Ok(Err(err)) => return Err(convert_vm_error(err)),
+        Err(_) => return Err(VMLogicError::EvmError(EvmError::Reverted)),
     };
 
     if apply {
         state.commit_changes(&state_updates.unwrap())?;
         state.set_code(&address, &return_data.to_vec())?;
+        Ok(ContractCreateResult::Created(address, gas_left))
     } else {
-        return Err(VMLogicError::EvmError(EvmError::DeployFail(hex::encode(
-            return_data.to_vec(),
-        ))));
+        Ok(ContractCreateResult::Reverted(gas_left, return_data))
     }
-    Ok(address)
 }
 
 pub fn _create<T: EvmState>(
@@ -64,7 +80,9 @@ pub fn _create<T: EvmState>(
     call_stack_depth: usize,
     address: &Address,
     code: &[u8],
-) -> Result<(Option<GasLeft>, Option<StateStore>)> {
+    gas: &U256,
+    evm_gas_config: &EvmCostConfig,
+) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
 
@@ -73,8 +91,7 @@ pub fn _create<T: EvmState>(
         address: *address,
         sender: *sender,
         origin: *origin,
-        // TODO: gas usage.
-        gas: 1_000_000_000.into(),
+        gas: *gas,
         gas_price: 1.into(),
         value: ActionValue::Transfer(value),
         code: Some(Arc::new(code.to_vec())),
@@ -86,17 +103,22 @@ pub fn _create<T: EvmState>(
 
     sub_state.transfer_balance(sender, address, value)?;
 
-    let mut ext = NearExt::new(*address, *origin, &mut sub_state, call_stack_depth + 1, false);
-    // TODO: gas usage.
-    ext.info.gas_limit = U256::from(1_000_000_000);
+    let mut ext = NearExt::new(
+        *address,
+        *origin,
+        &mut sub_state,
+        call_stack_depth + 1,
+        false,
+        evm_gas_config,
+    );
+    ext.info.gas_limit = U256::from(gas);
     ext.schedule = Schedule::new_constantinople();
 
     let instance = Factory::default().create(params, ext.schedule(), ext.depth());
 
     // Run the code
     let result = instance.exec(&mut ext);
-
-    Ok((result.ok().unwrap().ok(), Some(store)))
+    Ok((result, Some(store)))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -109,7 +131,9 @@ pub fn call<T: EvmState>(
     contract_address: &Address,
     input: &[u8],
     should_commit: bool,
-) -> Result<ReturnData> {
+    gas: &U256,
+    evm_gas_config: &EvmCostConfig,
+) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
         origin,
@@ -122,6 +146,8 @@ pub fn call<T: EvmState>(
         input,
         false,
         should_commit,
+        gas,
+        evm_gas_config,
     )
 }
 
@@ -133,7 +159,9 @@ pub fn delegate_call<T: EvmState>(
     context: &Address,
     delegee: &Address,
     input: &[u8],
-) -> Result<ReturnData> {
+    gas: &U256,
+    evm_gas_config: &EvmCostConfig,
+) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
         origin,
@@ -146,6 +174,8 @@ pub fn delegate_call<T: EvmState>(
         input,
         false,
         true,
+        gas,
+        evm_gas_config,
     )
 }
 
@@ -156,7 +186,9 @@ pub fn static_call<T: EvmState>(
     call_stack_depth: usize,
     contract_address: &Address,
     input: &[u8],
-) -> Result<ReturnData> {
+    gas: &U256,
+    evm_gas_config: &EvmCostConfig,
+) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
         origin,
@@ -169,6 +201,8 @@ pub fn static_call<T: EvmState>(
         input,
         true,
         false,
+        gas,
+        evm_gas_config,
     )
 }
 
@@ -185,7 +219,9 @@ fn run_and_commit_if_success<T: EvmState>(
     input: &[u8],
     is_static: bool,
     should_commit: bool,
-) -> Result<ReturnData> {
+    gas: &U256,
+    evm_gas_config: &EvmCostConfig,
+) -> Result<MessageCallResult> {
     // run the interpreter and
     let (result, state_updates) = run_against_state(
         state,
@@ -198,25 +234,33 @@ fn run_and_commit_if_success<T: EvmState>(
         code_address,
         input,
         is_static,
+        gas,
+        evm_gas_config,
     )?;
 
     // Apply known gas amount changes (all reverts are NeedsReturn)
     // Apply NeedsReturn changes if apply_state
     // Return the result unmodified
+    let mut should_apply_state = true;
     let return_data = match result {
-        Some(GasLeft::Known(_)) => Ok(ReturnData::empty()),
-        Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state: true }) => Ok(data),
-        Some(GasLeft::NeedsReturn { gas_left: _, data, apply_state: false }) => {
-            Err(VMLogicError::EvmError(EvmError::Revert(hex::encode(data.to_vec()))))
+        Ok(Ok(GasLeft::Known(gas_left))) => {
+            Ok(MessageCallResult::Success(gas_left, ReturnData::empty()))
         }
-        _ => Err(VMLogicError::EvmError(EvmError::UnknownError)),
+        Ok(Ok(GasLeft::NeedsReturn { gas_left, data, apply_state: true })) => {
+            Ok(MessageCallResult::Success(gas_left, data))
+        }
+        Ok(Ok(GasLeft::NeedsReturn { gas_left, data, apply_state: false })) => {
+            should_apply_state = false;
+            Ok(MessageCallResult::Reverted(gas_left, data))
+        }
+        Ok(Err(err)) => Err(convert_vm_error(err)),
+        Err(_) => Err(VMLogicError::EvmError(EvmError::Reverted)),
     };
 
     // Don't apply changes from a static context (these _should_ error in the ext)
-    if !is_static && return_data.is_ok() && should_commit {
+    if !is_static && return_data.is_ok() && should_apply_state && should_commit {
         state.commit_changes(&state_updates.unwrap())?;
     }
-
     return_data
 }
 
@@ -233,8 +277,16 @@ fn run_against_state<T: EvmState>(
     code_address: &Address,
     input: &[u8],
     is_static: bool,
-) -> Result<(Option<GasLeft>, Option<StateStore>)> {
+    gas: &U256,
+    evm_gas_config: &EvmCostConfig,
+) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let code = state.code_at(code_address)?.unwrap_or_else(Vec::new);
+
+    // Check that if there are arguments this is contract call.
+    // Otherwise, this is just transfer call.
+    if code.len() == 0 && input.len() > 0 {
+        return Err(VMLogicError::EvmError(EvmError::ContractNotFound));
+    }
 
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
@@ -245,8 +297,7 @@ fn run_against_state<T: EvmState>(
         address: *state_address,
         sender: *sender,
         origin: *origin,
-        // TODO: gas usage.
-        gas: 1_000_000_000.into(),
+        gas: *gas,
         gas_price: 1.into(),
         value: ActionValue::Apparent(0.into()),
         code: Some(Arc::new(code)),
@@ -261,15 +312,21 @@ fn run_against_state<T: EvmState>(
         sub_state.transfer_balance(sender, state_address, val)?;
     }
 
-    let mut ext =
-        NearExt::new(*state_address, *origin, &mut sub_state, call_stack_depth + 1, is_static);
-    // TODO: gas usage.
-    ext.info.gas_limit = U256::from(1_000_000_000);
+    let mut ext = NearExt::new(
+        *state_address,
+        *origin,
+        &mut sub_state,
+        call_stack_depth + 1,
+        is_static,
+        evm_gas_config,
+    );
+    // Gas limit is evm block gas limit, should at least prepaid gas.
+    ext.info.gas_limit = *gas;
     ext.schedule = Schedule::new_constantinople();
 
     let instance = Factory::default().create(params, ext.schedule(), ext.depth());
 
     // Run the code
     let result = instance.exec(&mut ext);
-    Ok((result.ok().unwrap().ok(), Some(store)))
+    Ok((result, Some(store)))
 }

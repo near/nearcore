@@ -18,7 +18,7 @@ pub fn get_account_id(account_index: usize) -> String {
 }
 
 /// Total number of transactions that we need to prepare.
-fn total_transactions(config: &Config) -> usize {
+pub fn total_transactions(config: &Config) -> usize {
     config.block_sizes.iter().sum::<usize>() * config.iter_per_block
 }
 

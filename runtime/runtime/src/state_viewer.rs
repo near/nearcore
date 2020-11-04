@@ -12,10 +12,10 @@ use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, EpochInfoProvider};
-use near_primitives::utils::is_valid_account_id;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_configs::RuntimeConfig;
+use near_runtime_utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_logic::ReturnData;
 
@@ -101,6 +101,7 @@ impl TrieViewer {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        evm_chain_id: u128,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
@@ -138,6 +139,7 @@ impl TrieViewer {
             current_protocol_version,
             config: config.clone(),
             cache: None,
+            evm_chain_id,
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
@@ -193,6 +195,7 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
+    use near_chain_configs::TEST_EVM_CHAIN_ID;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::StateChangeCause;
@@ -222,6 +225,7 @@ mod tests {
             &mut logs,
             &MockEpochInfoProvider::default(),
             PROTOCOL_VERSION,
+            TEST_EVM_CHAIN_ID,
         );
 
         assert_eq!(result.unwrap(), encode_int(10));
@@ -245,6 +249,7 @@ mod tests {
             &mut logs,
             &MockEpochInfoProvider::default(),
             PROTOCOL_VERSION,
+            TEST_EVM_CHAIN_ID,
         );
 
         let err = result.unwrap_err();
@@ -272,6 +277,7 @@ mod tests {
             &mut logs,
             &MockEpochInfoProvider::default(),
             PROTOCOL_VERSION,
+            0x99,
         );
         let err = result.unwrap_err();
         assert!(
@@ -298,6 +304,7 @@ mod tests {
             &mut logs,
             &MockEpochInfoProvider::default(),
             PROTOCOL_VERSION,
+            0x99,
         );
         assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
@@ -378,6 +385,7 @@ mod tests {
                 &mut logs,
                 &MockEpochInfoProvider::default(),
                 PROTOCOL_VERSION,
+                0x99,
             )
             .unwrap_err();
 

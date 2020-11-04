@@ -25,6 +25,7 @@ near-client = { path = "../client" }
 near-network = { path = "../network" }
 near-jsonrpc-client = { path = "client" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
+near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }

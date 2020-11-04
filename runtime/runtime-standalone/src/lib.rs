@@ -24,6 +24,9 @@ use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 
 const DEFAULT_EPOCH_LENGTH: u64 = 3;
 
+/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
+const CHAIN_ID: u128 = 1313161555;
+
 pub fn init_runtime_and_signer(root_account_id: &AccountId) -> (RuntimeStandalone, InMemorySigner) {
     let mut genesis = GenesisConfig::default();
     let signer = genesis.init_root_signer(root_account_id);
@@ -227,6 +230,7 @@ impl RuntimeStandalone {
             config: self.runtime_config.clone(),
             // TODO: shall we use compiled contracts cache in standalone runtime?
             cache: None,
+            evm_chain_id: CHAIN_ID,
         };
 
         let apply_result = self.runtime.apply(
@@ -260,7 +264,6 @@ impl RuntimeStandalone {
     /// assert_eq!(runtime.current_block().block_height, 5);
     /// assert_eq!(runtime.current_block().epoch_height, 1);
     ///```
-
     pub fn produce_blocks(&mut self, num_of_blocks: u64) -> Result<(), RuntimeError> {
         for _ in 0..num_of_blocks {
             self.produce_block()?;
@@ -316,6 +319,7 @@ impl RuntimeStandalone {
             &mut logs,
             self.epoch_info_provider.as_ref(),
             PROTOCOL_VERSION,
+            CHAIN_ID,
         )?;
         Ok((result, logs))
     }

@@ -582,6 +582,8 @@ pub trait RuntimeAdapter: Send + Sync {
         header_head: &CryptoHash,
     ) -> Result<bool, Error>;
 
+    fn evm_chain_id(&self) -> u128;
+
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
     // here.

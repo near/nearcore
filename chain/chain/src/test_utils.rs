@@ -959,6 +959,11 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<(ValidatorStake, bool), Error> {
         Err(ErrorKind::NotAValidator.into())
     }
+
+    fn evm_chain_id(&self) -> u128 {
+        // See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
+        1313161555
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {

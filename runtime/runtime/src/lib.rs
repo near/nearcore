@@ -89,6 +89,8 @@ pub struct ApplyState {
     pub config: Arc<RuntimeConfig>,
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
+    /// Ethereum chain id.
+    pub evm_chain_id: u128,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -196,6 +198,7 @@ impl Default for ActionResult {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Runtime {}
 
 impl Runtime {
@@ -304,6 +307,7 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
+        // println!("enter apply_action");
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(
             &apply_state.config.transaction_costs,
@@ -1531,6 +1535,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

@@ -7,7 +7,7 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::block_header::{BlockHeader, BlockHeaderV2};
-use crate::errors::EpochError;
+use crate::errors::{EpochError, TxExecutionError};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::serialize::from_base64;
@@ -439,6 +439,13 @@ impl FinalExecutionStatus {
     pub fn as_success(self) -> Option<String> {
         match self {
             FinalExecutionStatus::SuccessValue(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_failure(self) -> Option<TxExecutionError> {
+        match self {
+            FinalExecutionStatus::Failure(failure) => Some(failure),
             _ => None,
         }
     }

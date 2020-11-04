@@ -126,6 +126,11 @@ impl<'a> RuntimeExt<'a> {
             .actions
             .push(action);
     }
+
+    #[inline]
+    pub fn protocol_version(&self) -> ProtocolVersion {
+        self.current_protocol_version
+    }
 }
 
 fn wrap_storage_error(error: StorageError) -> VMLogicError {

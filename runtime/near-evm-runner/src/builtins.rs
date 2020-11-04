@@ -6,11 +6,14 @@ use std::{
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 use ethereum_types::{Address, H256, U256};
+use near_runtime_fees::EvmCostConfig;
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
 use parity_bytes::BytesRef;
 use ripemd160::Digest;
 use vm::{MessageCallResult, ReturnData};
+
+use crate::utils::ecrecover_address;
 
 #[derive(Primitive)]
 enum Precompile {
@@ -45,13 +48,23 @@ pub fn precompile(id: u64) -> Result<Box<dyn Impl>, String> {
     })
 }
 
-pub fn process_precompile(addr: &Address, input: &[u8]) -> MessageCallResult {
+pub fn process_precompile(
+    addr: &Address,
+    input: &[u8],
+    gas: &U256,
+    evm_gas_config: &EvmCostConfig,
+) -> MessageCallResult {
     let f = match precompile(addr.to_low_u64_be()) {
         Ok(f) => f,
         Err(_) => return MessageCallResult::Failed,
     };
     let mut bytes = vec![];
     let mut output = parity_bytes::BytesRef::Flexible(&mut bytes);
+    let cost = f.gas(input, evm_gas_config);
+
+    if cost > *gas {
+        return MessageCallResult::Failed;
+    }
 
     // mutates bytes
     match f.execute(input, &mut output) {
@@ -60,8 +73,7 @@ pub fn process_precompile(addr: &Address, input: &[u8]) -> MessageCallResult {
     };
     let size = bytes.len();
 
-    // TODO: add gas usage here.
-    MessageCallResult::Success(1_000_000_000.into(), ReturnData::new(bytes, 0, size))
+    MessageCallResult::Success(*gas - cost, ReturnData::new(bytes, 0, size))
 }
 
 /** the following is copied from ethcore/src/builtin.rs **/
@@ -128,6 +140,9 @@ pub struct Blake2FImpl;
 pub trait Impl: Send + Sync {
     /// execute this built-in on the given input, writing to the given output.
     fn execute(&self, input: &[u8], output: &mut BytesRef) -> Result<(), Error>;
+    fn gas(&self, _input: &[u8], _evm_gas_config: &EvmCostConfig) -> U256 {
+        0.into()
+    }
 }
 
 impl Impl for Identity {
@@ -135,44 +150,31 @@ impl Impl for Identity {
         output.write(0, input);
         Ok(())
     }
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.identity_cost.into()
+    }
 }
 
 impl Impl for EcRecover {
     fn execute(&self, i: &[u8], output: &mut BytesRef) -> Result<(), Error> {
-        use sha3::Digest;
-
         let len = min(i.len(), 128);
 
         let mut input = [0; 128];
         input[..len].copy_from_slice(&i[..len]);
+        let mut hash = [0; 32];
+        hash.copy_from_slice(&input[..32]);
+        let mut signature = [0; 65];
+        signature.copy_from_slice(&input[63..]);
 
-        let hash = secp256k1::Message::parse(&H256::from_slice(&input[0..32]).0);
-        let v = &input[32..64];
-        let r = &input[64..96];
-        let s = &input[96..128];
-
-        let bit = match v[31] {
-            27..=30 => v[31] - 27,
-            _ => {
-                return Ok(());
-            }
-        };
-
-        let mut sig = [0u8; 64];
-        sig[..32].copy_from_slice(&r);
-        sig[32..].copy_from_slice(&s);
-        let s = secp256k1::Signature::parse(&sig);
-
-        if let Ok(rec_id) = secp256k1::RecoveryId::parse(bit) {
-            if let Ok(p) = secp256k1::recover(&hash, &s, &rec_id) {
-                // recover returns the 65-byte key, but addresses come from the raw 64-byte key
-                let r = sha3::Keccak256::digest(&p.serialize()[1..]);
-                output.write(0, &[0; 12]);
-                output.write(12, &r[12..]);
-            }
-        }
+        let result = ecrecover_address(&hash, &signature);
+        output.write(0, &[0, 12]);
+        output.write(12, &result.0);
 
         Ok(())
+    }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.ecrecover_cost.into()
     }
 }
 
@@ -183,6 +185,10 @@ impl Impl for Sha256 {
         output.write(0, &*d);
         Ok(())
     }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.sha256_cost.into()
+    }
 }
 
 impl Impl for Ripemd160 {
@@ -191,6 +197,10 @@ impl Impl for Ripemd160 {
         output.write(0, &[0; 12][..]);
         output.write(12, &hash);
         Ok(())
+    }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.ripemd160_cost.into()
     }
 }
 
@@ -300,6 +310,10 @@ impl Impl for ModexpImpl {
 
         Ok(())
     }
+
+    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
+        evm_gas_config.modexp_cost.into()
+    }
 }
 
 fn read_fr(reader: &mut io::Chain<&[u8], io::Repeat>) -> Result<::bn::Fr, Error> {
@@ -394,7 +408,7 @@ impl Bn128PairingImpl {
         use bn::{pairing, AffineG1, AffineG2, Fq, Fq2, Group, Gt, G1, G2};
 
         let elements = input.len() / 192; // (a, b_a, b_b - each 64-byte affine coordinates)
-        let ret_val = if input.is_empty() {
+        let ret_val = if elements == 0 {
             U256::one()
         } else {
             let mut vals = Vec::new();

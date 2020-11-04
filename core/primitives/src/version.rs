@@ -68,13 +68,15 @@ impl ProtocolVersionRange {
 /// For example, if we have `ProtocolFeature::EVM` and a corresponding feature flag `evm`, it will look
 /// like
 /// ```
-/// #[cfg(feature = "evm")]
+/// #[cfg(feature = "protocol_feature_evm")]
 /// EVM
 /// ```
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     ForwardChunkParts,
+    #[cfg(feature = "protocol_feature_evm")]
+    EVM,
 }
 
 /// Current latest stable version of the protocol.
@@ -106,7 +108,12 @@ lazy_static! {
         let nightly_protocol_features_to_version_mapping: HashMap<
             ProtocolFeature,
             ProtocolVersion,
-        > = vec![(ProtocolFeature::ForwardChunkParts, 41)].into_iter().collect();
+        > = vec![
+                #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+                (ProtocolFeature::ForwardChunkParts, 41),
+                #[cfg(feature = "protocol_feature_evm")]
+                (ProtocolFeature::EVM, 41),
+            ].into_iter().collect();
         for (stable_protocol_feature, stable_protocol_version) in
             STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
         {

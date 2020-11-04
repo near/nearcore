@@ -2,6 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::hash::CryptoHash;
@@ -11,13 +12,14 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
-use near_primitives::utils::{
-    create_random_seed, is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
-};
+use near_primitives::utils::create_random_seed;
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_configs::AccountCreationConfig;
 use near_runtime_fees::RuntimeFeesConfig;
-use near_runtime_utils::is_account_id_64_len_hex;
+use near_runtime_utils::{
+    is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
+    is_valid_top_level_account_id,
+};
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
@@ -48,9 +50,12 @@ pub(crate) fn execute_function_call(
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
-    if account_id == "evm" || account_id.ends_with(".evm") {
+    if checked_feature!("protocol_feature_evm", EVM, runtime_ext.protocol_version())
+        && is_account_evm(&account_id)
+    {
         near_evm_runner::run_evm(
             runtime_ext,
+            apply_state.evm_chain_id,
             &config.wasm_config,
             &config.transaction_costs,
             &account_id,

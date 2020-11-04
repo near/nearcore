@@ -626,7 +626,7 @@ impl Signature {
                 .unwrap();
                 let sig = rsig.to_standard(&SECP256K1);
                 let pdata: [u8; 65] = {
-                    // code borrowed from https://github.com/paritytech/parity-ethereum/blob/98b7c07171cd320f32877dfa5aa528f585dc9a72/ethkey/src/signature.rs#L210
+                    // code borrowed from https://github.com/openethereum/openethereum/blob/98b7c07171cd320f32877dfa5aa528f585dc9a72/ethkey/src/signature.rs#L210
                     let mut temp = [4u8; 65];
                     temp[1..65].copy_from_slice(&public_key.0);
                     temp
