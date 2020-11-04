@@ -29,6 +29,7 @@ vm = { git = "https://github.com/openethereum/openethereum", rev = "v2.6.2" }
 bn = { git = "https://github.com/paritytech/bn", default-features = false }
 parity-bytes = "0.1.0"
 ethereum-types = "0.6.0"
+eth_pairings = { git = "https://github.com/matter-labs/eip1962.git", default-features = false, features = ["eip_2537"], rev = "ece6cbabc41948db4200e41f0bfdab7ab94c7af8" }
 
 near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }

@@ -1405,6 +1405,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "eth_pairings"
+version = "0.6.0"
+source = "git+https://github.com/matter-labs/eip1962.git?rev=ece6cbabc41948db4200e41f0bfdab7ab94c7af8#ece6cbabc41948db4200e41f0bfdab7ab94c7af8"
+dependencies = [
+ "byteorder",
+ "eth_pairings_repr_derive",
+ "fixed_width_field",
+ "fixed_width_group_and_loop",
+ "num-bigint 0.2.6",
+ "num-traits",
+ "once_cell",
+ "static_assertions 1.1.0",
+]
+
+[[package]]
+name = "eth_pairings_repr_derive"
+version = "0.2.0"
+source = "git+https://github.com/matter-labs/eip1962.git?rev=ece6cbabc41948db4200e41f0bfdab7ab94c7af8#ece6cbabc41948db4200e41f0bfdab7ab94c7af8"
+dependencies = [
+ "byteorder",
+ "proc-macro2 1.0.20",
+ "quote 1.0.3",
+ "syn 1.0.38",
+]
+
+[[package]]
 name = "ethabi"
 version = "8.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1573,6 +1599,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32529fc42e86ec06e5047092082aab9ad459b070c5d2a76b14f4f5ce70bf2e84"
 dependencies = [
  "static_assertions 1.1.0",
+]
+
+[[package]]
+name = "fixed_width_field"
+version = "0.1.0"
+source = "git+https://github.com/matter-labs/eip1962.git?rev=ece6cbabc41948db4200e41f0bfdab7ab94c7af8#ece6cbabc41948db4200e41f0bfdab7ab94c7af8"
+dependencies = [
+ "simple_uint",
+]
+
+[[package]]
+name = "fixed_width_group_and_loop"
+version = "0.1.0"
+source = "git+https://github.com/matter-labs/eip1962.git?rev=ece6cbabc41948db4200e41f0bfdab7ab94c7af8#ece6cbabc41948db4200e41f0bfdab7ab94c7af8"
+dependencies = [
+ "simple_uint",
 ]
 
 [[package]]
@@ -2901,6 +2943,7 @@ dependencies = [
  "byteorder",
  "derivative",
  "enum-primitive-derive",
+ "eth_pairings",
  "ethabi",
  "ethabi-contract",
  "ethabi-derive",
@@ -4779,6 +4822,17 @@ checksum = "94f478ede9f64724c5d173d7bb56099ec3e2d9fc2774aac65d34b8b890405f41"
 dependencies = [
  "arc-swap",
  "libc",
+]
+
+[[package]]
+name = "simple_uint"
+version = "0.1.0"
+source = "git+https://github.com/matter-labs/eip1962.git?rev=ece6cbabc41948db4200e41f0bfdab7ab94c7af8#ece6cbabc41948db4200e41f0bfdab7ab94c7af8"
+dependencies = [
+ "byteorder",
+ "crunchy",
+ "rustc-hex 2.1.0",
+ "static_assertions 1.1.0",
 ]
 
 [[package]]

@@ -1,6 +1,7 @@
 use near_runtime_fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, EvmCostConfig, Fee,
-    RuntimeFeesConfig, StorageUsageConfig,
+    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, EvmBlake2FCost,
+    EvmBls12ConstOpCost, EvmBn128PairingCost, EvmCostConfig, EvmLinearCost, EvmModexpCost,
+    EvmPrecompileCostConfig, Fee, RuntimeFeesConfig, StorageUsageConfig,
 };
 use node_runtime::config::RuntimeConfig;
 use num_rational::Rational;
@@ -52,11 +53,32 @@ pub fn random_config() -> RuntimeConfig {
                 deploy_cost_per_byte: rng.next_u64() % 1000,
                 funcall_cost_base: rng.next_u64() % 1000,
                 funcall_cost_per_evm_gas: rng.next_u64() % 1000,
-                ecrecover_cost: rng.next_u64() % 1000,
-                sha256_cost: rng.next_u64() % 1000,
-                ripemd160_cost: rng.next_u64() % 1000,
-                identity_cost: rng.next_u64() % 1000,
-                modexp_cost: rng.next_u64() % 1000,
+                precompile_costs: EvmPrecompileCostConfig {
+                    ecrecover_cost: EvmLinearCost {
+                        base: rng.next_u64() % 1000,
+                        word: rng.next_u64() % 1000,
+                    },
+                    sha256_cost: EvmLinearCost {
+                        base: rng.next_u64() % 1000,
+                        word: rng.next_u64() % 1000,
+                    },
+                    ripemd160_cost: EvmLinearCost {
+                        base: rng.next_u64() % 1000,
+                        word: rng.next_u64() % 1000,
+                    },
+                    identity_cost: EvmLinearCost {
+                        base: rng.next_u64() % 1000,
+                        word: rng.next_u64() % 1000,
+                    },
+                    modexp_cost: EvmModexpCost { divisor: rng.next_u64() % 1000 },
+                    bn128_add_cost: EvmBls12ConstOpCost { price: rng.next_u64() % 1000 },
+                    bn128_mul_cost: EvmBls12ConstOpCost { price: rng.next_u64() % 1000 },
+                    bn128_pairing_cost: EvmBn128PairingCost {
+                        base: rng.next_u64() % 1000,
+                        pair: rng.next_u64() % 1000,
+                    },
+                    blake2f_cost: rng.next_u64() % 1000,
+                },
             },
             evm_deposit: (rng.next_u64() % 10000) as u128 * 10u128.pow(23),
         },
