@@ -11,8 +11,10 @@ pub type Gas = u64;
 pub type EvmGas = u64;
 
 /// The amount is 1000 * 10e24 = 1000 NEAR.
+#[cfg(feature = "protocol_features_evm")]
 const EVM_DEPOSIT: Balance = 1_000_000_000_000_000_000_000_000_000;
 
+#[cfg(feature = "protocol_features_evm")]
 fn default_evm_deposit() -> Balance {
     EVM_DEPOSIT
 }

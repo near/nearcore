@@ -41,6 +41,8 @@ near-network = { path = "../../chain/network" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 neard = { path = "../../neard" }
+near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
-[target.'cfg(feature = "protocol_feature_evm")'.dependencies]
-near-evm-runner = { path = "../../runtime/near-evm-runner" }
+[features]
+default = []
+protocol_feature_evm = ["near-evm-runner", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm"]
