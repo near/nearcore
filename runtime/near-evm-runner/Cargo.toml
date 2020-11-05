@@ -47,5 +47,6 @@ lazy-static-include = "2.2.2"
 near-crypto = { path = "../../core/crypto" }
 
 [features]
-default = []
+default = ["near-runtime-fees/protocol_feature_evm"]
+protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm"]
 costs_counting = []
