@@ -152,7 +152,7 @@ impl TrieViewer {
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
             args: args.to_vec(),
-            gas: 0,
+            gas: config.wasm_config.limit_config.max_gas_burnt_view,
             deposit: 0,
         };
         let (outcome, err) = execute_function_call(

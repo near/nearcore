@@ -40,6 +40,7 @@ pub struct EvmContext<'a> {
     gas_counter: GasCounter,
     pub evm_gas_counter: EvmGasCounter,
     fees_config: &'a RuntimeFeesConfig,
+    chain_id: u128,
     domain_separator: RawU256,
 }
 
@@ -182,6 +183,7 @@ impl<'a> EvmContext<'a> {
             ),
             evm_gas_counter: EvmGasCounter::new(0.into(), evm_gas),
             fees_config,
+            chain_id,
             domain_separator,
         }
     }
@@ -204,6 +206,7 @@ impl<'a> EvmContext<'a> {
             &bytecode,
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
+            self.chain_id,
         )? {
             ContractCreateResult::Created(address, gas_left) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
@@ -242,6 +245,7 @@ impl<'a> EvmContext<'a> {
             true,
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
+            self.chain_id,
         )?;
         match result {
             MessageCallResult::Success(gas_left, data) => {
@@ -278,6 +282,7 @@ impl<'a> EvmContext<'a> {
             true,
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
+            self.chain_id,
         )?;
         match result {
             MessageCallResult::Success(gas_left, data) => {
@@ -303,6 +308,7 @@ impl<'a> EvmContext<'a> {
         let sender = Address::from(&args.sender);
         let attached_amount = U256::from(args.amount);
         self.add_balance(&sender, attached_amount)?;
+        // TODO: Verify we don't keep the balance in case `call` returns `Err`
         let result = interpreter::call(
             self,
             &sender,
@@ -314,6 +320,7 @@ impl<'a> EvmContext<'a> {
             false,
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
+            self.chain_id,
         )?;
         let result = match result {
             MessageCallResult::Success(gas_left, data) => {

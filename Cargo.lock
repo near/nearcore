@@ -1526,19 +1526,18 @@ dependencies = [
 [[package]]
 name = "ethjson"
 version = "0.1.0"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "ethereum-types",
  "rustc-hex 1.0.0",
  "serde",
- "serde_derive",
  "serde_json",
 ]
 
 [[package]]
 name = "evm"
 version = "0.1.0"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "bit-set",
  "ethereum-types",
@@ -1548,7 +1547,7 @@ dependencies = [
  "memory-cache",
  "parity-bytes",
  "parity-util-mem",
- "parking_lot 0.7.1",
+ "parking_lot 0.9.0",
  "vm",
 ]
 
@@ -2408,7 +2407,7 @@ dependencies = [
 [[package]]
 name = "keccak-hasher"
 version = "0.1.1"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "ethereum-types",
  "hash-db",
@@ -2690,7 +2689,7 @@ dependencies = [
 [[package]]
 name = "memory-cache"
 version = "0.1.0"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "lru-cache",
  "parity-util-mem",
@@ -3809,6 +3808,17 @@ dependencies = [
 
 [[package]]
 name = "parking_lot"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f842b1982eb6c2fe34036a4fbfb06dd185a3f5c8edfaacdf7d1ea10b07de6252"
+dependencies = [
+ "lock_api 0.3.4",
+ "parking_lot_core 0.6.2",
+ "rustc_version",
+]
+
+[[package]]
+name = "parking_lot"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3a704eb390aafdc107b0e392f56a82b668e3a71366993b5340f5833fd62505e"
@@ -3836,6 +3846,21 @@ checksum = "94c8c7923936b28d546dfd14d4472eaf34c99b14e1c973a32b3e6d4eb04298c9"
 dependencies = [
  "libc",
  "rand 0.6.5",
+ "rustc_version",
+ "smallvec 0.6.13",
+ "winapi 0.3.8",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b876b1b9e7ac6e1a74a6da34d25c42e17e8862aa409cbbbdcfc8d86c6f3bc62b"
+dependencies = [
+ "cfg-if",
+ "cloudabi 0.0.3",
+ "libc",
+ "redox_syscall",
  "rustc_version",
  "smallvec 0.6.13",
  "winapi 0.3.8",
@@ -3873,7 +3898,7 @@ dependencies = [
 [[package]]
 name = "patricia-trie-ethereum"
 version = "0.1.0"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "elastic-array 0.10.3",
  "ethereum-types",
@@ -5710,7 +5735,7 @@ checksum = "078775d0255232fb988e6fccf26ddc9d1ac274299aaedcedce21c6f72cc533ce"
 [[package]]
 name = "vm"
 version = "0.1.0"
-source = "git+https://github.com/openethereum/openethereum?rev=v2.6.2#25936ae0f6d48f5ac6fb93cd467c15f4f8a631c2"
+source = "git+https://github.com/openethereum/openethereum?rev=v2.6.8#9bf6ed8450ec2eb61f14b362574c453ed68bd761"
 dependencies = [
  "ethereum-types",
  "ethjson",
