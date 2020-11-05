@@ -11,10 +11,10 @@ pub type Gas = u64;
 pub type EvmGas = u64;
 
 /// The amount is 1000 * 10e24 = 1000 NEAR.
-#[cfg(feature = "protocol_features_evm")]
+#[cfg(feature = "protocol_feature_evm")]
 const EVM_DEPOSIT: Balance = 1_000_000_000_000_000_000_000_000_000;
 
-#[cfg(feature = "protocol_features_evm")]
+#[cfg(feature = "protocol_feature_evm")]
 fn default_evm_deposit() -> Balance {
     EVM_DEPOSIT
 }
@@ -76,12 +76,12 @@ pub struct RuntimeFeesConfig {
     pub pessimistic_gas_price_inflation_ratio: Rational,
 
     /// Describes cost of running method of evm, include deploy code and call contract function
-    #[cfg(feature = "protocol_features_evm")]
+    #[cfg(feature = "protocol_feature_evm")]
     pub evm_config: EvmCostConfig,
 
     /// New EVM deposit.
     /// Fee to create new EVM account.
-    #[cfg(feature = "protocol_features_evm")]
+    #[cfg(feature = "protocol_feature_evm")]
     #[serde(with = "u128_dec_format", default = "default_evm_deposit")]
     pub evm_deposit: Balance,
 }
@@ -270,7 +270,7 @@ impl Default for RuntimeFeesConfig {
             },
             burnt_gas_reward: Rational::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
-            #[cfg(feature = "protocol_features_evm")]
+            #[cfg(feature = "protocol_feature_evm")]
             evm_config: EvmCostConfig {
                 // Got inside emu-cost docker, numbers differ slightly in different runs:
                 // cd /host/nearcore/runtime/near-evm-runner/tests
@@ -286,7 +286,7 @@ impl Default for RuntimeFeesConfig {
                 identity_cost: 115,
                 modexp_cost: 90,
             },
-            #[cfg(feature = "protocol_features_evm")]
+            #[cfg(feature = "protocol_feature_evm")]
             evm_deposit: EVM_DEPOSIT,
         }
     }
@@ -323,7 +323,7 @@ impl RuntimeFeesConfig {
             },
             burnt_gas_reward: Rational::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational::from_integer(0),
-            #[cfg(feature = "protocol_features_evm")]
+            #[cfg(feature = "protocol_feature_evm")]
             evm_config: EvmCostConfig {
                 bootstrap_cost: 0,
                 deploy_cost_per_evm_gas: 0,
@@ -336,7 +336,7 @@ impl RuntimeFeesConfig {
                 identity_cost: 0,
                 modexp_cost: 0,
             },
-            #[cfg(feature = "protocol_features_evm")]
+            #[cfg(feature = "protocol_feature_evm")]
             evm_deposit: 0,
         }
     }

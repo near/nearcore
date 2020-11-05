@@ -832,7 +832,7 @@ pub fn init_configs(
                 TESTING_INIT_STAKE,
                 CryptoHash::default(),
             );
-            #[cfg(feature = "protocol_features_evm")]
+            #[cfg(feature = "protocol_feature_evm")]
             add_account_with_key(
                 &mut records,
                 "evm",
