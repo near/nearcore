@@ -251,11 +251,11 @@ impl Genesis {
     /// Hash of the json-serialized input.
     /// DEVNOTE: the representation is not unique, and could change on upgrade.
     pub fn json_hash(&self) -> CryptoHash {
-        let mut digest = sha2::Sha256::default();
         use sha2::digest::Digest;
+        let mut digest = sha2::Sha256::new();
         serde_json::to_writer_pretty(&mut digest, self)
             .expect("Error serializing the genesis config.");
-        CryptoHash(near_primitives::hash::Digest(digest.result().into()))
+        CryptoHash(near_primitives::hash::Digest(digest.finalize().into()))
     }
 }
 

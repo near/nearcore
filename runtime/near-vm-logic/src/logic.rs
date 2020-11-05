@@ -811,7 +811,7 @@ impl<'a> VMLogic<'a> {
         use sha2::Digest;
 
         let value_hash = sha2::Sha256::digest(&value);
-        self.internal_write_register(register_id, value_hash.as_ref().to_vec())
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
     /// Hashes the given value using keccak256 and returns it into `register_id`.
@@ -832,7 +832,7 @@ impl<'a> VMLogic<'a> {
         use sha3::Digest;
 
         let value_hash = sha3::Keccak256::digest(&value);
-        self.internal_write_register(register_id, value_hash.as_ref().to_vec())
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
     /// Hashes the given value using keccak512 and returns it into `register_id`.
@@ -853,7 +853,7 @@ impl<'a> VMLogic<'a> {
         use sha3::Digest;
 
         let value_hash = sha3::Keccak512::digest(&value);
-        self.internal_write_register(register_id, value_hash.as_ref().to_vec())
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.

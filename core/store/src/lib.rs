@@ -44,6 +44,7 @@ pub mod migrations;
 pub mod test_utils;
 mod trie;
 
+#[derive(Clone)]
 pub struct Store {
     storage: Pin<Arc<dyn Database>>,
 }

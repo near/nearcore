@@ -228,6 +228,8 @@ impl RuntimeStandalone {
             epoch_id: EpochId::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
+            // TODO: shall we use compiled contracts cache in standalone runtime?
+            cache: None,
             evm_chain_id: CHAIN_ID,
         };
 

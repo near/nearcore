@@ -1,6 +1,6 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
-use crate::{cache, imports};
+use crate::{cache, imports, CompiledContractCache};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
@@ -187,6 +187,7 @@ pub fn run_wasmer<'a>(
     promise_results: &'a [PromiseResult],
     profile: Option<ProfileData>,
     current_protocol_version: ProtocolVersion,
+    cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -207,7 +208,8 @@ pub fn run_wasmer<'a>(
         );
     }
 
-    let module = match cache::compile_module(code_hash, code, wasm_config) {
+    // TODO: consider using get_module() here, once we'll go via deployment path.
+    let module = match cache::compile_module_cached_wasmer(&code_hash, code, wasm_config, cache) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };

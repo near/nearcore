@@ -33,6 +33,7 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
+use near_vm_runner::CompiledContractCache;
 #[cfg(feature = "costs_counting")]
 pub use near_vm_runner::EXT_COSTS_COUNTER;
 
@@ -86,6 +87,8 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
+    /// Cache for compiled contracts.
+    pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// Ethereum chain id.
     pub evm_chain_id: u128,
 }
@@ -1442,6 +1445,7 @@ impl Runtime {
 mod tests {
     use super::*;
 
+    use crate::cache::StoreCompiledContractCache;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
@@ -1500,7 +1504,6 @@ mod tests {
         let tries = create_tries();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
-
         let account_id = alice_account();
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
@@ -1531,6 +1534,7 @@ mod tests {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::default()),
+            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
         };
 

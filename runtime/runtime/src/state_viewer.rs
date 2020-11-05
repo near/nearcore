@@ -129,7 +129,7 @@ impl TrieViewer {
         let config = Arc::new(RuntimeConfig::default());
         let apply_state = ApplyState {
             block_index: block_height,
-            last_block_hash: last_block_hash.clone(),
+            last_block_hash: *last_block_hash,
             epoch_id: epoch_id.clone(),
             epoch_height,
             gas_price: 0,
@@ -138,6 +138,7 @@ impl TrieViewer {
             random_seed: root,
             current_protocol_version,
             config: config.clone(),
+            cache: None,
             evm_chain_id,
         };
         let action_receipt = ActionReceipt {
@@ -167,7 +168,6 @@ impl TrieViewer {
             true,
             true,
         );
-
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;

@@ -33,3 +33,4 @@ near-logger-utils = { path = "../../test-utils/logger" }
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 adversarial = []
+nightly_protocol = []
