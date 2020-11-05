@@ -4,7 +4,7 @@ use wasmtime::Module;
 #[cfg(feature = "wasmtime_vm")]
 pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
-    use crate::{imports, prepare};
+    use crate::{imports, prepare, CompiledContractCache};
     use near_runtime_fees::RuntimeFeesConfig;
     use near_vm_errors::FunctionCallError::{LinkError, WasmUnknownError};
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
@@ -119,6 +119,7 @@ pub mod wasmtime_runner {
         promise_results: &'a [PromiseResult],
         profile: Option<ProfileData>,
         current_protocol_version: ProtocolVersion,
+        _cache: Option<&'a dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
         let mut config = Config::default();
         let engine = get_engine(&mut config);

@@ -1054,23 +1054,3 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer)
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    /// make sure testnet genesis can be deserialized
-    #[test]
-    fn test_deserialize_state() {
-        let genesis_config_str = include_str!("../res/genesis_config.json");
-        let genesis_config = GenesisConfig::from_json(&genesis_config_str);
-        assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
-    }
-
-    #[test]
-    fn test_res_genesis_fees_are_default() {
-        let genesis_config_str = include_str!("../res/genesis_config.json");
-        let genesis_config = GenesisConfig::from_json(&genesis_config_str);
-        assert_eq!(genesis_config.runtime_config, RuntimeConfig::default());
-    }
-}

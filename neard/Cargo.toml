@@ -61,7 +61,7 @@ rosetta_rpc = ["near-rosetta-rpc"]
 protocol_feature_forward_chunk_parts = ["near-client/protocol_feature_forward_chunk_parts"]
 protocol_feature_evm = ["node-runtime/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-chain-configs/protocol_feature_evm"]
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "near-client/nightly_protocol_features", "protocol_feature_evm"]
-nightly_protocol = ["near-primitives/nightly_protocol"]
+nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 
 [[bin]]
 path = "src/main.rs"

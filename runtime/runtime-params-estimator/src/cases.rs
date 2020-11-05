@@ -624,16 +624,12 @@ fn measured_to_gas(
     }
 }
 
-fn get_runtime_fees_config(
-    measurement: &Measurements,
-    test_contract_compilation_cost: u64,
-) -> RuntimeFeesConfig {
+fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     use crate::runtime_fees_generator::ReceiptFees::*;
     let generator = RuntimeFeesGenerator::new(measurement);
     let measured = generator.compute();
     let metric = measurement.gas_metric;
-    let function_call_total_cost =
-        ratio_to_gas(metric, measured[&ActionFunctionCallBase]) - test_contract_compilation_cost;
+    let function_call_total_cost = ratio_to_gas(metric, measured[&ActionFunctionCallBase]);
     let function_call_cost = Fee {
         send_sir: function_call_total_cost / 2,
         send_not_sir: function_call_total_cost / 2,
@@ -762,16 +758,13 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     runtime_config.wasm_config = get_vm_config(measurement, config);
 
     // Compiling small test contract that was used for `noop` function call estimation.
-    let compile_cost = load_and_compile(
+    load_and_compile(
         &"./test-contract/res/small_contract.wasm".into(),
         config.metric,
         config.vm_kind,
     )
     .unwrap();
-    let test_contract_compilation_cost = ratio_to_gas(config.metric, compile_cost.1);
-
-    runtime_config.transaction_costs =
-        get_runtime_fees_config(measurement, test_contract_compilation_cost);
+    runtime_config.transaction_costs = get_runtime_fees_config(measurement);
     runtime_config
 }
 fn get_compile_cost(config: &Config, verbose: bool) -> (u64, u64) {
