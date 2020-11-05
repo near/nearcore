@@ -37,6 +37,6 @@ docker push nearprotocol/${image_name}:${branch}-${commit}
 docker push nearprotocol/${image_name}:${branch}
 if [[ ${branch} == "master" ]];
 then
-	docker tag nearcore nearprotocol/${image_name}:latest
+	docker tag $image_name nearprotocol/${image_name}:latest
 	docker push nearprotocol/${image_name}:latest
 fi
