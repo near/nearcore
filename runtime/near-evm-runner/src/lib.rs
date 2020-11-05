@@ -302,6 +302,7 @@ impl<'a> EvmContext<'a> {
         let sender = Address::from(&args.sender);
         let attached_amount = U256::from(args.amount);
         self.add_balance(&sender, attached_amount)?;
+        // TODO: Verify we don't keep the balance in case `call` returns `Err`
         let result = interpreter::call(
             self,
             &sender,
