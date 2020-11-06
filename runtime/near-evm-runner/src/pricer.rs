@@ -14,15 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with Open Ethereum.  If not, see <http://www.gnu.org/licenses/>.
 
-use eth_pairings::public_interface::eip2537::{
-    SCALAR_BYTE_LENGTH, SERIALIZED_G1_POINT_BYTE_LENGTH, SERIALIZED_G2_POINT_BYTE_LENGTH,
-};
 use ethereum_types::U256;
 use std::convert::TryInto;
 use std::{
     cmp::{max, min},
     io::{self, Read},
 };
+
+const SCALAR_BYTE_LENGTH: usize = 32;
+const SERIALIZED_FP_BYTE_LENGTH: usize = 64;
+const SERIALIZED_G1_POINT_BYTE_LENGTH: usize = SERIALIZED_FP_BYTE_LENGTH * 2;
+const SERIALIZED_FP2_BYTE_LENGTH: usize = SERIALIZED_FP_BYTE_LENGTH * 2;
+const SERIALIZED_G2_POINT_BYTE_LENGTH: usize = SERIALIZED_FP2_BYTE_LENGTH * 2;
 
 /// A gas pricing scheme for built-in contracts.
 pub trait Pricer: Send + Sync {
