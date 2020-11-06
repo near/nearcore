@@ -26,6 +26,9 @@ use near_store::migrations::{
     migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+use near_store::migrations::migrate_16_to_17;
+
 pub mod config;
 pub mod genesis_validate;
 mod migrations;
@@ -173,6 +176,12 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         // version 15 => 16: add column for compiled contracts
         let store = create_store(&path);
         set_store_version(&store, 16);
+    }
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    if db_version <= 16 {
+        info!(target: "near", "Migrate DB from version 16 to 17");
+        // version 16 => 17: add `timestamp` to `BlockInfo`
+        migrate_16_to_17(&path);
     }
 
     let db_version = get_store_version(path);

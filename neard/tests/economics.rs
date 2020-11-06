@@ -4,16 +4,18 @@ use std::sync::Arc;
 
 use num_rational::Rational;
 
-use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::version::ENABLE_INFLATION_PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use neard::config::GenesisExt;
 use testlib::fees_utils::FeeHelper;
+
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+use primitive_types::U256;
 
 fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
     init_integration_logger();
@@ -104,10 +106,21 @@ fn test_burn_mint() {
     let block3 = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
     // We burn half of the cost when tx executed and the other half in the next block for the receipt processing.
     let half_transfer_cost = fee_helper.transfer_cost() / 2;
+    #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
+    let epoch_total_reward = initial_total_supply / 10;
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    let epoch_total_reward = {
+        let block0 = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+        let block2 = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
+        let duration = block2.header().raw_timestamp() - block0.header().raw_timestamp();
+        (U256::from(initial_total_supply) * U256::from(duration)
+            / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
+        .as_u128()
+    };
     assert_eq!(
         block3.header().total_supply(),
         // supply + 1% of protocol rewards + 3/4 * 9% of validator rewards.
-        initial_total_supply * 10775 / 10000 - half_transfer_cost
+        initial_total_supply + epoch_total_reward * 775 / 1000 - half_transfer_cost
     );
     assert_eq!(block3.chunks()[0].balance_burnt(), half_transfer_cost);
     // Block 4: subtract 2nd part of transfer.
@@ -115,65 +128,23 @@ fn test_burn_mint() {
     assert_eq!(block4.header().total_supply(), block3.header().total_supply() - half_transfer_cost);
     assert_eq!(block4.chunks()[0].balance_burnt(), half_transfer_cost);
     // Check that Protocol Treasury account got it's 1% as well.
-    assert_eq!(
-        env.query_balance("near".to_string()),
-        near_balance + initial_total_supply * 1 / 100
-    );
+    assert_eq!(env.query_balance("near".to_string()), near_balance + epoch_total_reward / 10);
     // Block 5: reward from previous block.
     let block5 = env.clients[0].chain.get_block_by_height(5).unwrap().clone();
+    #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
     assert_eq!(
         block5.header().total_supply(),
         // previous supply + 10%
         block4.header().total_supply() * 110 / 100
     );
-}
-
-#[test]
-fn test_enable_inflation() {
-    let epoch_length = 10;
-    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.max_inflation_rate = Rational::from_integer(0);
-    genesis.config.protocol_reward_rate = Rational::from_integer(0);
-    genesis.config.protocol_version = ENABLE_INFLATION_PROTOCOL_VERSION - 1;
-    let chain_genesis = ChainGenesis::from(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        &genesis,
-        vec![],
-        vec![],
-    ))];
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
-    // initially there is no inflation
-    for i in 1..31 {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        env.process_block(0, block.clone(), Provenance::NONE);
-        assert_eq!(block.header().total_supply(), genesis.config.total_supply);
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    {
+        let prev_total_supply = block4.header().total_supply();
+        let block2 = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
+        let epoch_total_reward = (U256::from(prev_total_supply)
+            * U256::from(block4.header().raw_timestamp() - block2.header().raw_timestamp())
+            / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
+        .as_u128();
+        assert_eq!(block5.header().total_supply(), prev_total_supply + epoch_total_reward);
     }
-
-    let test_account = env.query_account("test0".to_string());
-    assert_eq!(test_account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-    assert_eq!(test_account.locked, TESTING_INIT_STAKE);
-    for i in 31..33 {
-        env.produce_block(0, i);
-    }
-    let test_account = env.query_account("test0".to_string());
-    let expected_max_inflation_rate = Rational::new_raw(1, 20);
-    let expected_epoch_total_reward = *expected_max_inflation_rate.numer() as u128
-        * genesis.config.total_supply
-        * u128::from(genesis.config.epoch_length)
-        / (genesis.config.num_blocks_per_year as u128
-            * *expected_max_inflation_rate.denom() as u128);
-    let expected_epoch_treasury = expected_epoch_total_reward / 10;
-    let expected_account_reward = expected_epoch_total_reward - expected_epoch_treasury;
-    assert_eq!(test_account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-    assert_eq!(test_account.locked, TESTING_INIT_STAKE + expected_account_reward);
-    let treasury_account = env.query_account("near".to_string());
-    assert_eq!(treasury_account.amount, TESTING_INIT_BALANCE + expected_epoch_treasury);
-    let last_block_header = env.clients[0].chain.head_header().unwrap();
-    assert_eq!(
-        last_block_header.total_supply(),
-        genesis.config.total_supply + expected_epoch_total_reward
-    );
 }
