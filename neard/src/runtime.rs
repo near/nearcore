@@ -743,6 +743,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
     }
 
+    fn partial_verify_orphan_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let block_producer = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_block_producer_info(&header.epoch_id(), header.height())?
+        };
+        Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
+    }
+
     fn verify_chunk_signature_with_header_parts(
         &self,
         chunk_hash: &ChunkHash,
