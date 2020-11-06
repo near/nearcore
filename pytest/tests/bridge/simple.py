@@ -28,8 +28,10 @@ bridge.transfer_eth2near('0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808c
                          'rainbow_bridge_eth_on_near_prover',
                          1000)
 print('=== SENDING NEAR TO ETH')
-bridge.transfer_near2eth('rainbow_bridge_eth_on_near_prover',
-                         '0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200',
-                         1)
+#bridge.transfer_near2eth('rainbow_bridge_eth_on_near_prover',
+#                         '0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200',
+#                         1)
 # TODO check balance
 print('EPIC')
+while True:
+    pass

@@ -74,8 +74,10 @@ class Near2EthBlockRelay(Cleanable):
         bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
         # TODO use params
         near2eth_block_relay_path = os.path.join(bridge_dir, 'near2eth/near2eth-block-relay/index.js') 
-        self.pid.value = subprocess.Popen(['node', near2eth_block_relay_path, 'runNear2EthRelay', '--eth-master-sk', '0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201']).pid
-
+        self.pid.value = subprocess.Popen(['node', near2eth_block_relay_path, 'runNear2EthRelay', '2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201']).pid
+        #os.system('cd %s && cd cli && node index.js start near2eth-relay --eth-master-sk 0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201' % (bridge_dir))
+        # TODO ping and wait until service really starts
+        time.sleep(10)
 
 class Eth2NearBlockRelay(Cleanable):
 
@@ -91,6 +93,8 @@ class Eth2NearBlockRelay(Cleanable):
         # TODO use params
         eth2near_block_relay_path = os.path.join(bridge_dir, 'eth2near/eth2near-block-relay/index.js') 
         self.pid.value = subprocess.Popen(['node', eth2near_block_relay_path, 'runEth2NearRelay']).pid
+        # TODO ping and wait until service really starts
+        time.sleep(10)
 
 
 class RainbowBridge:
@@ -104,6 +108,19 @@ class RainbowBridge:
         # TODO clear data generously
         if os.path.exists(config_dir) and os.path.isdir(config_dir):
             shutil.rmtree(config_dir)
+            os.system('mkdir -p %s' % (config_dir))
+            os.system('mkdir -p %s/logs/ganache' % (config_dir))
+            os.system('mkdir -p %s/logs/near2eth-relay' % (config_dir))
+            os.system('mkdir -p %s/logs/eth2near-relay' % (config_dir))
+            os.system('mkdir -p %s/logs/watchdog' % (config_dir))
+            os.system('touch %s/logs/ganache/out.log' % (config_dir))
+            os.system('touch %s/logs/ganache/err.log' % (config_dir))
+            os.system('touch %s/logs/near2eth-relay/out.log' % (config_dir))
+            os.system('touch %s/logs/near2eth-relay/err.log' % (config_dir))
+            os.system('touch %s/logs/eth2near-relay/out.log' % (config_dir))
+            os.system('touch %s/logs/eth2near-relay/err.log' % (config_dir))
+            os.system('touch %s/logs/watchdog/out.log' % (config_dir))
+            os.system('touch %s/logs/watchdog/err.log' % (config_dir))
         if not os.path.exists(os.path.expanduser(bridge_dir)):
             self.git_clone_install()
     
@@ -118,6 +135,7 @@ class RainbowBridge:
         # TODO use config please
         os.system('cp ./lib/js_adapter/write_config.js %s' % (bridge_dir))
         # TODO install ethash
+        # TODO use config
 
     def init_near_contracts(self):
         bridge_dir = self.config['bridge_dir']
@@ -147,13 +165,10 @@ class RainbowBridge:
     def start_eth2near_block_relay(self):
         self.eth2near_block_relay = Eth2NearBlockRelay(self.config)
         self.eth2near_block_relay.start()
-        # TODO ping and wait until service really starts
 
     def start_near2eth_block_relay(self):
         self.near2eth_block_relay = Near2EthBlockRelay(self.config)
         self.near2eth_block_relay.start()
-        # TODO ping and wait until service really starts
-        time.sleep(10)
 
     def transfer_eth2near(self, sender, receiver, near_master_account, amount):
         bridge_dir = self.config['bridge_dir']
@@ -164,7 +179,7 @@ class RainbowBridge:
     def transfer_near2eth(self, sender, receiver, amount):
         bridge_dir = self.config['bridge_dir']
         os.system('cd %s && cd cli && node index.js transfer-eth-erc20-from-near --amount %d \
-                   --near-sender-account %s --eth-receiver-address %s' %
+                   --near-sender-account %s --eth-receiver-address %s --near-sender-sk ed25519:3KyUucjyGk1L58AJBB6Rf6EZFqmpTSSKG7KKsptMvpJLDBiZmAkU4dR1HzNS6531yZ2cR5PxnTM7NLVvSfJjZPh7' %
             (bridge_dir, amount, sender, receiver))
 
 
