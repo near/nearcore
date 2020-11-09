@@ -243,8 +243,8 @@ def start_bridge(config=None):
 DEFAULT_CONFIG = {
     'local': True,
     'bridge_repo': 'https://github.com/near/rainbow-bridge.git',
-    #'bridge_dir': '~/.rainbow-bridge',
-    'bridge_dir': '~/near/rainbow-bridge',
+    'bridge_dir': '~/.rainbow-bridge',
+    #'bridge_dir': '~/near/rainbow-bridge',
     'config_dir': '~/.rainbow',
     'ganache': 'ganache/node_modules/.bin/ganache-cli',
 }

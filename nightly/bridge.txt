@@ -1,0 +1,2 @@
+pytest --timeout=40 bridge/simple.py
+pytest --timeout=40 bridge/many_tx.py
