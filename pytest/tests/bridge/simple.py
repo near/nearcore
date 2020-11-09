@@ -21,10 +21,11 @@ balance_before = bridge.get_eth_balance('0x2bdd21761a483f71054e14f5b827213567971
 
 print('=== BALANCE BEFORE', balance_before)
 print('=== SENDING 1000 ETH TO NEAR')
-bridge.transfer_eth2near('0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200',
+tx = bridge.transfer_eth2near('0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200',
                          'rainbow_bridge_eth_on_near_prover',
                          'rainbow_bridge_eth_on_near_prover',
                          1000)
+tx.wait()
 
 balance_after = bridge.get_eth_balance('0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200')
 print('=== BALANCE AFTER', balance_after)
