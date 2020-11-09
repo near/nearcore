@@ -2,7 +2,7 @@ use log::{info, warn};
 use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
@@ -10,10 +10,17 @@ use std::time::Instant;
 
 use futures;
 use futures::task::Context;
+use near_rust_allocator_proxy::allocator::{
+    current_thread_memory_usage, current_thread_peak_memory_usage, reset_memory_usage_max,
+    thread_memory_usage,
+};
 use once_cell::sync::Lazy;
 use std::pin::Pin;
 use strum::AsStaticRef;
 
+const MEBIBYTE: usize = 1024 * 1024;
+const MEMORY_LIMIT: usize = 512 * MEBIBYTE;
+const MIN_MEM_USAGE_REPORT_SIZE: usize = 1 * MEBIBYTE;
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
 const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.02;
@@ -40,6 +47,20 @@ struct ThreadStats {
     classes: HashSet<&'static str>,
 }
 
+extern "C" {
+    pub fn gettid() -> u32;
+}
+
+pub fn get_tid() -> usize {
+    let res = TID.with(|t| {
+        if *t.borrow() == usize::max_value() {
+            *t.borrow_mut() = unsafe { gettid() as usize };
+        }
+        *t.borrow()
+    });
+    res
+}
+
 impl ThreadStats {
     fn new() -> Self {
         Self { stat: HashMap::new(), cnt: 0, time: Duration::default(), classes: HashSet::new() }
@@ -63,22 +84,24 @@ impl ThreadStats {
     fn print_stats(&self, tid: usize, sleep_time: Duration) {
         let ratio = (self.time.as_nanos() as f64) / (sleep_time.as_nanos() as f64);
 
-        if ratio > MIN_OCCUPANCY_RATIO_THRESHOLD {
+        let tmu = thread_memory_usage(tid);
+        if ratio >= MIN_OCCUPANCY_RATIO_THRESHOLD || tmu >= MIN_MEM_USAGE_REPORT_SIZE {
             let class_name = format!("{:?}", self.classes);
             warn!(
-                "    Thread:{} ratio: {:.4} {}:{} ",
+                "    Thread:{} ratio: {:.4} {}:{} memory: {}MiB",
                 tid,
                 ratio,
                 class_name,
-                TID.with(|x| *x.borrow()),
+                get_tid(),
+                tmu / MEBIBYTE,
             );
-            let mut s: Vec<_> = self.stat.iter().collect();
-            s.sort_by(|x, y| (*x).0.cmp(&(*y).0));
+            let mut stat: Vec<_> = self.stat.iter().collect();
+            stat.sort_by(|x, y| (*x).0.cmp(&(*y).0));
 
-            for entry in s {
+            for entry in stat {
                 warn!(
                     "        func {} {}:{} cnt: {} total: {}ms max: {}ms",
-                    TID.with(|x| *x.borrow()),
+                    get_tid(),
                     (entry.0).0,
                     (entry.0).1,
                     entry.1.cnt,
@@ -106,22 +129,17 @@ impl Stats {
         line: u32,
         took: Duration,
     ) {
-        let tid = TID.with(|x| {
-            if *x.borrow_mut() == 0 {
-                *x.borrow_mut() = NTHREADS.fetch_add(1, Ordering::SeqCst);
-            }
-            *x.borrow_mut()
-        });
+        let tid = get_tid();
         let entry = self.stats.entry(tid).or_insert_with(|| ThreadStats::new());
         entry.log(class_name, msg, line, took)
     }
 
     fn print_stats(&mut self, sleep_time: Duration) {
         info!("Performance stats {} threads", self.stats.len());
-        let mut s: Vec<_> = self.stats.iter().collect();
-        s.sort_by(|x, y| (*x).0.cmp(&(*y).0));
+        let mut stats: Vec<_> = self.stats.iter().collect();
+        stats.sort_by(|x, y| (*x).0.cmp(&(*y).0));
 
-        for entry in s {
+        for entry in stats {
             entry.1.print_stats(*entry.0, sleep_time);
         }
         self.stats.clear();
@@ -162,19 +180,47 @@ where
     F: FnOnce(Message) -> Result,
 {
     let now = Instant::now();
+    reset_memory_usage_max();
+    let initial_memory_usage = current_thread_memory_usage();
     let result = f(msg);
 
     let took = now.elapsed();
-    if took > SLOW_CALL_THRESHOLD {
-        let text_field = msg_text.map(|x| format!(" msg: {}", x)).unwrap_or(format!(""));
+
+    let peak_memory = current_thread_peak_memory_usage() - initial_memory_usage;
+
+    if peak_memory >= MEMORY_LIMIT {
         warn!(
-            "Function exceeded time limit {}:{} {:?} took: {}ms {}",
+            "Function exceeded memory limit {}:{} {:?} took: {}ms peak_memory: {}MiB",
             class_name,
-            TID.with(|x| *x.borrow()),
+            get_tid(),
             std::any::type_name::<Message>(),
             took.as_millis(),
-            text_field
+            peak_memory / MEBIBYTE,
         );
+    }
+
+    if took >= SLOW_CALL_THRESHOLD {
+        let text_field = msg_text.map(|x| format!(" msg: {}", x)).unwrap_or(format!(""));
+        if peak_memory > 0 {
+            warn!(
+                "Function exceeded time limit {}:{} {:?} took: {}ms {} peak_memory: {}MiB",
+                class_name,
+                get_tid(),
+                std::any::type_name::<Message>(),
+                took.as_millis(),
+                text_field,
+                peak_memory / MEBIBYTE,
+            );
+        } else {
+            warn!(
+                "Function exceeded time limit {}:{} {:?} took: {}ms {}",
+                class_name,
+                get_tid(),
+                std::any::type_name::<Message>(),
+                took.as_millis(),
+                text_field,
+            );
+        }
     }
     STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
     result
@@ -208,7 +254,7 @@ where
             warn!(
                 "Function exceeded time limit {}:{} {}:{} took: {}ms",
                 this.class_name,
-                TID.with(|x| *x.borrow()),
+                get_tid(),
                 this.file,
                 this.line,
                 took.as_millis()

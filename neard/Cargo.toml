@@ -6,6 +6,7 @@ edition = "2018"
 default-run = "neard"
 
 [dependencies]
+jemallocator = { version = "0.3"  }
 actix = "0.9"
 actix-web = { version = "2", features = [ "openssl" ] }
 byteorder = "1.2"
@@ -44,6 +45,7 @@ near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
 near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
+near-rust-allocator-proxy = { git = "https://github.com/pmnoxx/near-memory-tracker.git", tag="v0.2.1" }
 
 delay-detector = { path = "../tools/delay_detector", optional = true }
 
@@ -68,6 +70,7 @@ protocol_feature_block_ordinal = ["near-primitives/protocol_feature_block_ordina
 nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 costs_counting = ["node-runtime/costs_counting"]
+memory_profiling = ["near-performance-metrics/memory_profiling"]
 
 [[bin]]
 path = "src/main.rs"

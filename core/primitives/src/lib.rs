@@ -1,10 +1,3 @@
-#[cfg(jemallocator)]
-extern crate jemallocator;
-
-#[cfg(jemallocator)]
-#[global_allocator]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
-
 pub use borsh;
 
 pub mod account;
