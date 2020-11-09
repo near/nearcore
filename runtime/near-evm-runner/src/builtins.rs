@@ -5,7 +5,7 @@ use std::{
 };
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
-use ethereum_types::{Address, H256, U256};
+use ethereum_types::{Address, U256};
 use near_runtime_fees::EvmCostConfig;
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
