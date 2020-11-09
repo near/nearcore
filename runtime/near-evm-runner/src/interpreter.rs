@@ -26,6 +26,7 @@ pub fn deploy_code<T: EvmState>(
     code: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
+    chain_id: u128,
 ) -> Result<ContractCreateResult> {
     let mut nonce = U256::zero();
     if address_type == CreateContractAddress::FromSenderAndNonce {
@@ -49,6 +50,7 @@ pub fn deploy_code<T: EvmState>(
         code,
         gas,
         evm_gas_config,
+        chain_id,
     )?;
 
     // Apply known gas amount changes (all reverts are NeedsReturn)
@@ -82,6 +84,7 @@ pub fn _create<T: EvmState>(
     code: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
+    chain_id: u128,
 ) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
@@ -110,6 +113,7 @@ pub fn _create<T: EvmState>(
         call_stack_depth + 1,
         false,
         evm_gas_config,
+        chain_id,
     );
     ext.info.gas_limit = U256::from(gas);
     ext.schedule = Schedule::new_constantinople();
@@ -133,6 +137,7 @@ pub fn call<T: EvmState>(
     should_commit: bool,
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
+    chain_id: u128,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -148,6 +153,7 @@ pub fn call<T: EvmState>(
         should_commit,
         gas,
         evm_gas_config,
+        chain_id,
     )
 }
 
@@ -161,6 +167,7 @@ pub fn delegate_call<T: EvmState>(
     input: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
+    chain_id: u128,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -176,6 +183,7 @@ pub fn delegate_call<T: EvmState>(
         true,
         gas,
         evm_gas_config,
+        chain_id,
     )
 }
 
@@ -188,6 +196,7 @@ pub fn static_call<T: EvmState>(
     input: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
+    chain_id: u128,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -203,6 +212,7 @@ pub fn static_call<T: EvmState>(
         false,
         gas,
         evm_gas_config,
+        chain_id,
     )
 }
 
@@ -221,6 +231,7 @@ fn run_and_commit_if_success<T: EvmState>(
     should_commit: bool,
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
+    chain_id: u128,
 ) -> Result<MessageCallResult> {
     // run the interpreter and
     let (result, state_updates) = run_against_state(
@@ -236,6 +247,7 @@ fn run_and_commit_if_success<T: EvmState>(
         is_static,
         gas,
         evm_gas_config,
+        chain_id,
     )?;
 
     // Apply known gas amount changes (all reverts are NeedsReturn)
@@ -279,6 +291,7 @@ fn run_against_state<T: EvmState>(
     is_static: bool,
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
+    chain_id: u128,
 ) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let code = state.code_at(code_address)?.unwrap_or_else(Vec::new);
 
@@ -319,6 +332,7 @@ fn run_against_state<T: EvmState>(
         call_stack_depth + 1,
         is_static,
         evm_gas_config,
+        chain_id,
     );
     // Gas limit is evm block gas limit, should at least prepaid gas.
     ext.info.gas_limit = *gas;
