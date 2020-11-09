@@ -27,6 +27,6 @@ while True:
     print('=== BALANCE AFTER', balance_after)
     if balance_after + 20 == balance_before:
         break;
-    sleep(10)
+    time.sleep(10)
 
 print('EPIC')
