@@ -111,11 +111,10 @@ pub fn measure_actions(
 // TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
 #[cfg(target_family = "unix")]
 #[inline(always)]
-pub unsafe fn syscall3(fd: u32, buf: &mut [u8]) -> usize {
+pub unsafe fn syscall3(fd: u32, buf: &mut [u8]) {
     let mut f = File::from_raw_fd(std::mem::transmute::<u32, i32>(fd));
-    let res = f.read(buf).unwrap();
-    std::mem::forget(f); // Skips closing the file descriptor, but free
-    res
+    f.read(buf);
+    std::mem::forget(f); // Skips closing the file descriptor, but throw away reference
 }
 
 const CATCH_BASE: u32 = 0xcafebabe;
