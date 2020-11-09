@@ -199,16 +199,16 @@ class RainbowBridge:
         self.near2eth_block_relay.start()
 
     def transfer_eth2near(self, sender, receiver, near_master_account, amount):
-        bridge_dir = self.config['bridge_dir']
-        os.system('cd %s && cd cli && node index.js transfer-eth-erc20-to-near --amount %d \
-                   --eth-sender-sk %s --near-receiver-account %s --near-master-account %s' %
-            (bridge_dir, amount, sender, receiver, near_master_account))
+        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        cli_dir = os.path.join(bridge_dir, 'cli')
+        args = ('node index.js transfer-eth-erc20-to-near --amount %d --eth-sender-sk %s --near-receiver-account %s --near-master-account %s' % (amount, sender, receiver, near_master_account)).split()
+        return subprocess.Popen(args, cwd=cli_dir)
 
     def transfer_near2eth(self, sender, receiver, amount):
-        bridge_dir = self.config['bridge_dir']
-        os.system('cd %s && cd cli && node index.js transfer-eth-erc20-from-near --amount %d \
-                   --near-sender-account %s --eth-receiver-address %s --near-sender-sk ed25519:3KyUucjyGk1L58AJBB6Rf6EZFqmpTSSKG7KKsptMvpJLDBiZmAkU4dR1HzNS6531yZ2cR5PxnTM7NLVvSfJjZPh7' %
-            (bridge_dir, amount, sender, receiver))
+        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        cli_dir = os.path.join(bridge_dir, 'cli')
+        args = ('node index.js transfer-eth-erc20-from-near --amount %d --near-sender-account %s --eth-receiver-address %s --near-sender-sk ed25519:3KyUucjyGk1L58AJBB6Rf6EZFqmpTSSKG7KKsptMvpJLDBiZmAkU4dR1HzNS6531yZ2cR5PxnTM7NLVvSfJjZPh7' % (amount, sender, receiver)).split()
+        return subprocess.Popen(args, cwd=cli_dir)
 
     def get_eth_balance(self, address, token_address=None):
         # js parses 0x as number, not as string
