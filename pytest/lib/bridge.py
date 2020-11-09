@@ -30,6 +30,8 @@ class Cleanable(object):
             return
 
         try:
+            self.stdout.close()
+            self.stderr.close()
             self.kill()
         except:
             print("Kill %s failed on cleanup!" % (obj.__class__.__name__))
@@ -56,9 +58,13 @@ class GanacheNode(Cleanable):
     def start(self):
         # TODO fix path
         ganache = os.path.join('lib', self.config['ganache'])
+        config_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['config_dir'])))
+        # TODO fix logs
+        self.stdout = open(os.path.join(config_dir, 'logs/ganache/out.log'), 'w')
+        self.stderr = open(os.path.join(config_dir, 'logs/ganache/err.log'), 'w')
         # TODO use blockTime
         # TODO set params
-        self.pid.value = subprocess.Popen([ganache,'--port','9545','--blockTime','12','--gasLimit','10000000','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200,10000000000000000000000000000"','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201,10000000000000000000000000000"','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501202,10000000000000000000000000000"']).pid
+        self.pid.value = subprocess.Popen([ganache,'--port','9545','--blockTime','12','--gasLimit','10000000','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200,10000000000000000000000000000"','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201,10000000000000000000000000000"','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501202,10000000000000000000000000000"'], stdout=self.stdout, stderr=self.stderr).pid
 
 
 class Near2EthBlockRelay(Cleanable):
@@ -72,10 +78,12 @@ class Near2EthBlockRelay(Cleanable):
     def start(self):
         # TODO refactor this
         bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        config_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['config_dir'])))
+        self.stdout = open(os.path.join(config_dir, 'logs/near2eth-relay/out.log'), 'w')
+        self.stderr = open(os.path.join(config_dir, 'logs/near2eth-relay/err.log'), 'w')
         # TODO use params
         near2eth_block_relay_path = os.path.join(bridge_dir, 'near2eth/near2eth-block-relay/index.js') 
-        self.pid.value = subprocess.Popen(['node', near2eth_block_relay_path, 'runNear2EthRelay', '2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201']).pid
-        #os.system('cd %s && cd cli && node index.js start near2eth-relay --eth-master-sk 0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201' % (bridge_dir))
+        self.pid.value = subprocess.Popen(['node', near2eth_block_relay_path, 'runNear2EthRelay', '2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201'], stdout=self.stdout, stderr=self.stderr).pid
         # TODO ping and wait until service really starts
         time.sleep(10)
 
@@ -90,18 +98,38 @@ class Eth2NearBlockRelay(Cleanable):
     def start(self):
         # TODO refactor this
         bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        config_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['config_dir'])))
+        self.stdout = open(os.path.join(config_dir, 'logs/eth2near-relay/out.log'), 'w')
+        self.stderr = open(os.path.join(config_dir, 'logs/eth2near-relay/err.log'), 'w')
         # TODO use params
         eth2near_block_relay_path = os.path.join(bridge_dir, 'eth2near/eth2near-block-relay/index.js') 
-        self.pid.value = subprocess.Popen(['node', eth2near_block_relay_path, 'runEth2NearRelay']).pid
+        self.pid.value = subprocess.Popen(['node', eth2near_block_relay_path, 'runEth2NearRelay'], stdout=self.stdout, stderr=self.stderr).pid
         # TODO ping and wait until service really starts
         time.sleep(10)
+
+class JSAdapter:
+
+    def __init__(self, config):
+        self.config = config
+        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        self.js_adapter_path = os.path.join(bridge_dir, 'testing/adapter/index.js')
+
+    def call(self, args):
+        if not isinstance(args, list):
+            args = [args]
+        args.insert(0, 'node')
+        args.insert(1, self.js_adapter_path)
+        # TODO check for errors
+        return subprocess.check_output(args).decode('ascii')
 
 
 class RainbowBridge:
 
     def __init__(self, config):
         self.config = config
+        self.eth2near_block_relay = None
         self.near2eth_block_relay = None
+        self.adapter = JSAdapter(self.config)
         bridge_dir = self.config['bridge_dir']
         # TODO use config
         config_dir = os.path.expanduser(self.config['config_dir'])
@@ -181,6 +209,14 @@ class RainbowBridge:
         os.system('cd %s && cd cli && node index.js transfer-eth-erc20-from-near --amount %d \
                    --near-sender-account %s --eth-receiver-address %s --near-sender-sk ed25519:3KyUucjyGk1L58AJBB6Rf6EZFqmpTSSKG7KKsptMvpJLDBiZmAkU4dR1HzNS6531yZ2cR5PxnTM7NLVvSfJjZPh7' %
             (bridge_dir, amount, sender, receiver))
+
+    def get_eth_balance(self, address, token_address=None):
+        # js parses 0x as number, not as string
+        if address.startswith('0x'):
+            address = address[2:]
+        # TODO use specific token address
+        return int(self.adapter.call(['getBalance', address]))
+        
 
 
 def start_ganache(config=None):
