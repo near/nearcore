@@ -34,7 +34,7 @@ class Cleanable(object):
             self.stderr.close()
             self.kill()
         except:
-            print("Kill %s failed on cleanup!" % (obj.__class__.__name__))
+            print("Kill %s failed on cleanup!" % (self.__class__.__name__))
             traceback.print_exc()
             print("\n\n")
 
@@ -223,6 +223,11 @@ def start_ganache(config=None):
     if not config:
         config = load_config()
 
+    config_dir = os.path.expanduser(config['config_dir'])
+    os.system('mkdir -p %s' % (config_dir))
+    os.system('mkdir -p %s/logs/ganache' % (config_dir))
+    os.system('touch %s/logs/ganache/out.log' % (config_dir))
+    os.system('touch %s/logs/ganache/err.log' % (config_dir))
     ganache_node = GanacheNode(config)
     ganache_node.start()
     return ganache_node

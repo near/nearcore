@@ -29,3 +29,15 @@ balance_after = bridge.get_eth_balance('0x2bdd21761a483f71054e14f5b827213567971c
 print('=== BALANCE AFTER', balance_after)
 assert balance_after + 1000 == balance_before
 # TODO check NEAR balance
+
+balance_before = bridge.get_eth_balance('0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200')
+print('=== BALANCE BEFORE', balance_before)
+print('=== SENDING 1 NEAR TO ETH')
+tx = bridge.transfer_near2eth('rainbow_bridge_eth_on_near_prover',
+                              '0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200',
+                              1)
+tx.wait()
+balance_after = bridge.get_eth_balance('0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200')
+print('=== BALANCE AFTER', balance_after)
+assert balance_after + 1 == balance_before
+# TODO check NEAR balance
