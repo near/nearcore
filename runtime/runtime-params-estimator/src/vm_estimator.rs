@@ -6,7 +6,6 @@ use crate::testbed_runners::total_transactions;
 use crate::testbed_runners::Config;
 use crate::testbed_runners::GasMetric;
 use ethabi_contract::use_contract;
-use ethereum_types::H160;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use lazy_static_include::lazy_static_include_str;
@@ -32,7 +31,6 @@ use std::fs;
 use std::sync::{Arc, Mutex, RwLock};
 use std::{
     hash::{Hash, Hasher},
-    path::Path,
     path::PathBuf,
 };
 use testlib::node::{Node, RuntimeNode};
@@ -216,7 +214,6 @@ fn deploy_evm_contract(
     testbed: Arc<Mutex<RuntimeTestbed>>,
     nonces: Arc<Mutex<HashMap<usize, u64>>>,
 ) -> Option<EvmCost> {
-    let path = PathBuf::from(config.state_dump_path.as_str());
     println!("{:?}. Preparing testbed. Loading state.", config.metric);
     let allow_failures = false;
     let mut nonces = nonces.lock().unwrap();
@@ -489,7 +486,6 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
     testbed: Arc<Mutex<RuntimeTestbed>>,
     nonces: Arc<Mutex<HashMap<usize, u64>>>,
 ) -> EvmCost {
-    let path = PathBuf::from(config.state_dump_path.as_str());
     println!("{:?}. Preparing testbed. Loading state.", config.metric);
     let allow_failures = false;
     let mut nonces = nonces.lock().unwrap();
@@ -521,7 +517,7 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
             genesis: testbed.genesis.clone(),
         };
         let node_user = runtime_node.user();
-        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        let _nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         let addr = node_user
             .function_call(
                 account_id.clone(),
@@ -828,16 +824,18 @@ fn measurements_to_coef_2d(measurements: Vec<EvmCost>, verbose: bool) -> Coef2D 
     let xt_y1 = dot(&v1, &y);
     let xt_y2 = dot(&v2, &y);
 
-    let beta1 = (xt_x_inverse.a * xt_y1 + xt_x_inverse.b * xt_y2);
-    let beta2 = (xt_x_inverse.c * xt_y1 + xt_x_inverse.d * xt_y2);
+    let beta1 = xt_x_inverse.a * xt_y1 + xt_x_inverse.b * xt_y2;
+    let beta2 = xt_x_inverse.c * xt_y1 + xt_x_inverse.d * xt_y2;
 
     let delta: Vec<_> = measurements
         .iter()
         .map(|m| m.cost.to_f64().unwrap() - (m.evm_gas as f64) * beta1 - (m.size as f64) * beta2)
         .collect();
     let r = (beta1, beta2, delta.iter().sum::<f64>() / delta.len() as f64);
-    println!("evm calc data {:?}", r);
-    println!("delta: {:?}", delta);
+    if verbose {
+        println!("evm calc data {:?}", r);
+        println!("delta: {:?}", delta);
+    }
     r
 }
 

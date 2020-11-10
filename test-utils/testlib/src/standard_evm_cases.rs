@@ -5,8 +5,7 @@ use ethabi_contract::use_contract;
 use ethereum_types::U256;
 use near_evm_runner::types::WithdrawArgs;
 use near_evm_runner::utils::{
-    address_from_arr, address_to_vec, encode_call_function_args, encode_view_call_function_args,
-    near_account_id_to_evm_address, u256_to_arr,
+    address_from_arr, encode_call_function_args, encode_view_call_function_args, u256_to_arr,
 };
 
 use_contract!(cryptozombies, "../../runtime/near-evm-runner/tests/build/zombieAttack.abi");
