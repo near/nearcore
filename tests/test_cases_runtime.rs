@@ -7,6 +7,9 @@ mod test {
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
     use testlib::standard_test_cases::*;
 
+    #[cfg(feature = "protocol_feature_evm")]
+    use testlib::standard_evm_cases::{test_evm_deploy_call, test_sub_evm};
+
     fn create_runtime_node() -> RuntimeNode {
         RuntimeNode::new(&alice_account())
     }
@@ -304,12 +307,14 @@ mod test {
         test_smart_contract_free(node);
     }
 
+    #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_evm_deploy_call_runtime() {
         let node = create_runtime_node();
         test_evm_deploy_call(node);
     }
 
+    #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_sub_evm_runtime() {
         let node = create_runtime_node();
