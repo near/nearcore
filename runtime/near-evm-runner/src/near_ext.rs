@@ -72,7 +72,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     /// EIP-1344: Returns the current chain's EIP-155 unique identifier.
     /// See https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1344.md
     fn chain_id(&self) -> u64 {
-      self.chain_id.try_into().unwrap()
+        self.chain_id.try_into().unwrap()
     }
 
     /// Returns the storage value for a given key if reversion happens on the current transaction.
