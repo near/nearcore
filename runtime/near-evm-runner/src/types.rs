@@ -1,5 +1,4 @@
 use std::convert::TryInto;
-use std::io::{Read, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, U256};
@@ -13,6 +12,45 @@ pub type RawU256 = [u8; 32];
 pub type DataKey = [u8; 52];
 
 pub type Result<T> = std::result::Result<T, VMLogicError>;
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Method {
+    DeployCode,
+    Call,
+    MetaCall,
+    Deposit,
+    Withdraw,
+    Transfer,
+    Create,
+    // View methods.
+    ViewCall,
+    GetCode,
+    GetStorageAt,
+    GetNonce,
+    GetBalance,
+}
+
+impl Method {
+    pub fn parse(method_name: &str) -> Option<Self> {
+        Some(match method_name {
+            // Change the state methods.
+            "deploy_code" => Self::DeployCode,
+            "call_function" | "call" => Self::Call,
+            "meta_call" => Self::MetaCall,
+            "deposit" => Self::Deposit,
+            "withdraw" => Self::Withdraw,
+            "transfer" => Self::Transfer,
+            "create" => Self::Create,
+            // View methods.
+            "view_function_call" | "view" => Self::ViewCall,
+            "get_code" => Self::GetCode,
+            "get_storage_at" => Self::GetStorageAt,
+            "get_nonce" => Self::GetNonce,
+            "get_balance" => Self::GetBalance,
+            _ => return None,
+        })
+    }
+}
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct AddressArg {
@@ -37,12 +75,18 @@ pub struct TransferArgs {
     pub amount: RawU256,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize)]
+pub struct FunctionCallArgs {
+    pub contract: RawAddress,
+    pub input: Vec<u8>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Eq, PartialEq)]
 pub struct ViewCallArgs {
     pub sender: RawAddress,
     pub address: RawAddress,
     pub amount: RawU256,
-    pub args: Vec<u8>,
+    pub input: Vec<u8>,
 }
 
 pub struct MetaCallArgs {
@@ -52,33 +96,6 @@ pub struct MetaCallArgs {
     pub fee_address: Address,
     pub contract_address: Address,
     pub input: Vec<u8>,
-}
-
-impl BorshSerialize for ViewCallArgs {
-    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write(&self.sender)?;
-        writer.write(&self.address)?;
-        writer.write(&self.amount)?;
-        writer.write(&self.args)?;
-        Ok(())
-    }
-}
-
-impl BorshDeserialize for ViewCallArgs {
-    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
-        if buf.len() < 72 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Unexpected length of input",
-            ));
-        }
-        let sender = RawAddress::deserialize(buf)?;
-        let address = RawAddress::deserialize(buf)?;
-        let amount = RawU256::deserialize(buf)?;
-        let mut args = Vec::with_capacity(buf.len());
-        buf.read_to_end(&mut args)?;
-        Ok(Self { sender, address, amount, args })
-    }
 }
 
 pub fn convert_vm_error(err: vm::Error) -> VMLogicError {
@@ -128,13 +145,11 @@ mod tests {
             sender: [1; 20],
             address: [2; 20],
             amount: [3; 32],
-            args: vec![1, 2, 3],
+            input: vec![1, 2, 3],
         };
         let bytes = x.try_to_vec().unwrap();
         let res = ViewCallArgs::try_from_slice(&bytes).unwrap();
         assert_eq!(x, res);
-        let res = ViewCallArgs::try_from_slice(&[0; 72]).unwrap();
-        assert_eq!(res.args.len(), 0);
     }
 
     #[test]
