@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use std::sync::Arc;
 
 use ethereum_types::{Address, H256, U256};
@@ -26,6 +27,7 @@ pub struct NearExt<'a> {
     pub static_flag: bool,
     pub depth: usize,
     pub evm_gas_config: &'a EvmCostConfig,
+    pub chain_id: u128,
 }
 
 impl std::fmt::Debug for NearExt<'_> {
@@ -36,6 +38,7 @@ impl std::fmt::Debug for NearExt<'_> {
         write!(f, "\n\tcontext_addr: {:?}", self.context_addr)?;
         write!(f, "\n\tstatic_flag: {:?}", self.static_flag)?;
         write!(f, "\n\tdepth: {:?}", self.depth)?;
+        write!(f, "\n\tchain_id: {:?}", self.chain_id)?;
         write!(f, "\n}}")
     }
 }
@@ -48,6 +51,7 @@ impl<'a> NearExt<'a> {
         depth: usize,
         static_flag: bool,
         evm_gas_config: &'a EvmCostConfig,
+        chain_id: u128,
     ) -> Self {
         Self {
             info: Default::default(),
@@ -59,11 +63,18 @@ impl<'a> NearExt<'a> {
             static_flag,
             depth,
             evm_gas_config,
+            chain_id,
         }
     }
 }
 
 impl<'a> vm::Ext for NearExt<'a> {
+    /// EIP-1344: Returns the current chain's EIP-155 unique identifier.
+    /// See https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1344.md
+    fn chain_id(&self) -> u64 {
+      self.chain_id.try_into().unwrap()
+    }
+
     /// Returns the storage value for a given key if reversion happens on the current transaction.
     fn initial_storage_at(&self, key: &H256) -> EvmResult<H256> {
         let raw_val = self
@@ -150,6 +161,7 @@ impl<'a> vm::Ext for NearExt<'a> {
             &code.to_vec(),
             gas,
             &self.evm_gas_config,
+            self.chain_id,
         )
         .map_err(|_| TrapKind::Call(ActionParams::default()))
     }
@@ -200,6 +212,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 true, // should_commit
                 gas,
                 &self.evm_gas_config,
+                self.chain_id,
             ),
             CallType::StaticCall => interpreter::static_call(
                 self.sub_state,
@@ -210,6 +223,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 &data.to_vec(),
                 gas,
                 &self.evm_gas_config,
+                self.chain_id,
             ),
             CallType::CallCode => {
                 // Call another contract using storage of the current contract. No longer used.
@@ -225,6 +239,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 &data.to_vec(),
                 gas,
                 &self.evm_gas_config,
+                self.chain_id,
             ),
         };
         result.map_err(|_| TrapKind::Call(ActionParams::default()))

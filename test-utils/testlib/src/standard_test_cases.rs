@@ -24,7 +24,7 @@ use crate::fees_utils::FeeHelper;
 use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account, evm_account};
 use crate::user::User;
-use near_evm_runner::utils::near_account_id_to_evm_address;
+use near_evm_runner::utils::{address_to_vec, near_account_id_to_evm_address, u256_to_arr};
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
@@ -1294,6 +1294,9 @@ pub fn test_evm_deploy_call(node: impl Node) {
         .as_success_decoded()
         .unwrap();
 
+    let result = node_user.view_call(&evm_account(), "get_balance", &contract_id).unwrap();
+    assert_eq!(result.result, u256_to_arr(&U256::from(10)).to_vec());
+
     let (input, _decoder) = cryptozombies::functions::create_random_zombie::call("test");
     let args = vec![contract_id.clone(), input].concat();
     assert_eq!(
@@ -1306,11 +1309,13 @@ pub fn test_evm_deploy_call(node: impl Node) {
         Vec::<u8>::new()
     );
 
+    let alice =
+        address_to_vec(&near_evm_runner::utils::near_account_id_to_evm_address(&alice_account()));
     let (input, _decoder) = cryptozombies::functions::get_zombies_by_owner::call(
         near_evm_runner::utils::near_account_id_to_evm_address(&alice_account()),
     );
     // sender, to, attached amount, args
-    let args = vec![contract_id.clone(), contract_id.clone(), vec![0u8; 32], input].concat();
+    let args = vec![alice.clone(), contract_id.clone(), vec![0u8; 32], input].concat();
     let bytes = node_user
         .function_call(alice_account(), evm_account(), "view", args.clone(), 10u64.pow(14), 0)
         .unwrap()
