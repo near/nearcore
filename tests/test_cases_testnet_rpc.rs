@@ -9,6 +9,8 @@ mod test {
     use near_logger_utils::init_test_module_logger;
     use testlib::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
     use testlib::runtime_utils::alice_account;
+    #[cfg(feature = "protocol_feature_evm")]
+    use testlib::standard_evm_cases::*;
     use testlib::standard_test_cases::*;
     use testlib::test_helpers::heavy_test;
 
@@ -197,6 +199,7 @@ mod test {
         run_testnet_test!(test_access_key_smart_contract);
     }
 
+    #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_evm_deploy_call_testnet() {
         run_testnet_test!(test_evm_deploy_call);

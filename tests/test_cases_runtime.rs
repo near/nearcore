@@ -5,10 +5,9 @@ mod test {
     use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
-    use testlib::standard_test_cases::*;
-
     #[cfg(feature = "protocol_feature_evm")]
-    use testlib::standard_evm_cases::{test_evm_deploy_call, test_sub_evm};
+    use testlib::standard_evm_cases::*;
+    use testlib::standard_test_cases::*;
 
     fn create_runtime_node() -> RuntimeNode {
         RuntimeNode::new(&alice_account())
