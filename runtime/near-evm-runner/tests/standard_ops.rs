@@ -91,6 +91,7 @@ fn test_deploy_with_nonce() {
 }
 
 #[test]
+#[ignore]
 fn test_failed_deploy_returns_error() {
     let (mut fake_external, vm_config, fees_config) = setup();
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);

@@ -4,7 +4,10 @@ use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
 use ethereum_types::U256;
 use near_evm_runner::types::WithdrawArgs;
-use near_evm_runner::utils::{address_to_vec, near_account_id_to_evm_address, u256_to_arr};
+use near_evm_runner::utils::{
+    address_from_arr, address_to_vec, encode_call_function_args, encode_view_call_function_args,
+    near_account_id_to_evm_address, u256_to_arr,
+};
 
 use_contract!(cryptozombies, "../../runtime/near-evm-runner/tests/build/zombieAttack.abi");
 
@@ -25,7 +28,8 @@ pub fn test_evm_deploy_call(node: impl Node) {
     assert_eq!(result.result, u256_to_arr(&U256::from(10)).to_vec());
 
     let (input, _decoder) = cryptozombies::functions::create_random_zombie::call("test");
-    let args = vec![contract_id.clone(), input].concat();
+    let contract_id = address_from_arr(&contract_id);
+    let args = encode_call_function_args(contract_id, input);
     assert_eq!(
         node_user
             .function_call(alice_account(), evm_account(), "call", args, 10u64.pow(14), 0)
@@ -36,13 +40,12 @@ pub fn test_evm_deploy_call(node: impl Node) {
         Vec::<u8>::new()
     );
 
-    let alice =
-        address_to_vec(&near_evm_runner::utils::near_account_id_to_evm_address(&alice_account()));
+    let alice_address = near_evm_runner::utils::near_account_id_to_evm_address(&alice_account());
     let (input, _decoder) = cryptozombies::functions::get_zombies_by_owner::call(
         near_evm_runner::utils::near_account_id_to_evm_address(&alice_account()),
     );
     // sender, to, attached amount, args
-    let args = vec![alice.clone(), contract_id.clone(), vec![0u8; 32], input].concat();
+    let args = encode_view_call_function_args(alice_address, contract_id, U256::zero(), input);
     let bytes = node_user
         .function_call(alice_account(), evm_account(), "view", args.clone(), 10u64.pow(14), 0)
         .unwrap()
@@ -57,16 +60,15 @@ pub fn test_evm_deploy_call(node: impl Node) {
         cryptozombies::functions::get_zombies_by_owner::decode_output(&result.result).unwrap();
     assert_eq!(res, vec![U256::from(0)]);
 
-    let result = node_user.view_call(&evm_account(), "get_balance", &contract_id).unwrap();
+    let result = node_user.view_call(&evm_account(), "get_balance", &contract_id.0).unwrap();
     assert_eq!(U256::from_big_endian(&result.result), U256::from(10));
 
-    let alice_address = near_account_id_to_evm_address(&alice_account()).0;
     assert!(node_user
         .function_call(
             alice_account(),
             evm_account(),
             "deposit",
-            alice_address.to_vec(),
+            alice_address.0.to_vec(),
             10u64.pow(14),
             1000,
         )
@@ -75,7 +77,7 @@ pub fn test_evm_deploy_call(node: impl Node) {
         .as_success()
         .is_some());
 
-    let result = node_user.view_call(&evm_account(), "get_balance", &alice_address).unwrap();
+    let result = node_user.view_call(&evm_account(), "get_balance", &alice_address.0).unwrap();
     assert_eq!(U256::from_big_endian(&result.result), U256::from(1000));
 
     let result = node_user
