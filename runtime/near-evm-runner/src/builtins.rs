@@ -145,9 +145,7 @@ pub trait Impl: Send + Sync {
     /// execute this built-in on the given input, writing to the given output.
     fn execute(&self, input: &[u8], output: &mut BytesRef) -> Result<(), Error>;
     // how many evm gas will cost
-    fn gas(&self, _input: &[u8], _evm_gas_config: &EvmPrecompileCostConfig) -> U256 {
-        0.into()
-    }
+    fn gas(&self, _input: &[u8], _evm_gas_config: &EvmPrecompileCostConfig) -> U256;
 }
 
 impl Impl for Identity {
