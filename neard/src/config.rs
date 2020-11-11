@@ -833,6 +833,8 @@ pub fn init_configs(
                 CryptoHash::default(),
             );
             #[cfg(feature = "protocol_feature_evm")]
+            // EVM account is created here only for new generated genesis
+            // For existing network, evm account has to be created with linkdrop
             add_account_with_key(
                 &mut records,
                 "evm",

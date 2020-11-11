@@ -13,7 +13,7 @@ use log::{debug, error, info, warn};
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
-use near_chain_configs::{Genesis, GenesisConfig};
+use near_chain_configs::{Genesis, GenesisConfig, MAINNET_EVM_CHAIN_ID, TEST_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -1372,7 +1372,11 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     #[cfg(feature = "protocol_feature_evm")]
     fn evm_chain_id(&self) -> u128 {
-        self.genesis_config.evm_chain_id
+        /// ID of the EVM chain: https://github.com/ethereum-lists/chains
+        match self.genesis_config.chain_id.as_str() {
+            "mainnet" => MAINNET_EVM_CHAIN_ID,
+            _ => TEST_EVM_CHAIN_ID,
+        }
     }
 
     #[cfg(not(feature = "protocol_feature_evm"))]
