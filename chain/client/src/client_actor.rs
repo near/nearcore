@@ -545,7 +545,7 @@ impl Handler<Status> for ClientActor {
             }
 
             if self.client.sync_status.is_syncing() {
-                return Err("Not healthy. Syncing!".to_string());
+                return Err("Node is syncing.".to_string());
             }
         }
         let validators = self
