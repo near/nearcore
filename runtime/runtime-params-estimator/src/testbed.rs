@@ -12,6 +12,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, ColState, ShardTries};
 use near_vm_logic::VMLimitConfig;
 use neard::get_store_path;
+use node_runtime::cache::StoreCompiledContractCache;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
 use std::sync::Arc;
@@ -88,6 +89,7 @@ impl RuntimeTestbed {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
+            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
         };
         Self {
             workdir,

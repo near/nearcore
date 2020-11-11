@@ -29,4 +29,10 @@ lazy_static! {
             "http_status_requests_total",
             "Total count of HTTP Status requests received"
         );
+    pub static ref RPC_ERROR_COUNT: near_metrics::Result<IntCounterVec> =
+        near_metrics::try_create_int_counter_vec(
+            "rpc_error_count",
+            "Total count of errors by method and message",
+            &["method", "err_code"]
+        );
 }
