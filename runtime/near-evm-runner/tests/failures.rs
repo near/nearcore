@@ -22,7 +22,8 @@ fn test_invalid_input() {
 
 #[test]
 fn test_invalid_view_args() {
-    let args = vec![vec![1u8; 20], vec![2u8; 20], vec![0u8; 32], vec![1]].concat();
+    let args = vec![vec![1u8; 20], vec![2u8; 20], vec![0u8; 32], vec![1u8, 0u8, 0u8, 0u8], vec![1]]
+        .concat();
     let (mut fake_external, vm_config, fees_config) = setup();
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     assert_eq!(
