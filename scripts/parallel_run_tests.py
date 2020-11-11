@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import logging
 import os
 
 from testlib import clean_binary_tests, build_tests, test_binaries, workers, run_test, run_doc_tests
@@ -25,7 +26,7 @@ if __name__ == "__main__":
           ("enabled!" if args.nightly else "disabled!"))
 
     clean_binary_tests()
-    run_doc_tests(args.nightly)
+    #run_doc_tests(args.nightly)
     build_tests(args.nightly)
     binaries = test_binaries(
         exclude=[r'test_regression-.*', r'near_rpc_error_macro-.*'])
@@ -43,6 +44,8 @@ if __name__ == "__main__":
             binary_full_name = future_to_binary[future]
             binary = os.path.basename(binary_full_name)
             result = future.result()
+            logging.info(result)
+            exit(1)
             if result[0] != 0:
                 fails.append((binary_full_name, result))
             else:

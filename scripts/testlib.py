@@ -72,7 +72,7 @@ def test_binaries(exclude=None):
     return binaries
 
 
-def run_test(test_binary, isolate=True):
+def run_test(test_binary, isolate=False):
     """ Run a single test, save exitcode, stdout and stderr """
     if isolate:
         cmd = [
