@@ -70,7 +70,7 @@ pub fn random_config() -> RuntimeConfig {
                         base: rng.next_u64() % 1000,
                         word: rng.next_u64() % 1000,
                     },
-                    modexp_cost: EvmModexpCost { divisor: rng.next_u64() % 1000 },
+                    modexp_cost: EvmModexpCost { divisor: rng.next_u64() % 1000 + 1 },
                     bn128_add_cost: EvmBls12ConstOpCost { price: rng.next_u64() % 1000 },
                     bn128_mul_cost: EvmBls12ConstOpCost { price: rng.next_u64() % 1000 },
                     bn128_pairing_cost: EvmBn128PairingCost {

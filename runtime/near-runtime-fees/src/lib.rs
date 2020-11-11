@@ -368,7 +368,7 @@ impl RuntimeFeesConfig {
                     sha256_cost: EvmLinearCost { base: 0, word: 0 },
                     ripemd160_cost: EvmLinearCost { base: 0, word: 0 },
                     identity_cost: EvmLinearCost { base: 0, word: 0 },
-                    modexp_cost: EvmModexpCost { divisor: 0 },
+                    modexp_cost: EvmModexpCost { divisor: 1 },
                     bn128_add_cost: EvmBls12ConstOpCost { price: 0 },
                     bn128_mul_cost: EvmBls12ConstOpCost { price: 0 },
                     bn128_pairing_cost: EvmBn128PairingCost { base: 0, pair: 0 },
