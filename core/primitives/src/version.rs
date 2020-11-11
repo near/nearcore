@@ -64,13 +64,13 @@ impl ProtocolVersionRange {
     }
 }
 
-// New Protocol features should go here. Features are guarded by their corresponding feature flag.
-// For example, if we have `ProtocolFeature::EVM` and a corresponding feature flag `evm`, it will look
-// like
-// ```
-// #[cfg(feature = "protocol_feature_evm")]
-// EVM code
-// ```
+/// New Protocol features should go here. Features are guarded by their corresponding feature flag.
+/// For example, if we have `ProtocolFeature::EVM` and a corresponding feature flag `evm`, it will look
+/// like
+///
+/// #[cfg(feature = "protocol_feature_evm")]
+/// EVM code
+///
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
@@ -85,7 +85,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 40;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 41;
+pub const PROTOCOL_VERSION: ProtocolVersion = 42;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
@@ -112,7 +112,7 @@ lazy_static! {
             #[cfg(feature = "protocol_feature_forward_chunk_parts")]
             (ProtocolFeature::ForwardChunkParts, 41),
             #[cfg(feature = "protocol_feature_evm")]
-            (ProtocolFeature::EVM, 41),
+            (ProtocolFeature::EVM, 42),
         ]
         .into_iter()
         .collect();

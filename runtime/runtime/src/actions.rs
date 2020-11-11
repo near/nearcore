@@ -53,6 +53,9 @@ pub(crate) fn execute_function_call(
     if checked_feature!("protocol_feature_evm", EVM, runtime_ext.protocol_version())
         && is_account_evm(&account_id)
     {
+        #[cfg(not(feature = "protocol_feature_evm"))]
+        unreachable!();
+        #[cfg(feature = "protocol_feature_evm")]
         near_evm_runner::run_evm(
             runtime_ext,
             apply_state.evm_chain_id,

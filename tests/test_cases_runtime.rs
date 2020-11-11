@@ -5,6 +5,8 @@ mod test {
     use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
+    #[cfg(feature = "protocol_feature_evm")]
+    use testlib::standard_evm_cases::*;
     use testlib::standard_test_cases::*;
 
     fn create_runtime_node() -> RuntimeNode {
@@ -304,12 +306,14 @@ mod test {
         test_smart_contract_free(node);
     }
 
+    #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_evm_deploy_call_runtime() {
         let node = create_runtime_node();
         test_evm_deploy_call(node);
     }
 
+    #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_sub_evm_runtime() {
         let node = create_runtime_node();

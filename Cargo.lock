@@ -2801,6 +2801,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-runtime-configs",
+ "near-runtime-fees",
  "num-rational 0.2.4",
  "serde",
  "serde_json",
@@ -2887,7 +2888,7 @@ dependencies = [
  "rand_core 0.5.1",
  "serde",
  "serde_json",
- "sha2 0.8.1",
+ "sha2 0.9.2",
  "subtle 2.2.2",
  "thiserror",
 ]
@@ -2943,7 +2944,7 @@ dependencies = [
  "rlp",
  "serde",
  "serde_json",
- "sha2 0.8.1",
+ "sha2 0.9.2",
  "sha3",
  "vm",
 ]
@@ -3102,7 +3103,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "sha2 0.8.1",
+ "sha2 0.9.2",
  "smart-default",
  "validator",
  "validator_derive",
@@ -3255,7 +3256,7 @@ dependencies = [
  "near-vm-errors",
  "serde",
  "serde_json",
- "sha2 0.8.1",
+ "sha2 0.9.2",
  "sha3",
 ]
 

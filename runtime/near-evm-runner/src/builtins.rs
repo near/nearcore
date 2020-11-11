@@ -16,7 +16,6 @@ use near_runtime_fees::EvmPrecompileCostConfig;
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
 use parity_bytes::BytesRef;
-use ripemd160::Digest;
 use vm::{MessageCallResult, ReturnData};
 
 #[derive(Primitive)]
@@ -208,6 +207,7 @@ impl Impl for Sha256 {
 
 impl Impl for Ripemd160 {
     fn execute(&self, input: &[u8], output: &mut BytesRef) -> Result<(), Error> {
+        use ripemd160::Digest;
         let hash = ripemd160::Ripemd160::digest(input);
         output.write(0, &[0; 12][..]);
         output.write(12, &hash);

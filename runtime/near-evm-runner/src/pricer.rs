@@ -53,6 +53,7 @@ impl Pricer for Blake2FPricer {
 }
 
 /// Pricing model
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum Pricing {
     AltBn128Pairing(AltBn128PairingPricer),

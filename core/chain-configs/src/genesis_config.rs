@@ -22,11 +22,16 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_runtime_configs::RuntimeConfig;
+#[cfg(feature = "protocol_feature_evm")]
+use near_runtime_fees::{default_evm_deposit, EvmCostConfig};
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
 /// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
 pub const TEST_EVM_CHAIN_ID: u128 = 1313161555;
+
+/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161554.json
+pub const MAINNET_EVM_CHAIN_ID: u128 = 1313161554;
 
 fn default_online_min_threshold() -> Rational {
     Rational::new(90, 100)
@@ -44,10 +49,6 @@ fn default_protocol_upgrade_stake_threshold() -> Rational {
     Rational::new(8, 10)
 }
 
-fn default_evm_chain_id() -> u128 {
-    TEST_EVM_CHAIN_ID
-}
-
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
@@ -58,10 +59,6 @@ pub struct GenesisConfig {
     /// ID of the blockchain. This must be unique for every blockchain.
     /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
     pub chain_id: String,
-    /// ID of the EVM chain: https://github.com/ethereum-lists/chains
-    #[default(TEST_EVM_CHAIN_ID)]
-    #[serde(with = "u128_dec_format_compatible", default = "default_evm_chain_id")]
-    pub evm_chain_id: u128,
     /// Height of genesis block.
     pub genesis_height: BlockHeight,
     /// Number of block producer seats at genesis.
@@ -175,7 +172,16 @@ impl GenesisConfig {
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.")
+        #[allow(unused_mut)]
+        let mut genesis_config: GenesisConfig =
+            serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
+        #[cfg(feature = "protocol_feature_evm")]
+        {
+            genesis_config.runtime_config.transaction_costs.evm_config = EvmCostConfig::default();
+            genesis_config.runtime_config.transaction_costs.evm_deposit = default_evm_deposit();
+        }
+
+        genesis_config
     }
 
     /// Writes GenesisConfig to the file.

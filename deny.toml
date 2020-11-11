@@ -39,12 +39,14 @@ skip = [
     { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
     { name = "sha2", version = "=0.8.1" },
-    { name = "digest", version = "=0.8.1" },
     { name = "crypto-mac", version = "=0.7.0" },
     { name = "block-padding", version = "=0.1.5" },
     { name = "block-buffer", version = "=0.7.3" },
     { name = "opaque-debug", version = "=0.2.3" },
     { name = "generic-array", version = "=0.12.3" },
+
+    # `sha2` uses it
+    { name = "cfg-if", version = "=1.0.0" },
 
     # rosetta-rpc pull paperclip which introduce the following duplicates (https://github.com/wafflespeanut/paperclip/pull/209)
     { name = "url", version = "=1.7.2" },
@@ -58,22 +60,17 @@ skip = [
     { name = "uint", version = "=0.7.1" },
     { name = "syn", version = "=0.15.44" },
     { name = "static_assertions", version = "=0.2.5" },
-    { name = "parking_lot", version = "=0.7.1" },
-    { name = "parking_lot_core", version = "=0.4.0" },
-    { name = "lock_api", version = "=0.1.5" },
+    { name = "parking_lot", version = "=0.11.0" },
+    { name = "parking_lot_core", version = "=0.6.2" },
     { name = "smallvec", version = "=0.6.13" },
-    { name = "scopeguard", version = "=0.3.3" },
     { name = "rustc-hex", version = "=1.0.0" },
     { name = "rand", version = "=0.5.6" },
     { name = "quote", version = "=0.6.13" },
     { name = "proc-macro2", version = "=0.4.30" },
     { name = "primitive-types", version = "=0.3.0" },
-    { name = "opaque-debug", version = "=0.2.3" },
     { name = "num-bigint", version = "=0.2.6" },
-    { name = "generic-array", version = "=0.12.3" },
     { name = "fixed-hash", version = "=0.3.2" },
     { name = "elastic-array", version = "=0.10.3" },
     { name = "digest", version = "=0.8.1" },
     { name = "arrayvec", version = "=0.4.12" },
-    { name = "block-buffer", version = "=0.7.3" },
 ]

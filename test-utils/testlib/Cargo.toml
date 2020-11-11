@@ -34,7 +34,6 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
-near-evm-runner = { path = "../../runtime/near-evm-runner" }
 near-chain = { path = "../../chain/chain" }
 near-client = { path = "../../chain/client" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
@@ -42,3 +41,8 @@ near-network = { path = "../../chain/network" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 neard = { path = "../../neard" }
+near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
+
+[features]
+default = []
+protocol_feature_evm = ["near-evm-runner", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm"]
