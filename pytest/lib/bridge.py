@@ -47,24 +47,28 @@ class GanacheNode(Cleanable):
         self.pid = multiprocessing.Value('i', 0)
         self.config = config
         # TODO fix path
-        ganache = os.path.join('lib', self.config['ganache'])
-        if not os.path.exists(ganache):
+        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        ganache_bin = os.path.join(bridge_dir, self.config['ganache_bin'])
+        if not os.path.exists(ganache_bin):
             self.build()
         atexit.register(atexit_cleanup, self)
 
     def build(self):
-        os.system('cd ganache && yarn')
+        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        ganache_dir = os.path.join(bridge_dir, self.config['ganache_dir'])
+        os.system('cd %s && yarn' % (ganache_dir))
 
     def start(self):
         # TODO fix path
-        ganache = os.path.join('lib', self.config['ganache'])
+        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        ganache_bin = os.path.join(bridge_dir, self.config['ganache_bin'])
         config_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['config_dir'])))
         # TODO fix logs
         self.stdout = open(os.path.join(config_dir, 'logs/ganache/out.log'), 'w')
         self.stderr = open(os.path.join(config_dir, 'logs/ganache/err.log'), 'w')
         # TODO use blockTime
         # TODO set params
-        self.pid.value = subprocess.Popen([ganache,'--port','9545','--blockTime','12','--gasLimit','10000000','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200,10000000000000000000000000000"','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201,10000000000000000000000000000"','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501202,10000000000000000000000000000"'], stdout=self.stdout, stderr=self.stderr).pid
+        self.pid.value = subprocess.Popen([ganache_bin,'--port','9545','--blockTime','12','--gasLimit','10000000','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200,10000000000000000000000000000"','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201,10000000000000000000000000000"','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501202,10000000000000000000000000000"'], stdout=self.stdout, stderr=self.stderr).pid
 
 
 class Near2EthBlockRelay(Cleanable):
@@ -251,7 +255,8 @@ DEFAULT_CONFIG = {
     'bridge_dir': '~/.rainbow-bridge',
     #'bridge_dir': '~/near/rainbow-bridge',
     'config_dir': '~/.rainbow',
-    'ganache': 'ganache/node_modules/.bin/ganache-cli',
+    'ganache_dir': 'testing/vendor/ganache',
+    'ganache_bin': 'testing/vendor/ganache/node_modules/.bin/ganache-cli',
 }
 
 def load_config():
