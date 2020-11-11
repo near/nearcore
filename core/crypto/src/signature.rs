@@ -6,6 +6,7 @@ use std::io::{Error, ErrorKind, Write};
 use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use ed25519_dalek::ed25519::signature::{Signature as _, Signer as _, Verifier as _};
 use lazy_static::lazy_static;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};

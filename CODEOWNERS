@@ -5,12 +5,12 @@
 /chain/indexer/ @khorolets @frol
 /chain/rosetta-rpc/ @frol
 
-/runtime/ @evgenykuzyakov @chain-police
+/runtime/ @evgenykuzyakov
 /runtime/runtime-params-estimator/ @olonho @willemneal
 /runtime/near-vm-runner/ @olonho @ailisp
 
-/genesis-tools/ @nearmax
-/tools/rpctypegen/ @chain-police
+/genesis-tools/ @evgenykuzyakov @ailisp
+/tools/rpctypegen/ @frol
 /tools/indexer/ @khorolets @frol
 
 /core/  @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex

@@ -156,6 +156,7 @@ impl TrieViewer {
                 &RuntimeFeesConfig::default(),
                 &[],
                 current_protocol_version,
+                None,
             )
         };
         let elapsed = now.elapsed();

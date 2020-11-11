@@ -31,7 +31,7 @@ use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_configs::AccountCreationConfig;
-use near_vm_errors::{CompilationError, FunctionCallError};
+use near_vm_errors::{CacheError, CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
 pub(crate) fn get_code_with_cache(
@@ -60,6 +60,11 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
+    // TODO: maybe we don't need it in such a way.
+    let cache = match &apply_state.cache {
+        Some(cache) => Some((*cache).as_ref()),
+        None => None,
+    };
     let code = match get_code_with_cache(state_update, account_id, &account) {
         Ok(Some(code)) => code,
         Ok(None) => {
@@ -137,6 +142,7 @@ pub(crate) fn action_function_call(
         &config.transaction_costs,
         promise_results,
         apply_state.current_protocol_version,
+        cache,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {
@@ -153,6 +159,15 @@ pub(crate) fn action_function_call(
         }
         Some(VMError::InconsistentStateError(err)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
+        }
+        Some(VMError::CacheError(err)) => {
+            let message = match err {
+                CacheError::DeserializationError => "Cache deserialization error",
+                CacheError::SerializationError { hash: _hash } => "Cache serialization error",
+                CacheError::ReadError => "Cache read error",
+                CacheError::WriteError => "Cache write error",
+            };
+            return Err(StorageError::StorageInconsistentState(message.to_string()).into());
         }
         None => true,
     };

@@ -13,6 +13,7 @@ sys.path.append('lib')
 
 from cluster import init_cluster, spin_up_node, load_config
 from utils import TxContext, LogTracker
+from messages.block import ShardChunkHeaderV1, ShardChunkHeaderV2
 from transaction import sign_staking_tx
 from proxy import ProxyHandler, NodesProxy
 
@@ -38,6 +39,17 @@ class Handler(ProxyHandler):
                 height = header.inner.height_created
                 shard_id = header.inner.shard_id
                 hash_ = header.chunk_hash()
+                hash_to_metadata[hash_] = (height, shard_id)
+            
+            if msg_kind == 'VersionedPartialEncodedChunk':
+                header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header()
+                height = header.height_created
+                shard_id = header.shard_id
+                header_version = msg.Routed.body.VersionedPartialEncodedChunk.header_version()
+                if header_version == 'V1':
+                    hash_ = ShardChunkHeaderV1.chunk_hash(header)
+                elif header_version == 'V2':
+                    hash_ = ShardChunkHeaderV2.chunk_hash(header)
                 hash_to_metadata[hash_] = (height, shard_id)
 
             if msg_kind == 'PartialEncodedChunkRequest':

@@ -3,7 +3,9 @@ extern crate lazy_static;
 
 use std::fs::File;
 use std::io::{Read, Write};
+use std::ops::Deref;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::{fmt, io};
 
@@ -24,24 +26,25 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, StateRoot};
 
 pub use crate::db::refcount::decode_value_with_rc;
 use crate::db::refcount::encode_value_with_rc;
-use crate::db::{DBOp, DBTransaction, Database, RocksDB};
+use crate::db::{
+    DBOp, DBTransaction, Database, RocksDB, GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
+};
 pub use crate::trie::{
     iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
     update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, ShardTries, Trie, TrieChanges,
     WrappedTrieChanges,
 };
-use std::ops::Deref;
-use std::pin::Pin;
 
 mod db;
 pub mod migrations;
 pub mod test_utils;
 mod trie;
 
+#[derive(Clone)]
 pub struct Store {
     storage: Pin<Arc<dyn Database>>,
 }
@@ -142,7 +145,7 @@ impl Store {
         self.storage.write(transaction).map_err(|e| e.into())
     }
 
-    pub(crate) fn get_rocksdb(&self) -> Option<&RocksDB> {
+    pub fn get_rocksdb(&self) -> Option<&RocksDB> {
         self.storage.as_rocksdb()
     }
 }
@@ -464,4 +467,24 @@ pub fn remove_account(
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }
     Ok(())
+}
+
+pub fn get_genesis_state_roots(store: &Store) -> Result<Option<Vec<StateRoot>>, std::io::Error> {
+    store.get_ser::<Vec<StateRoot>>(DBCol::ColBlockMisc, GENESIS_STATE_ROOTS_KEY)
+}
+
+pub fn get_genesis_hash(store: &Store) -> Result<Option<CryptoHash>, std::io::Error> {
+    store.get_ser::<CryptoHash>(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY)
+}
+
+pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHash) {
+    store_update
+        .set_ser::<CryptoHash>(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY, genesis_hash)
+        .expect("Borsh cannot fail");
+}
+
+pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &Vec<StateRoot>) {
+    store_update
+        .set_ser::<Vec<StateRoot>>(DBCol::ColBlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .expect("Borsh cannot fail");
 }
