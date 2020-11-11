@@ -1371,8 +1371,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     #[cfg(feature = "protocol_feature_evm")]
+    /// ID of the EVM chain: https://github.com/ethereum-lists/chains
     fn evm_chain_id(&self) -> u128 {
-        /// ID of the EVM chain: https://github.com/ethereum-lists/chains
         match self.genesis_config.chain_id.as_str() {
             "mainnet" => MAINNET_EVM_CHAIN_ID,
             _ => TEST_EVM_CHAIN_ID,

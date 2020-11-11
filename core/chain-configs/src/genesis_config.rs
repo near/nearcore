@@ -49,11 +49,6 @@ fn default_protocol_upgrade_stake_threshold() -> Rational {
     Rational::new(8, 10)
 }
 
-#[cfg(feature = "protocol_feature_evm")]
-fn default_evm_chain_id() -> u128 {
-    TEST_EVM_CHAIN_ID
-}
-
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
