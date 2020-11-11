@@ -7,6 +7,7 @@ use near_crypto::{KeyType, PublicKey, Signature};
 use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
+use crate::network::PeerId;
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, ValidatorStake};
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
@@ -119,6 +120,13 @@ pub struct Approval {
     pub target_height: BlockHeight,
     pub signature: Signature,
     pub account_id: AccountId,
+}
+
+/// The type of approvals. It is either approval from self or from a peer
+#[derive(PartialEq, Eq, Debug)]
+pub enum ApprovalType {
+    SelfApproval,
+    PeerApproval(PeerId),
 }
 
 /// Block approval by other block producers.
@@ -428,6 +436,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn hash(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.hash,
@@ -435,6 +444,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn prev_hash(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.prev_hash,
@@ -442,6 +452,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn signature(&self) -> &Signature {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.signature,
@@ -449,6 +460,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn height(&self) -> BlockHeight {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_lite.height,
@@ -456,6 +468,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn epoch_id(&self) -> &EpochId {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.epoch_id,
@@ -463,6 +476,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn next_epoch_id(&self) -> &EpochId {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.next_epoch_id,
@@ -470,6 +484,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn prev_state_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.prev_state_root,
@@ -477,6 +492,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn chunk_receipts_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_receipts_root,
@@ -484,6 +500,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn chunk_headers_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_headers_root,
@@ -491,6 +508,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn chunk_tx_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_tx_root,
@@ -507,6 +525,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn challenges_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_root,
@@ -514,6 +533,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn outcome_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.outcome_root,
@@ -521,6 +541,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn raw_timestamp(&self) -> u64 {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_lite.timestamp,
@@ -528,6 +549,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn validator_proposals(&self) -> &[ValidatorStake] {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.validator_proposals,
@@ -535,6 +557,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn chunk_mask(&self) -> &[bool] {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_mask,
@@ -542,6 +565,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn gas_price(&self) -> Balance {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.gas_price,
@@ -549,6 +573,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn total_supply(&self) -> Balance {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.total_supply,
@@ -556,6 +581,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn random_value(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.random_value,
@@ -563,6 +589,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn last_final_block(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.last_final_block,
@@ -570,6 +597,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn last_ds_final_block(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.last_ds_final_block,
@@ -577,6 +605,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn challenges_result(&self) -> &ChallengesResult {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_result,
@@ -584,6 +613,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn next_bp_hash(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.next_bp_hash,
@@ -591,6 +621,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn block_merkle_root(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.block_merkle_root,
@@ -598,6 +629,7 @@ impl BlockHeader {
         }
     }
 
+    #[inline]
     pub fn approvals(&self) -> &[Option<Signature>] {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.approvals,
@@ -618,6 +650,7 @@ impl BlockHeader {
         self.approvals().iter().filter(|x| x.is_some()).count() as u64
     }
 
+    #[inline]
     pub fn latest_protocol_version(&self) -> u32 {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.latest_protocol_version,

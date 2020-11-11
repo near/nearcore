@@ -9,7 +9,7 @@ use crate::block::{Approval, ApprovalInner, BlockHeader};
 use crate::challenge::ChallengeBody;
 use crate::hash::{hash, CryptoHash};
 use crate::network::{AnnounceAccount, PeerId};
-use crate::sharding::{ChunkHash, ShardChunkHeaderInner};
+use crate::sharding::ChunkHash;
 use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 
@@ -33,10 +33,7 @@ pub trait ValidatorSigner: Sync + Send {
     ) -> (CryptoHash, Signature);
 
     /// Signs given inner of the chunk header.
-    fn sign_chunk_header_inner(
-        &self,
-        chunk_header_inner: &ShardChunkHeaderInner,
-    ) -> (ChunkHash, Signature);
+    fn sign_chunk_hash(&self, chunk_hash: &ChunkHash) -> Signature;
 
     /// Signs approval of given parent hash and reference hash.
     fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature;
@@ -91,12 +88,8 @@ impl ValidatorSigner for EmptyValidatorSigner {
         (hash, Signature::default())
     }
 
-    fn sign_chunk_header_inner(
-        &self,
-        chunk_header_inner: &ShardChunkHeaderInner,
-    ) -> (ChunkHash, Signature) {
-        let hash = ChunkHash(hash(&chunk_header_inner.try_to_vec().expect("Failed to serialize")));
-        (hash, Signature::default())
+    fn sign_chunk_hash(&self, _chunk_hash: &ChunkHash) -> Signature {
+        Signature::default()
     }
 
     fn sign_approval(&self, _inner: &ApprovalInner, _target_height: BlockHeight) -> Signature {
@@ -187,13 +180,8 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         (hash, self.signer.sign(hash.as_ref()))
     }
 
-    fn sign_chunk_header_inner(
-        &self,
-        chunk_header_inner: &ShardChunkHeaderInner,
-    ) -> (ChunkHash, Signature) {
-        let hash = ChunkHash(hash(&chunk_header_inner.try_to_vec().expect("Failed to serialize")));
-        let signature = self.signer.sign(hash.as_ref());
-        (hash, signature)
+    fn sign_chunk_hash(&self, chunk_hash: &ChunkHash) -> Signature {
+        self.signer.sign(chunk_hash.as_ref())
     }
 
     fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature {

@@ -3,6 +3,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from utils import LogTracker
 
 valid_blocks_only = False  # creating invalid blocks, should be banned instantly
 if "valid_blocks_only" in sys.argv:
@@ -34,6 +35,7 @@ print("Got to %s blocks, getting to fun stuff" % BLOCKS)
 status = nodes[1].get_status()
 print(status)
 
+tracker0 = LogTracker(nodes[0])
 res = nodes[1].json_rpc('adv_produce_blocks',
                         [MALICIOUS_BLOCKS, valid_blocks_only])
 assert 'result' in res, res
@@ -45,5 +47,7 @@ print(status)
 height = status['sync_info']['latest_block_height']
 
 assert height < 40
+
+assert tracker0.check("Banned(BadBlockHeader)")
 
 print("Epic")

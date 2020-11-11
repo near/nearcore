@@ -162,7 +162,9 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             }
         }
         // Compute storage usage and update accounts.
-        for (account_id, storage_usage) in runtime.runtime.compute_storage_usage(&records) {
+        for (account_id, storage_usage) in
+            runtime.runtime.compute_storage_usage(&records, &runtime.apply_state.config)
+        {
             let mut account = get_account(&state_update, &account_id)
                 .expect("Genesis storage error")
                 .expect("Account must exist");

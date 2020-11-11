@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import argparse
 import os
+
 from testlib import clean_binary_tests, build_tests, test_binaries, workers, run_test, run_doc_tests
 from concurrent.futures import as_completed, ThreadPoolExecutor
 
@@ -15,9 +17,16 @@ def show_test_result(binary, result):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--nightly', action='store_const', const=True)
+    args = parser.parse_args()
+
+    print("Running the tests with nightly build flags " +
+          ("enabled!" if args.nightly else "disabled!"))
+
     clean_binary_tests()
-    run_doc_tests()
-    build_tests()
+    run_doc_tests(args.nightly)
+    build_tests(args.nightly)
     binaries = test_binaries(
         exclude=[r'test_regression-.*', r'near_rpc_error_macro-.*'])
     print(f'========= collected {len(binaries)} test binaries:')

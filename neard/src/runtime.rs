@@ -8,7 +8,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
@@ -24,7 +24,7 @@ use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::trie_key_parsers;
@@ -38,9 +38,11 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, ColState, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges,
+    get_access_key_raw, get_genesis_hash, get_genesis_state_roots, set_genesis_hash,
+    set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::cache::StoreCompiledContractCache;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
@@ -48,6 +50,7 @@ use node_runtime::{
 };
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_runtime_configs::RuntimeConfig;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -113,6 +116,7 @@ impl EpochInfoProvider for SafeEpochManager {
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
+    genesis_runtime_config: Arc<RuntimeConfig>,
 
     store: Arc<Store>,
     tries: ShardTries,
@@ -131,9 +135,10 @@ impl NightshadeRuntime {
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
     ) -> Self {
-        let runtime = Runtime::new(genesis.config.runtime_config.clone());
+        let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new();
         let genesis_config = genesis.config.clone();
+        let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
         let initial_epoch_config = EpochConfig {
             epoch_length: genesis.config.epoch_length,
@@ -165,7 +170,12 @@ impl NightshadeRuntime {
             online_max_threshold: genesis.config.online_max_threshold,
             online_min_threshold: genesis.config.online_min_threshold,
         };
-        let (store, tries, state_roots) = Self::initialize_genesis_state(store, home_dir, genesis);
+        let state_roots =
+            Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
+        let tries = ShardTries::new(
+            store.clone(),
+            genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
+        );
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
                 store.clone(),
@@ -197,6 +207,7 @@ impl NightshadeRuntime {
         );
         NightshadeRuntime {
             genesis_config,
+            genesis_runtime_config,
             store,
             tries,
             runtime,
@@ -216,7 +227,8 @@ impl NightshadeRuntime {
         epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height).map_err(Error::from)
     }
 
-    fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> (Arc<Store>, Vec<StateRoot>) {
+    fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
+        error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
         let mut state_file = home_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
         store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
@@ -227,21 +239,18 @@ impl NightshadeRuntime {
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
         let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        (store, state_roots)
+        state_roots
     }
 
-    fn genesis_state_from_records(
-        store: Arc<Store>,
-        genesis: &Genesis,
-    ) -> (Arc<Store>, ShardTries, Vec<StateRoot>) {
+    fn genesis_state_from_records(store: Arc<Store>, genesis: &Genesis) -> Vec<StateRoot> {
+        info!(target: "runtime", "Genesis state has {} records, computing state roots", genesis.records.0.len());
         let mut store_update = store.store_update();
         let mut state_roots = vec![];
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
-        let mut shard_records: Vec<Vec<StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
+        let mut shard_records: Vec<Vec<&StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
         let mut has_protocol_account = false;
         for record in genesis.records.as_ref() {
-            shard_records[state_record_to_shard_id(record, num_shards) as usize]
-                .push(record.clone());
+            shard_records[state_record_to_shard_id(record, num_shards) as usize].push(record);
             if let StateRecord::Account { account_id, .. } = record {
                 if account_id == &genesis.config.protocol_treasury_account {
                     has_protocol_account = true;
@@ -250,7 +259,7 @@ impl NightshadeRuntime {
         }
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
         let tries = ShardTries::new(store.clone(), num_shards);
-        let runtime = Runtime::new(genesis.config.runtime_config.clone());
+        let runtime = Runtime::new();
         for shard_id in 0..num_shards {
             let validators = genesis
                 .config
@@ -273,19 +282,49 @@ impl NightshadeRuntime {
                 shard_id,
                 &validators,
                 &shard_records[shard_id as usize],
+                &genesis.config.runtime_config,
             );
             store_update.merge(shard_store_update);
             state_roots.push(state_root);
         }
         store_update.commit().expect("Store update failed on genesis intialization");
-        (store, tries, state_roots)
+        state_roots
     }
 
-    fn initialize_genesis_state(
+    /// On first start: compute state roots, load genesis state into storage.
+    /// After that: return genesis state roots. The state is not guaranteed to be in storage, as
+    /// GC and state sync are allowed to delete it.
+    pub fn initialize_genesis_state_if_needed(
         store: Arc<Store>,
         home_dir: &Path,
         genesis: &Genesis,
-    ) -> (Arc<Store>, ShardTries, Vec<StateRoot>) {
+    ) -> Vec<StateRoot> {
+        let genesis_hash = genesis.json_hash();
+        let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
+        if let Some(hash) = stored_hash {
+            assert_eq!(
+                hash,
+                genesis.json_hash(),
+                "Storage already exists, but has a different genesis"
+            );
+            get_genesis_state_roots(&store)
+                .expect("Store failed on genesis intialization")
+                .expect("Genesis state roots not found in storage")
+        } else {
+            let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
+            let mut store_update = store.store_update();
+            set_genesis_hash(&mut store_update, &genesis_hash);
+            set_genesis_state_roots(&mut store_update, &state_roots);
+            store_update.commit().expect("Store failed on genesis intialization");
+            state_roots
+        }
+    }
+
+    pub fn initialize_genesis_state(
+        store: Arc<Store>,
+        home_dir: &Path,
+        genesis: &Genesis,
+    ) -> Vec<StateRoot> {
         let has_records = !genesis.records.as_ref().is_empty();
         let has_dump = {
             let mut state_dump = home_dir.to_path_buf();
@@ -296,12 +335,8 @@ impl NightshadeRuntime {
             if has_records {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
-            let (store, state_roots) = Self::genesis_state_from_dump(store, home_dir);
-            let tries = ShardTries::new(
-                store.clone(),
-                genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
-            );
-            (store, tries, state_roots)
+            let state_roots = Self::genesis_state_from_dump(store, home_dir);
+            state_roots
         } else if has_records {
             Self::genesis_state_from_records(store, genesis)
         } else {
@@ -407,6 +442,11 @@ impl NightshadeRuntime {
             gas_limit: Some(gas_limit),
             random_seed,
             current_protocol_version,
+            config: RuntimeConfig::from_protocol_version(
+                &self.genesis_runtime_config,
+                current_protocol_version,
+            ),
+            cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
         };
 
         let apply_result = self
@@ -534,12 +574,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         verify_signature: bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
+        let runtime_config = RuntimeConfig::from_protocol_version(
+            &self.genesis_runtime_config,
+            current_protocol_version,
+        );
+
         if let Some(state_root) = state_root {
             let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
             let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
 
             match verify_and_charge_transaction(
-                &self.runtime.config,
+                &runtime_config,
                 &mut state_update,
                 gas_price,
                 &transaction,
@@ -559,7 +604,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             // Doing basic validation without a state root
             match validate_transaction(
-                &self.runtime.config,
+                &runtime_config,
                 gas_price,
                 &transaction,
                 verify_signature,
@@ -597,6 +642,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut transactions = vec![];
         let mut num_checked_transactions = 0;
 
+        let runtime_config = RuntimeConfig::from_protocol_version(
+            &self.genesis_runtime_config,
+            current_protocol_version,
+        );
+
         while total_gas_burnt < transactions_gas_limit {
             if let Some(iter) = pool_iterator.next() {
                 while let Some(tx) = iter.next() {
@@ -605,7 +655,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     if chain_validate(&tx) {
                         // Verifying the validity of the transaction based on the current state.
                         match verify_and_charge_transaction(
-                            &self.runtime.config,
+                            &runtime_config,
                             &mut state_update,
                             gas_price,
                             &tx,
@@ -693,19 +743,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
     }
 
-    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
-        let epoch_id = self.get_epoch_id_from_prev_block(&header.inner.prev_block_hash)?;
+    fn verify_chunk_signature_with_header_parts(
+        &self,
+        chunk_hash: &ChunkHash,
+        signature: &Signature,
+        prev_block_hash: &CryptoHash,
+        height_created: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<bool, Error> {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        if let Ok(chunk_producer) = epoch_manager.get_chunk_producer_info(
-            &epoch_id,
-            header.inner.height_created,
-            header.inner.shard_id,
-        ) {
-            let slashed = epoch_manager.get_slashed_validators(&header.inner.prev_block_hash)?;
+        if let Ok(chunk_producer) =
+            epoch_manager.get_chunk_producer_info(&epoch_id, height_created, shard_id)
+        {
+            let slashed = epoch_manager.get_slashed_validators(prev_block_hash)?;
             if slashed.contains_key(&chunk_producer.account_id) {
                 return Ok(false);
             }
-            Ok(header.signature.verify(header.chunk_hash().as_ref(), &chunk_producer.public_key))
+            Ok(signature.verify(chunk_hash.as_ref(), &chunk_producer.public_key))
         } else {
             Err(ErrorKind::NotAValidator.into())
         }
