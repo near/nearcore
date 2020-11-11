@@ -4,16 +4,20 @@ use std::{
     mem::size_of,
 };
 
+use crate::pricer::{
+    AltBn128PairingPrice, AltBn128PairingPricer, Bls12ConstOperations, Linear, ModexpPricer,
+    Pricer, Pricing,
+};
+use crate::utils::ecrecover_address;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
+
 use ethereum_types::{Address, U256};
-use near_runtime_fees::EvmCostConfig;
+use near_runtime_fees::EvmPrecompileCostConfig;
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
 use parity_bytes::BytesRef;
 use ripemd160::Digest;
 use vm::{MessageCallResult, ReturnData};
-
-use crate::utils::ecrecover_address;
 
 #[derive(Primitive)]
 enum Precompile {
@@ -52,7 +56,7 @@ pub fn process_precompile(
     addr: &Address,
     input: &[u8],
     gas: &U256,
-    evm_gas_config: &EvmCostConfig,
+    precompile_costs: &EvmPrecompileCostConfig,
 ) -> MessageCallResult {
     let f = match precompile(addr.to_low_u64_be()) {
         Ok(f) => f,
@@ -60,7 +64,7 @@ pub fn process_precompile(
     };
     let mut bytes = vec![];
     let mut output = parity_bytes::BytesRef::Flexible(&mut bytes);
-    let cost = f.gas(input, evm_gas_config);
+    let cost = f.gas(input, precompile_costs);
 
     if cost > *gas {
         return MessageCallResult::Failed;
@@ -140,9 +144,8 @@ pub struct Blake2FImpl;
 pub trait Impl: Send + Sync {
     /// execute this built-in on the given input, writing to the given output.
     fn execute(&self, input: &[u8], output: &mut BytesRef) -> Result<(), Error>;
-    fn gas(&self, _input: &[u8], _evm_gas_config: &EvmCostConfig) -> U256 {
-        0.into()
-    }
+    // how many evm gas will cost
+    fn gas(&self, _input: &[u8], _evm_gas_config: &EvmPrecompileCostConfig) -> U256;
 }
 
 impl Impl for Identity {
@@ -150,8 +153,12 @@ impl Impl for Identity {
         output.write(0, input);
         Ok(())
     }
-    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
-        evm_gas_config.identity_cost.into()
+    fn gas(&self, input: &[u8], precompile_costs: &EvmPrecompileCostConfig) -> U256 {
+        Pricing::Linear(Linear {
+            base: precompile_costs.identity_cost.base,
+            word: precompile_costs.identity_cost.word,
+        })
+        .cost(input)
     }
 }
 
@@ -173,8 +180,12 @@ impl Impl for EcRecover {
         Ok(())
     }
 
-    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
-        evm_gas_config.ecrecover_cost.into()
+    fn gas(&self, input: &[u8], precompile_costs: &EvmPrecompileCostConfig) -> U256 {
+        Pricing::Linear(Linear {
+            base: precompile_costs.ecrecover_cost.base,
+            word: precompile_costs.ecrecover_cost.word,
+        })
+        .cost(input)
     }
 }
 
@@ -186,8 +197,12 @@ impl Impl for Sha256 {
         Ok(())
     }
 
-    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
-        evm_gas_config.sha256_cost.into()
+    fn gas(&self, input: &[u8], precompile_costs: &EvmPrecompileCostConfig) -> U256 {
+        Pricing::Linear(Linear {
+            base: precompile_costs.sha256_cost.base,
+            word: precompile_costs.sha256_cost.word,
+        })
+        .cost(input)
     }
 }
 
@@ -199,8 +214,12 @@ impl Impl for Ripemd160 {
         Ok(())
     }
 
-    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
-        evm_gas_config.ripemd160_cost.into()
+    fn gas(&self, input: &[u8], precompile_costs: &EvmPrecompileCostConfig) -> U256 {
+        Pricing::Linear(Linear {
+            base: precompile_costs.ripemd160_cost.base,
+            word: precompile_costs.ripemd160_cost.word,
+        })
+        .cost(input)
     }
 }
 
@@ -311,8 +330,8 @@ impl Impl for ModexpImpl {
         Ok(())
     }
 
-    fn gas(&self, _input: &[u8], evm_gas_config: &EvmCostConfig) -> U256 {
-        evm_gas_config.modexp_cost.into()
+    fn gas(&self, input: &[u8], precompile_costs: &EvmPrecompileCostConfig) -> U256 {
+        Pricing::Modexp(ModexpPricer { divisor: precompile_costs.modexp_cost.divisor }).cost(input)
     }
 }
 
@@ -363,6 +382,13 @@ impl Impl for Bn128AddImpl {
 
         Ok(())
     }
+
+    fn gas(&self, input: &[u8], precompile_costs: &EvmPrecompileCostConfig) -> U256 {
+        Pricing::Bls12ConstOperations(Bls12ConstOperations {
+            price: precompile_costs.bn128_add_cost.price,
+        })
+        .cost(input)
+    }
 }
 
 impl Impl for Bn128MulImpl {
@@ -387,6 +413,13 @@ impl Impl for Bn128MulImpl {
         output.write(0, &write_buf);
         Ok(())
     }
+
+    fn gas(&self, input: &[u8], precompile_costs: &EvmPrecompileCostConfig) -> U256 {
+        Pricing::Bls12ConstOperations(Bls12ConstOperations {
+            price: precompile_costs.bn128_mul_cost.price,
+        })
+        .cost(input)
+    }
 }
 
 impl Impl for Bn128PairingImpl {
@@ -400,6 +433,16 @@ impl Impl for Bn128PairingImpl {
         }
 
         self.execute_with_error(input, output)
+    }
+
+    fn gas(&self, input: &[u8], precompile_costs: &EvmPrecompileCostConfig) -> U256 {
+        Pricing::AltBn128Pairing(AltBn128PairingPricer {
+            price: AltBn128PairingPrice {
+                base: precompile_costs.bn128_pairing_cost.base,
+                pair: precompile_costs.bn128_pairing_cost.pair,
+            },
+        })
+        .cost(input)
     }
 }
 
@@ -597,5 +640,9 @@ impl Impl for Blake2FImpl {
         }
         output.write(0, &output_buf[..]);
         Ok(())
+    }
+
+    fn gas(&self, input: &[u8], precompile_costs: &EvmPrecompileCostConfig) -> U256 {
+        Pricing::Blake2F(precompile_costs.blake2f_cost).cost(input)
     }
 }

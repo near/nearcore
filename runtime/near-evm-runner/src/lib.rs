@@ -25,6 +25,7 @@ mod builtins;
 mod evm_state;
 mod interpreter;
 mod near_ext;
+mod pricer;
 pub mod types;
 pub mod utils;
 

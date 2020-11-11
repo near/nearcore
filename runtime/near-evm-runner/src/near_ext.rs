@@ -192,7 +192,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 receive_address,
                 data,
                 gas,
-                &self.evm_gas_config,
+                &self.evm_gas_config.precompile_costs,
             ));
         }
 

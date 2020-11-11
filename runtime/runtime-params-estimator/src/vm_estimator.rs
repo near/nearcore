@@ -323,7 +323,6 @@ pub struct EvmPrecompiledFunctionCost {
 pub struct EvmCostCoef {
     pub deploy_cost: Coef2D,
     pub funcall_cost: Coef,
-    pub precompiled_function_cost: EvmPrecompiledFunctionCost,
 }
 
 pub fn measure_evm_deploy(
@@ -453,34 +452,6 @@ pub fn measure_evm_funcall(
     measurements_to_coef(measurements, true)
 }
 
-pub fn measure_evm_precompile_function(
-    config: &Config,
-    verbose: bool,
-    context: &mut EvmContext,
-    args: Vec<u8>,
-    test_name: &str,
-) -> EvmCost {
-    // adding action receipt etc is too big compare too evm precompile function itself and cause the error is bigger
-    // than evm precompile function cost, so measure this cost in evm context level to be precise
-    let gas_metric = config.metric;
-    let start = start_count(gas_metric);
-    let mut evm_gas = 0;
-    for i in 0..NUM_ITERATIONS {
-        if i == 0 {
-            evm_gas = context.evm_gas_counter.used_gas.as_u64();
-        } else if i == 1 {
-            evm_gas = context.evm_gas_counter.used_gas.as_u64() - evm_gas;
-        }
-        let _ = context.call_function(args.clone()).unwrap();
-    }
-    let end = end_count(gas_metric, &start);
-    let cost = Ratio::new(end, NUM_ITERATIONS);
-    if verbose {
-        println!("Testing call {}: ({}, {})", test_name, evm_gas, cost);
-    }
-    EvmCost { size: 0, evm_gas, cost }
-}
-
 pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
     config: &Config,
     verbose: bool,
@@ -590,124 +561,6 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
     EvmCost { evm_gas, size: 0, cost }
 }
 
-pub fn measure_evm_precompiled(config: &Config, verbose: bool) -> EvmPrecompiledFunctionCost {
-    let mut fake_external = MockedExternal::new();
-    let vm_config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
-
-    let mut context =
-        create_evm_context(&mut fake_external, &vm_config, &fees, "alice".to_string(), 0);
-    let precompiled_function_addr =
-        context.deploy_code(hex::decode(&PRECOMPILED_TEST).unwrap()).unwrap();
-
-    let measurements = vec![
-        measure_evm_precompile_function(
-            config,
-            verbose,
-            &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::noop::call().0,
-            ),
-            "noop()",
-        ),
-        measure_evm_precompile_function(
-            config,
-            verbose,
-            &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_ecrecover::call().0,
-            ),
-            "test_ecrecover()",
-        ),
-        measure_evm_precompile_function(
-            config,
-            verbose,
-            &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_sha256::call().0,
-            ),
-            "test_sha256()",
-        ),
-        measure_evm_precompile_function(
-            config,
-            verbose,
-            &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_sha256_100bytes::call().0,
-            ),
-            "test_sha256_100bytes()",
-        ),
-        measure_evm_precompile_function(
-            config,
-            verbose,
-            &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_ripemd160::call().0,
-            ),
-            "test_ripemd160()",
-        ),
-        measure_evm_precompile_function(
-            config,
-            verbose,
-            &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_ripemd160_1kb::call().0,
-            ),
-            "test_ripemd160_1kb()",
-        ),
-        measure_evm_precompile_function(
-            config,
-            verbose,
-            &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_identity::call().0,
-            ),
-            "test_identity()",
-        ),
-        measure_evm_precompile_function(
-            config,
-            verbose,
-            &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_identity_100bytes::call().0,
-            ),
-            "test_identity_100bytes()",
-        ),
-        measure_evm_precompile_function(
-            config,
-            verbose,
-            &mut context,
-            encode_call_function_args(
-                precompiled_function_addr,
-                precompiled_function::functions::test_mod_exp::call().0,
-            ),
-            "test_mod_exp()",
-        ),
-    ];
-
-    println!("measurements: {:?}", measurements);
-    let r = EvmPrecompiledFunctionCost {
-        ec_recover_cost: measurements[1].cost - measurements[0].cost,
-        sha256_cost: measurements[2].cost - measurements[0].cost,
-        sha256_cost_per_byte: (measurements[3].cost - measurements[2].cost) / 100,
-        ripemd160_cost: measurements[4].cost - measurements[0].cost,
-        ripemd160_cost_per_byte: (measurements[5].cost - measurements[4].cost) / 1024,
-        identity_cost: measurements[6].cost - measurements[0].cost,
-        identity_cost_per_byte: (measurements[7].cost - measurements[6].cost) / 100,
-        modexp_impl_cost: measurements[8].cost - measurements[0].cost,
-    };
-    println!("sha256_cost_per_byte {}", r.sha256_cost_per_byte);
-    r
-}
-
 pub fn near_cost_to_evm_gas(funcall_cost: Coef, cost: Ratio<u64>) -> u64 {
     return u64::try_from((cost / funcall_cost.0).to_integer()).unwrap();
 }
@@ -718,7 +571,6 @@ pub fn cost_of_evm(config: &Config, verbose: bool) -> EvmCostCoef {
     let evm_cost_config = EvmCostCoef {
         deploy_cost: measure_evm_deploy(config, verbose, testbed.clone(), nonces.clone()),
         funcall_cost: measure_evm_funcall(config, verbose, testbed.clone(), nonces.clone()),
-        precompiled_function_cost: measure_evm_precompiled(config, verbose),
     };
     evm_cost_config
 }
