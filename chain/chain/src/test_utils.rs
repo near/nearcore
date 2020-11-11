@@ -303,17 +303,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(header.verify_block_producer(&validator.public_key))
     }
 
-    fn partial_verify_orphan_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        if let Some(valset) = self.hash_to_valset.write().unwrap().get(header.epoch_id()) {
-            let valset = *valset as usize % self.validators.len();
-            let validators = &self.validators[valset];
-            let validator = &validators[(header.height() as usize) % validators.len()];
-            Ok(header.verify_block_producer(&validator.public_key))
-        } else {
-            self.verify_header_signature(header)
-        }
-    }
-
     fn verify_chunk_signature_with_header_parts(
         &self,
         _chunk_hash: &ChunkHash,

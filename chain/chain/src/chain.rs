@@ -2895,7 +2895,7 @@ impl<'a> ChainUpdate<'a> {
             // Not checked:
             // - Block producer could be slashed
             // - Chunk header signatures could be wrong
-            if !self.runtime_adapter.partial_verify_orphan_header_signature(&block.header())? {
+            if !self.partial_verify_orphan_header_signature(&block.header())? {
                 return Err(ErrorKind::InvalidSignature.into());
             }
             block.check_validity()?;
@@ -3595,6 +3595,22 @@ impl<'a> ChainUpdate<'a> {
             }
         }
         Ok(result)
+    }
+
+    /// Verify header signature when the epoch is known, but not the whole chain.
+    /// Same as verify_header_signature except it does not verify that block producer hasn't been slashed
+    fn partial_verify_orphan_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let block_producer =
+            self.runtime_adapter.get_block_producer(header.epoch_id(), header.height())?;
+        // DEVNOTE: we pass head which is not necessarily on block's chain, but it's only used for
+        // slashing info which we will ignore
+        let head = self.chain_store_update.head()?;
+        let (block_producer, _slashed) = self.runtime_adapter.get_validator_by_account_id(
+            header.epoch_id(),
+            &head.last_block_hash,
+            &block_producer,
+        )?;
+        Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
     }
 }
 

@@ -301,10 +301,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Verify header signature.
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 
-    /// Verify header signature when the epoch is known, but not the whole chain.
-    /// Same as verify_header_signature except it does not verify that block producer hasn't been slashed
-    fn partial_verify_orphan_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
-
     /// Verify chunk header signature.
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
         self.verify_chunk_signature_with_header_parts(
