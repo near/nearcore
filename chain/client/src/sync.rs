@@ -30,7 +30,7 @@ pub const MAX_BLOCK_HEADERS: u64 = 512;
 /// Maximum number of block header hashes to send as part of a locator.
 pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 
-const BLOCK_REQUEST_TIMEOUT: i64 = 6;
+const BLOCK_REQUEST_TIMEOUT: i64 = 2;
 
 /// Sync state download timeout in seconds.
 pub const STATE_SYNC_TIMEOUT: i64 = 10;
@@ -353,10 +353,10 @@ impl BlockSync {
                 debug!(target: "sync", "Sync: transition to State Sync.");
                 return Ok(true);
             }
-
-            let head = chain.head()?;
-            *sync_status = SyncStatus::BodySync { current_height: head.height, highest_height };
         }
+
+        let head = chain.head()?;
+        *sync_status = SyncStatus::BodySync { current_height: head.height, highest_height };
         Ok(false)
     }
 
