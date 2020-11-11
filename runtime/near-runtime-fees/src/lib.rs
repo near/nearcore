@@ -171,13 +171,46 @@ pub struct EvmCostConfig {
     pub funcall_cost_base: Gas,
     /// For every unit of gas used by evm in funcall, equivalent near gas cost
     pub funcall_cost_per_evm_gas: Gas,
-    /// Evm precompiled function costs, note cost is in evm gas unit.
-    pub ecrecover_cost: EvmGas,
-    pub sha256_cost: EvmGas,
-    pub ripemd160_cost: EvmGas,
-    pub identity_cost: EvmGas,
-    pub modexp_cost: EvmGas,
+    /// Evm precompiled function costs
+    pub precompile_costs: EvmPrecompileCostConfig,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmPrecompileCostConfig {
+    pub ecrecover_cost: EvmLinearCost,
+    pub sha256_cost: EvmLinearCost,
+    pub ripemd160_cost: EvmLinearCost,
+    pub identity_cost: EvmLinearCost,
+    pub modexp_cost: EvmModexpCost,
+    pub bn128_add_cost: EvmBls12ConstOpCost,
+    pub bn128_mul_cost: EvmBls12ConstOpCost,
+    pub bn128_pairing_cost: EvmBn128PairingCost,
+    pub blake2f_cost: EvmBlake2FCost,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmLinearCost {
+    pub base: u64,
+    pub word: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmModexpCost {
+    pub divisor: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmBls12ConstOpCost {
+    pub price: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmBn128PairingCost {
+    pub base: u64,
+    pub pair: u64,
+}
+
+pub type EvmBlake2FCost = u64;
 
 impl Default for EvmCostConfig {
     fn default() -> Self {
@@ -190,11 +223,18 @@ impl Default for EvmCostConfig {
             deploy_cost_per_byte: 2732257,
             funcall_cost_base: 300126401250,
             funcall_cost_per_evm_gas: 116076934,
-            ecrecover_cost: 2418,
-            sha256_cost: 56,
-            ripemd160_cost: 52,
-            identity_cost: 115,
-            modexp_cost: 90,
+            precompile_costs: EvmPrecompileCostConfig {
+                // Data from openethereum/ethcore/res/ethereum/ethercore.json
+                ecrecover_cost: EvmLinearCost { base: 3000, word: 0 },
+                sha256_cost: EvmLinearCost { base: 60, word: 12 },
+                ripemd160_cost: EvmLinearCost { base: 600, word: 120 },
+                identity_cost: EvmLinearCost { base: 15, word: 3 },
+                modexp_cost: EvmModexpCost { divisor: 20 },
+                bn128_add_cost: EvmBls12ConstOpCost { price: 150 },
+                bn128_mul_cost: EvmBls12ConstOpCost { price: 6000 },
+                bn128_pairing_cost: EvmBn128PairingCost { base: 45000, pair: 34000 },
+                blake2f_cost: 1,
+            },
         }
     }
 }
@@ -338,11 +378,17 @@ impl RuntimeFeesConfig {
                 deploy_cost_per_byte: 0,
                 funcall_cost_base: 0,
                 funcall_cost_per_evm_gas: 0,
-                ecrecover_cost: 0,
-                sha256_cost: 0,
-                ripemd160_cost: 0,
-                identity_cost: 0,
-                modexp_cost: 0,
+                precompile_costs: EvmPrecompileCostConfig {
+                    ecrecover_cost: EvmLinearCost { base: 0, word: 0 },
+                    sha256_cost: EvmLinearCost { base: 0, word: 0 },
+                    ripemd160_cost: EvmLinearCost { base: 0, word: 0 },
+                    identity_cost: EvmLinearCost { base: 0, word: 0 },
+                    modexp_cost: EvmModexpCost { divisor: 1 },
+                    bn128_add_cost: EvmBls12ConstOpCost { price: 0 },
+                    bn128_mul_cost: EvmBls12ConstOpCost { price: 0 },
+                    bn128_pairing_cost: EvmBn128PairingCost { base: 0, pair: 0 },
+                    blake2f_cost: 0,
+                },
             },
             #[cfg(feature = "protocol_feature_evm")]
             evm_deposit: 0,

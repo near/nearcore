@@ -44,3 +44,4 @@ num-traits = "0.2.12"
 default = []
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
+protocol_feature_evm = []
