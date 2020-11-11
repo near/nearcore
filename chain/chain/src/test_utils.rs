@@ -879,8 +879,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
     }
 
-    fn epoch_exists(&self, _epoch_id: &EpochId) -> bool {
-        true
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
+        self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
 
     fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
