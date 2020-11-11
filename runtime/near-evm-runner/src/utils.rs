@@ -1,12 +1,15 @@
 use std::io::Write;
 
+use borsh::BorshSerialize;
 use byteorder::WriteBytesExt;
 use ethereum_types::{Address, H160, H256, U256};
 use keccak_hash::keccak;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vm::CreateContractAddress;
 
-use crate::types::{DataKey, MetaCallArgs, RawAddress, RawHash, RawU256, Result};
+use crate::types::{
+    DataKey, FunctionCallArgs, MetaCallArgs, RawAddress, RawHash, RawU256, Result, ViewCallArgs,
+};
 use near_vm_errors::{EvmError, VMLogicError};
 use near_vm_logic::types::AccountId;
 
@@ -22,10 +25,10 @@ pub fn saturating_next_address(addr: &RawAddress) -> RawAddress {
     address
 }
 
-pub fn internal_storage_key(address: &Address, key: RawU256) -> DataKey {
+pub fn internal_storage_key(address: &Address, key: &RawU256) -> DataKey {
     let mut k = [0u8; 52];
     k[..20].copy_from_slice(address.as_ref());
-    k[20..].copy_from_slice(&key);
+    k[20..].copy_from_slice(key);
     k
 }
 
@@ -38,10 +41,7 @@ pub fn near_account_id_to_evm_address(account_id: &str) -> Address {
 }
 
 pub fn encode_call_function_args(address: Address, input: Vec<u8>) -> Vec<u8> {
-    let mut result = Vec::with_capacity(20 + input.len());
-    result.extend_from_slice(&address.0);
-    result.extend_from_slice(&input);
-    result
+    FunctionCallArgs { contract: address.into(), input }.try_to_vec().unwrap()
 }
 
 pub fn split_data_key(key: &DataKey) -> (Address, RawU256) {
@@ -65,12 +65,9 @@ pub fn encode_view_call_function_args(
     amount: U256,
     input: Vec<u8>,
 ) -> Vec<u8> {
-    let mut result = Vec::with_capacity(72 + input.len());
-    result.extend_from_slice(&sender.0);
-    result.extend_from_slice(&address.0);
-    result.extend_from_slice(&u256_to_arr(&amount));
-    result.extend_from_slice(&input);
-    result
+    ViewCallArgs { sender: sender.into(), address: address.into(), amount: amount.into(), input }
+        .try_to_vec()
+        .unwrap()
 }
 
 pub fn address_from_arr(arr: &[u8]) -> Address {
@@ -256,6 +253,7 @@ pub fn parse_meta_call(
     }
     let mut signature: [u8; 65] = [0; 65];
     // Signatures coming from outside are srv but ecrecover takes vsr, so move last byte to first position.
+    // TODO: There is overflow.
     signature[0] = args[64] + 27;
     signature[1..].copy_from_slice(&args[..64]);
     let nonce = U256::from_big_endian(&args[65..97]);

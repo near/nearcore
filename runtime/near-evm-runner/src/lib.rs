@@ -15,7 +15,8 @@ use near_vm_logic::{ActionCosts, External, VMConfig, VMLogicError, VMOutcome};
 
 use crate::evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore};
 use crate::types::{
-    AddressArg, GetStorageAtArgs, RawU256, Result, TransferArgs, ViewCallArgs, WithdrawArgs,
+    AddressArg, DataKey, FunctionCallArgs, GetStorageAtArgs, Method, RawU256, Result, TransferArgs,
+    ViewCallArgs, WithdrawArgs,
 };
 use crate::utils::{combine_data_key, near_erc721_domain, parse_meta_call};
 use near_vm_errors::InconsistentStateError::StorageError;
@@ -57,10 +58,10 @@ enum KeyPrefix {
     Contract = 1,
 }
 
-fn address_to_key(prefix: KeyPrefix, address: &H160) -> Vec<u8> {
-    let mut result = Vec::with_capacity(21);
-    result.push(prefix as u8);
-    result.extend_from_slice(&address.0);
+fn address_to_key(prefix: KeyPrefix, address: &H160) -> [u8; 21] {
+    let mut result = [0u8; 21];
+    result[0] = prefix as u8;
+    result[1..].copy_from_slice(&address.0);
     result
 }
 
@@ -68,7 +69,7 @@ impl<'a> EvmState for EvmContext<'a> {
     fn code_at(&self, address: &H160) -> Result<Option<Vec<u8>>> {
         self.ext
             .storage_get(&address_to_key(KeyPrefix::Contract, address))
-            .map(|value| value.map(|x| x.deref().unwrap_or(vec![])))
+            .map(|value| value.map(|x| x.deref().expect("Failed to deref")))
     }
 
     fn set_code(&mut self, address: &H160, bytecode: &[u8]) -> Result<()> {
@@ -95,10 +96,10 @@ impl<'a> EvmState for EvmContext<'a> {
         )
     }
 
-    fn _read_contract_storage(&self, key: [u8; 52]) -> Result<Option<[u8; 32]>> {
+    fn _read_contract_storage(&self, key: &DataKey) -> Result<Option<RawU256>> {
         match self
             .ext
-            .storage_get(&key)
+            .storage_get(key)
             .map(|value| value.map(|x| utils::vec_to_arr_32(x.deref().expect("Failed to deref"))))
         {
             Ok(Some(Some(value))) => Ok(Some(value)),
@@ -110,8 +111,8 @@ impl<'a> EvmState for EvmContext<'a> {
         }
     }
 
-    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Result<()> {
-        self.ext.storage_set(&key, &value)
+    fn _set_contract_storage(&mut self, key: &DataKey, value: RawU256) -> Result<()> {
+        self.ext.storage_set(key, &value)
     }
 
     fn commit_changes(&mut self, other: &StateStore) -> Result<()> {
@@ -130,7 +131,7 @@ impl<'a> EvmState for EvmContext<'a> {
         for (address, values) in other.storages.iter() {
             for (key, value) in values.iter() {
                 let key = combine_data_key(address, key);
-                self._set_contract_storage(key, *value)?;
+                self._set_contract_storage(&key, *value)?;
             }
         }
         self.logs.extend_from_slice(&other.logs);
@@ -224,12 +225,11 @@ impl<'a> EvmContext<'a> {
     /// continues until all EVM messages have been processed. We expect this to behave identically
     /// to an Ethereum transaction, however there may be some edge cases.
     pub fn call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
-        if args.len() <= 20 {
-            return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
-        }
-        let contract_address = Address::from_slice(&args[..20]);
-        let input = &args[20..];
-        let origin = utils::near_account_id_to_evm_address(&self.signer_id);
+        let args = FunctionCallArgs::try_from_slice(&args)
+            .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
+        let contract_address = Address::from(&args.contract);
+        let input = args.input;
+        let _origin = utils::near_account_id_to_evm_address(&self.signer_id);
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
         let value =
@@ -247,17 +247,7 @@ impl<'a> EvmContext<'a> {
             &self.fees_config.evm_config,
             self.chain_id,
         )?;
-        match result {
-            MessageCallResult::Success(gas_left, data) => {
-                self.evm_gas_counter.set_gas_left(gas_left);
-                Ok(data.to_vec())
-            }
-            MessageCallResult::Reverted(gas_left, data) => {
-                self.evm_gas_counter.set_gas_left(gas_left);
-                Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
-            }
-            _ => unreachable!(),
-        }
+        self.process_call_result(result)
     }
 
     /// Make an EVM call via a meta transaction pattern.
@@ -284,17 +274,7 @@ impl<'a> EvmContext<'a> {
             &self.fees_config.evm_config,
             self.chain_id,
         )?;
-        match result {
-            MessageCallResult::Success(gas_left, data) => {
-                self.evm_gas_counter.set_gas_left(gas_left);
-                Ok(data.to_vec())
-            }
-            MessageCallResult::Reverted(gas_left, data) => {
-                self.evm_gas_counter.set_gas_left(gas_left);
-                Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
-            }
-            _ => unreachable!(),
-        }
+        self.process_call_result(result)
     }
 
     /// Make an EVM transaction. Calls `contract_address` with `encoded_input`. Execution
@@ -316,13 +296,22 @@ impl<'a> EvmContext<'a> {
             Some(attached_amount),
             0,
             &Address::from(&args.address),
-            &args.args,
+            &args.input,
             false,
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
             self.chain_id,
         )?;
-        let result = match result {
+        let result = self.process_call_result(result);
+        // Need to subtract amount back, because if view call is called inside the transaction state will be applied.
+        // The interpreter call is not committing changes, but `add_balance` did, so need to revert that.
+        self.sub_balance(&sender, attached_amount)?;
+        result
+    }
+
+    /// Processes `MessageCallResult` and charges gas.
+    fn process_call_result(&mut self, result: MessageCallResult) -> Result<Vec<u8>> {
+        match result {
             MessageCallResult::Success(gas_left, data) => {
                 self.evm_gas_counter.set_gas_left(gas_left);
                 Ok(data.to_vec())
@@ -332,11 +321,7 @@ impl<'a> EvmContext<'a> {
                 Err(VMLogicError::EvmError(EvmError::Revert(data.to_vec())))
             }
             _ => unreachable!(),
-        };
-        // Need to subtract amount back, because if view call is called inside the transaction state will be applied.
-        // The interpreter call is not committing changes, but `add_balance` did, so need to revert that.
-        self.sub_balance(&sender, attached_amount)?;
-        result
+        }
     }
 
     pub fn get_code(&self, args: Vec<u8>) -> Result<Vec<u8>> {
@@ -345,14 +330,14 @@ impl<'a> EvmContext<'a> {
         Ok(self
             .code_at(&Address::from_slice(&args.address))
             .unwrap_or(None)
-            .unwrap_or_else(|| Vec::new()))
+            .unwrap_or_else(Vec::new))
     }
 
     pub fn get_storage_at(&self, args: Vec<u8>) -> Result<Vec<u8>> {
         let args = GetStorageAtArgs::try_from_slice(&args)
             .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
         Ok(self
-            .read_contract_storage(&Address::from_slice(&args.address), args.key)?
+            .read_contract_storage(&Address::from_slice(&args.address), &args.key)?
             .unwrap_or([0u8; 32])
             .to_vec())
     }
@@ -522,11 +507,11 @@ impl<'a> EvmContext<'a> {
 fn max_evm_gas_from_near_gas(
     near_gas: Gas,
     evm_gas_config: &EvmCostConfig,
-    method_name: &str,
+    method: &Method,
     decoded_code_size: Option<usize>,
 ) -> Option<U256> {
-    match method_name {
-        "deploy_code" => {
+    match method {
+        Method::DeployCode => {
             if near_gas < evm_gas_config.bootstrap_cost {
                 return None;
             }
@@ -539,7 +524,7 @@ fn max_evm_gas_from_near_gas(
                     .into(),
             )
         }
-        "call_function" => {
+        Method::Call | Method::ViewCall | Method::MetaCall => {
             if near_gas < evm_gas_config.bootstrap_cost + evm_gas_config.funcall_cost_base {
                 return None;
             }
@@ -574,18 +559,30 @@ pub fn run_evm(
     prepaid_gas: Gas,
     is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    let method = match Method::parse(&method_name) {
+        Some(method) => method,
+        None => {
+            return (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::EvmError(
+                    EvmError::MethodNotFound,
+                ))),
+            );
+        }
+    };
+
     let evm_gas_result = max_evm_gas_from_near_gas(
         prepaid_gas,
         &fees_config.evm_config,
-        &method_name,
-        if &method_name == "deploy_code" { Some(args.len()) } else { None },
+        &method,
+        if method == Method::DeployCode { Some(args.len()) } else { None },
     );
 
     if evm_gas_result.is_none() {
         return (
             None,
             Some(VMError::FunctionCallError(FunctionCallError::EvmError(EvmError::Revert(
-                "Not enough to run EVM".as_bytes().to_vec(),
+                b"Not enough gas to run EVM".to_vec(),
             )))),
         );
     }
@@ -608,45 +605,46 @@ pub fn run_evm(
         evm_gas,
     );
 
-    let result = match method_name.as_str() {
+    let result = match method {
         // Change the state methods.
-        "deploy_code" => context.deploy_code(args.clone()).map(|address| {
-            context.pay_gas_from_evm_gas(EvmOpForGas::Deploy(args.len())).unwrap();
-            utils::address_to_vec(&address)
-        }),
-        // TODO: remove this function name if no one is using it.
-        "call_function" | "call" => {
+        Method::DeployCode => {
+            let code_len = args.len();
+            context.deploy_code(args).map(|address| {
+                context.pay_gas_from_evm_gas(EvmOpForGas::Deploy(code_len)).unwrap();
+                utils::address_to_vec(&address)
+            })
+        }
+        Method::Call => {
             let r = context.call_function(args.clone());
             context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();
             r
         }
-        "meta_call" => {
-            let r = context.meta_call_function(args.clone());
-            context.pay_gas_from_evm_gas(EvmOpForGas::Other).unwrap();
+        Method::MetaCall => {
+            let r = context.meta_call_function(args);
+            context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();
             r
         }
-        "deposit" => {
-            context.deposit(args.clone()).map(|balance| utils::u256_to_arr(&balance).to_vec())
+        Method::Deposit => {
+            context.deposit(args).map(|balance| utils::u256_to_arr(&balance).to_vec())
         }
-        "withdraw" => context.withdraw(args.clone()).map(|_| vec![]),
-        "transfer" => context.transfer(args.clone()).map(|_| vec![]),
-        "create" => context.create_evm(args.clone()).map(|_| vec![]),
+        Method::Withdraw => context.withdraw(args).map(|_| vec![]),
+        Method::Transfer => context.transfer(args).map(|_| vec![]),
+        // TODO: Disable creation of new `evm` accounts.
+        Method::Create => context.create_evm(args).map(|_| vec![]),
         // View methods.
-        // TODO: remove this function name if no one is using it.
-        "view_function_call" | "view" => {
-            let r = context.view_call_function(args.clone());
-            context.pay_gas_from_evm_gas(EvmOpForGas::Other).unwrap();
+        Method::ViewCall => {
+            let r = context.view_call_function(args);
+            context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();
             r
         }
-        "get_code" => context.get_code(args.clone()),
-        "get_storage_at" => context.get_storage_at(args.clone()),
-        "get_nonce" => {
-            context.get_nonce(args.clone()).map(|nonce| utils::u256_to_arr(&nonce).to_vec())
+        Method::GetCode => context.get_code(args),
+        Method::GetStorageAt => context.get_storage_at(args),
+        Method::GetNonce => {
+            context.get_nonce(args).map(|nonce| utils::u256_to_arr(&nonce).to_vec())
         }
-        "get_balance" => {
-            context.get_balance(args.clone()).map(|balance| utils::u256_to_arr(&balance).to_vec())
+        Method::GetBalance => {
+            context.get_balance(args).map(|balance| utils::u256_to_arr(&balance).to_vec())
         }
-        _ => Err(VMLogicError::EvmError(EvmError::MethodNotFound)),
     };
 
     match result {
@@ -664,7 +662,12 @@ pub fn run_evm(
         Err(VMLogicError::EvmError(err)) => {
             (None, Some(VMError::FunctionCallError(FunctionCallError::EvmError(err))))
         }
-        Err(_) => (None, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))),
+        Err(VMLogicError::InconsistentStateError(err)) => {
+            (None, Some(VMError::InconsistentStateError(err)))
+        }
+        Err(_) => {
+            (None, Some(VMError::FunctionCallError(FunctionCallError::EvmError(EvmError::Unknown))))
+        }
     }
 }
 
@@ -740,13 +743,13 @@ mod tests {
         assert_eq!(context.balance_of(&addr_1).unwrap(), zero);
         assert_eq!(context.balance_of(&addr_2).unwrap(), zero);
 
-        context.set_contract_storage(&addr_0, storage_key_0, storage_value_0).unwrap();
+        context.set_contract_storage(&addr_0, &storage_key_0, storage_value_0).unwrap();
         assert_eq!(
-            context.read_contract_storage(&addr_0, storage_key_0).unwrap(),
+            context.read_contract_storage(&addr_0, &storage_key_0).unwrap(),
             Some(storage_value_0)
         );
-        assert_eq!(context.read_contract_storage(&addr_1, storage_key_0).unwrap(), None);
-        assert_eq!(context.read_contract_storage(&addr_2, storage_key_0).unwrap(), None);
+        assert_eq!(context.read_contract_storage(&addr_1, &storage_key_0).unwrap(), None);
+        assert_eq!(context.read_contract_storage(&addr_2, &storage_key_0).unwrap(), None);
 
         let next = {
             // Open a new store
@@ -768,45 +771,45 @@ mod tests {
             assert_eq!(sub1.balance_of(&addr_1).unwrap(), balance);
             assert_eq!(sub1.balance_of(&addr_2).unwrap(), zero);
 
-            sub1.set_contract_storage(&addr_1, storage_key_0, storage_value_0).unwrap();
+            sub1.set_contract_storage(&addr_1, &storage_key_0, storage_value_0).unwrap();
             assert_eq!(
-                sub1.read_contract_storage(&addr_0, storage_key_0).unwrap(),
+                sub1.read_contract_storage(&addr_0, &storage_key_0).unwrap(),
                 Some(storage_value_0)
             );
             assert_eq!(
-                sub1.read_contract_storage(&addr_1, storage_key_0).unwrap(),
+                sub1.read_contract_storage(&addr_1, &storage_key_0).unwrap(),
                 Some(storage_value_0)
             );
-            assert_eq!(sub1.read_contract_storage(&addr_2, storage_key_0).unwrap(), None);
+            assert_eq!(sub1.read_contract_storage(&addr_2, &storage_key_0).unwrap(), None);
 
-            sub1.set_contract_storage(&addr_1, storage_key_0, storage_value_1).unwrap();
+            sub1.set_contract_storage(&addr_1, &storage_key_0, storage_value_1).unwrap();
             assert_eq!(
-                sub1.read_contract_storage(&addr_0, storage_key_0).unwrap(),
+                sub1.read_contract_storage(&addr_0, &storage_key_0).unwrap(),
                 Some(storage_value_0)
             );
             assert_eq!(
-                sub1.read_contract_storage(&addr_1, storage_key_0).unwrap(),
+                sub1.read_contract_storage(&addr_1, &storage_key_0).unwrap(),
                 Some(storage_value_1)
             );
-            assert_eq!(sub1.read_contract_storage(&addr_2, storage_key_0).unwrap(), None);
+            assert_eq!(sub1.read_contract_storage(&addr_2, &storage_key_0).unwrap(), None);
 
-            sub1.set_contract_storage(&addr_1, storage_key_1, storage_value_1).unwrap();
+            sub1.set_contract_storage(&addr_1, &storage_key_1, storage_value_1).unwrap();
             assert_eq!(
-                sub1.read_contract_storage(&addr_1, storage_key_0).unwrap(),
+                sub1.read_contract_storage(&addr_1, &storage_key_0).unwrap(),
                 Some(storage_value_1)
             );
             assert_eq!(
-                sub1.read_contract_storage(&addr_1, storage_key_1).unwrap(),
+                sub1.read_contract_storage(&addr_1, &storage_key_1).unwrap(),
                 Some(storage_value_1)
             );
 
-            sub1.set_contract_storage(&addr_1, storage_key_0, storage_value_0).unwrap();
+            sub1.set_contract_storage(&addr_1, &storage_key_0, storage_value_0).unwrap();
             assert_eq!(
-                sub1.read_contract_storage(&addr_1, storage_key_0).unwrap(),
+                sub1.read_contract_storage(&addr_1, &storage_key_0).unwrap(),
                 Some(storage_value_0)
             );
             assert_eq!(
-                sub1.read_contract_storage(&addr_1, storage_key_1).unwrap(),
+                sub1.read_contract_storage(&addr_1, &storage_key_1).unwrap(),
                 Some(storage_value_1)
             );
 
@@ -824,17 +827,17 @@ mod tests {
         assert_eq!(context.balance_of(&addr_1).unwrap(), balance);
         assert_eq!(context.balance_of(&addr_2).unwrap(), zero);
         assert_eq!(
-            context.read_contract_storage(&addr_0, storage_key_0).unwrap(),
+            context.read_contract_storage(&addr_0, &storage_key_0).unwrap(),
             Some(storage_value_0)
         );
         assert_eq!(
-            context.read_contract_storage(&addr_1, storage_key_0).unwrap(),
+            context.read_contract_storage(&addr_1, &storage_key_0).unwrap(),
             Some(storage_value_0)
         );
         assert_eq!(
-            context.read_contract_storage(&addr_1, storage_key_1).unwrap(),
+            context.read_contract_storage(&addr_1, &storage_key_1).unwrap(),
             Some(storage_value_1)
         );
-        assert_eq!(context.read_contract_storage(&addr_2, storage_key_0).unwrap(), None);
+        assert_eq!(context.read_contract_storage(&addr_2, &storage_key_0).unwrap(), None);
     }
 }

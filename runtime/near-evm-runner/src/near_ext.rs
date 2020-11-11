@@ -72,7 +72,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     /// EIP-1344: Returns the current chain's EIP-155 unique identifier.
     /// See https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1344.md
     fn chain_id(&self) -> u64 {
-      self.chain_id.try_into().unwrap()
+        self.chain_id.try_into().unwrap()
     }
 
     /// Returns the storage value for a given key if reversion happens on the current transaction.
@@ -80,7 +80,7 @@ impl<'a> vm::Ext for NearExt<'a> {
         let raw_val = self
             .sub_state
             .parent // Read from the unmodified parent state
-            .read_contract_storage(&self.context_addr, key.0)
+            .read_contract_storage(&self.context_addr, &key.0)
             .unwrap_or(None)
             .unwrap_or([0u8; 32]); // default to an empty value
         Ok(H256(raw_val))
@@ -90,7 +90,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     fn storage_at(&self, key: &H256) -> EvmResult<H256> {
         let raw_val = self
             .sub_state
-            .read_contract_storage(&self.context_addr, key.0)
+            .read_contract_storage(&self.context_addr, &key.0)
             .unwrap_or(None)
             .unwrap_or([0u8; 32]); // default to an empty value
         Ok(H256(raw_val))
@@ -102,7 +102,7 @@ impl<'a> vm::Ext for NearExt<'a> {
             return Err(VmError::MutableCallInStaticContext);
         }
         self.sub_state
-            .set_contract_storage(&self.context_addr, key.0, value.0)
+            .set_contract_storage(&self.context_addr, &key.0, value.0)
             .map_err(|err| vm::Error::Internal(err.to_string()))
     }
 

@@ -168,6 +168,12 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         // Change ColOutcomesByBlockHash to be ordered within each shard
         migrate_14_to_15(path);
     }
+    if db_version <= 15 {
+        info!(target: "near", "Migrate DB from version 15 to 16");
+        // version 15 => 16: add column for compiled contracts
+        let store = create_store(&path);
+        set_store_version(&store, 16);
+    }
 
     let db_version = get_store_version(path);
     debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);

@@ -73,20 +73,20 @@ pub trait EvmState {
         Ok(nonce)
     }
 
-    fn _read_contract_storage(&self, key: DataKey) -> Result<Option<RawU256>>;
-    fn read_contract_storage(&self, address: &Address, key: RawU256) -> Result<Option<RawU256>> {
-        self._read_contract_storage(utils::internal_storage_key(address, key))
+    fn _read_contract_storage(&self, key: &DataKey) -> Result<Option<RawU256>>;
+    fn read_contract_storage(&self, address: &Address, key: &RawU256) -> Result<Option<RawU256>> {
+        self._read_contract_storage(&utils::internal_storage_key(address, key))
     }
 
-    fn _set_contract_storage(&mut self, key: DataKey, value: RawU256) -> Result<()>;
+    fn _set_contract_storage(&mut self, key: &DataKey, value: RawU256) -> Result<()>;
 
     fn set_contract_storage(
         &mut self,
         address: &Address,
-        key: RawU256,
+        key: &RawU256,
         value: RawU256,
     ) -> Result<()> {
-        self._set_contract_storage(utils::internal_storage_key(address, key), value)
+        self._set_contract_storage(&utils::internal_storage_key(address, key), value)
     }
 
     fn commit_changes(&mut self, other: &StateStore) -> Result<()>;
@@ -206,7 +206,7 @@ impl EvmState for StateStore {
         Ok(())
     }
 
-    fn _read_contract_storage(&self, key: DataKey) -> Result<Option<RawU256>> {
+    fn _read_contract_storage(&self, key: &DataKey) -> Result<Option<RawU256>> {
         let (addr, subkey) = split_data_key(&key);
         if self.self_destructs.contains(&addr) {
             Ok(None)
@@ -215,7 +215,7 @@ impl EvmState for StateStore {
         }
     }
 
-    fn _set_contract_storage(&mut self, key: DataKey, value: RawU256) -> Result<()> {
+    fn _set_contract_storage(&mut self, key: &DataKey, value: RawU256) -> Result<()> {
         let (addr, subkey) = split_data_key(&key);
         self.storages.entry(addr).or_insert_with(|| HashMap::default()).insert(subkey, value);
         Ok(())
@@ -291,7 +291,7 @@ impl EvmState for SubState<'_> {
         self.state.set_account(address, account)
     }
 
-    fn _read_contract_storage(&self, key: DataKey) -> Result<Option<RawU256>> {
+    fn _read_contract_storage(&self, key: &DataKey) -> Result<Option<RawU256>> {
         let (addr, subkey) = split_data_key(&key);
         if self.state.self_destructs.contains(&addr) {
             Ok(None)
@@ -300,13 +300,13 @@ impl EvmState for SubState<'_> {
                 .storages
                 .get(&addr)
                 .and_then(|x| x.get(&subkey))
-                .map_or_else(|| self.parent._read_contract_storage(key), |v| Ok(Some(v.clone())))
+                .map_or_else(|| self.parent._read_contract_storage(&key), |v| Ok(Some(*v)))
         }
     }
 
-    fn _set_contract_storage(&mut self, key: DataKey, value: RawU256) -> Result<()> {
+    fn _set_contract_storage(&mut self, key: &DataKey, value: RawU256) -> Result<()> {
         let (addr, subkey) = split_data_key(&key);
-        self.state.storages.entry(addr).or_insert_with(|| HashMap::default()).insert(subkey, value);
+        self.state.storages.entry(addr).or_default().insert(subkey, value);
         Ok(())
     }
 
@@ -388,13 +388,13 @@ mod test {
         assert_eq!(top.balance_of(&addr_1).unwrap(), zero);
         assert_eq!(top.balance_of(&addr_2).unwrap(), zero);
 
-        top.set_contract_storage(&addr_0, storage_key_0, storage_value_0).unwrap();
+        top.set_contract_storage(&addr_0, &storage_key_0, storage_value_0).unwrap();
         assert_eq!(
-            top.read_contract_storage(&addr_0, storage_key_0).unwrap(),
+            top.read_contract_storage(&addr_0, &storage_key_0).unwrap(),
             Some(storage_value_0)
         );
-        assert_eq!(top.read_contract_storage(&addr_1, storage_key_0).unwrap(), None);
-        assert_eq!(top.read_contract_storage(&addr_2, storage_key_0).unwrap(), None);
+        assert_eq!(top.read_contract_storage(&addr_1, &storage_key_0).unwrap(), None);
+        assert_eq!(top.read_contract_storage(&addr_2, &storage_key_0).unwrap(), None);
 
         let next = {
             // Open a new store
@@ -416,45 +416,45 @@ mod test {
             assert_eq!(sub_1.balance_of(&addr_1).unwrap(), balance);
             assert_eq!(sub_1.balance_of(&addr_2).unwrap(), zero);
 
-            sub_1.set_contract_storage(&addr_1, storage_key_0, storage_value_0).unwrap();
+            sub_1.set_contract_storage(&addr_1, &storage_key_0, storage_value_0).unwrap();
             assert_eq!(
-                sub_1.read_contract_storage(&addr_0, storage_key_0).unwrap(),
+                sub_1.read_contract_storage(&addr_0, &storage_key_0).unwrap(),
                 Some(storage_value_0)
             );
             assert_eq!(
-                sub_1.read_contract_storage(&addr_1, storage_key_0).unwrap(),
+                sub_1.read_contract_storage(&addr_1, &storage_key_0).unwrap(),
                 Some(storage_value_0)
             );
-            assert_eq!(sub_1.read_contract_storage(&addr_2, storage_key_0).unwrap(), None);
+            assert_eq!(sub_1.read_contract_storage(&addr_2, &storage_key_0).unwrap(), None);
 
-            sub_1.set_contract_storage(&addr_1, storage_key_0, storage_value_1).unwrap();
+            sub_1.set_contract_storage(&addr_1, &storage_key_0, storage_value_1).unwrap();
             assert_eq!(
-                sub_1.read_contract_storage(&addr_0, storage_key_0).unwrap(),
+                sub_1.read_contract_storage(&addr_0, &storage_key_0).unwrap(),
                 Some(storage_value_0)
             );
             assert_eq!(
-                sub_1.read_contract_storage(&addr_1, storage_key_0).unwrap(),
+                sub_1.read_contract_storage(&addr_1, &storage_key_0).unwrap(),
                 Some(storage_value_1)
             );
-            assert_eq!(sub_1.read_contract_storage(&addr_2, storage_key_0).unwrap(), None);
+            assert_eq!(sub_1.read_contract_storage(&addr_2, &storage_key_0).unwrap(), None);
 
-            sub_1.set_contract_storage(&addr_1, storage_key_1, storage_value_1).unwrap();
+            sub_1.set_contract_storage(&addr_1, &storage_key_1, storage_value_1).unwrap();
             assert_eq!(
-                sub_1.read_contract_storage(&addr_1, storage_key_0).unwrap(),
+                sub_1.read_contract_storage(&addr_1, &storage_key_0).unwrap(),
                 Some(storage_value_1)
             );
             assert_eq!(
-                sub_1.read_contract_storage(&addr_1, storage_key_1).unwrap(),
+                sub_1.read_contract_storage(&addr_1, &storage_key_1).unwrap(),
                 Some(storage_value_1)
             );
 
-            sub_1.set_contract_storage(&addr_1, storage_key_0, storage_value_0).unwrap();
+            sub_1.set_contract_storage(&addr_1, &storage_key_0, storage_value_0).unwrap();
             assert_eq!(
-                sub_1.read_contract_storage(&addr_1, storage_key_0).unwrap(),
+                sub_1.read_contract_storage(&addr_1, &storage_key_0).unwrap(),
                 Some(storage_value_0)
             );
             assert_eq!(
-                sub_1.read_contract_storage(&addr_1, storage_key_1).unwrap(),
+                sub_1.read_contract_storage(&addr_1, &storage_key_1).unwrap(),
                 Some(storage_value_1)
             );
 
@@ -472,18 +472,18 @@ mod test {
         assert_eq!(top.balance_of(&addr_1).unwrap(), balance);
         assert_eq!(top.balance_of(&addr_2).unwrap(), zero);
         assert_eq!(
-            top.read_contract_storage(&addr_0, storage_key_0).unwrap(),
+            top.read_contract_storage(&addr_0, &storage_key_0).unwrap(),
             Some(storage_value_0)
         );
         assert_eq!(
-            top.read_contract_storage(&addr_1, storage_key_0).unwrap(),
+            top.read_contract_storage(&addr_1, &storage_key_0).unwrap(),
             Some(storage_value_0)
         );
         assert_eq!(
-            top.read_contract_storage(&addr_1, storage_key_1).unwrap(),
+            top.read_contract_storage(&addr_1, &storage_key_1).unwrap(),
             Some(storage_value_1)
         );
-        assert_eq!(top.read_contract_storage(&addr_2, storage_key_0).unwrap(), None);
+        assert_eq!(top.read_contract_storage(&addr_2, &storage_key_0).unwrap(), None);
     }
 
     #[test]
@@ -515,12 +515,12 @@ mod test {
         top.set_code(&addr_0, &code).unwrap();
         top.set_nonce(&addr_0, nonce).unwrap();
         top.set_balance(&addr_0, balance_0).unwrap();
-        top.set_contract_storage(&addr_0, storage_key_0, storage_value_0).unwrap();
+        top.set_contract_storage(&addr_0, &storage_key_0, storage_value_0).unwrap();
 
         top.set_code(&addr_1, &code).unwrap();
         top.set_nonce(&addr_1, nonce).unwrap();
         top.set_balance(&addr_1, balance_0).unwrap();
-        top.set_contract_storage(&addr_1, storage_key_1, storage_value_1).unwrap();
+        top.set_contract_storage(&addr_1, &storage_key_1, storage_value_1).unwrap();
 
         assert_eq!(top.code_at(&addr_0).unwrap(), Some(code.to_vec()));
         assert_eq!(top.code_at(&addr_1).unwrap(), Some(code.to_vec()));
@@ -532,11 +532,11 @@ mod test {
         assert_eq!(top.balance_of(&addr_1).unwrap(), balance_0);
 
         assert_eq!(
-            top.read_contract_storage(&addr_0, storage_key_0).unwrap(),
+            top.read_contract_storage(&addr_0, &storage_key_0).unwrap(),
             Some(storage_value_0)
         );
         assert_eq!(
-            top.read_contract_storage(&addr_1, storage_key_1).unwrap(),
+            top.read_contract_storage(&addr_1, &storage_key_1).unwrap(),
             Some(storage_value_1)
         );
 
@@ -549,7 +549,7 @@ mod test {
             assert_eq!(sub_1.nonce_of(&addr_1).unwrap(), nonce);
             assert_eq!(sub_1.balance_of(&addr_1).unwrap(), balance_0);
             assert_eq!(
-                sub_1.read_contract_storage(&addr_1, storage_key_1).unwrap(),
+                sub_1.read_contract_storage(&addr_1, &storage_key_1).unwrap(),
                 Some(storage_value_1)
             );
 
@@ -559,7 +559,7 @@ mod test {
             assert_eq!(sub_1.code_at(&addr_1).unwrap(), None);
             assert_eq!(sub_1.nonce_of(&addr_1).unwrap(), zero);
             assert_eq!(sub_1.balance_of(&addr_1).unwrap(), balance_1);
-            assert_eq!(sub_1.read_contract_storage(&addr_1, storage_key_1).unwrap(), None);
+            assert_eq!(sub_1.read_contract_storage(&addr_1, &storage_key_1).unwrap(), None);
 
             next
         };
@@ -576,9 +576,9 @@ mod test {
         assert_eq!(top.balance_of(&addr_1).unwrap(), balance_1);
 
         assert_eq!(
-            top.read_contract_storage(&addr_0, storage_key_0).unwrap(),
+            top.read_contract_storage(&addr_0, &storage_key_0).unwrap(),
             Some(storage_value_0)
         );
-        assert_eq!(top.read_contract_storage(&addr_1, storage_key_1).unwrap(), None);
+        assert_eq!(top.read_contract_storage(&addr_1, &storage_key_1).unwrap(), None);
     }
 }
