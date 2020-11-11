@@ -13,7 +13,9 @@ use log::{debug, error, info, warn};
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
-use near_chain_configs::{Genesis, GenesisConfig, MAINNET_EVM_CHAIN_ID, TEST_EVM_CHAIN_ID};
+use near_chain_configs::{Genesis, GenesisConfig};
+#[allow(unused_imports)]
+use near_chain_configs::{MAINNET_EVM_CHAIN_ID, TEST_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;

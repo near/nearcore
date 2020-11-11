@@ -172,6 +172,7 @@ impl GenesisConfig {
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
+        #[allow(unused_mut)]
         let mut genesis_config: GenesisConfig =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
         #[cfg(feature = "protocol_feature_evm")]
