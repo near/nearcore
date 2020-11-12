@@ -21,6 +21,7 @@ def show_test_result(binary, result):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--nightly', action='store_const', const=True)
+    parser.add_argument('--no-logs', action='store_const', const=True)
     args = parser.parse_args()
 
     print("Running the tests with nightly build flags " +
@@ -48,7 +49,8 @@ if __name__ == "__main__":
             if result[0] != 0:
                 fails.append((binary_full_name, result))
             else:
-                show_test_result(binary, result)
+                if args.no_logs:
+                    show_test_result(binary, result)
 
     print(f"========= finished run {completed} test binaries")
     if fails:
@@ -66,14 +68,16 @@ if __name__ == "__main__":
                 if result[0] != 0:
                     new_fails.append((binary_full_name, result))
                 else:
-                    show_test_result(binary, result)
+                    if args.no_logs:
+                        show_test_result(binary, result)
             if new_fails:
                 new_fail_summary = []
                 for f in new_fails:
                     binary_full_name = f[0]
                     result = f[1]
                     binary = os.path.basename(binary_full_name)
-                    show_test_result(binary, result)
+                    if args.no_logs:
+                        show_test_result(binary, result)
                     new_fail_summary.append(
                         f'========= test binary {binary} run sequentially failed, exit code {result[0]}'
                     )
@@ -88,7 +92,8 @@ if __name__ == "__main__":
                 binary_full_name = f[0]
                 result = f[1]
                 binary = os.path.basename(binary_full_name)
-                show_test_result(binary, result)
+                if args.no_logs:
+                    show_test_result(binary, result)
                 print(
                     f'========= test binary {binary} failed, exit code {result[0]}'
                 )
