@@ -53,7 +53,7 @@ print('=== SENDING 1 NEAR TO ETH PER TX, %d TXS' % (near2eth_tx_number))
 txs = []
 for _ in range(near2eth_tx_number):
     txs.append(bridge.transfer_near2eth('rainbow_bridge_eth_on_near_prover',
-                              '0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200',
+                              '0xEC8bE1A5630364292E56D01129E8ee8A9578d7D8',
                               1))
 exit_codes = [p.wait() for p in txs]
 
