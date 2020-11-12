@@ -42,8 +42,7 @@ print('=== ETH BALANCE AFTER', eth_balance_after)
 near_balance_after = bridge.get_near_balance(nodes[0], 'rainbow_bridge_eth_on_near_prover')
 print('=== NEAR BALANCE AFTER', near_balance_after)
 assert eth_balance_after + 1000 * eth2near_tx_number == eth_balance_before
-# TODO uncomment
-#assert near_balance_before + 1000 * eth2near_tx_number == near_balance_after
+assert near_balance_before + 1000 * eth2near_tx_number == near_balance_after
 
 eth_balance_before = bridge.get_eth_balance('0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200')
 print('=== ETH BALANCE BEFORE', eth_balance_before)
@@ -62,7 +61,6 @@ print('=== ETH BALANCE AFTER', eth_balance_after)
 near_balance_after = bridge.get_near_balance(nodes[0], 'rainbow_bridge_eth_on_near_prover')
 print('=== NEAR BALANCE AFTER', near_balance_after)
 assert eth_balance_before + 1 * near2eth_tx_number == eth_balance_after
-# TODO uncomment
-#assert near_balance_after + 1 * near2eth_tx_number == near_balance_before
+assert near_balance_after + 1 * near2eth_tx_number == near_balance_before
 
 print('EPIC')
