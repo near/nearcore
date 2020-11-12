@@ -4,7 +4,7 @@ use ethereum_types::{Address, U256};
 use evm::{CreateContractAddress, Factory};
 use near_runtime_fees::EvmCostConfig;
 use vm::{
-    ActionParams, ActionValue, CallType, ContractCreateResult, ExecTrapResult, Ext, GasLeft,
+    ActionParams, ActionType, ActionValue, ContractCreateResult, ExecTrapResult, Ext, GasLeft,
     MessageCallResult, ParamsType, ReturnData, Schedule,
 };
 
@@ -91,6 +91,8 @@ pub fn _create<T: EvmState>(
 
     let params = ActionParams {
         code_address: *address,
+        code_hash: None,
+        code_version: U256::zero(),
         address: *address,
         sender: *sender,
         origin: *origin,
@@ -98,9 +100,8 @@ pub fn _create<T: EvmState>(
         gas_price: 1.into(),
         value: ActionValue::Transfer(value),
         code: Some(Arc::new(code.to_vec())),
-        code_hash: None,
         data: None,
-        call_type: CallType::None,
+        action_type: ActionType::Create,
         params_type: vm::ParamsType::Embedded,
     };
 
@@ -145,7 +146,7 @@ pub fn call<T: EvmState>(
         sender,
         value,
         call_stack_depth,
-        CallType::Call,
+        ActionType::Call,
         contract_address,
         contract_address,
         input,
@@ -175,7 +176,7 @@ pub fn delegate_call<T: EvmState>(
         sender,
         None,
         call_stack_depth,
-        CallType::DelegateCall,
+        ActionType::DelegateCall,
         context,
         delegee,
         input,
@@ -204,7 +205,7 @@ pub fn static_call<T: EvmState>(
         sender,
         None,
         call_stack_depth,
-        CallType::StaticCall,
+        ActionType::StaticCall,
         contract_address,
         contract_address,
         input,
@@ -223,7 +224,7 @@ fn run_and_commit_if_success<T: EvmState>(
     sender: &Address,
     value: Option<U256>,
     call_stack_depth: usize,
-    call_type: CallType,
+    call_type: ActionType,
     state_address: &Address,
     code_address: &Address,
     input: &[u8],
@@ -284,7 +285,7 @@ fn run_against_state<T: EvmState>(
     sender: &Address,
     value: Option<U256>,
     call_stack_depth: usize,
-    call_type: CallType,
+    call_type: ActionType,
     state_address: &Address,
     code_address: &Address,
     input: &[u8],
@@ -307,6 +308,7 @@ fn run_against_state<T: EvmState>(
     let mut params = ActionParams {
         code_address: *code_address,
         code_hash: None,
+        code_version: U256::zero(),
         address: *state_address,
         sender: *sender,
         origin: *origin,
@@ -315,7 +317,7 @@ fn run_against_state<T: EvmState>(
         value: ActionValue::Apparent(0.into()),
         code: Some(Arc::new(code)),
         data: Some(input.to_vec()),
-        call_type,
+        action_type: call_type,
         params_type: ParamsType::Separate,
     };
 

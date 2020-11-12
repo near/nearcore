@@ -15,7 +15,7 @@ rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
 smart-default = "0.6"
-primitive-types = { version = "0.7", default-features = false }
+primitive-types = "0.6"
 num-rational = "0.2.4"
 
 near-crypto = { path = "../../core/crypto" }
