@@ -21,6 +21,7 @@ import uuid
 import network
 import logging
 from proxy import NodesProxy
+from bridge import GanacheNode, RainbowBridge
 
 os.environ["ADVERSARY_CONSENT"] = "1"
 
@@ -890,14 +891,64 @@ def start_cluster(num_nodes,
 
     return ret
 
+def start_bridge(start_local_ethereum=True, config=None):
+    if not config:
+        config = load_config()
+
+    config['bridge']['bridge_dir'] = os.path.abspath(os.path.expanduser(os.path.expandvars(config['bridge']['bridge_dir'])))
+    config['bridge']['config_dir'] = os.path.abspath(os.path.expanduser(os.path.expandvars(config['bridge']['config_dir'])))
+    config_dir = config['bridge']['config_dir']
+
+    # TODO process logs properly
+    if os.path.exists(config_dir) and os.path.isdir(config_dir):
+        shutil.rmtree(config_dir)
+    os.system('mkdir -p %s' % (config_dir))
+    os.system('mkdir -p %s/logs/ganache' % (config_dir))
+    os.system('mkdir -p %s/logs/near2eth-relay' % (config_dir))
+    os.system('mkdir -p %s/logs/eth2near-relay' % (config_dir))
+    os.system('mkdir -p %s/logs/watchdog' % (config_dir))
+    os.system('touch %s/logs/ganache/out.log' % (config_dir))
+    os.system('touch %s/logs/ganache/err.log' % (config_dir))
+    os.system('touch %s/logs/near2eth-relay/out.log' % (config_dir))
+    os.system('touch %s/logs/near2eth-relay/err.log' % (config_dir))
+    os.system('touch %s/logs/eth2near-relay/out.log' % (config_dir))
+    os.system('touch %s/logs/eth2near-relay/err.log' % (config_dir))
+    os.system('touch %s/logs/watchdog/out.log' % (config_dir))
+    os.system('touch %s/logs/watchdog/err.log' % (config_dir))
+
+    # run bridge.__init__() here
+    bridge = RainbowBridge(config['bridge'])
+
+    ganache_node = None
+    if start_local_ethereum:
+        ganache_node = GanacheNode(config['bridge'])
+        ganache_node.start()
+        # TODO wait until ganache actually starts
+        time.sleep(2)
+
+    bridge.init_near_contracts()
+    bridge.init_eth_contracts()
+    bridge.init_near_token_factory()
+    bridge.start_near2eth_block_relay()
+    bridge.start_eth2near_block_relay()
+    return (bridge, ganache_node)
 
 DEFAULT_CONFIG = {
     'local': True,
     'preexist': False,
     'near_root': '../target/debug/',
     'binary_name': 'neard',
-    'release': False
+    'release': False,
+    'bridge': {
+        'bridge_repo': 'https://github.com/near/rainbow-bridge.git',
+        #'bridge_dir': '~/.rainbow-bridge',
+        'bridge_dir': '~/near/rainbow-bridge',
+        'config_dir': '~/.rainbow',
+        'ganache_dir': 'testing/vendor/ganache',
+        'ganache_bin': 'testing/vendor/ganache/node_modules/.bin/ganache-cli',
+    }
 }
+
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 
