@@ -7,8 +7,6 @@ import time
 import traceback
 import os
 
-from account import Account
-
 def atexit_cleanup(obj):
     print("Cleaning %s on script exit" % (obj.__class__.__name__))
     try:
@@ -47,22 +45,22 @@ class GanacheNode(Cleanable):
         self.pid = multiprocessing.Value('i', 0)
         self.config = config
         # TODO fix path
-        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        bridge_dir = self.config['bridge_dir']
         ganache_bin = os.path.join(bridge_dir, self.config['ganache_bin'])
         if not os.path.exists(ganache_bin):
             self.build()
         atexit.register(atexit_cleanup, self)
 
     def build(self):
-        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        bridge_dir = self.config['bridge_dir']
         ganache_dir = os.path.join(bridge_dir, self.config['ganache_dir'])
         os.system('cd %s && yarn' % (ganache_dir))
 
     def start(self):
         # TODO fix path
-        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        bridge_dir = self.config['bridge_dir']
         ganache_bin = os.path.join(bridge_dir, self.config['ganache_bin'])
-        config_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['config_dir'])))
+        config_dir = self.config['config_dir']
         # TODO fix logs
         self.stdout = open(os.path.join(config_dir, 'logs/ganache/out.log'), 'w')
         self.stderr = open(os.path.join(config_dir, 'logs/ganache/err.log'), 'w')
@@ -135,25 +133,7 @@ class RainbowBridge:
         self.near2eth_block_relay = None
         self.adapter = JSAdapter(self.config)
         bridge_dir = self.config['bridge_dir']
-        # TODO use config
-        config_dir = os.path.expanduser(self.config['config_dir'])
-        # TODO clear data generously
-        if os.path.exists(config_dir) and os.path.isdir(config_dir):
-            shutil.rmtree(config_dir)
-            os.system('mkdir -p %s' % (config_dir))
-            os.system('mkdir -p %s/logs/ganache' % (config_dir))
-            os.system('mkdir -p %s/logs/near2eth-relay' % (config_dir))
-            os.system('mkdir -p %s/logs/eth2near-relay' % (config_dir))
-            os.system('mkdir -p %s/logs/watchdog' % (config_dir))
-            os.system('touch %s/logs/ganache/out.log' % (config_dir))
-            os.system('touch %s/logs/ganache/err.log' % (config_dir))
-            os.system('touch %s/logs/near2eth-relay/out.log' % (config_dir))
-            os.system('touch %s/logs/near2eth-relay/err.log' % (config_dir))
-            os.system('touch %s/logs/eth2near-relay/out.log' % (config_dir))
-            os.system('touch %s/logs/eth2near-relay/err.log' % (config_dir))
-            os.system('touch %s/logs/watchdog/out.log' % (config_dir))
-            os.system('touch %s/logs/watchdog/err.log' % (config_dir))
-        if not os.path.exists(os.path.expanduser(bridge_dir)):
+        if not os.path.exists(bridge_dir):
             self.git_clone_install()
     
     def git_clone_install(self):
@@ -161,9 +141,7 @@ class RainbowBridge:
         bridge_dir = self.config['bridge_dir']
         os.system('git clone --recurse-submodules ' + self.config['bridge_repo'] + ' ' + bridge_dir)
         # TODO remove
-        os.system('cd %s && git checkout global_package' % (bridge_dir))
         os.system('cd %s && yarn' % (bridge_dir))
-        os.system('cd %s && yarn pm2 ping' % (bridge_dir))
         # TODO use config please
         os.system('cp ./lib/js_adapter/write_config.js %s' % (bridge_dir))
         # TODO install ethash
@@ -203,13 +181,13 @@ class RainbowBridge:
         self.near2eth_block_relay.start()
 
     def transfer_eth2near(self, sender, receiver, near_master_account, amount):
-        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        bridge_dir = self.config['bridge_dir']
         cli_dir = os.path.join(bridge_dir, 'cli')
         args = ('node index.js transfer-eth-erc20-to-near --amount %d --eth-sender-sk %s --near-receiver-account %s --near-master-account %s' % (amount, sender, receiver, near_master_account)).split()
         return subprocess.Popen(args, cwd=cli_dir)
 
     def transfer_near2eth(self, sender, receiver, amount):
-        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
+        bridge_dir = self.config['bridge_dir']
         cli_dir = os.path.join(bridge_dir, 'cli')
         args = ('node index.js transfer-eth-erc20-from-near --amount %d --near-sender-account %s --eth-receiver-address %s --near-sender-sk ed25519:3KyUucjyGk1L58AJBB6Rf6EZFqmpTSSKG7KKsptMvpJLDBiZmAkU4dR1HzNS6531yZ2cR5PxnTM7NLVvSfJjZPh7' % (amount, sender, receiver)).split()
         return subprocess.Popen(args, cwd=cli_dir)
@@ -223,58 +201,3 @@ class RainbowBridge:
         
 
 
-def start_ganache(config=None):
-    if not config:
-        config = load_config()
-
-    config_dir = os.path.expanduser(config['config_dir'])
-    os.system('mkdir -p %s' % (config_dir))
-    os.system('mkdir -p %s/logs/ganache' % (config_dir))
-    os.system('touch %s/logs/ganache/out.log' % (config_dir))
-    os.system('touch %s/logs/ganache/err.log' % (config_dir))
-    ganache_node = GanacheNode(config)
-    ganache_node.start()
-    return ganache_node
-
-def start_bridge(config=None):
-    if not config:
-        config = load_config()
-
-    bridge = RainbowBridge(config)
-    bridge.init_near_contracts()
-    bridge.init_eth_contracts()
-    bridge.init_near_token_factory()
-    bridge.start_near2eth_block_relay()
-    bridge.start_eth2near_block_relay()
-    return bridge
-
-
-DEFAULT_CONFIG = {
-    'local': True,
-    'bridge_repo': 'https://github.com/near/rainbow-bridge.git',
-    'bridge_dir': '~/.rainbow-bridge',
-    #'bridge_dir': '~/near/rainbow-bridge',
-    'config_dir': '~/.rainbow',
-    'ganache_dir': 'testing/vendor/ganache',
-    'ganache_bin': 'testing/vendor/ganache/node_modules/.bin/ganache-cli',
-}
-
-def load_config():
-    config = DEFAULT_CONFIG
-
-    try:
-        config_file = os.environ.get(CONFIG_ENV_VAR, '')
-        if config_file:
-            try:
-                with open(config_file) as f:
-                    new_config = json.load(f)
-                    config.update(new_config)
-                    print(f"Load config from {config_file}, config {config}")
-            except FileNotFoundError:
-                print(f"Failed to load config file, use default config {config}")
-        else:
-            print(f"Use default config {config}")
-    except:
-        print(f"No specific config found, use default config {config}")
-
-    return config
