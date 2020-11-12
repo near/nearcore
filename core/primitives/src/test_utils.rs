@@ -16,6 +16,7 @@ use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, 
 use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
 use num_rational::Rational;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
@@ -428,5 +429,23 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         Ok(0)
+    }
+
+    fn validate_validator_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _account_id: &String,
+        _data: &[u8],
+        _signature: &Signature,
+    ) -> Result<bool, EpochError> {
+        Ok(true)
+    }
+
+    fn compare_epoch_id(
+        &self,
+        _epoch_id: &EpochId,
+        _other_epoch_id: &EpochId,
+    ) -> Result<Ordering, EpochError> {
+        unimplemented!()
     }
 }

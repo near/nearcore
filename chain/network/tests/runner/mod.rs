@@ -23,6 +23,7 @@ use near_network::utils::blacklist_from_iter;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
+use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
@@ -99,6 +100,7 @@ pub fn setup_network_node(
             config,
             client_actor.recipient(),
             view_client_actor.recipient(),
+            Arc::new(MockEpochInfoProvider::default()),
         )
         .unwrap()
     });

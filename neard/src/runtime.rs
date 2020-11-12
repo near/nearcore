@@ -110,6 +110,35 @@ impl EpochInfoProvider for SafeEpochManager {
         let mut epoch_manager = self.0.write().expect(POISONED_LOCK_ERR);
         epoch_manager.minimum_stake(prev_block_hash)
     }
+
+    fn validate_validator_signature(
+        &self,
+        epoch_id: &EpochId,
+        account_id: &String,
+        data: &[u8],
+        signature: &Signature,
+    ) -> Result<bool, EpochError> {
+        let mut epoch_manager = self.as_ref().write().expect(POISONED_LOCK_ERR);
+        let validator = match epoch_manager.get_validator_by_account_id(epoch_id, account_id)? {
+            Some(v) => v,
+            None => return Ok(false),
+        };
+
+        Ok(signature.verify(data, &validator.public_key))
+    }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, EpochError> {
+        // if the epoch ids are the same, don't need to take the lock.
+        if epoch_id == other_epoch_id {
+            return Ok(Ordering::Equal);
+        }
+        let mut epoch_manager = self.as_ref().write().expect(POISONED_LOCK_ERR);
+        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id)
+    }
 }
 
 /// Defines Nightshade state transition and validator rotation.
@@ -1459,6 +1488,47 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
+    }
+}
+
+impl EpochInfoProvider for NightshadeRuntime {
+    fn validator_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+        account_id: &String,
+    ) -> Result<Option<u128>, EpochError> {
+        self.epoch_manager.validator_stake(epoch_id, last_block_hash, account_id)
+    }
+
+    fn validator_total_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<u128, EpochError> {
+        self.epoch_manager.validator_total_stake(epoch_id, last_block_hash)
+    }
+
+    fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<u128, EpochError> {
+        self.epoch_manager.minimum_stake(prev_block_hash)
+    }
+
+    fn validate_validator_signature(
+        &self,
+        epoch_id: &EpochId,
+        account_id: &String,
+        data: &[u8],
+        signature: &Signature,
+    ) -> Result<bool, EpochError> {
+        self.epoch_manager.validate_validator_signature(epoch_id, account_id, data, signature)
+    }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, EpochError> {
+        self.epoch_manager.compare_epoch_id(epoch_id, other_epoch_id)
     }
 }
 

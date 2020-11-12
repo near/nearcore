@@ -13,6 +13,7 @@ use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses,
 use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::test_utils::MockEpochInfoProvider;
 use near_store::test_utils::create_test_store;
 
 /// Make Peer Manager with mocked client ready to accept any announce account.
@@ -58,8 +59,14 @@ pub fn make_peer_manager(
     .start();
     let peer_id = config.public_key.clone().into();
     (
-        PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-            .unwrap(),
+        PeerManagerActor::new(
+            store,
+            config,
+            client_addr.recipient(),
+            view_client_addr.recipient(),
+            Arc::new(MockEpochInfoProvider::default()),
+        )
+        .unwrap(),
         peer_id,
         counter,
     )

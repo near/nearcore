@@ -227,7 +227,7 @@ pub fn start_with_config(
     let (client_actor, client_arbiter) = start_client(
         config.client_config,
         chain_genesis,
-        runtime,
+        runtime.clone(),
         node_id,
         network_adapter.clone(),
         config.validator_signer,
@@ -260,7 +260,8 @@ pub fn start_with_config(
     let network_config = config.network_config;
 
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter, move |_ctx| {
-        PeerManagerActor::new(store, network_config, client_actor1, view_client1).unwrap()
+        PeerManagerActor::new(store, network_config, client_actor1, view_client1, runtime.clone())
+            .unwrap()
     });
 
     network_adapter.set_recipient(network_actor.recipient());
