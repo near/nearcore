@@ -33,9 +33,11 @@ use near_network::{
 };
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{hash, CryptoHash, Digest};
 use near_primitives::merkle::verify_hash;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
+use near_primitives::sharding::{
+    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderV2,
+};
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
@@ -1016,6 +1018,98 @@ fn test_invalid_height_too_old() {
     }
     let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
     assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
+}
+
+#[test]
+fn test_bad_orphan() {
+    let mut genesis = ChainGenesis::test();
+    genesis.epoch_length = 100;
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    for i in 1..4 {
+        env.produce_block(0, i);
+    }
+    let block = env.clients[0].produce_block(5).unwrap().unwrap();
+    let signer = env.clients[0].validator_signer.as_ref().unwrap().clone();
+    {
+        // Orphan block with unknown epoch
+        let mut block = env.clients[0].produce_block(6).unwrap().unwrap();
+        block.mut_header().get_mut().inner_lite.epoch_id = EpochId(CryptoHash(Digest([1; 32])));
+        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([1; 32]));
+        block.mut_header().resign(&*signer);
+        let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::EpochOutOfBounds);
+    }
+    {
+        // Orphan block with invalid signature
+        let mut block = env.clients[0].produce_block(7).unwrap().unwrap();
+        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([1; 32]));
+        block.mut_header().get_mut().init();
+        let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidSignature);
+    }
+    {
+        // Orphan block with a valid header, but garbage in body
+        let mut block = env.clients[0].produce_block(8).unwrap().unwrap();
+        {
+            // Change the chunk in any way, chunk_headers_root won't match
+            let body = match &mut block {
+                Block::BlockV1(_) => unreachable!(),
+                Block::BlockV2(body) => body.as_mut(),
+            };
+            let chunk = match &mut body.chunks[0] {
+                ShardChunkHeader::V1(_) => unreachable!(),
+                ShardChunkHeader::V2(chunk) => chunk,
+            };
+            chunk.inner.outcome_root = CryptoHash(Digest([1; 32]));
+            chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
+        }
+        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
+        block.mut_header().resign(&*signer);
+        let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidChunkHeadersRoot);
+    }
+    {
+        // Orphan block with invalid approvals. Allowed for now.
+        let mut block = env.clients[0].produce_block(9).unwrap().unwrap();
+        let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
+        block.mut_header().get_mut().inner_rest.approvals = vec![Some(some_signature)];
+        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
+        block.mut_header().resign(&*signer);
+        let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::Orphan);
+    }
+    {
+        // Orphan block with no chunk signatures. Allowed for now.
+        let mut block = env.clients[0].produce_block(10).unwrap().unwrap();
+        let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
+        {
+            let body = match &mut block {
+                Block::BlockV1(_) => unreachable!(),
+                Block::BlockV2(body) => body.as_mut(),
+            };
+            let chunk = match &mut body.chunks[0] {
+                ShardChunkHeader::V1(_) => unreachable!(),
+                ShardChunkHeader::V2(chunk) => chunk,
+            };
+            chunk.signature = some_signature;
+            chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
+        }
+        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([4; 32]));
+        block.mut_header().resign(&*signer);
+        let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::Orphan);
+    }
+    {
+        // Orphan block that's too far ahead: 20 * epoch_length
+        let mut block = block.clone();
+        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
+        block.mut_header().get_mut().inner_lite.height += 2000;
+        block.mut_header().resign(&*signer);
+        let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+        assert!(matches!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
+    }
+    let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+    assert!(res.is_ok());
 }
 
 #[test]
