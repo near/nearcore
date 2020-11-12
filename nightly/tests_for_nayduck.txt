@@ -166,5 +166,3 @@ expensive nearcore test_simple test::test_2_10_multiple_nodes
 expensive nearcore test_simple test::test_4_10_multiple_nodes
 expensive nearcore test_simple test::test_7_10_multiple_nodes
 
-expensive nearcore test_rejoin test::test_4_20_kill1
-expensive nearcore test_rejoin test::test_4_20_kill1_two_shards
