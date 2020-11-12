@@ -21,7 +21,6 @@ use near_client::test_utils::{create_chunk_on_height, setup_mock_all_validators}
 use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
-use near_logger_utils::init_test_logger;
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
@@ -68,7 +67,6 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
 fn produce_two_blocks() {
-    //init_test_logger();
     System::run(|| {
         let count = Arc::new(AtomicUsize::new(0));
         setup_mock(
@@ -97,7 +95,6 @@ fn produce_two_blocks() {
 #[ignore]
 fn produce_blocks_with_tx() {
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
-    //init_test_logger();
     System::run(|| {
         let (client, view_client) = setup_mock(
             vec!["test"],
@@ -163,7 +160,6 @@ fn produce_blocks_with_tx() {
 /// Need 3 block producers, to receive approval.
 #[test]
 fn receive_network_block() {
-    //init_test_logger();
     System::run(|| {
         // The first header announce will be when the block is received. We don't immediately endorse
         // it. The second header announce will happen with the endorsement a little later.
@@ -222,7 +218,6 @@ fn receive_network_block() {
 /// Include approvals to the next block in newly produced block.
 #[test]
 fn produce_block_with_approvals() {
-    //init_test_logger();
     let validators = vec![
         "test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8", "test9", "test10",
     ];
@@ -310,7 +305,6 @@ fn produce_block_with_approvals() {
 /// When approvals arrive early, they should be properly cached.
 #[test]
 fn produce_block_with_approvals_arrived_early() {
-    //init_test_logger();
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
@@ -385,7 +379,6 @@ fn produce_block_with_approvals_arrived_early() {
 /// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
 /// and that the node bans the peer for invalid block header.
 fn invalid_blocks_common(is_requested: bool) {
-    //init_test_logger();
     System::run(move || {
         let mut ban_counter = 0;
         let (client, view_client) = setup_mock(
@@ -508,7 +501,6 @@ fn test_invalid_blocks_requested() {
 
 #[test]
 fn invalid_blocks() {
-    //init_test_logger();
     System::run(|| {
         let (client, view_client) = setup_mock(
             vec!["test"],
@@ -601,7 +593,6 @@ enum InvalidBlockMode {
     InvalidBlock,
 }
 fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
-    //init_test_logger();
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
@@ -731,7 +722,6 @@ fn test_ban_peer_for_ill_formed_block() {
 /// Present validator produces blocks on it's height after deadline.
 #[test]
 fn skip_block_production() {
-    //init_test_logger();
     System::run(|| {
         setup_mock(
             vec!["test1", "test2"],
@@ -758,7 +748,6 @@ fn skip_block_production() {
 /// Runs client that requests syncing headers from peers.
 #[test]
 fn client_sync_headers() {
-    //init_test_logger();
     System::run(|| {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = peer_info1.clone();
@@ -830,7 +819,6 @@ fn produce_blocks(client: &mut Client, num: u64) {
 
 #[test]
 fn test_process_invalid_tx() {
-    //init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
@@ -882,7 +870,6 @@ fn test_process_invalid_tx() {
 /// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
 #[test]
 fn test_time_attack() {
-    //init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let chain_genesis = ChainGenesis::test();
@@ -913,7 +900,6 @@ fn test_time_attack() {
 #[test]
 #[ignore]
 fn test_invalid_approvals() {
-    //init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let chain_genesis = ChainGenesis::test();
@@ -964,7 +950,6 @@ fn test_no_double_sign() {
 
 #[test]
 fn test_invalid_gas_price() {
-    //init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
@@ -1531,7 +1516,6 @@ fn test_gc_tail_update() {
 /// Test that transaction does not become invalid when there is some gas price change.
 #[test]
 fn test_gas_price_change() {
-    //init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
     let send_money_total_gas = genesis
@@ -1983,7 +1967,6 @@ fn test_gas_price_change_no_chunk() {
 
 #[test]
 fn test_catchup_gas_price_change() {
-    //init_test_logger();
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
@@ -2140,7 +2123,6 @@ fn test_block_execution_outcomes() {
 
 #[test]
 fn test_epoch_protocol_version_change() {
-    //init_test_logger();
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 2);
     genesis.config.epoch_length = epoch_length;

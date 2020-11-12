@@ -144,9 +144,9 @@ pub struct PeerManagerActor {
     /// Store all collected metrics from a node.
     #[cfg(feature = "metric_recorder")]
     metric_recorder: MetricRecorder,
-    edge_verifier_pool: Addr<EdgeVerifier>,
+    edge_verifier_pool: Recipient<EdgeList>,
     txns_since_last_block: Arc<AtomicUsize>,
-    epoch_info_provider: Arc<dyn EpochInfoProvider>,
+    epoch_info_provider: Box<dyn EpochInfoProvider>,
 }
 
 impl PeerManagerActor {
@@ -155,7 +155,7 @@ impl PeerManagerActor {
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
-        epoch_info_provider: Arc<dyn EpochInfoProvider>,
+        epoch_info_provider: Box<dyn EpochInfoProvider>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
@@ -184,7 +184,7 @@ impl PeerManagerActor {
             started_connect_attempts: false,
             pending_update_nonce_request: HashMap::new(),
             network_metrics: NetworkMetrics::new(),
-            edge_verifier_pool,
+            edge_verifier_pool: edge_verifier_pool.recipient(),
             #[cfg(feature = "metric_recorder")]
             metric_recorder,
             txns_since_last_block,
@@ -1372,7 +1372,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             _ => continue,
                         }
                     }
-                    match self.epoch_info_provider.validate_validator_signature(
+                    match self.epoch_info_provider.verify_validator_signature(
                         &account_announcement.epoch_id,
                         &account_announcement.account_id,
                         account_announcement.hash().as_ref(),
@@ -1396,60 +1396,47 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     self.routing_table.add_account(account.clone());
                 }
 
+                // Filter known edges
+                let mut edges_need_update_nonce = vec![];
+                let mut edges_need_removal = vec![];
+                let mut new_edges = vec![];
+                for edge in edges {
+                    if let Some(cur_edge) =
+                        self.routing_table.get_edge(edge.peer0.clone(), edge.peer1.clone())
+                    {
+                        if cur_edge.nonce >= edge.nonce {
+                            continue;
+                        }
+                    }
+                    if let Some(other) = edge.other(&self.peer_id) {
+                        // We belong to this edge.
+                        if self.active_peers.contains_key(&other) {
+                            // This is an active connection.
+                            if let EdgeType::Removed = edge.edge_type() {
+                                edges_need_update_nonce.push((edge, other));
+                                continue;
+                            }
+                        } else {
+                            if let EdgeType::Added = edge.edge_type() {
+                                edges_need_removal.push(edge);
+                                continue;
+                            }
+                        }
+                    }
+                    new_edges.push(edge);
+                }
+                let new_edges = Arc::new(new_edges);
+
                 self.edge_verifier_pool
-                    .send(EdgeList(edges.clone()))
+                    .send(EdgeList(new_edges.clone()))
                     .into_actor(self)
                     .then(move |response, act, ctx| {
                         match response {
                             Ok(false) => act.try_ban_peer(ctx, &peer_id, ReasonForBan::InvalidEdge),
                             Ok(true) => {
-                                // Filter known edges.
-                                let me = act.peer_id.clone();
-
-                                let new_edges: Vec<_> = edges
-                                    .into_iter()
-                                    .filter(|edge| {
-                                        if let Some(cur_edge) = act
-                                            .routing_table
-                                            .get_edge(edge.peer0.clone(), edge.peer1.clone())
-                                        {
-                                            if cur_edge.nonce >= edge.nonce {
-                                                // We have newer update. Drop this.
-                                                return false;
-                                            }
-                                        }
-                                        // Add new edge update to the routing table.
-                                        act.process_edges(ctx, vec![edge.clone()]);
-                                        if let Some(other) = edge.other(&me) {
-                                            // We belong to this edge.
-                                            if act.active_peers.contains_key(&other) {
-                                                // This is an active connection.
-                                                match edge.edge_type() {
-                                                    EdgeType::Added => true,
-                                                    EdgeType::Removed => {
-                                                        // Try to update the nonce, and in case it fails removes the peer.
-                                                        act.try_update_nonce(
-                                                            ctx,
-                                                            edge.clone(),
-                                                            other,
-                                                        );
-                                                        false
-                                                    }
-                                                }
-                                            } else {
-                                                match edge.edge_type() {
-                                                    EdgeType::Added => {
-                                                        act.wait_peer_or_remove(ctx, edge.clone());
-                                                        false
-                                                    }
-                                                    EdgeType::Removed => true,
-                                                }
-                                            }
-                                        } else {
-                                            true
-                                        }
-                                    })
-                                    .collect();
+                                let new_edges = Arc::try_unwrap(new_edges)
+                                    .expect("should not have more than one reference");
+                                act.process_edges(ctx, new_edges.clone());
 
                                 let new_data =
                                     SyncData { edges: new_edges, accounts: new_accounts };
@@ -1462,6 +1449,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                         },
                                     )
                                 };
+                                for (edge, other) in edges_need_update_nonce {
+                                    act.try_update_nonce(ctx, edge, other);
+                                }
+                                for edge in edges_need_removal {
+                                    act.wait_peer_or_remove(ctx, edge);
+                                }
                             }
                             Err(err) => warn!(target: "network", "error validating edges: {}", err),
                         }
@@ -1816,5 +1809,80 @@ impl Handler<PeerMessageMetadata> for PeerManagerActor {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peer message metadata".into());
         self.metric_recorder.handle_peer_message(msg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::peer_manager::EdgeVerifier;
+    use crate::routing::Edge;
+    use crate::test_utils::open_port;
+    use crate::types::{NetworkViewClientResponses, SyncData};
+    use crate::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
+    use actix::actors::mocker::Mocker;
+    use actix::{Actor, System};
+    use near_client::{ClientActor, ViewClientActor};
+    use near_primitives::network::PeerId;
+    use near_primitives::test_utils::MockEpochInfoProvider;
+    use near_store::test_utils::create_test_store;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    type ClientMock = Mocker<ClientActor>;
+    type ViewClientMock = Mocker<ViewClientActor>;
+    type EdgeVerifierMock = Mocker<EdgeVerifier>;
+
+    #[test]
+    fn test_verify_edge_once() {
+        System::run(|| {
+            let store = create_test_store();
+            let port = open_port();
+            let config = NetworkConfig::from_seed("test", port);
+            let peer_id = PeerId::from(config.public_key.clone());
+            let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
+                Box::new(Some(NetworkClientResponses::NoResponse))
+            }))
+            .start();
+            let view_client_addr = ViewClientMock::mock(Box::new(move |_msg, _ctx| {
+                Box::new(Some(NetworkViewClientResponses::NoResponse))
+            }))
+            .start();
+            let mut peer_manager = PeerManagerActor::new(
+                store,
+                config,
+                client_addr.recipient(),
+                view_client_addr.recipient(),
+                Box::new(MockEpochInfoProvider::default()),
+            )
+            .unwrap();
+
+            let counter = Arc::new(AtomicUsize::new(0));
+            let counter1 = counter.clone();
+            let edge_verifier_addr = EdgeVerifierMock::mock(Box::new(move |_msg, _ctx| {
+                counter1.fetch_add(1, Ordering::SeqCst);
+                Box::new(true)
+            }))
+            .start();
+            peer_manager.edge_verifier_pool = edge_verifier_addr.recipient();
+            let pm = peer_manager.start();
+            let request = NetworkRequests::Sync {
+                peer_id: peer_id.clone(),
+                sync_data: SyncData::edge(Edge::new(
+                    peer_id.clone(),
+                    peer_id,
+                    0,
+                    Default::default(),
+                    Default::default(),
+                )),
+            };
+            actix::spawn(async move {
+                for _ in 0..100 {
+                    pm.send(request.clone()).await.unwrap();
+                }
+                assert_eq!(counter.load(Ordering::SeqCst), 1);
+                System::current().stop();
+            })
+        })
+        .unwrap();
     }
 }

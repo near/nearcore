@@ -431,7 +431,7 @@ impl EpochInfoProvider for MockEpochInfoProvider {
         Ok(0)
     }
 
-    fn validate_validator_signature(
+    fn verify_validator_signature(
         &self,
         _epoch_id: &EpochId,
         _account_id: &String,
@@ -443,9 +443,13 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn compare_epoch_id(
         &self,
-        _epoch_id: &EpochId,
-        _other_epoch_id: &EpochId,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
     ) -> Result<Ordering, EpochError> {
-        unimplemented!()
+        if epoch_id == other_epoch_id {
+            Ok(Ordering::Equal)
+        } else {
+            Ok(Ordering::Greater)
+        }
     }
 }

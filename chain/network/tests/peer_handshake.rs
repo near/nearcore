@@ -53,7 +53,7 @@ fn make_peer_manager(
         config,
         client_addr.recipient(),
         view_client_addr.recipient(),
-        Arc::new(MockEpochInfoProvider::default()),
+        Box::new(MockEpochInfoProvider::default()),
     )
     .unwrap()
 }

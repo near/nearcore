@@ -100,7 +100,7 @@ pub fn setup_network_node(
             config,
             client_actor.recipient(),
             view_client_actor.recipient(),
-            Arc::new(MockEpochInfoProvider::default()),
+            Box::new(MockEpochInfoProvider::default()),
         )
         .unwrap()
     });

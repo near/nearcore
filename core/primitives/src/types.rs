@@ -580,7 +580,7 @@ pub trait EpochInfoProvider {
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
 
-    fn validate_validator_signature(
+    fn verify_validator_signature(
         &self,
         epoch_id: &EpochId,
         account_id: &AccountId,

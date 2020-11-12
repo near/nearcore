@@ -7,14 +7,65 @@ use actix::{Actor, System};
 use futures::{future, FutureExt};
 
 use near_client::ClientActor;
+use near_crypto::Signature;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, SyncData};
 use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
 use near_primitives::block::GenesisId;
+use near_primitives::errors::EpochError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::test_utils::MockEpochInfoProvider;
+use near_primitives::types::{EpochId, EpochInfoProvider};
 use near_store::test_utils::create_test_store;
+
+struct TestEpochInfoProvider<T> {
+    counter: Arc<AtomicUsize>,
+    provider: T,
+}
+
+impl<T: EpochInfoProvider> EpochInfoProvider for TestEpochInfoProvider<T> {
+    fn validator_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+        account_id: &String,
+    ) -> Result<Option<u128>, EpochError> {
+        self.provider.validator_stake(epoch_id, last_block_hash, account_id)
+    }
+
+    fn validator_total_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<u128, EpochError> {
+        self.provider.validator_total_stake(epoch_id, last_block_hash)
+    }
+
+    fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<u128, EpochError> {
+        self.provider.minimum_stake(prev_block_hash)
+    }
+
+    fn verify_validator_signature(
+        &self,
+        epoch_id: &EpochId,
+        account_id: &String,
+        data: &[u8],
+        signature: &Signature,
+    ) -> Result<bool, EpochError> {
+        self.counter.fetch_add(1, Ordering::SeqCst);
+        self.provider.verify_validator_signature(epoch_id, account_id, data, signature)
+    }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<std::cmp::Ordering, EpochError> {
+        self.provider.compare_epoch_id(epoch_id, other_epoch_id)
+    }
+}
 
 /// Make Peer Manager with mocked client ready to accept any announce account.
 /// Used for `test_infinite_loop`
@@ -37,14 +88,6 @@ pub fn make_peer_manager(
     let view_client_addr = ViewClientMock::mock(Box::new(move |msg, _ctx| {
         let msg = msg.downcast_ref::<NetworkViewClientMessages>().unwrap();
         match msg {
-            NetworkViewClientMessages::AnnounceAccount(accounts) => {
-                if !accounts.is_empty() {
-                    counter1.fetch_add(1, Ordering::SeqCst);
-                }
-                Box::new(Some(NetworkViewClientResponses::AnnounceAccount(
-                    accounts.clone().into_iter().map(|obj| obj.0).collect(),
-                )))
-            }
             NetworkViewClientMessages::GetChainInfo => {
                 Box::new(Some(NetworkViewClientResponses::ChainInfo {
                     genesis_id: GenesisId::default(),
@@ -64,7 +107,10 @@ pub fn make_peer_manager(
             config,
             client_addr.recipient(),
             view_client_addr.recipient(),
-            Arc::new(MockEpochInfoProvider::default()),
+            Box::new(TestEpochInfoProvider {
+                counter: counter1,
+                provider: MockEpochInfoProvider::default(),
+            }),
         )
         .unwrap(),
         peer_id,
@@ -154,6 +200,31 @@ fn test_infinite_loop() {
             10000,
         )
         .start();
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_verify_account_announcement_once() {
+    System::run(|| {
+        actix::spawn(async {
+            let (pm, peer_id, counter) = make_peer_manager("test1", open_port(), vec![], 10);
+            let pm = pm.start();
+            let request = NetworkRequests::Sync {
+                peer_id: peer_id.clone(),
+                sync_data: SyncData::account(AnnounceAccount {
+                    account_id: "near".to_string(),
+                    peer_id: peer_id.clone(),
+                    epoch_id: Default::default(),
+                    signature: Default::default(),
+                }),
+            };
+            for _ in 0..100 {
+                pm.send(request.clone()).await.unwrap();
+            }
+            assert_eq!(counter.load(Ordering::SeqCst), 1);
+            System::current().stop();
+        });
     })
     .unwrap();
 }
