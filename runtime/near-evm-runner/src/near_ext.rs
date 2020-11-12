@@ -7,7 +7,7 @@ use keccak_hash::keccak;
 use near_runtime_fees::EvmCostConfig;
 use parity_bytes::Bytes;
 use vm::{
-    CallType, ContractCreateResult, CreateContractAddress, EnvInfo, Error as VmError,
+    ActionType, ContractCreateResult, CreateContractAddress, EnvInfo, Error as VmError,
     MessageCallResult, Result as EvmResult, ReturnData, Schedule, TrapKind,
 };
 
@@ -142,6 +142,7 @@ impl<'a> vm::Ext for NearExt<'a> {
         gas: &U256,
         value: &U256,
         code: &[u8],
+        _parent_version: &U256,
         address_type: CreateContractAddress,
         _trap: bool,
     ) -> Result<ContractCreateResult, TrapKind> {
@@ -179,10 +180,10 @@ impl<'a> vm::Ext for NearExt<'a> {
         value: Option<U256>,
         data: &[u8],
         code_address: &Address,
-        call_type: CallType,
+        call_type: ActionType,
         _trap: bool,
     ) -> Result<MessageCallResult, TrapKind> {
-        if self.is_static() && call_type != CallType::StaticCall {
+        if self.is_static() && call_type != ActionType::StaticCall {
             panic!("MutableCallInStaticContext")
         }
 
@@ -197,11 +198,11 @@ impl<'a> vm::Ext for NearExt<'a> {
         }
 
         let result = match call_type {
-            CallType::None => {
+            ActionType::Create | ActionType::Create2 => {
                 // Is not used.
                 return Err(TrapKind::Call(ActionParams::default()));
             }
-            CallType::Call => interpreter::call(
+            ActionType::Call => interpreter::call(
                 self.sub_state,
                 &self.origin,
                 sender_address,
@@ -214,7 +215,7 @@ impl<'a> vm::Ext for NearExt<'a> {
                 &self.evm_gas_config,
                 self.chain_id,
             ),
-            CallType::StaticCall => interpreter::static_call(
+            ActionType::StaticCall => interpreter::static_call(
                 self.sub_state,
                 &self.origin,
                 sender_address,
@@ -225,11 +226,11 @@ impl<'a> vm::Ext for NearExt<'a> {
                 &self.evm_gas_config,
                 self.chain_id,
             ),
-            CallType::CallCode => {
+            ActionType::CallCode => {
                 // Call another contract using storage of the current contract. No longer used.
                 return Err(TrapKind::Call(ActionParams::default()));
             }
-            CallType::DelegateCall => interpreter::delegate_call(
+            ActionType::DelegateCall => interpreter::delegate_call(
                 self.sub_state,
                 &self.origin,
                 sender_address,

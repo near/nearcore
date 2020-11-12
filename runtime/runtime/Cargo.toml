@@ -16,7 +16,7 @@ num-rational = "0.2.4"
 num-bigint = "0.2.6"
 num-traits = "0.2.11"
 hex = "0.4.2"
-ethereum-types = "0.6.0"
+ethereum-types = "0.8.0"
 
 borsh = "0.7.1"
 
