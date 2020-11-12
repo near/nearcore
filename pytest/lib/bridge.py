@@ -210,12 +210,15 @@ class RainbowBridge:
             # use default token_account
             token_account_id = '7cc4b1851c35959d34e635a470f6b5c43ba3c9c9.neartokenfactory'
         #return node.call_function(token_account_id, 'get_balance', '{"owner_id": "' + account_id + '"}')
-        #print('AAA', node.call_function(token_account_id, 'get_balance', [base64.b64encode(bytes('{"owner_id": "' + account_id + '"}')).decode("ascii")]))
-        #status = node.get_status()
-        #h = status['sync_info']['latest_block_hash']
-        #h = base58.b58decode(h.encode('utf8'))
-        #tx = sign_function_call_tx(node.signer_key, token_account_id, 'get_balance', ['{"owner_id": "' + account_id + '"}'], 3000000000000, 0, 20, h)
-        #res = node.send_tx_and_wait(tx, 20)
-        #print('BBB', res)
+        res = node.call_function(token_account_id, 'get_balance', base64.b64encode(bytes('{"owner_id": "' + account_id + '"}', encoding='utf8')).decode("ascii"))
+        res = int.from_bytes(res["result"]["result"], byteorder='little')
+        print('AAA', res)
+        return res
+        status = node.get_status()
+        h = status['sync_info']['latest_block_hash']
+        h = base58.b58decode(h.encode('utf8'))
+        tx = sign_function_call_tx(node.signer_key, token_account_id, 'get_balance', '{"owner_id": "' + account_id + '"}', 3000000000000, 0, 20, h)
+        res = node.send_tx_and_wait(tx, 20)
+        print('BBB', res)
         return 0
         #return res['result']['receipts_outcome'][0]['outcome']['logs'][0]
