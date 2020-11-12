@@ -2,8 +2,10 @@
 import argparse
 import os
 
-from testlib import clean_binary_tests, build_tests, test_binaries, workers, run_test, run_doc_tests
 from concurrent.futures import as_completed, ThreadPoolExecutor
+from multiprocessing import cpu_count
+
+from testlib import clean_binary_tests, build_tests, test_binaries, run_test, run_doc_tests
 
 RERUN_THRESHOLD = 5
 
@@ -34,7 +36,7 @@ if __name__ == "__main__":
 
     completed = 0
     fails = []
-    with ThreadPoolExecutor(max_workers=workers()) as executor:
+    with ThreadPoolExecutor(max_workers=cpu_count()) as executor:
         future_to_binary = {
             executor.submit(run_test, binary): binary for binary in binaries
         }
