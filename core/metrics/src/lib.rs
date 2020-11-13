@@ -109,8 +109,16 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
 
 /// Attempts to create a `HistogramVector`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
-pub fn try_create_histogram_vec(name: &str, help: &str, labels: &[&str]) -> Result<HistogramVec> {
-    let opts = HistogramOpts::new(name, help);
+pub fn try_create_histogram_vec(
+    name: &str,
+    help: &str,
+    labels: &[&str],
+    buckets: Option<Vec<f64>>,
+) -> Result<HistogramVec> {
+    let mut opts = HistogramOpts::new(name, help);
+    if let Some(buckets) = buckets {
+        opts = opts.buckets(buckets);
+    }
     let histogram = HistogramVec::new(opts, labels)?;
     prometheus::register(Box::new(histogram.clone()))?;
     Ok(histogram)
