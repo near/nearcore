@@ -10,6 +10,7 @@ use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::u128_dec_format;
 use crate::trie_key::TrieKey;
+use std::sync::Arc;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -558,6 +559,12 @@ pub enum TransactionOrReceiptId {
     Receipt { receipt_id: CryptoHash, receiver_id: AccountId },
 }
 
+/// Cache for compiled modules
+pub trait CompiledContractCache: Send + Sync {
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error>;
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error>;
+}
+
 /// Provides information about current epoch validators.
 /// Used to break dependency between epoch manager and runtime.
 pub trait EpochInfoProvider {
@@ -578,4 +585,7 @@ pub trait EpochInfoProvider {
     ) -> Result<Balance, EpochError>;
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
+
+    /// Get compiled contracts cache.
+    fn contract_cache(&self) -> Option<Arc<dyn CompiledContractCache>>;
 }

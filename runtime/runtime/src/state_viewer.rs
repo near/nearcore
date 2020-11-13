@@ -112,6 +112,11 @@ impl TrieViewer {
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty(KeyType::ED25519);
+        let cache = epoch_info_provider.contract_cache();
+        let cache = match &cache {
+            Some(cache) => Some((*cache).as_ref()),
+            None => None,
+        };
         let (outcome, err) = {
             let empty_hash = CryptoHash::default();
             let mut runtime_ext = RuntimeExt::new(
@@ -156,7 +161,7 @@ impl TrieViewer {
                 &RuntimeFeesConfig::default(),
                 &[],
                 current_protocol_version,
-                None,
+                cache,
             )
         };
         let elapsed = now.elapsed();

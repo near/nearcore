@@ -12,11 +12,14 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
+use crate::types::{
+    AccountId, Balance, BlockHeight, CompiledContractCache, EpochId, EpochInfoProvider, Gas, Nonce,
+};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
@@ -428,5 +431,9 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         Ok(0)
+    }
+
+    fn contract_cache(&self) -> Option<Arc<dyn CompiledContractCache>> {
+        return None;
     }
 }

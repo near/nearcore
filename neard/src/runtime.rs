@@ -29,8 +29,9 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake,
+    AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
+    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot,
+    StateRootNode, ValidatorStake,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -39,10 +40,10 @@ use near_primitives::views::{
 };
 use near_store::{
     get_access_key_raw, get_genesis_hash, get_genesis_state_roots, set_genesis_hash,
-    set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges,
+    set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store,
+    StoreCompiledContractCache, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::cache::StoreCompiledContractCache;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
@@ -109,6 +110,13 @@ impl EpochInfoProvider for SafeEpochManager {
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         let mut epoch_manager = self.0.write().expect(POISONED_LOCK_ERR);
         epoch_manager.minimum_stake(prev_block_hash)
+    }
+
+    fn contract_cache(&self) -> Option<Arc<dyn CompiledContractCache>> {
+        match self.0.write() {
+            Ok(epoch_manager) => Some(epoch_manager.contract_cache()),
+            Err(_) => None,
+        }
     }
 }
 

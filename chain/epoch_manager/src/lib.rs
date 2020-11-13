@@ -12,14 +12,17 @@ use near_primitives::epoch_manager::{
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
-    ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight,
+    CompiledContractCache, EpochId, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
+    ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
-use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
+use near_store::{
+    ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreCompiledContractCache, StoreUpdate,
+};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
@@ -56,6 +59,8 @@ pub struct EpochManager {
     epoch_info_aggregator: Option<EpochInfoAggregator>,
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
+    /// Cache of compiled to native code contracts.
+    cache: Arc<dyn CompiledContractCache>,
 }
 
 impl EpochManager {
@@ -69,6 +74,7 @@ impl EpochManager {
         let validator_reward = vec![(reward_calculator.protocol_treasury_account.clone(), 0u128)]
             .into_iter()
             .collect();
+        let cache = Arc::new(StoreCompiledContractCache { store: store.clone() });
         let mut epoch_manager = EpochManager {
             store,
             config,
@@ -79,6 +85,7 @@ impl EpochManager {
             epoch_id_to_start: SizedCache::with_size(EPOCH_CACHE_SIZE),
             epoch_info_aggregator: None,
             largest_final_height: 0,
+            cache,
         };
         let genesis_epoch_id = EpochId::default();
         if !epoch_manager.has_epoch_info(&genesis_epoch_id)? {
@@ -1203,6 +1210,10 @@ impl EpochManager {
         }
         self.epoch_info_aggregator = Some(aggregator);
         Ok(())
+    }
+
+    pub fn contract_cache(&self) -> Arc<dyn CompiledContractCache> {
+        self.cache.clone()
     }
 }
 
