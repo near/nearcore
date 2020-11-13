@@ -907,6 +907,7 @@ impl ClientActor {
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
         if provenance == Provenance::PRODUCED {
+            debug!(target: "client", "EVENT_TYPE_ID=00  {:?} sending produced block {} at {} ", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), block.header().hash(), block.header().height());
             self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
         } else {
             match self.client.chain.validate_block(&block) {
@@ -940,7 +941,7 @@ impl ClientActor {
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
     fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
+        debug!(target: "client", "EVENT_TYPE_ID=01  {:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
         let head = unwrap_or_return!(self.client.chain.head());
         let is_syncing = self.client.sync_status.is_syncing();
         if block.header().height() >= head.height + BLOCK_HORIZON && is_syncing && !was_requested {

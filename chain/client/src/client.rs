@@ -427,7 +427,7 @@ impl Client {
         // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let block = Block::produce(
+        let block = Block::produce2(
             protocol_version,
             &prev_header,
             next_height,
@@ -444,6 +444,7 @@ impl Client {
             &*validator_signer,
             next_bp_hash,
             block_merkle_root,
+            |msg| warn!(target: "client", "{}", msg),
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -781,6 +782,7 @@ impl Client {
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
+        warn!(target: "client", "EVENT_TYPE_ID=03  {:?} processing partial encoded chunk {}", self.validator_signer.as_ref().map(|vs| vs.validator_id()), partial_encoded_chunk.chunk_hash().0);
         fn missing_block_handler(
             client: &mut Client,
             pec: PartialEncodedChunkV2,

@@ -184,7 +184,6 @@ impl Block {
         )
     }
 
-    /// Produces new block from header of previous block, current state root and set of transactions.
     pub fn produce(
         protocol_version: ProtocolVersion,
         prev: &BlockHeader,
@@ -203,6 +202,47 @@ impl Block {
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
     ) -> Self {
+        Self::produce2(
+            protocol_version,
+            prev,
+            height,
+            chunks,
+            epoch_id,
+            next_epoch_id,
+            approvals,
+            gas_price_adjustment_rate,
+            min_gas_price,
+            max_gas_price,
+            minted_amount,
+            challenges_result,
+            challenges,
+            signer,
+            next_bp_hash,
+            block_merkle_root,
+            |_| (),
+        )
+    }
+
+    /// Produces new block from header of previous block, current state root and set of transactions.
+    pub fn produce2<F: Fn(String) -> ()>(
+        protocol_version: ProtocolVersion,
+        prev: &BlockHeader,
+        height: BlockHeight,
+        chunks: Vec<ShardChunkHeader>,
+        epoch_id: EpochId,
+        next_epoch_id: EpochId,
+        approvals: Vec<Option<Signature>>,
+        gas_price_adjustment_rate: Rational,
+        min_gas_price: Balance,
+        max_gas_price: Balance,
+        minted_amount: Option<Balance>,
+        challenges_result: ChallengesResult,
+        challenges: Challenges,
+        signer: &dyn ValidatorSigner,
+        next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
+        log_func: F,
+    ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
         let mut gas_used = 0;
@@ -210,7 +250,7 @@ impl Block {
         let mut chunk_mask = vec![];
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
-        for chunk in chunks.iter() {
+        for (shard_id, chunk) in chunks.iter().enumerate() {
             if chunk.height_included() == height {
                 validator_proposals.extend_from_slice(chunk.validator_proposals());
                 gas_used += chunk.gas_used();
@@ -218,6 +258,7 @@ impl Block {
                 balance_burnt += chunk.balance_burnt();
                 chunk_mask.push(true);
             } else {
+                log_func(format!("EVENT_TYPE_ID=04  Block at height {} is missing the chunk for shard {}", height, shard_id));
                 chunk_mask.push(false);
             }
         }

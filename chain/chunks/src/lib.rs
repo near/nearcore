@@ -1640,6 +1640,7 @@ impl ShardsManager {
         let chunk_header = encoded_chunk.cloned_header();
         let prev_block_hash = chunk_header.prev_block_hash();
         let shard_id = chunk_header.shard_id();
+        warn!(target: "chunks", "EVENT_TYPE_ID=02  {:?} sending produced chunk {} at {} for shard {}", self.me, chunk_header.chunk_hash().0, chunk_header.height_created(), shard_id);
         let outgoing_receipts_hashes =
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
