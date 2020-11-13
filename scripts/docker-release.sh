@@ -1,5 +1,17 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
+
+release="stable"
+if [ ! -z "$1" ]
+then
+	release=$1
+fi
+
+if [ "$release" != "stable" ] && [ "$release" != "nightly" ]
+then
+	echo "Please provide no argument for normal release or provide nightly."
+	exit 1
+fi
 
 branch=${BUILDKITE_BRANCH//:/_}
 branch=${branch//\//_}
@@ -8,16 +20,23 @@ if [[ ${commit} == "HEAD" ]]; then
     commit=$(git rev-parse HEAD)
 fi
 
-make
-# Here we don't check master, beta and stable criteria, they have to be checked in buildkite pipeline
-# before this script. 
-docker tag nearcore nearprotocol/nearcore:${branch}-${commit}
-docker tag nearcore nearprotocol/nearcore:${branch}
+image_name="nearcore"
+if [[ ${release} == "stable" ]];
+then
+	make
+else
+	make docker-nearcore-nightly
+	image_name="nearcore-nightly"
+fi
+
+docker tag $image_name nearprotocol/${image_name}:${branch}-${commit}
+docker tag $image_name nearprotocol/${image_name}:${branch}
 
 set -x
-docker push nearprotocol/nearcore:${branch}-${commit}
-docker push nearprotocol/nearcore:${branch}
-if [[ ${branch} == "stable" ]]; then
-    docker tag nearcore nearprotocol/nearcore:latest
-    docker push nearprotocol/nearcore:latest
+docker push nearprotocol/${image_name}:${branch}-${commit}
+docker push nearprotocol/${image_name}:${branch}
+if [[ ${branch} == "master" ]];
+then
+	docker tag $image_name nearprotocol/${image_name}:latest
+	docker push nearprotocol/${image_name}:latest
 fi

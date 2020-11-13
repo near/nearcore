@@ -21,13 +21,13 @@ impl TrieCache {
         Self(Arc::new(Mutex::new(SizedCache::with_size(TRIE_MAX_CACHE_SIZE))))
     }
 
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
+    pub fn update_cache(&self, ops: &[(CryptoHash, Option<Vec<u8>>)]) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
-                if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
+                if let (Some(value), _rc) = decode_value_with_rc(value_rc) {
                     if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                        guard.cache_set(hash, value.to_vec());
+                        guard.cache_set(*hash, value.to_vec());
                     }
                 } else {
                     guard.cache_remove(&hash);

@@ -429,17 +429,14 @@ pub fn migrate_14_to_15(path: &String) {
                         }
                     }
                     ReceiptEnum::Data(data_receipt) => {
-                        if let Some(bytes) = trie
-                            .get(
-                                state_root,
-                                &TrieKey::PostponedReceiptId {
-                                    receiver_id: receipt.receiver_id.clone(),
-                                    data_id: data_receipt.data_id,
-                                }
-                                .to_vec(),
-                            )
-                            .unwrap()
-                        {
+                        if let Ok(Some(bytes)) = trie.get(
+                            state_root,
+                            &TrieKey::PostponedReceiptId {
+                                receiver_id: receipt.receiver_id.clone(),
+                                data_id: data_receipt.data_id,
+                            }
+                            .to_vec(),
+                        ) {
                             let receipt_id = CryptoHash::try_from_slice(&bytes).unwrap();
                             let pending_receipt_count = u32::try_from_slice(
                                 &trie
@@ -469,8 +466,11 @@ pub fn migrate_14_to_15(path: &String) {
             if !local_receipt_congestion {
                 let mut delayed_receipt_indices: DelayedReceiptIndices = trie
                     .get(&state_root, &TrieKey::DelayedReceiptIndices.to_vec())
-                    .unwrap()
-                    .map(|bytes| DelayedReceiptIndices::try_from_slice(&bytes).unwrap())
+                    .map(|bytes| {
+                        bytes
+                            .map(|b| DelayedReceiptIndices::try_from_slice(&b).unwrap())
+                            .unwrap_or_default()
+                    })
                     .unwrap_or_default();
 
                 while delayed_receipt_indices.first_index
