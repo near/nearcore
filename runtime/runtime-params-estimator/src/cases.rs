@@ -67,6 +67,44 @@ fn measure_function(
     measure_transactions(metric, measurements, config, Some(testbed), &mut f, allow_failures)
 }
 
+pub fn function_call_on_all_accounts(
+    metric: Metric,
+    method_name: &'static str,
+    measurements: &mut Measurements,
+    testbed: RuntimeTestbed,
+    accounts_deployed: &[usize],
+    nonces: &mut HashMap<usize, u64>,
+    config: &Config,
+    allow_failures: bool,
+    args: Vec<u8>,
+) -> RuntimeTestbed {
+    println!("Apply function call {} on all accounts", method_name);
+    let mut f = |account_idx| {
+        let account_id = get_account_id(account_idx);
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        let function_call = Action::FunctionCall(FunctionCallAction {
+            method_name: method_name.to_string(),
+            args: args.clone(),
+            gas: 10u64.pow(18),
+            deposit: 0,
+        });
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id.clone(),
+            account_id,
+            &signer,
+            vec![function_call],
+            CryptoHash::default(),
+        )
+    };
+    let block: Vec<_> = (0..accounts_deployed).map(|i| (*f)(i)).collect();
+    let mut testbed = testbed;
+    testbed.process_block(&block, allow_failures);
+    testbed.process_blocks_until_no_receipts(allow_failures);
+    testbed
+}
+
 macro_rules! calls_helper(
     { $($el:ident => $method_name:ident),* } => {
     {
@@ -478,17 +516,17 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     keccak512_10b_10k => keccak512_10b_10k,
     keccak512_10kib_10k => keccak512_10kib_10k,
     storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
-    storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
     storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
+    storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
     storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
     storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
-    storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
     storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
+    storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
     storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
     storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
     storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
-    storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
     storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
+    storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
     storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k ,
     promise_and_100k => promise_and_100k,
     promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
@@ -502,6 +540,45 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
+        // Before read and remove key value, insert key value to all accounts
+        if metric == Metric::storage_read_10b_key_10b_value_1k {
+            testbed = function_call_on_all_accounts(
+                metric,
+                "storage_write_10b_key_10b_value_1k",
+                &mut m,
+                testbed,
+                &ad,
+                &mut nonces,
+                &config,
+                fail,
+                vec![],
+            );
+        } else if metric == Metric::storage_read_10kib_key_10b_value_1k {
+            testbed = function_call_on_all_accounts(
+                metric,
+                "storage_write_10kib_key_10b_value_1k",
+                &mut m,
+                testbed,
+                &ad,
+                &mut nonces,
+                &config,
+                fail,
+                vec![],
+            );
+        } else if metric == Metric::storage_read_10b_key_10kib_value_1k {
+            testbed = function_call_on_all_accounts(
+                metric,
+                "storage_write_10b_key_10kib_value_1k_evict",
+                &mut m,
+                testbed,
+                &ad,
+                &mut nonces,
+                &config,
+                fail,
+                vec![],
+            );
+        }
+
         testbed = measure_function(
             metric,
             method_name,
