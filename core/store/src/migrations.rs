@@ -20,7 +20,7 @@ use crate::migrations::v6_to_v7::{
 use crate::migrations::v8_to_v9::{
     recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
 };
-use crate::{create_store, Store, StoreUpdate, Trie, FINAL_HEAD_KEY, HEAD_KEY};
+use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 
 use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
@@ -31,9 +31,9 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::StateRoot;
 use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use std::rc::Rc;
 
 pub mod v6_to_v7;
 pub mod v8_to_v9;
@@ -332,7 +332,7 @@ pub fn migrate_13_to_14(path: &String) {
 pub fn migrate_14_to_15(path: &String) {
     let store = create_store(path);
     let trie_store = Box::new(TrieCachingStorage::new(store.clone(), TrieCache::new(), 0));
-    let trie = Trie::new(trie_store, 0);
+    let trie = Rc::new(Trie::new(trie_store, 0));
 
     let mut store_update = store.store_update();
     let batch_size_limit = 10_000_000;
@@ -392,78 +392,68 @@ pub fn migrate_14_to_15(path: &String) {
             // Step 1: local receipts
             new_execution_outcome_ids.extend(local_receipt_ids);
 
+            let mut state_update = TrieUpdate::new(trie.clone(), chunk.prev_state_root());
+
             let mut process_receipt =
-                |receipt: &Receipt, trie: &Trie, state_root: &StateRoot| match &receipt.receipt {
+                |receipt: &Receipt, state_update: &mut TrieUpdate| match &receipt.receipt {
                     ReceiptEnum::Action(_) => {
                         if execution_outcome_ids.contains(&receipt.receipt_id) {
                             new_execution_outcome_ids.push(receipt.receipt_id);
                         }
                     }
                     ReceiptEnum::Data(data_receipt) => {
-                        if let Some(bytes) = trie
-                            .get(
-                                state_root,
-                                &TrieKey::PostponedReceiptId {
-                                    receiver_id: receipt.receiver_id.clone(),
-                                    data_id: data_receipt.data_id,
-                                }
-                                .to_vec(),
-                            )
-                            .unwrap()
-                        {
+                        if let Ok(Some(bytes)) = state_update.get(&TrieKey::PostponedReceiptId {
+                            receiver_id: receipt.receiver_id.clone(),
+                            data_id: data_receipt.data_id,
+                        }) {
                             let receipt_id = CryptoHash::try_from_slice(&bytes).unwrap();
-                            let pending_receipt_count = u32::try_from_slice(
-                                &trie
-                                    .get(
-                                        state_root,
-                                        &TrieKey::PendingDataCount {
-                                            receiver_id: receipt.receiver_id.clone(),
-                                            receipt_id,
-                                        }
-                                        .to_vec(),
-                                    )
-                                    .unwrap()
-                                    .unwrap(),
-                            )
-                            .unwrap();
+                            let trie_key = TrieKey::PendingDataCount {
+                                receiver_id: receipt.receiver_id.clone(),
+                                receipt_id,
+                            };
+                            let pending_receipt_count =
+                                u32::try_from_slice(&state_update.get(&trie_key).unwrap().unwrap())
+                                    .unwrap();
                             if pending_receipt_count == 1
                                 && execution_outcome_ids.contains(&receipt_id)
                             {
                                 new_execution_outcome_ids.push(receipt_id);
                             }
+                            state_update
+                                .set(trie_key, (pending_receipt_count - 1).try_to_vec().unwrap())
                         }
                     }
                 };
 
             // Step 2: delayed receipts
-            let state_root = chunk.prev_state_root();
             if !local_receipt_congestion {
-                let mut delayed_receipt_indices: DelayedReceiptIndices = trie
-                    .get(&state_root, &TrieKey::DelayedReceiptIndices.to_vec())
-                    .unwrap()
-                    .map(|bytes| DelayedReceiptIndices::try_from_slice(&bytes).unwrap())
+                let mut delayed_receipt_indices: DelayedReceiptIndices = state_update
+                    .get(&TrieKey::DelayedReceiptIndices)
+                    .map(|bytes| {
+                        bytes
+                            .map(|b| DelayedReceiptIndices::try_from_slice(&b).unwrap())
+                            .unwrap_or_default()
+                    })
                     .unwrap_or_default();
 
                 while delayed_receipt_indices.first_index
                     < delayed_receipt_indices.next_available_index
                 {
-                    let receipt: Receipt = trie
-                        .get(
-                            &state_root,
-                            &TrieKey::DelayedReceipt { index: delayed_receipt_indices.first_index }
-                                .to_vec(),
-                        )
+                    let receipt: Receipt = state_update
+                        .get(&TrieKey::DelayedReceipt {
+                            index: delayed_receipt_indices.first_index,
+                        })
                         .unwrap()
                         .map(|bytes| Receipt::try_from_slice(&bytes).unwrap())
                         .unwrap();
-                    process_receipt(&receipt, &trie, &state_root);
+                    process_receipt(&receipt, &mut state_update);
                     delayed_receipt_indices.first_index += 1;
                 }
             }
 
             // Step 3: receipts
             for receipt in chunk.receipts() {
-                process_receipt(receipt, &trie, &state_root);
+                process_receipt(receipt, &mut state_update);
             }
             assert_eq!(
                 new_execution_outcome_ids.len(),
