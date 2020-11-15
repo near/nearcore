@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os
-from testlib import clean_binary_tests, build_tests, test_binaries, workers, run_test
+from testlib import clean_binary_tests, build_tests, test_binaries, run_test
 from concurrent.futures import as_completed, ThreadPoolExecutor
 
 TIMES = 10
