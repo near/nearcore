@@ -600,7 +600,7 @@ dependencies = [
 [[package]]
 name = "bn"
 version = "0.4.4"
-source = "git+https://github.com/near/bn?branch=upgrade-rand#43953916ed1a314b78320771734f36af77993dd9"
+source = "git+https://github.com/near/bn?rev=43953916ed1a314b78320771734f36af77993dd9#43953916ed1a314b78320771734f36af77993dd9"
 dependencies = [
  "byteorder",
  "crunchy",
