@@ -83,15 +83,14 @@ class Near2EthBlockRelay(Cleanable):
         self.config = config
         atexit.register(atexit_cleanup, self)
 
-    def start(self):
-        # TODO refactor this
-        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
-        config_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['config_dir'])))
+    def start(self, eth_master_secret_key='0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201'):
+        bridge_dir = self.config['bridge_dir']
+        config_dir = self.config['config_dir']
         self.stdout = open(os.path.join(config_dir, 'logs/near2eth-relay/out.log'), 'w')
         self.stderr = open(os.path.join(config_dir, 'logs/near2eth-relay/err.log'), 'w')
-        # TODO use params
-        near2eth_block_relay_path = os.path.join(bridge_dir, 'near2eth/near2eth-block-relay/index.js') 
-        self.pid.value = subprocess.Popen(['node', near2eth_block_relay_path, 'runNear2EthRelay', '2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201'], stdout=self.stdout, stderr=self.stderr).pid
+        cli_dir = os.path.join(bridge_dir, 'cli')
+        args = ('node index.js start near2eth-relay --eth-master-sk %s --daemon false' % (eth_master_secret_key)).split()
+        self.pid.value = subprocess.Popen(args, stdout=self.stdout, stderr=self.stderr, cwd=cli_dir).pid
         # TODO ping and wait until service really starts
         time.sleep(10)
 
@@ -104,14 +103,13 @@ class Eth2NearBlockRelay(Cleanable):
         atexit.register(atexit_cleanup, self)
 
     def start(self):
-        # TODO refactor this
-        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
-        config_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['config_dir'])))
+        bridge_dir = self.config['bridge_dir']
+        config_dir = self.config['config_dir']
         self.stdout = open(os.path.join(config_dir, 'logs/eth2near-relay/out.log'), 'w')
         self.stderr = open(os.path.join(config_dir, 'logs/eth2near-relay/err.log'), 'w')
-        # TODO use params
-        eth2near_block_relay_path = os.path.join(bridge_dir, 'eth2near/eth2near-block-relay/index.js') 
-        self.pid.value = subprocess.Popen(['node', eth2near_block_relay_path, 'runEth2NearRelay'], stdout=self.stdout, stderr=self.stderr).pid
+        cli_dir = os.path.join(bridge_dir, 'cli')
+        args = ('node index.js start eth2near-relay --daemon false').split()
+        self.pid.value = subprocess.Popen(args, stdout=self.stdout, stderr=self.stderr, cwd=cli_dir).pid
         # TODO ping and wait until service really starts
         time.sleep(10)
 
@@ -128,7 +126,7 @@ class JSAdapter:
         args.insert(0, 'node')
         args.insert(1, self.js_adapter_path)
         # TODO check for errors
-        return subprocess.check_output(args).decode('ascii')
+        return subprocess.check_output(args).decode('ascii').strip()
 
 
 class RainbowBridge:
@@ -197,6 +195,12 @@ class RainbowBridge:
         cli_dir = os.path.join(bridge_dir, 'cli')
         args = ('node index.js transfer-eth-erc20-from-near --amount %d --near-sender-account %s --eth-receiver-address %s --near-sender-sk ed25519:3KyUucjyGk1L58AJBB6Rf6EZFqmpTSSKG7KKsptMvpJLDBiZmAkU4dR1HzNS6531yZ2cR5PxnTM7NLVvSfJjZPh7' % (amount, sender, receiver)).split()
         return subprocess.Popen(args, cwd=cli_dir)
+
+    def get_eth_address_by_secret_key(self, secret_key):
+        # js parses 0x as number, not as string
+        if secret_key.startswith('0x'):
+            secret_key = secret_key[2:]
+        return self.adapter.call(['getAddressBySecretKey', secret_key])
 
     def get_eth_balance(self, address, token_address=None):
         # js parses 0x as number, not as string
