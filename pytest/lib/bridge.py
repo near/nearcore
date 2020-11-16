@@ -117,16 +117,18 @@ class JSAdapter:
 
     def __init__(self, config):
         self.config = config
-        bridge_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(self.config['bridge_dir'])))
-        self.js_adapter_path = os.path.join(bridge_dir, 'testing/adapter/index.js')
 
     def call(self, args):
+        bridge_dir = self.config['bridge_dir']
+        cli_dir = os.path.join(bridge_dir, 'cli')
         if not isinstance(args, list):
             args = [args]
         args.insert(0, 'node')
-        args.insert(1, self.js_adapter_path)
+        bridge_dir = self.config['bridge_dir']
+        args.insert(1, 'index.js')
+        args.insert(2, 'TESTING')
         # TODO check for errors
-        return subprocess.check_output(args).decode('ascii').strip()
+        return subprocess.check_output(args, cwd=cli_dir).decode('ascii').strip()
 
 
 class RainbowBridge:
@@ -200,14 +202,14 @@ class RainbowBridge:
         # js parses 0x as number, not as string
         if secret_key.startswith('0x'):
             secret_key = secret_key[2:]
-        return self.adapter.call(['getAddressBySecretKey', secret_key])
+        return self.adapter.call(['get-eth-account-address', secret_key])
 
     def get_eth_balance(self, address, token_address=None):
         # js parses 0x as number, not as string
         if address.startswith('0x'):
             address = address[2:]
         # TODO use specific token address
-        return int(self.adapter.call(['getBalance', address]))
+        return int(self.adapter.call(['get-eth-erc20-balance', address]))
         
     def get_near_balance(self, node, account_id, token_account_id=None):
         if not token_account_id:
