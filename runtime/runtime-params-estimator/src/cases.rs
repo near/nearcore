@@ -98,7 +98,7 @@ pub fn function_call_on_all_accounts(
             CryptoHash::default(),
         )
     };
-    let block: Vec<_> = (0..accounts_deployed).map(|i| (*f)(i)).collect();
+    let block: Vec<_> = (0..accounts_deployed.len()).map(|i| f(i)).collect();
     let mut testbed = testbed;
     testbed.process_block(&block, allow_failures);
     testbed.process_blocks_until_no_receipts(allow_failures);
@@ -550,7 +550,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
                 &ad,
                 &mut nonces,
                 &config,
-                fail,
+                false,
                 vec![],
             );
         } else if metric == Metric::storage_read_10kib_key_10b_value_1k {
@@ -562,7 +562,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
                 &ad,
                 &mut nonces,
                 &config,
-                fail,
+                false,
                 vec![],
             );
         } else if metric == Metric::storage_read_10b_key_10kib_value_1k {
@@ -574,7 +574,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
                 &ad,
                 &mut nonces,
                 &config,
-                fail,
+                false,
                 vec![],
             );
         }
