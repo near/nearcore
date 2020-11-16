@@ -543,6 +543,10 @@ impl Handler<Status> for ClientActor {
                     return Err(format!("No blocks for {:?}.", elapsed));
                 }
             }
+
+            if self.client.sync_status.is_syncing() {
+                return Err("Node is syncing.".to_string());
+            }
         }
         let validators = self
             .client
