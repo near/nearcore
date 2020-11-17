@@ -155,7 +155,7 @@ impl Block {
     ) -> Self {
         let challenges = vec![];
         for chunk in &chunks {
-            assert_eq!(chunk.height_included(), 0);
+            assert_eq!(chunk.height_included(), height);
         }
         let header = BlockHeader::genesis(
             genesis_protocol_version,

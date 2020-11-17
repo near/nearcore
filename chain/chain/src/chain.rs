@@ -3181,10 +3181,7 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 
-        // Actually only needed for BlockHeaderV1
-        if header.chunk_mask().iter().map(|&x| u64::from(x)).sum::<u64>()
-            != header.chunks_included()
-        {
+        if !header.verify_chunks_included() {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 

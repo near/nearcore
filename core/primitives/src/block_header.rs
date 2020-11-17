@@ -364,6 +364,7 @@ impl BlockHeader {
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
     ) -> Self {
+        let chunks_included = if height == 0 { num_shards } else { 0 };
         let inner_lite = BlockHeaderInnerLite {
             height,
             epoch_id: EpochId::default(),
@@ -379,7 +380,7 @@ impl BlockHeader {
                 chunk_receipts_root,
                 chunk_headers_root,
                 chunk_tx_root,
-                chunks_included: num_shards,
+                chunks_included,
                 challenges_root,
                 random_value: CryptoHash::default(),
                 validator_proposals: vec![],
@@ -412,7 +413,7 @@ impl BlockHeader {
                 challenges_root,
                 random_value: CryptoHash::default(),
                 validator_proposals: vec![],
-                chunk_mask: vec![true; num_shards as usize],
+                chunk_mask: vec![true; chunks_included as usize],
                 gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],
@@ -648,6 +649,16 @@ impl BlockHeader {
 
     pub fn num_approvals(&self) -> u64 {
         self.approvals().iter().filter(|x| x.is_some()).count() as u64
+    }
+
+    pub fn verify_chunks_included(&self) -> bool {
+        match self {
+            BlockHeader::BlockHeaderV1(header) => {
+                header.inner_rest.chunk_mask.iter().map(|&x| u64::from(x)).sum::<u64>()
+                    == header.inner_rest.chunks_included
+            }
+            BlockHeader::BlockHeaderV2(_header) => true,
+        }
     }
 
     #[inline]
