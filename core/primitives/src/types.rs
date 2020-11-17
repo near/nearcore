@@ -10,7 +10,6 @@ use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::u128_dec_format;
 use crate::trie_key::TrieKey;
-use std::sync::Arc;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -585,7 +584,4 @@ pub trait EpochInfoProvider {
     ) -> Result<Balance, EpochError>;
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
-
-    /// Get compiled contracts cache.
-    fn contract_cache(&self) -> Option<Arc<dyn CompiledContractCache>>;
 }

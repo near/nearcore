@@ -29,14 +29,13 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
-    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot,
-    StateRootNode, ValidatorStake,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
+    MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewStateResult,
+    QueryResponseKind, ViewApplyState, ViewStateResult,
 };
 use near_store::{
     get_access_key_raw, get_genesis_hash, get_genesis_state_roots, set_genesis_hash,
@@ -110,10 +109,6 @@ impl EpochInfoProvider for SafeEpochManager {
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         let mut epoch_manager = self.0.write().expect(POISONED_LOCK_ERR);
         epoch_manager.minimum_stake(prev_block_hash)
-    }
-
-    fn contract_cache(&self) -> Option<Arc<dyn CompiledContractCache>> {
-        Some(self.0.write().ok()?.contract_cache())
     }
 }
 
@@ -1402,19 +1397,23 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let view_state = ViewApplyState {
+            block_height: height,
+            last_block_hash: *last_block_hash,
+            epoch_id: epoch_id.clone(),
+            epoch_height: epoch_height,
+            block_timestamp: block_timestamp,
+            current_protocol_version: current_protocol_version,
+            cache: None,
+        };
         self.trie_viewer.call_function(
             state_update,
-            height,
-            block_timestamp,
-            last_block_hash,
-            epoch_height,
-            epoch_id,
+            &view_state,
             contract_id,
             method_name,
             args,
             logs,
             epoch_info_provider,
-            current_protocol_version,
         )
     }
 
