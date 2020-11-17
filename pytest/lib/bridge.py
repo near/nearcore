@@ -1,4 +1,5 @@
 import atexit
+import base64
 import multiprocessing
 import signal
 import shutil
@@ -6,12 +7,6 @@ import subprocess
 import time
 import traceback
 import os
-
-# remove if not used
-import base58
-import base64
-
-from transaction import sign_function_call_tx
 
 def atexit_cleanup(obj):
     print("Cleaning %s on script exit" % (obj.__class__.__name__))
@@ -117,19 +112,21 @@ class JSAdapter:
 
     def __init__(self, config):
         self.config = config
+        self.bridge_dir = self.config['bridge_dir']
+        self.cli_dir = os.path.join(self.bridge_dir, 'cli')
 
     def call(self, args):
-        bridge_dir = self.config['bridge_dir']
-        cli_dir = os.path.join(bridge_dir, 'cli')
         if not isinstance(args, list):
             args = [args]
         args.insert(0, 'node')
-        bridge_dir = self.config['bridge_dir']
         args.insert(1, 'index.js')
         args.insert(2, 'TESTING')
         # TODO check for errors
-        return subprocess.check_output(args, cwd=cli_dir).decode('ascii').strip()
+        return subprocess.check_output(args, cwd=self.cli_dir).decode('ascii').strip()
 
+
+def _assert_deployed(output):
+    assert output.decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Deployed'
 
 class RainbowBridge:
 
@@ -138,65 +135,60 @@ class RainbowBridge:
         self.eth2near_block_relay = None
         self.near2eth_block_relay = None
         self.adapter = JSAdapter(self.config)
-        bridge_dir = self.config['bridge_dir']
-        if not os.path.exists(bridge_dir):
-            self.git_clone_install()
+        self.bridge_dir = self.config['bridge_dir']
+        self.cli_dir = os.path.join(self.bridge_dir, 'cli')
+        if not os.path.exists(self.bridge_dir):
+            self._git_clone_install()
+        if not os.path.exists(os.path.expanduser("~/go")):
+            print('No go found, installing...')
+            os.system('wget -q -O - https://raw.githubusercontent.com/canha/golang-tools-install-script/master/goinstall.sh | bash')
+            os.system('export GOROOT=~/.go')
+            os.system('export GOPATH=~/go')
+            os.system('export PATH=$GOPATH/bin:$GOROOT/bin:$PATH')
+        os.system('cp ./lib/bridge_helpers/write_config.js %s' % (self.bridge_dir))
+        assert subprocess.check_output(['node', 'write_config.js'], cwd=self.bridge_dir) == b''
     
-    def git_clone_install(self):
-        print('no rainbow-bridge repo found, cloning...')
-        bridge_dir = self.config['bridge_dir']
-        os.system('git clone --recurse-submodules ' + self.config['bridge_repo'] + ' ' + bridge_dir)
-        # TODO remove
-        os.system('cd %s && yarn' % (bridge_dir))
-        # TODO use config please
-        os.system('cp ./lib/js_adapter/write_config.js %s' % (bridge_dir))
-        # TODO install ethash
-        # TODO use config
+    def _git_clone_install(self):
+        print('No rainbow-bridge repo found, cloning...')
+        args = ('git clone --recurse-submodules %s %s' % (self.config['bridge_repo'], self.bridge_dir)).split()
+        assert subprocess.check_output(args).decode('ascii').strip() == "Submodule path 'eth2near/ethashproof': checked out 'b7e7e22979a9b25043b649c22e41cb149267fbeb'"
+        assert subprocess.check_output(['yarn'], cwd=self.bridge_dir).decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done'
+        ethash_dir = os.path.join(self.bridge_dir, 'eth2near/ethashproof')
+        assert subprocess.check_output(['/bin/sh', 'build.sh'], cwd=ethash_dir) == b''
 
     def init_near_contracts(self):
-        bridge_dir = self.config['bridge_dir']
-        # TODO use RB config
-        os.system('cd %s && node write_config.js' % (bridge_dir))
-        # TODO do it natively
-        os.system('cd %s && cd cli && node index.js init-near-contracts' % (bridge_dir))
+        print('Init NEAR contracts...')
+        assert subprocess.check_output(['node', 'index.js', 'init-near-contracts'], cwd=self.cli_dir).decode('ascii').strip().split('\n')[-1] == 'ETH2NEARProver initialized'
 
     def init_eth_contracts(self):
-        bridge_dir = self.config['bridge_dir']
-        # TODO use RB config
-        os.system('cd %s && node write_config.js' % (bridge_dir))
-        # TODO use adapter instead
-        os.system('cd %s && cd cli && node index.js init-eth-ed25519' % (bridge_dir))
-        os.system('cd %s && cd cli && node index.js init-eth-client --eth-client-lock-eth-amount 1000000000000000000 --eth-client-lock-duration 30' % (bridge_dir))
-        os.system('cd %s && cd cli && node index.js init-eth-prover' % (bridge_dir))
-        os.system('cd %s && cd cli && node index.js init-eth-erc20' % (bridge_dir))
-        os.system('cd %s && cd cli && node index.js init-eth-locker' % (bridge_dir))
+        print('Init ETH contracts...')
+        _assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-ed25519'], cwd=self.cli_dir)) 
+        _assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-client', '--eth-client-lock-eth-amount', '1000000000000000000', '--eth-client-lock-duration', '30'], cwd=self.cli_dir))
+        _assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-prover'], cwd=self.cli_dir))
+        _assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-erc20'], cwd=self.cli_dir))
+        _assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-locker'], cwd=self.cli_dir))
 
     def init_near_token_factory(self):
-        bridge_dir = self.config['bridge_dir']
-        # TODO use RB config
-        os.system('cd %s && node write_config.js' % (bridge_dir))
-        # TODO do it natively
-        os.system('cd %s && cd cli && node index.js init-near-token-factory' % (bridge_dir))
+        print('Init token factory...')
+        assert subprocess.check_output(['node', 'index.js', 'init-near-token-factory'], cwd=self.cli_dir).decode('ascii').    strip().split('\n')[-1].strip().split(' ')[-1] == 'deployed'
 
     def start_eth2near_block_relay(self):
+        print('Starting ETH2NEAR relay...')
         self.eth2near_block_relay = Eth2NearBlockRelay(self.config)
         self.eth2near_block_relay.start()
 
     def start_near2eth_block_relay(self):
+        print('Starting NEAR2ETH relay...')
         self.near2eth_block_relay = Near2EthBlockRelay(self.config)
         self.near2eth_block_relay.start()
 
     def transfer_eth2near(self, sender, receiver, near_master_account, amount):
-        bridge_dir = self.config['bridge_dir']
-        cli_dir = os.path.join(bridge_dir, 'cli')
         args = ('node index.js transfer-eth-erc20-to-near --amount %d --eth-sender-sk %s --near-receiver-account %s --near-master-account %s' % (amount, sender, receiver, near_master_account)).split()
-        return subprocess.Popen(args, cwd=cli_dir)
+        return subprocess.Popen(args, cwd=self.cli_dir)
 
     def transfer_near2eth(self, sender, receiver, amount):
-        bridge_dir = self.config['bridge_dir']
-        cli_dir = os.path.join(bridge_dir, 'cli')
         args = ('node index.js transfer-eth-erc20-from-near --amount %d --near-sender-account %s --eth-receiver-address %s --near-sender-sk ed25519:3KyUucjyGk1L58AJBB6Rf6EZFqmpTSSKG7KKsptMvpJLDBiZmAkU4dR1HzNS6531yZ2cR5PxnTM7NLVvSfJjZPh7' % (amount, sender, receiver)).split()
-        return subprocess.Popen(args, cwd=cli_dir)
+        return subprocess.Popen(args, cwd=self.cli_dir)
 
     def get_eth_address_by_secret_key(self, secret_key):
         # js parses 0x as number, not as string

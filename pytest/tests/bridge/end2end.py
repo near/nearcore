@@ -16,10 +16,6 @@ from cluster import start_cluster, start_bridge
 nodes = start_cluster(2, 0, 1, None, [], {})
 
 time.sleep(2)
-status = nodes[0].get_status()
-print(status)
-status = nodes[1].get_status()
-print(status)
 
 (bridge, ganache) = start_bridge()
 print('=== BRIDGE IS STARTED')
