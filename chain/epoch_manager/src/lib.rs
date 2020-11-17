@@ -59,8 +59,6 @@ pub struct EpochManager {
     epoch_info_aggregator: Option<EpochInfoAggregator>,
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
-    /// Cache of compiled to native code contracts.
-    cache: Arc<dyn CompiledContractCache>,
 }
 
 impl EpochManager {
@@ -74,7 +72,6 @@ impl EpochManager {
         let validator_reward = vec![(reward_calculator.protocol_treasury_account.clone(), 0u128)]
             .into_iter()
             .collect();
-        let cache = Arc::new(StoreCompiledContractCache { store: store.clone() });
         let mut epoch_manager = EpochManager {
             store,
             config,
@@ -85,7 +82,6 @@ impl EpochManager {
             epoch_id_to_start: SizedCache::with_size(EPOCH_CACHE_SIZE),
             epoch_info_aggregator: None,
             largest_final_height: 0,
-            cache,
         };
         let genesis_epoch_id = EpochId::default();
         if !epoch_manager.has_epoch_info(&genesis_epoch_id)? {
@@ -1210,10 +1206,6 @@ impl EpochManager {
         }
         self.epoch_info_aggregator = Some(aggregator);
         Ok(())
-    }
-
-    pub fn contract_cache(&self) -> Arc<dyn CompiledContractCache> {
-        self.cache.clone()
     }
 }
 
