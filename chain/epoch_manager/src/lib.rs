@@ -12,17 +12,14 @@ use near_primitives::epoch_manager::{
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight,
-    CompiledContractCache, EpochId, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
-    ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
+    ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
-use near_store::{
-    ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreCompiledContractCache, StoreUpdate,
-};
+use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
