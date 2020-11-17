@@ -8,7 +8,7 @@ use primitive_types::U256;
 use serde::Serialize;
 
 use crate::block::BlockValidityError::{
-    InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidNumChunksIncluded, InvalidReceiptRoot,
+    InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
 };
 pub use crate::block_header::*;
@@ -39,7 +39,7 @@ pub enum BlockValidityError {
     InvalidReceiptRoot,
     InvalidChunkHeaderRoot,
     InvalidTransactionRoot,
-    InvalidNumChunksIncluded,
+    InvalidChunkMask,
     InvalidChallengeRoot,
 }
 
@@ -154,6 +154,9 @@ impl Block {
         next_bp_hash: CryptoHash,
     ) -> Self {
         let challenges = vec![];
+        for chunk in &chunks {
+            assert_eq!(chunk.height_included(), height);
+        }
         let header = BlockHeader::genesis(
             genesis_protocol_version,
             height,
@@ -161,7 +164,7 @@ impl Block {
             Block::compute_chunk_receipts_root(&chunks),
             Block::compute_chunk_headers_root(&chunks).0,
             Block::compute_chunk_tx_root(&chunks),
-            Block::compute_chunks_included(&chunks, 0),
+            chunks.len() as u64,
             Block::compute_challenges_root(&challenges),
             timestamp,
             initial_gas_price,
@@ -255,7 +258,6 @@ impl Block {
             Block::compute_chunk_tx_root(&chunks),
             Block::compute_outcome_root(&chunks),
             time,
-            Block::compute_chunks_included(&chunks, height),
             Block::compute_challenges_root(&challenges),
             random_value,
             validator_proposals,
@@ -365,13 +367,6 @@ impl Block {
         chunks: T,
     ) -> CryptoHash {
         merklize(&chunks.into_iter().map(|chunk| chunk.tx_root()).collect::<Vec<CryptoHash>>()).0
-    }
-
-    pub fn compute_chunks_included<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-        height: BlockHeight,
-    ) -> u64 {
-        chunks.into_iter().filter(|chunk| chunk.height_included() == height).count() as u64
     }
 
     pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
@@ -495,10 +490,13 @@ impl Block {
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
-        let num_chunks_included =
-            Block::compute_chunks_included(self.chunks().iter(), self.header().height());
-        if self.header().chunks_included() != num_chunks_included {
-            return Err(InvalidNumChunksIncluded);
+        let chunk_mask: Vec<bool> = self
+            .chunks()
+            .iter()
+            .map(|chunk| chunk.height_included() == self.header().height())
+            .collect();
+        if self.header().chunk_mask() != &chunk_mask[..] {
+            return Err(InvalidChunkMask);
         }
 
         // Check that challenges root stored in the header matches the challenges root of the challenges
