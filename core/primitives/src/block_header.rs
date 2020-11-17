@@ -261,7 +261,6 @@ impl BlockHeader {
         chunk_tx_root: MerkleHash,
         outcome_root: MerkleHash,
         timestamp: u64,
-        chunks_included: u64,
         challenges_root: MerkleHash,
         random_value: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
@@ -289,6 +288,7 @@ impl BlockHeader {
             block_merkle_root,
         };
         if protocol_version <= 29 {
+            let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -357,7 +357,7 @@ impl BlockHeader {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
-        chunks_included: u64,
+        num_shards: u64,
         challenges_root: MerkleHash,
         timestamp: DateTime<Utc>,
         initial_gas_price: Balance,
@@ -379,7 +379,7 @@ impl BlockHeader {
                 chunk_receipts_root,
                 chunk_headers_root,
                 chunk_tx_root,
-                chunks_included,
+                chunks_included: num_shards,
                 challenges_root,
                 random_value: CryptoHash::default(),
                 validator_proposals: vec![],
@@ -412,7 +412,7 @@ impl BlockHeader {
                 challenges_root,
                 random_value: CryptoHash::default(),
                 validator_proposals: vec![],
-                chunk_mask: vec![true; chunks_included as usize],
+                chunk_mask: vec![true; num_shards as usize],
                 gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],
