@@ -113,10 +113,7 @@ impl EpochInfoProvider for SafeEpochManager {
     }
 
     fn contract_cache(&self) -> Option<Arc<dyn CompiledContractCache>> {
-        match self.0.write() {
-            Ok(epoch_manager) => Some(epoch_manager.contract_cache()),
-            Err(_) => None,
-        }
+        Some(self.0.write().ok()?.contract_cache())
     }
 }
 
