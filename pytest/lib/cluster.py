@@ -941,8 +941,7 @@ DEFAULT_CONFIG = {
     'release': False,
     'bridge': {
         'bridge_repo': 'https://github.com/near/rainbow-bridge.git',
-        #'bridge_dir': '~/.rainbow-bridge',
-        'bridge_dir': '~/near/rainbow-bridge',
+        'bridge_dir': '~/.rainbow-bridge',
         'config_dir': '~/.rainbow',
         'ganache_dir': 'testing/vendor/ganache',
         'ganache_bin': 'testing/vendor/ganache/node_modules/.bin/ganache-cli',
