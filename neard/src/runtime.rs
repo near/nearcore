@@ -1404,7 +1404,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height: epoch_height,
             block_timestamp: block_timestamp,
             current_protocol_version: current_protocol_version,
-            cache: None,
+            cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
         };
         self.trie_viewer.call_function(
             state_update,
