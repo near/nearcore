@@ -2373,17 +2373,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a91d884b6667cd606bb5a69aa0c99ba811a115fc68915e7056ec08a46e93199a"
 
 [[package]]
-name = "lazy-static-include"
-version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e10200e516c7a80a6dcfb1cdc23cd01ca0d8e97df71e9c5aa6d116302b89a928"
-dependencies = [
- "lazy_static",
- "starts-ends-with-caseless",
- "syn 1.0.38",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2890,17 +2879,11 @@ dependencies = [
  "byteorder",
  "derivative",
  "enum-primitive-derive",
- "ethabi",
- "ethabi-contract",
- "ethabi-derive",
  "ethereum-types",
  "evm",
  "hex",
  "keccak-hash",
- "lazy-static-include",
- "lazy_static",
  "libsecp256k1",
- "near-crypto",
  "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
@@ -4768,12 +4751,6 @@ name = "stable_deref_trait"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dba1a27d3efae4351c8051072d619e3ade2820635c3958d826bfea39d59b54c8"
-
-[[package]]
-name = "starts-ends-with-caseless"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b1c13a0dff1a602924cf45fcb409855d46a5fd470a15b76ddcb61be675296d3"
 
 [[package]]
 name = "state-viewer"
