@@ -181,6 +181,10 @@ class RainbowBridge:
         print('No rainbow-bridge repo found, cloning...')
         args = ('git clone --recurse-submodules %s %s' % (self.config['bridge_repo'], self.bridge_dir)).split()
         assert subprocess.check_output(args).decode('ascii').strip() == "Submodule path 'eth2near/ethashproof': checked out 'b7e7e22979a9b25043b649c22e41cb149267fbeb'"
+        print(self.bridge_dir)
+        print(subprocess.check_output(['yarn'])
+        print(subprocess.check_output(['node', '--version'])
+        print(ubprocess.check_output(['yarn'], cwd=self.bridge_dir).decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done')
         assert subprocess.check_output(['yarn'], cwd=self.bridge_dir).decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done'
         ethash_dir = os.path.join(self.bridge_dir, 'eth2near/ethashproof')
         assert subprocess.check_output(['/bin/sh', 'build.sh'], cwd=ethash_dir) == b''
