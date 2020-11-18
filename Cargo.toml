@@ -13,12 +13,14 @@ members = [
     "core/store",
     "core/metrics",
     "utils/actix",
-    "runtime/runtime",
-    "runtime/runtime-standalone",
+    "runtime/near-evm-runner",
     "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
+    "runtime/runtime",
+    "runtime/runtime-standalone",
+    "runtime/runtime-params-estimator",
     "chain/chain",
     "chain/chunks",
     "chain/epoch_manager",
@@ -44,7 +46,6 @@ members = [
     "tools/indexer/example",
     "tools/delay_detector"
 ]
-exclude = ["runtime/near-evm-runner", "runtime/runtime-params-estimator"]
 
 [dependencies]
 # pins this version to fix https://github.com/actix/actix-net/issues/129

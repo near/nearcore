@@ -1811,7 +1811,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "clap 2.33.0",
- "indicatif",
+ "indicatif 0.13.0",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -1885,6 +1885,15 @@ name = "glob"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b919933a397b79c37e33b77bb2aa3dc8eb6e165ad809e58ff75bc7db2e34574"
+
+[[package]]
+name = "gnuplot"
+version = "0.0.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8de437277a7ec10de5f34e3147c7da4c6d8b279c5d8ae1e33e842fd9432bb0f3"
+dependencies = [
+ "byteorder",
+]
 
 [[package]]
 name = "goblin"
@@ -2105,6 +2114,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "id-arena"
+version = "2.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25a2bc672d1148e28034f176e01fffebb08b35768468cc954630da77a1449005"
+
+[[package]]
 name = "idna"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2202,6 +2217,18 @@ dependencies = [
  "lazy_static",
  "number_prefix",
  "rayon",
+ "regex",
+]
+
+[[package]]
+name = "indicatif"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7baab56125e25686df467fe470785512329883aab42696d661247aca2a2896e4"
+dependencies = [
+ "console",
+ "lazy_static",
+ "number_prefix",
  "regex",
 ]
 
@@ -2373,6 +2400,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a91d884b6667cd606bb5a69aa0c99ba811a115fc68915e7056ec08a46e93199a"
 
 [[package]]
+name = "lazy-static-include"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e10200e516c7a80a6dcfb1cdc23cd01ca0d8e97df71e9c5aa6d116302b89a928"
+dependencies = [
+ "lazy_static",
+ "starts-ends-with-caseless",
+ "syn 1.0.38",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2386,6 +2424,12 @@ name = "lazycell"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b294d6fa9ee409a054354afc4352b0b9ef7ca222c69b8812cbea9e7d2bf3783f"
+
+[[package]]
+name = "leb128"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3576a87f2ba00f6f106fdfcd16db1d698d648a26ad8e0573cad8537c3c362d2a"
 
 [[package]]
 name = "libc"
@@ -2739,7 +2783,7 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-store",
- "num-rational",
+ "num-rational 0.2.4",
  "rand 0.7.3",
  "rocksdb",
  "serde",
@@ -2759,7 +2803,7 @@ dependencies = [
  "near-primitives",
  "near-runtime-configs",
  "near-runtime-fees",
- "num-rational",
+ "num-rational 0.2.4",
  "serde",
  "serde_json",
  "sha2 0.9.2",
@@ -2814,7 +2858,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "neard",
- "num-rational",
+ "num-rational 0.2.4",
  "rand 0.7.3",
  "reed-solomon-erasure",
  "rocksdb",
@@ -2861,7 +2905,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-store",
- "num-rational",
+ "num-rational 0.2.4",
  "primitive-types",
  "rand 0.6.5",
  "rand 0.7.3",
@@ -2879,11 +2923,17 @@ dependencies = [
  "byteorder",
  "derivative",
  "enum-primitive-derive",
+ "ethabi",
+ "ethabi-contract",
+ "ethabi-derive",
  "ethereum-types",
  "evm",
  "hex",
  "keccak-hash",
+ "lazy-static-include",
+ "lazy_static",
  "libsecp256k1",
+ "near-crypto",
  "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
@@ -3047,7 +3097,7 @@ dependencies = [
  "near-crypto",
  "near-rpc-error-macro",
  "near-vm-errors",
- "num-rational",
+ "num-rational 0.2.4",
  "primitive-types",
  "rand 0.7.3",
  "reed-solomon-erasure",
@@ -3123,7 +3173,7 @@ dependencies = [
 name = "near-runtime-fees"
 version = "2.2.0"
 dependencies = [
- "num-rational",
+ "num-rational 0.2.4",
  "serde",
 ]
 
@@ -3242,7 +3292,7 @@ dependencies = [
  "near-runtime-fees",
  "near-vm-logic",
  "near-vm-runner",
- "num-rational",
+ "num-rational 0.2.4",
  "serde",
  "serde_json",
  "strum",
@@ -3307,7 +3357,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "node-runtime",
- "num-rational",
+ "num-rational 0.2.4",
  "openssl-probe",
  "rand 0.7.3",
  "rocksdb",
@@ -3353,7 +3403,7 @@ dependencies = [
  "byteorder",
  "ethereum-types",
  "hex",
- "indicatif",
+ "indicatif 0.13.0",
  "lazy_static",
  "log",
  "near-chain-configs",
@@ -3369,7 +3419,7 @@ dependencies = [
  "near-vm-logic",
  "near-vm-runner",
  "num-bigint 0.2.6",
- "num-rational",
+ "num-rational 0.2.4",
  "num-traits",
  "rand 0.7.3",
  "rayon",
@@ -3442,6 +3492,18 @@ dependencies = [
  "num-integer",
  "num-traits",
  "serde",
+]
+
+[[package]]
+name = "num-rational"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12ac428b1cb17fce6f731001d307d351ec70a6d202fc2e60f7d4c5e42d8f4f07"
+dependencies = [
+ "autocfg 1.0.0",
+ "num-bigint 0.3.0",
+ "num-integer",
+ "num-traits",
 ]
 
 [[package]]
@@ -4014,7 +4076,7 @@ dependencies = [
  "rand_jitter",
  "rand_os",
  "rand_pcg",
- "rand_xorshift",
+ "rand_xorshift 0.1.1",
  "winapi 0.3.8",
 ]
 
@@ -4144,6 +4206,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbf7e9e623549b0e21f6e97cf8ecf247c1a8fd2e8a992ae265314300b2455d5c"
 dependencies = [
  "rand_core 0.3.1",
+]
+
+[[package]]
+name = "rand_xorshift"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77d416b86801d23dde1aa643023b775c3a462efc0ed96443add11546cdf1dca8"
+dependencies = [
+ "rand_core 0.5.1",
 ]
 
 [[package]]
@@ -4381,6 +4452,44 @@ source = "git+https://github.com/nearprotocol/rust-rocksdb?branch=disable-thread
 dependencies = [
  "libc",
  "librocksdb-sys",
+]
+
+[[package]]
+name = "runtime-params-estimator"
+version = "2.2.0"
+dependencies = [
+ "borsh",
+ "clap 2.33.0",
+ "csv",
+ "ethabi",
+ "ethabi-contract",
+ "ethabi-derive",
+ "ethereum-types",
+ "glob 0.3.0",
+ "gnuplot",
+ "hex",
+ "indicatif 0.15.0",
+ "lazy-static-include",
+ "near-chain-configs",
+ "near-crypto",
+ "near-evm-runner",
+ "near-primitives",
+ "near-runtime-fees",
+ "near-store",
+ "near-vm-logic",
+ "near-vm-runner",
+ "neard",
+ "node-runtime",
+ "num-rational 0.3.2",
+ "num-traits",
+ "rand 0.7.3",
+ "rand_xorshift 0.2.0",
+ "rocksdb",
+ "serde_json",
+ "state-viewer",
+ "tempfile",
+ "testlib",
+ "walrus",
 ]
 
 [[package]]
@@ -4753,6 +4862,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dba1a27d3efae4351c8051072d619e3ade2820635c3958d826bfea39d59b54c8"
 
 [[package]]
+name = "starts-ends-with-caseless"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b1c13a0dff1a602924cf45fcb409855d46a5fd470a15b76ddcb61be675296d3"
+
+[[package]]
 name = "state-viewer"
 version = "0.1.0"
 dependencies = [
@@ -5003,7 +5118,7 @@ dependencies = [
  "near-vm-errors",
  "neard",
  "node-runtime",
- "num-rational",
+ "num-rational 0.2.4",
  "rand 0.7.3",
  "serde_json",
  "tempfile",
@@ -5535,6 +5650,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d470d0583e65f4cab21a1ff3c1ba3dd23ae49e68f516f0afceaeb001b32af39"
+dependencies = [
+ "anyhow",
+ "id-arena",
+ "leb128",
+ "log",
+ "walrus-macro",
+ "wasmparser 0.59.0",
+]
+
+[[package]]
+name = "walrus-macro"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c2bb690b44cb1b0fdcc54d4998d21f8bdaf706b93775425e440b174f39ad16"
+dependencies = [
+ "heck",
+ "proc-macro2 1.0.20",
+ "quote 1.0.3",
+ "syn 1.0.38",
+]
+
+[[package]]
 name = "want"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5691,6 +5832,12 @@ name = "wasmparser"
 version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32fddd575d477c6e9702484139cf9f23dcd554b06d185ed0f56c857dd3a47aa6"
+
+[[package]]
+name = "wasmparser"
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a950e6a618f62147fd514ff445b2a0b53120d382751960797f85f058c7eda9b9"
 
 [[package]]
 name = "wasmtime"
