@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import os
-from testlib import clean_binary_tests, build_tests, test_binaries, workers, current_path
+from testlib import clean_binary_tests, build_tests, test_binaries, current_path
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 import subprocess
 import sys
 import glob
 from itertools import zip_longest
+from multiprocessing import cpu_count
 
 
 def grouper(iterable, n, fillvalue=None):
@@ -78,7 +79,7 @@ if __name__ == "__main__":
     errors = False
 
     # Run coverage
-    with ThreadPoolExecutor(max_workers=workers()) as executor:
+    with ThreadPoolExecutor(max_workers=cpu_count()) as executor:
         future_to_binary = {
             executor.submit(coverage, binary): binary for binary in binaries
         }
@@ -97,7 +98,7 @@ if __name__ == "__main__":
     # Merge coverage
     i = 0
     j = 0
-    with ThreadPoolExecutor(max_workers=workers()) as executor:
+    with ThreadPoolExecutor(max_workers=cpu_count()) as executor:
         while True:
             covs = glob.glob(f'{coverage_dir(i)}/*')
             if len(covs) == 1:

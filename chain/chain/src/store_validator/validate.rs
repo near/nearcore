@@ -628,6 +628,11 @@ pub(crate) fn outcome_indexed_by_block_hash(
                         block.header().prev_hash(),
                         chunk_header.shard_id(),
                         true,
+                    ) || sv.runtime_adapter.will_care_about_shard(
+                        Some(&me),
+                        block.header().prev_hash(),
+                        chunk_header.shard_id(),
+                        true,
                     ) {
                         outcome_ids.extend(unwrap_or_err_db!(
                             sv.store.get_ser::<Vec<CryptoHash>>(
@@ -641,6 +646,7 @@ pub(crate) fn outcome_indexed_by_block_hash(
             }
         }
         if !outcome_ids.contains(outcome_id) {
+            println!("outcome ids: {:?}, block: {:?}", outcome_ids, block);
             err!("Outcome id {:?} is not found in ColOutcomeIds", outcome_id);
         }
     }

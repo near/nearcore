@@ -82,7 +82,8 @@ impl ShardTries {
             }
         }
         for (shard_id, ops) in shards.into_iter().enumerate() {
-            self.caches[shard_id].update_cache(ops);
+            self.caches[shard_id].update_cache(&ops);
+            self.view_caches[shard_id].update_cache(&ops);
         }
         Ok(())
     }

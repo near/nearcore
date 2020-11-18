@@ -16,7 +16,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 15;
+pub const DB_VERSION: DbVersion = 16;
 
 /// Protocol version type.
 pub type ProtocolVersion = u32;
@@ -125,7 +125,7 @@ macro_rules! checked_feature {
         #[cfg(feature = $feature_name)]
         let is_feature_enabled = near_primitives::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
             [&near_primitives::version::ProtocolFeature::$feature]
-            >= $current_protocol_version;
+            <= $current_protocol_version;
         #[cfg(not(feature = $feature_name))]
         let is_feature_enabled = {
             // Workaround unused variable warning
