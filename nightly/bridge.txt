@@ -7,3 +7,7 @@ pytest --timeout=40 bridge/end2end.py 2 2
 pytest --timeout=40 bridge/end2end.py 20 0
 pytest --timeout=40 bridge/end2end.py 1 20
 pytest --timeout=40 bridge/end2end.py 20 20
+pytest --timeout=45 bridge/multiple_relays.py
+pytest --timeout=45 bridge/multiple_relays.py add_relay_while_tx
+pytest --timeout=45 bridge/turn_off_relays.py
+pytest --timeout=45 bridge/turn_off_relays.py one_more_restart

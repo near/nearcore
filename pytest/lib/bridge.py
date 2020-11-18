@@ -1,6 +1,7 @@
 import atexit
 import base64
 import multiprocessing
+from pathlib import Path
 import signal
 import shutil
 import subprocess
@@ -81,13 +82,21 @@ class Near2EthBlockRelay(Cleanable):
     def start(self, eth_master_secret_key='0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201'):
         bridge_dir = self.config['bridge_dir']
         config_dir = self.config['config_dir']
-        self.stdout = open(os.path.join(config_dir, 'logs/near2eth-relay/out.log'), 'w')
-        self.stderr = open(os.path.join(config_dir, 'logs/near2eth-relay/err.log'), 'w')
+        self.stdout = open(os.path.join(config_dir, 'logs/near2eth-relay/out.log'), 'a')
+        self.stderr = open(os.path.join(config_dir, 'logs/near2eth-relay/err.log'), 'a')
         cli_dir = os.path.join(bridge_dir, 'cli')
         args = ('node index.js start near2eth-relay --eth-master-sk %s --daemon false' % (eth_master_secret_key)).split()
         self.pid.value = subprocess.Popen(args, stdout=self.stdout, stderr=self.stderr, cwd=cli_dir).pid
         # TODO ping and wait until service really starts
-        time.sleep(10)
+        time.sleep(5)
+        assert self.pid.value != 0
+
+    def restart(self):
+        assert not self.cleaned
+        self.cleanup()
+        assert self.pid.value == 0
+        self.start()
+        assert self.pid.value != 0
 
 class Eth2NearBlockRelay(Cleanable):
 
@@ -100,13 +109,21 @@ class Eth2NearBlockRelay(Cleanable):
     def start(self):
         bridge_dir = self.config['bridge_dir']
         config_dir = self.config['config_dir']
-        self.stdout = open(os.path.join(config_dir, 'logs/eth2near-relay/out.log'), 'w')
-        self.stderr = open(os.path.join(config_dir, 'logs/eth2near-relay/err.log'), 'w')
+        self.stdout = open(os.path.join(config_dir, 'logs/eth2near-relay/out.log'), 'a')
+        self.stderr = open(os.path.join(config_dir, 'logs/eth2near-relay/err.log'), 'a')
         cli_dir = os.path.join(bridge_dir, 'cli')
         args = ('node index.js start eth2near-relay --daemon false').split()
         self.pid.value = subprocess.Popen(args, stdout=self.stdout, stderr=self.stderr, cwd=cli_dir).pid
         # TODO ping and wait until service really starts
-        time.sleep(10)
+        time.sleep(5)
+        assert self.pid.value != 0
+
+    def restart(self):
+        assert not self.cleaned
+        self.cleanup()
+        assert self.pid.value == 0
+        self.start()
+        assert self.pid.value != 0
 
 class JSAdapter:
 
@@ -125,7 +142,7 @@ class JSAdapter:
         return subprocess.check_output(args, cwd=self.cli_dir).decode('ascii').strip()
 
 
-def _assert_deployed(output):
+def assert_deployed(output):
     assert output.decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Deployed'
 
 class RainbowBridge:
@@ -136,6 +153,7 @@ class RainbowBridge:
         self.near2eth_block_relay = None
         self.adapter = JSAdapter(self.config)
         self.bridge_dir = self.config['bridge_dir']
+        self.config_dir = self.config['config_dir']
         self.cli_dir = os.path.join(self.bridge_dir, 'cli')
         if not os.path.exists(self.bridge_dir):
             self._git_clone_install()
@@ -146,6 +164,17 @@ class RainbowBridge:
             os.system('export GOPATH=~/go')
             os.system('export PATH=$GOPATH/bin:$GOROOT/bin:$PATH')
         os.system('cp ./lib/bridge_helpers/write_config.js %s' % (self.bridge_dir))
+
+        if os.path.exists(self.config_dir):
+            assert os.path.isdir(self.config_dir)
+            shutil.rmtree(self.config_dir)
+        logs_dir = os.path.join(self.config_dir, 'logs')
+        os.makedirs(logs_dir)
+        for service in ['ganache', 'near2eth-relay', 'eth2near-relay', 'watchdog']:
+            os.mkdir(os.path.join(logs_dir, service))
+            Path(os.path.join(os.path.join(logs_dir, service), 'err.log')).touch()
+            Path(os.path.join(os.path.join(logs_dir, service), 'out.log')).touch()
+
         assert subprocess.check_output(['node', 'write_config.js'], cwd=self.bridge_dir) == b''
     
     def _git_clone_install(self):
@@ -162,11 +191,11 @@ class RainbowBridge:
 
     def init_eth_contracts(self):
         print('Init ETH contracts...')
-        _assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-ed25519'], cwd=self.cli_dir)) 
-        _assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-client', '--eth-client-lock-eth-amount', '1000000000000000000', '--eth-client-lock-duration', '30'], cwd=self.cli_dir))
-        _assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-prover'], cwd=self.cli_dir))
-        _assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-erc20'], cwd=self.cli_dir))
-        _assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-locker'], cwd=self.cli_dir))
+        assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-ed25519'], cwd=self.cli_dir))
+        assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-client', '--eth-client-lock-eth-amount', '1000000000000000000', '--eth-client-lock-duration', '30'], cwd=self.cli_dir))
+        assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-prover'], cwd=self.cli_dir))
+        assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-erc20'], cwd=self.cli_dir))
+        assert_deployed(subprocess.check_output(['node', 'index.js', 'init-eth-locker'], cwd=self.cli_dir))
 
     def init_near_token_factory(self):
         print('Init token factory...')
@@ -207,6 +236,6 @@ class RainbowBridge:
         if not token_account_id:
             # use default token_account
             token_account_id = '7cc4b1851c35959d34e635a470f6b5c43ba3c9c9.neartokenfactory'
-        res = node.call_function(token_account_id, 'get_balance', base64.b64encode(bytes('{"owner_id": "' + account_id + '"}', encoding='utf8')).decode("ascii"))
+        res = node.call_function(token_account_id, 'get_balance', base64.b64encode(bytes('{"owner_id": "' + account_id + '"}', encoding='utf8')).decode("ascii"), timeout=15)
         res = int("".join(map(chr, res['result']['result']))[1:-1])
         return res
