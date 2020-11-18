@@ -163,7 +163,8 @@ class RainbowBridge:
             os.system('export GOROOT=~/.go')
             os.system('export GOPATH=~/go')
             os.system('export PATH=$GOPATH/bin:$GOROOT/bin:$PATH')
-        os.system('cp ./lib/bridge_helpers/write_config.js %s' % (self.bridge_dir))
+        os.system('wget -q https://raw.githubusercontent.com/near/nearcore/6cb489aee566b85091339d90c40b7517bdfbd2f2/pytest/lib/bridge_helpers/write_config.js')
+        os.replace('write_config.js', os.path.join(self.bridge_dir, 'write_config.js'))
 
         if os.path.exists(self.config_dir):
             assert os.path.isdir(self.config_dir)
@@ -181,6 +182,14 @@ class RainbowBridge:
         print('No rainbow-bridge repo found, cloning...')
         args = ('git clone --recurse-submodules %s %s' % (self.config['bridge_repo'], self.bridge_dir)).split()
         assert subprocess.check_output(args).decode('ascii').strip() == "Submodule path 'eth2near/ethashproof': checked out 'b7e7e22979a9b25043b649c22e41cb149267fbeb'"
+        print('cwd', self.bridge_dir)
+        print('yarn version')
+        exit_code = os.system('yarn --version')
+        print('exit code', exit_code)
+        print('node version')
+        exit_code = os.system('node --version')
+        print('exit code', exit_code)
+        os.system('which node')
         assert subprocess.check_output(['yarn'], cwd=self.bridge_dir).decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done'
         ethash_dir = os.path.join(self.bridge_dir, 'eth2near/ethashproof')
         assert subprocess.check_output(['/bin/sh', 'build.sh'], cwd=ethash_dir) == b''
