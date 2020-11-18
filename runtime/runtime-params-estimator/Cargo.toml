@@ -32,4 +32,3 @@ walrus = "0.18.0"
 [features]
 default = []
 wasmtime = ["near-vm-logic/wasmtime_default"]
-#lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]

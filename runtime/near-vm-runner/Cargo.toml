@@ -37,7 +37,6 @@ wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer_default = []
 wasmtime_default = ["wasmtime_vm"]
 no_cpu_compatibility_checks = []
-#lightbeam = ["wasmtime_vm", "wasmtime/lightbeam"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting"]
