@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate enum_primitive_derive;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
@@ -14,11 +11,12 @@ use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
 use near_vm_logic::{ActionCosts, External, VMConfig, VMLogicError, VMOutcome};
 
 use crate::evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore};
+use crate::interpreter;
 use crate::types::{
     AddressArg, DataKey, FunctionCallArgs, GetStorageAtArgs, Method, RawU256, Result, TransferArgs,
     ViewCallArgs, WithdrawArgs,
 };
-use crate::utils::{combine_data_key, near_erc721_domain, parse_meta_call};
+use crate::utils::{self, combine_data_key, near_erc721_domain, parse_meta_call};
 use near_vm_errors::InconsistentStateError::StorageError;
 
 pub struct EvmContext<'a> {

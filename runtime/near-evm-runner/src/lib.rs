@@ -1,4 +1,7 @@
 #[cfg(feature = "protocol_feature_evm")]
+#[macro_use]
+extern crate enum_primitive_derive;
+#[cfg(feature = "protocol_feature_evm")]
 mod builtins;
 #[cfg(feature = "protocol_feature_evm")]
 mod evm_state;
@@ -15,4 +18,4 @@ pub mod types;
 #[cfg(feature = "protocol_feature_evm")]
 pub mod utils;
 #[cfg(feature = "protocol_feature_evm")]
-use runner::*;
+pub use runner::*;

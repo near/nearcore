@@ -35,7 +35,7 @@ near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
-protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm", "near-vm-runner/protocol_feature_evm",  "testlib/protocol_feature_evm"]
+protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm", "near-vm-runner/protocol_feature_evm"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
