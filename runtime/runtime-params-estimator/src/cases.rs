@@ -68,13 +68,10 @@ fn measure_function(
 }
 
 pub fn function_call_on_all_accounts(
-    metric: Metric,
     method_name: &'static str,
-    measurements: &mut Measurements,
     testbed: RuntimeTestbed,
     accounts_deployed: &[usize],
     nonces: &mut HashMap<usize, u64>,
-    config: &Config,
     allow_failures: bool,
     args: Vec<u8>,
 ) -> RuntimeTestbed {
@@ -98,7 +95,7 @@ pub fn function_call_on_all_accounts(
             CryptoHash::default(),
         )
     };
-    let block: Vec<_> = (0..accounts_deployed.len()).map(|i| f(i)).collect();
+    let block: Vec<_> = accounts_deployed.iter().map(|i| f(*i)).collect();
     let mut testbed = testbed;
     testbed.process_block(&block, allow_failures);
     testbed.process_blocks_until_no_receipts(allow_failures);
@@ -258,6 +255,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
                 break x;
             }
         };
+        println!("deleted account: {}", account_idx);
         deleted_accounts.insert(account_idx);
         beneficiaries.insert(beneficiary_idx);
         let account_id = get_account_id(account_idx);
@@ -543,37 +541,28 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         // Before read and remove key value, insert key value to all accounts
         if metric == Metric::storage_read_10b_key_10b_value_1k {
             testbed = function_call_on_all_accounts(
-                metric,
                 "storage_write_10b_key_10b_value_1k",
-                &mut m,
                 testbed,
                 &ad,
                 &mut nonces,
-                &config,
                 false,
                 vec![],
             );
         } else if metric == Metric::storage_read_10kib_key_10b_value_1k {
             testbed = function_call_on_all_accounts(
-                metric,
                 "storage_write_10kib_key_10b_value_1k",
-                &mut m,
                 testbed,
                 &ad,
                 &mut nonces,
-                &config,
                 false,
                 vec![],
             );
         } else if metric == Metric::storage_read_10b_key_10kib_value_1k {
             testbed = function_call_on_all_accounts(
-                metric,
-                "storage_write_10b_key_10kib_value_1k_evict",
-                &mut m,
+                "storage_write_10b_key_10kib_value_1k",
                 testbed,
                 &ad,
                 &mut nonces,
-                &config,
                 false,
                 vec![],
             );
