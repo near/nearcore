@@ -45,4 +45,4 @@ near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]
 default = []
-protocol_feature_evm = ["near-evm-runner", "near-primitives/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm", "neard/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm"]
+protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm", "neard/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm"]

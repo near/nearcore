@@ -39,7 +39,7 @@ wasmer_default = []
 wasmtime_default = ["wasmtime_vm"]
 no_cpu_compatibility_checks = []
 lightbeam = ["wasmtime_vm"]
-protocol_feature_evm = ["near-evm-runner", "near-runtime-fees/protocol_feature_evm"]
+protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting"]

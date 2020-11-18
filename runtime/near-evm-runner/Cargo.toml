@@ -33,7 +33,7 @@ ethereum-types = "0.8.0"
 near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }
 near-runtime-utils = { path = "../near-runtime-utils" }
-near-runtime-fees = { path = "../near-runtime-fees", features = ["protocol_feature_evm"] }
+near-runtime-fees = { path = "../near-runtime-fees" }
 
 derivative = "2.1.1"
 
@@ -48,3 +48,4 @@ near-crypto = { path = "../../core/crypto" }
 
 [features]
 costs_counting = []
+protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm"]
