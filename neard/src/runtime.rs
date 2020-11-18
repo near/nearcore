@@ -1022,7 +1022,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_header_info.total_supply,
             block_header_info.latest_protocol_version,
             #[cfg(feature = "protocol_feature_rectify_inflation")]
-            block_header_info.timestamp,
+            block_header_info.timestamp_nanosec,
         );
         let rng_seed = (block_header_info.random_value.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
@@ -1621,7 +1621,7 @@ mod test {
                     total_supply: genesis_total_supply,
                     latest_protocol_version: genesis_protocol_version,
                     #[cfg(feature = "protocol_feature_rectify_inflation")]
-                    timestamp: 0,
+                    timestamp_nanosec: 0,
                 })
                 .unwrap();
             Self {
@@ -1693,7 +1693,7 @@ mod test {
                     total_supply: self.runtime.genesis_config.total_supply,
                     latest_protocol_version: self.runtime.genesis_config.protocol_version,
                     #[cfg(feature = "protocol_feature_rectify_inflation")]
-                    timestamp: self.time + 10u64.pow(9),
+                    timestamp_nanosec: self.time + 10u64.pow(9),
                 })
                 .unwrap();
             self.last_receipts = new_receipts;
@@ -2142,7 +2142,7 @@ mod test {
                     total_supply: new_env.runtime.genesis_config.total_supply,
                     latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
                     #[cfg(feature = "protocol_feature_rectify_inflation")]
-                    timestamp: new_env.time,
+                    timestamp_nanosec: new_env.time,
                 })
                 .unwrap();
             new_env.head.height = i;

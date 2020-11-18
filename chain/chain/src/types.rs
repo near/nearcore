@@ -114,7 +114,7 @@ pub struct BlockHeaderInfo {
     pub total_supply: Balance,
     pub latest_protocol_version: ProtocolVersion,
     #[cfg(feature = "protocol_feature_rectify_inflation")]
-    pub timestamp: u64,
+    pub timestamp_nanosec: u64,
 }
 
 impl BlockHeaderInfo {
@@ -132,7 +132,7 @@ impl BlockHeaderInfo {
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
             #[cfg(feature = "protocol_feature_rectify_inflation")]
-            timestamp: header.raw_timestamp(),
+            timestamp_nanosec: header.raw_timestamp(),
         }
     }
 }

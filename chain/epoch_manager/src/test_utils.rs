@@ -325,7 +325,7 @@ pub fn block_info(
         slashed: Default::default(),
         total_supply,
         #[cfg(feature = "protocol_feature_rectify_inflation")]
-        timestamp: height * NUM_NS_IN_SECOND,
+        timestamp_nanosec: height * NUM_NS_IN_SECOND,
     }
 }
 

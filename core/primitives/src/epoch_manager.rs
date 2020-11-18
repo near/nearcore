@@ -67,7 +67,7 @@ pub struct BlockInfo {
     /// Total supply at this block.
     pub total_supply: Balance,
     #[cfg(feature = "protocol_feature_rectify_inflation")]
-    pub timestamp: u64,
+    pub timestamp_nanosec: u64,
 }
 
 impl BlockInfo {
@@ -81,7 +81,7 @@ impl BlockInfo {
         slashed: Vec<SlashedValidator>,
         total_supply: Balance,
         latest_protocol_version: ProtocolVersion,
-        #[cfg(feature = "protocol_feature_rectify_inflation")] timestamp: u64,
+        #[cfg(feature = "protocol_feature_rectify_inflation")] timestamp_nanosec: u64,
     ) -> Self {
         Self {
             height,
@@ -103,7 +103,7 @@ impl BlockInfo {
             epoch_first_block: Default::default(),
             epoch_id: Default::default(),
             #[cfg(feature = "protocol_feature_rectify_inflation")]
-            timestamp,
+            timestamp_nanosec,
         }
     }
 }

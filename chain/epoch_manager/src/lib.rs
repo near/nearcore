@@ -341,8 +341,9 @@ impl EpochManager {
             let last_epoch_last_block_hash =
                 self.get_block_info(&block_info.epoch_first_block)?.prev_hash;
             let last_block_in_last_epoch = self.get_block_info(&last_epoch_last_block_hash)?;
-            assert!(block_info.timestamp > last_block_in_last_epoch.timestamp);
-            let epoch_duration = block_info.timestamp - last_block_in_last_epoch.timestamp;
+            assert!(block_info.timestamp_nanosec > last_block_in_last_epoch.timestamp_nanosec);
+            let epoch_duration =
+                block_info.timestamp_nanosec - last_block_in_last_epoch.timestamp_nanosec;
             self.reward_calculator.calculate_reward(
                 validator_block_chunk_stats,
                 &validator_stake,

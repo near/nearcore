@@ -522,7 +522,7 @@ pub fn migrate_14_to_15(path: &String) {
 }
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
-pub fn migrate_16_to_17(path: &String) {
+pub fn migrate_16_to_rectify_inflation(path: &String) {
     use near_primitives::epoch_manager::BlockInfo;
     use near_primitives::epoch_manager::SlashState;
     use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
@@ -561,5 +561,4 @@ pub fn migrate_16_to_17(path: &String) {
         )
     })
     .unwrap();
-    set_store_version(&store, 17);
 }
