@@ -158,11 +158,8 @@ class RainbowBridge:
         if not os.path.exists(self.bridge_dir):
             self._git_clone_install()
         if not os.path.exists(os.path.expanduser("~/go")):
-            print('No go found, installing...')
-            os.system('wget -q -O - https://raw.githubusercontent.com/canha/golang-tools-install-script/master/goinstall.sh | bash')
-            os.system('export GOROOT=~/.go')
-            os.system('export GOPATH=~/go')
-            os.system('export PATH=$GOPATH/bin:$GOROOT/bin:$PATH')
+            print('Go must be installed')
+            assert False
         os.system('wget -q https://raw.githubusercontent.com/near/nearcore/6cb489aee566b85091339d90c40b7517bdfbd2f2/pytest/lib/bridge_helpers/write_config.js -P %s' % self.bridge_dir)
 
         if os.path.exists(self.config_dir):
