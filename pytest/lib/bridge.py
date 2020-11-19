@@ -174,7 +174,11 @@ class RainbowBridge:
             os.mkdir(os.path.join(logs_dir, service))
             Path(os.path.join(os.path.join(logs_dir, service), 'err.log')).touch()
             Path(os.path.join(os.path.join(logs_dir, service), 'out.log')).touch()
-
+        import os
+        print(os.system('node --version'))
+        print(self.bridge_dir)
+        import time
+        time.sleep(5)  
         assert subprocess.check_output(['node', 'write_config.js'], cwd=self.bridge_dir) == b''
     
     def _git_clone_install(self):
