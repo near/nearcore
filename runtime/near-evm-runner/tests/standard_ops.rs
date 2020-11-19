@@ -26,8 +26,6 @@ mod tests {
     };
     use parity_bytes::ToPretty;
 
-    mod utils;
-
     use_contract!(soltest, "tests/build/SolTests.abi");
     use_contract!(subcontract, "tests/build/SubContract.abi");
     use_contract!(create2factory, "tests/build/Create2Factory.abi");

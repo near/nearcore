@@ -3,8 +3,6 @@
 mod tests {
     use crate::utils::{accounts, create_context, setup};
 
-    mod utils;
-
     /// Test various invalid inputs to function calls.
     #[test]
     fn test_invalid_input() {
