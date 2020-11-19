@@ -1,8 +1,9 @@
 //! Streamer watches the network and collects all the blocks and related chunks
 //! into one struct and pushes in in to the given queue
+use std::collections::HashMap;
+
 use actix::Addr;
 use futures::stream::StreamExt;
-use std::collections::HashMap;
 use tracing::warn;
 
 pub use near_primitives::hash::CryptoHash;

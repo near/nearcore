@@ -57,7 +57,9 @@ async fn build_streamer_message(
     for chunk in chunks {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
-        let mut outcomes = shards_outcomes.get_mut(&header.shard_id).unwrap().clone();
+        let mut outcomes = shards_outcomes
+            .remove(&header.shard_id)
+            .expect("Execution outcomes for given shard should be present");
 
         let mut indexer_transactions: Vec<IndexerTransactionWithOutcome> = vec![];
         for transaction in transactions {
@@ -68,15 +70,6 @@ async fn build_streamer_message(
                 transaction,
             })
         }
-        // let indexer_transactions = transactions
-        //     .into_iter()
-        //     .map(|transaction| {
-        //         IndexerTransactionWithOutcome {
-        //             outcome: outcomes.remove(&transaction.hash).expect("The transaction execution outcome should always present in the same block as the transaction itself"),
-        //             transaction,
-        //         }
-        //     })
-        //     .collect::<Vec<IndexerTransactionWithOutcome>>();
 
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
             &client,
@@ -96,13 +89,10 @@ async fn build_streamer_message(
 
         // Add local receipts to corresponding outcomes
         for receipt in &local_receipts {
-            if let Some(outcome_position) = outcomes
-                .iter()
-                .position(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
+            if let Some(outcome) = outcomes
+                .iter_mut()
+                .find(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
             {
-                let mut outcome = outcomes
-                    .get_mut(outcome_position)
-                    .expect("The outcome should be present as we have just found it");
                 debug_assert!(outcome.receipt.is_none());
                 outcome.receipt = Some(receipt.clone());
             }
