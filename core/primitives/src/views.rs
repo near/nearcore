@@ -58,7 +58,7 @@ pub struct AccountView {
     #[serde(default)]
     pub storage_paid_at: BlockHeight,
 }
-
+/// State for the view call.
 #[derive(Debug)]
 pub struct ViewApplyState {
     /// Currently building block height.

@@ -493,6 +493,10 @@ pub struct StoreCompiledContractCache {
     pub store: Arc<Store>,
 }
 
+/// Cache for compiled contracts code using Store for keeping data.
+/// We store contracts in VM-specific format in DBCol::ColCachedContractCode.
+/// Key must take into account VM being used and its configuration, so that
+/// we don't cache non-gas metered binaries, for example.
 impl CompiledContractCache for StoreCompiledContractCache {
     fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error> {
         let mut store_update = self.store.store_update();
