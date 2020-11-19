@@ -177,6 +177,8 @@ class RainbowBridge:
         assert subprocess.check_output(['yarn'], cwd=self.bridge_dir).decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done'
         ethash_dir = os.path.join(self.bridge_dir, 'eth2near/ethashproof')
         assert subprocess.check_output(['/bin/sh', 'build.sh'], cwd=ethash_dir) == b''
+        # Make sure that ethash is assembled
+        assert os.path.exists(os.path.join(ethash_dir, 'cmd/relayer/relayer'))
 
     def init_near_contracts(self):
         print('Init NEAR contracts...')

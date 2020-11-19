@@ -5,8 +5,8 @@ if len(sys.argv) < 3:
     exit(1)
 
 eth2near_tx_number = int(sys.argv[1])
-assert eth2near_tx_number > 0 and eth2near_tx_number <= 1000
 near2eth_tx_number = int(sys.argv[2])
+assert eth2near_tx_number > 0 and eth2near_tx_number <= 1000 or eth2near_tx_number == 0 and near2eth_tx_number == 0
 assert near2eth_tx_number >= 0 and near2eth_tx_number <= 1000
 
 sys.path.append('lib')

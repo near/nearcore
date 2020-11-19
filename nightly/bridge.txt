@@ -1,13 +1,16 @@
-pytest --timeout=2400 bridge/end2end.py 1 0
-pytest --timeout=2400 bridge/end2end.py 1 1
-pytest --timeout=2400 bridge/end2end.py 1 2
-pytest --timeout=2400 bridge/end2end.py 2 0
-pytest --timeout=2400 bridge/end2end.py 2 1
-pytest --timeout=2400 bridge/end2end.py 2 2
-pytest --timeout=2400 bridge/end2end.py 20 0
-pytest --timeout=2400 bridge/end2end.py 1 20
-pytest --timeout=2400 bridge/end2end.py 20 20
-pytest --timeout=2400 bridge/multiple_relays.py
-pytest --timeout=2400 bridge/multiple_relays.py add_relay_while_tx
-pytest --timeout=2400 bridge/turn_off_relays.py
-pytest --timeout=2400 bridge/turn_off_relays.py one_more_restart
+# imporant sanity test which ensures that bridge can be started well
+pytest --timeout=1000 bridge/end2end.py 0 0
+
+pytest --timeout=1000 bridge/end2end.py 1 0
+pytest --timeout=1000 bridge/end2end.py 1 1
+pytest --timeout=1000 bridge/end2end.py 1 2
+pytest --timeout=1000 bridge/end2end.py 2 0
+pytest --timeout=1000 bridge/end2end.py 2 1
+pytest --timeout=1000 bridge/end2end.py 2 2
+pytest --timeout=1000 bridge/end2end.py 20 0
+pytest --timeout=1000 bridge/end2end.py 1 20
+pytest --timeout=1000 bridge/end2end.py 20 20
+pytest --timeout=1000 bridge/multiple_relays.py
+pytest --timeout=1000 bridge/multiple_relays.py add_relay_while_tx
+pytest --timeout=1000 bridge/turn_off_relays.py
+pytest --timeout=1000 bridge/turn_off_relays.py one_more_restart
