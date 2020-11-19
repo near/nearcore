@@ -51,4 +51,24 @@ skip = [
     { name = "idna", version = "=0.1.5" },
     { name = "semver", version = "=0.9.0" },
     { name = "percent-encoding", version = "=1.0.1" },
+
+    # bindgen used in rocksdb and in actix-http
+    { name = "cfg-if",  version="1.0.10" },
+
+    # wasmtime and actix-http
+    { name = "gimli", version = "0.23.0" },
+
+    # actix-http's deps backtrace and flate2 use different versions
+    { name = "miniz_oxide", version="0.4.3" },
+
+    # Wasmtime and actix-http
+    { name = "object", version="0.22.0" },
+
+    # wasmer and wasmtime
+    { name = "target-lexicon", version = "0.11.1" },
+
+    # wasmer and wasmtime
+    { name = "wasmparser", version = "0.59.0" },
+
+
 ]
