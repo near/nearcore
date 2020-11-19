@@ -60,16 +60,22 @@ async fn build_streamer_message(
         let mut outcomes = shards_outcomes
             .remove(&header.shard_id)
             .expect("Execution outcomes for given shard should be present");
+        let mut receipt_outcomes = outcomes.split_off(transactions.len());
 
-        let mut indexer_transactions: Vec<IndexerTransactionWithOutcome> = vec![];
-        for transaction in transactions {
-            let outcome_position = outcomes.iter().position(|outcome| outcome.execution_outcome.id == transaction.hash)
-                .expect("The transaction execution outcome should always present in the same block as the transaction itself");
-            indexer_transactions.push(IndexerTransactionWithOutcome {
-                outcome: outcomes.remove(outcome_position),
-                transaction,
+        let indexer_transactions = transactions
+            .iter()
+            .enumerate()
+            .map(|(index, transaction)| {
+                assert_eq!(
+                    outcomes[index].execution_outcome.id, transaction.hash,
+                    "This ExecutionOutcome must have the same id as Transaction hash"
+                );
+                IndexerTransactionWithOutcome {
+                    outcome: outcomes[index].clone(),
+                    transaction: transaction.clone(),
+                }
             })
-        }
+            .collect::<Vec<IndexerTransactionWithOutcome>>();
 
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
             &client,
@@ -89,7 +95,7 @@ async fn build_streamer_message(
 
         // Add local receipts to corresponding outcomes
         for receipt in &local_receipts {
-            if let Some(outcome) = outcomes
+            if let Some(outcome) = receipt_outcomes
                 .iter_mut()
                 .find(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
             {
@@ -103,7 +109,7 @@ async fn build_streamer_message(
             header,
             transactions: indexer_transactions,
             receipts: chunk_receipts,
-            receipt_execution_outcomes: outcomes,
+            receipt_execution_outcomes: receipt_outcomes,
         });
     }
 
