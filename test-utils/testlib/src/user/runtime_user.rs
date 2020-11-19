@@ -14,7 +14,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ExecutionOutcomeView,
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
-    FinalExecutionStatus, ViewStateResult,
+    FinalExecutionStatus, ViewApplyState, ViewStateResult,
 };
 use near_store::{ShardTries, TrieUpdate};
 use neard::config::{MIN_GAS_PRICE, TEST_EVM_CHAIN_ID};
@@ -225,22 +225,26 @@ impl User for RuntimeUser {
         let client = self.client.read().expect(POISONED_LOCK_ERR);
         let state_update = client.get_state_update();
         let mut result = CallResult::default();
+        let view_state = ViewApplyState {
+            block_height: apply_state.block_index,
+            last_block_hash: apply_state.last_block_hash,
+            epoch_id: apply_state.epoch_id,
+            epoch_height: apply_state.epoch_height,
+            block_timestamp: apply_state.block_timestamp,
+            current_protocol_version: PROTOCOL_VERSION,
+            cache: apply_state.cache,
+            evm_chain_id: TEST_EVM_CHAIN_ID,
+        };
         result.result = self
             .trie_viewer
             .call_function(
                 state_update,
-                apply_state.block_index,
-                apply_state.block_timestamp,
-                &apply_state.last_block_hash,
-                apply_state.epoch_height,
-                &apply_state.epoch_id,
+                view_state,
                 account_id,
                 method_name,
                 args,
                 &mut result.logs,
                 &self.epoch_info_provider,
-                PROTOCOL_VERSION,
-                TEST_EVM_CHAIN_ID,
             )
             .map_err(|err| err.to_string())?;
         Ok(result)

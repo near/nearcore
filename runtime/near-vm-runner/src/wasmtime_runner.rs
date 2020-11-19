@@ -4,7 +4,8 @@ use wasmtime::Module;
 #[cfg(feature = "wasmtime_vm")]
 pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
-    use crate::{imports, prepare, CompiledContractCache};
+    use crate::{imports, prepare};
+    use near_primitives::types::CompiledContractCache;
     use near_runtime_fees::RuntimeFeesConfig;
     use near_vm_errors::FunctionCallError::{LinkError, WasmUnknownError};
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
