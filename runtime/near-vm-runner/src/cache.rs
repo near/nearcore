@@ -3,11 +3,11 @@ use crate::prepare;
 use borsh::{BorshDeserialize, BorshSerialize};
 use log::error;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::CompiledContractCache;
 use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
 use near_vm_errors::VMError;
 use near_vm_logic::{VMConfig, VMKind};
 use std::convert::TryFrom;
-use std::fmt;
 use wasmer_runtime::{compiler_for_backend, Backend};
 use wasmer_runtime_core::cache::Artifact;
 use wasmer_runtime_core::load_cache_with;
@@ -111,26 +111,5 @@ pub(crate) fn compile_module_cached_wasmer(
             None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
         },
         Err(_) => Err(VMError::CacheError(ReadError)),
-    }
-}
-
-/// Cache for compiled modules
-pub trait CompiledContractCache: Send + Sync {
-    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error>;
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error>;
-}
-
-impl CompiledContractCache for () {
-    fn put(&self, _: &[u8], _: &[u8]) -> Result<(), std::io::Error> {
-        Ok(())
-    }
-    fn get(&self, _: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
-        Ok(None)
-    }
-}
-
-impl fmt::Debug for dyn CompiledContractCache {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Compiled contracts cache")
     }
 }

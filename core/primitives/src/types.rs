@@ -558,6 +558,12 @@ pub enum TransactionOrReceiptId {
     Receipt { receipt_id: CryptoHash, receiver_id: AccountId },
 }
 
+/// Cache for compiled modules
+pub trait CompiledContractCache: Send + Sync {
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error>;
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error>;
+}
+
 /// Provides information about current epoch validators.
 /// Used to break dependency between epoch manager and runtime.
 pub trait EpochInfoProvider {
