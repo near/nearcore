@@ -163,8 +163,7 @@ class RainbowBridge:
             os.system('export GOROOT=~/.go')
             os.system('export GOPATH=~/go')
             os.system('export PATH=$GOPATH/bin:$GOROOT/bin:$PATH')
-        os.system('wget -q https://raw.githubusercontent.com/near/nearcore/6cb489aee566b85091339d90c40b7517bdfbd2f2/pytest/lib/bridge_helpers/write_config.js')
-        os.replace('write_config.js', os.path.join(self.bridge_dir, 'write_config.js'))
+        os.system('wget -q https://raw.githubusercontent.com/near/nearcore/6cb489aee566b85091339d90c40b7517bdfbd2f2/pytest/lib/bridge_helpers/write_config.js -P %s' % self.bridge_dir)
 
         if os.path.exists(self.config_dir):
             assert os.path.isdir(self.config_dir)
