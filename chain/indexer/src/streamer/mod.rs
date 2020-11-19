@@ -63,17 +63,14 @@ async fn build_streamer_message(
         let mut receipt_outcomes = outcomes.split_off(transactions.len());
 
         let indexer_transactions = transactions
-            .iter()
-            .enumerate()
-            .map(|(index, transaction)| {
+            .into_iter()
+            .zip(outcomes.into_iter())
+            .map(|(transaction, outcome)| {
                 assert_eq!(
-                    outcomes[index].execution_outcome.id, transaction.hash,
+                    outcome.execution_outcome.id, transaction.hash,
                     "This ExecutionOutcome must have the same id as Transaction hash"
                 );
-                IndexerTransactionWithOutcome {
-                    outcome: outcomes[index].clone(),
-                    transaction: transaction.clone(),
-                }
+                IndexerTransactionWithOutcome { outcome, transaction }
             })
             .collect::<Vec<IndexerTransactionWithOutcome>>();
 
