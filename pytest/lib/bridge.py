@@ -20,6 +20,16 @@ def atexit_cleanup(obj):
 
 class Cleanable(object):
 
+    def __init__(self, config):
+        self.cleaned = False
+        self.pid = multiprocessing.Value('i', 0)
+        self.config = config
+        self.bridge_dir = self.config['bridge_dir']
+        self.config_dir = self.config['config_dir']
+        self.stdout = None
+        self.stderr = None
+        atexit.register(atexit_cleanup, self)
+
     def kill(self):
         if self.pid.value != 0:
             os.kill(self.pid.value, signal.SIGKILL)
@@ -30,100 +40,78 @@ class Cleanable(object):
             return
 
         try:
-            self.stdout.close()
-            self.stderr.close()
+            if self.stdout:
+                self.stdout.close()
+            if self.stderr:
+                self.stderr.close()
             self.kill()
         except:
             print("Kill %s failed on cleanup!" % (self.__class__.__name__))
             traceback.print_exc()
             print("\n\n")
 
+    def restart(self):
+        assert not self.cleaned
+        self.cleanup()
+        assert self.pid.value == 0
+        self.start()
+        assert self.pid.value != 0
+        self.cleaned = False
 
 
 class GanacheNode(Cleanable):
 
     def __init__(self, config):
-        self.cleaned = False
-        self.pid = multiprocessing.Value('i', 0)
-        self.config = config
-        # TODO fix path
-        bridge_dir = self.config['bridge_dir']
-        ganache_bin = os.path.join(bridge_dir, self.config['ganache_bin'])
+        super(GanacheNode, self).__init__(config)
+        ganache_bin = os.path.join(self.bridge_dir, self.config['ganache_bin'])
         if not os.path.exists(ganache_bin):
             self.build()
-        atexit.register(atexit_cleanup, self)
 
     def build(self):
-        bridge_dir = self.config['bridge_dir']
-        ganache_dir = os.path.join(bridge_dir, self.config['ganache_dir'])
-        os.system('cd %s && yarn' % (ganache_dir))
+        ganache_dir = os.path.join(self.bridge_dir, self.config['ganache_dir'])
+        assert subprocess.check_output(['yarn'], cwd=ganache_dir).decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done'
 
     def start(self):
-        # TODO fix path
-        bridge_dir = self.config['bridge_dir']
-        ganache_bin = os.path.join(bridge_dir, self.config['ganache_bin'])
-        config_dir = self.config['config_dir']
-        # TODO fix logs
-        self.stdout = open(os.path.join(config_dir, 'logs/ganache/out.log'), 'w')
-        self.stderr = open(os.path.join(config_dir, 'logs/ganache/err.log'), 'w')
+        ganache_bin = os.path.join(self.bridge_dir, self.config['ganache_bin'])
+        self.stdout = open(os.path.join(self.config_dir, 'logs/ganache/out.log'), 'w')
+        self.stderr = open(os.path.join(self.config_dir, 'logs/ganache/err.log'), 'w')
         # TODO use blockTime
         # TODO set params
         self.pid.value = subprocess.Popen([ganache_bin,'--port','9545','--blockTime','12','--gasLimit','10000000','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501200,10000000000000000000000000000"','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201,10000000000000000000000000000"','--account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501202,10000000000000000000000000000"'], stdout=self.stdout, stderr=self.stderr).pid
+        assert self.pid.value != 0
 
 
 class Near2EthBlockRelay(Cleanable):
 
     def __init__(self, config):
-        self.cleaned = False
-        self.pid = multiprocessing.Value('i', 0)
-        self.config = config
-        atexit.register(atexit_cleanup, self)
+        super(Near2EthBlockRelay, self).__init__(config)
 
     def start(self, eth_master_secret_key='0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501201'):
-        bridge_dir = self.config['bridge_dir']
-        config_dir = self.config['config_dir']
-        self.stdout = open(os.path.join(config_dir, 'logs/near2eth-relay/out.log'), 'a')
-        self.stderr = open(os.path.join(config_dir, 'logs/near2eth-relay/err.log'), 'a')
-        cli_dir = os.path.join(bridge_dir, 'cli')
+        self.stdout = open(os.path.join(self.config_dir, 'logs/near2eth-relay/out.log'), 'a')
+        self.stderr = open(os.path.join(self.config_dir, 'logs/near2eth-relay/err.log'), 'a')
+        cli_dir = os.path.join(self.bridge_dir, 'cli')
         args = ('node index.js start near2eth-relay --eth-master-sk %s --daemon false' % (eth_master_secret_key)).split()
         self.pid.value = subprocess.Popen(args, stdout=self.stdout, stderr=self.stderr, cwd=cli_dir).pid
         # TODO ping and wait until service really starts
         time.sleep(5)
         assert self.pid.value != 0
 
-    def restart(self):
-        assert not self.cleaned
-        self.cleanup()
-        assert self.pid.value == 0
-        self.start()
-        assert self.pid.value != 0
 
 class Eth2NearBlockRelay(Cleanable):
 
     def __init__(self, config):
-        self.cleaned = False
-        self.pid = multiprocessing.Value('i', 0)
-        self.config = config
-        atexit.register(atexit_cleanup, self)
+        super(Eth2NearBlockRelay, self).__init__(config)
 
     def start(self):
-        bridge_dir = self.config['bridge_dir']
-        config_dir = self.config['config_dir']
-        self.stdout = open(os.path.join(config_dir, 'logs/eth2near-relay/out.log'), 'a')
-        self.stderr = open(os.path.join(config_dir, 'logs/eth2near-relay/err.log'), 'a')
-        cli_dir = os.path.join(bridge_dir, 'cli')
+        self.stdout = open(os.path.join(self.config_dir, 'logs/eth2near-relay/out.log'), 'a')
+        self.stderr = open(os.path.join(self.config_dir, 'logs/eth2near-relay/err.log'), 'a')
+        cli_dir = os.path.join(self.bridge_dir, 'cli')
         args = ('node index.js start eth2near-relay --daemon false').split()
         self.pid.value = subprocess.Popen(args, stdout=self.stdout, stderr=self.stderr, cwd=cli_dir).pid
         # TODO ping and wait until service really starts
         time.sleep(5)
         assert self.pid.value != 0
 
-    def restart(self):
-        assert not self.cleaned
-        self.cleanup()
-        assert self.pid.value == 0
-        self.start()
-        assert self.pid.value != 0
 
 class JSAdapter:
 
