@@ -1,7 +1,11 @@
 use near_runtime_fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, EvmBls12ConstOpCost,
-    EvmBn128PairingCost, EvmCostConfig, EvmLinearCost, EvmModexpCost, EvmPrecompileCostConfig, Fee,
+    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig, StorageUsageConfig,
+};
+#[cfg(feature = "protocol_feature_evm")]
+use near_runtime_fees::{
+    EvmBls12ConstOpCost, EvmBn128PairingCost, EvmCostConfig, EvmLinearCost, EvmModexpCost,
+    EvmPrecompileCostConfig,
 };
 use node_runtime::config::RuntimeConfig;
 use num_rational::Rational;

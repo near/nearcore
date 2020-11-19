@@ -49,3 +49,13 @@ near-crypto = { path = "../../core/crypto" }
 [features]
 costs_counting = []
 protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm"]
+
+[[test]]
+name = "failures"
+path = "tests/failures.rs"
+required-features = ["protocol_feature_evm"]
+
+[[test]]
+name = "standard_ops"
+path = "tests/standard_ops.rs"
+required-features = ["protocol_feature_evm"]

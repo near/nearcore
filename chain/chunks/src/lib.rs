@@ -1699,17 +1699,14 @@ impl ShardsManager {
 
 #[cfg(test)]
 mod test {
-    use crate::test_utils::{ChunkForwardingTestFixture, SealsManagerTestFixture};
-    use crate::{
-        ChunkRequestInfo, ProcessPartialEncodedChunkResult, Seal, SealsManager, ShardsManager,
-        CHUNK_REQUEST_RETRY_MS, NUM_PARTS_REQUESTED_IN_SEAL,
-    };
+    use super::*;
+    use crate::test_utils::*;
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::sharding::{ChunkHash, PartialEncodedChunkV2};
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
