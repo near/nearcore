@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+* Attach receipt execution outcomes to a relevant chunk and preserve their execution order (!)
+
+## Breaking changes
+
+Since #3529 nearcore stores `ExecutionOutcome`s in their execution order, and we can also attribute outcomes to specific chunk. That's why:
+* `receipt_execution_outcomes` was moved from `StreamerMessage` to a relevant `IndexerChunkView`
+* `ExecutionOutcomesWithReceipts` type alias was removed (just use `Vec<IndexerExecutionOutcomeWithReceipt>` instead) 
+
 ## 0.4.0
 
 * Prepend chunk's receipts with local receipts to attach latter to specific chunk
