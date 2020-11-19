@@ -184,7 +184,9 @@ class RainbowBridge:
         print(self.bridge_dir)
         print(subprocess.check_output(['yarn']))
         print(subprocess.check_output(['node', '--version']))
-        print(ubprocess.check_output(['yarn'], cwd=self.bridge_dir).decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done')
+        print(subprocess.check_output(['yarn'], cwd=self.bridge_dir).decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done')
+        import time
+        time.sleep(5)
         assert subprocess.check_output(['yarn'], cwd=self.bridge_dir).decode('ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done'
         ethash_dir = os.path.join(self.bridge_dir, 'eth2near/ethashproof')
         assert subprocess.check_output(['/bin/sh', 'build.sh'], cwd=ethash_dir) == b''
