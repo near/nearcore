@@ -1710,6 +1710,7 @@ mod test {
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::sharding::{ChunkHash, PartialEncodedChunkV2};
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
