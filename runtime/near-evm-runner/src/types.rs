@@ -21,7 +21,6 @@ pub enum Method {
     Deposit,
     Withdraw,
     Transfer,
-    Create,
     // View methods.
     ViewCall,
     GetCode,
@@ -36,11 +35,11 @@ impl Method {
             // Change the state methods.
             "deploy_code" => Self::DeployCode,
             "call_function" | "call" => Self::Call,
-            "meta_call" => Self::MetaCall,
+            // TODO: Meta calls are temporary disabled.
+            // "meta_call" => Self::MetaCall,
             "deposit" => Self::Deposit,
             "withdraw" => Self::Withdraw,
             "transfer" => Self::Transfer,
-            "create" => Self::Create,
             // View methods.
             "view_function_call" | "view" => Self::ViewCall,
             "get_code" => Self::GetCode,

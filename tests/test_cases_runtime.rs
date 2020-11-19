@@ -312,11 +312,4 @@ mod test {
         let node = create_runtime_node();
         test_evm_deploy_call(node);
     }
-
-    #[cfg(feature = "protocol_feature_evm")]
-    #[test]
-    fn test_sub_evm_runtime() {
-        let node = create_runtime_node();
-        test_sub_evm(node);
-    }
 }
