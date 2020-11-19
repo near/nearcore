@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+* Add receipt execution outcomes to specific chunk
+
+## Breaking changes
+
+Once nearcore is storing ExecutionOutcome ordered we can add outcome to specific chunk. That's why:
+* `receipt_execution_outcomes` was moved from `StreamerMessage` to `IndexerChunkView`
+* Remove `ExecutionOutcomesWithReceipts` 
+
 ## 0.4.0
 
 * Prepend chunk's receipts with local receipts to attach latter to specific chunk

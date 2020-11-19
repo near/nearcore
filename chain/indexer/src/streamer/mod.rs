@@ -16,8 +16,8 @@ use self::fetchers::{
     fetch_status,
 };
 pub use self::types::{
-    ExecutionOutcomesWithReceipts, IndexerChunkView, IndexerExecutionOutcomeWithReceipt,
-    IndexerTransactionWithOutcome, StreamerMessage,
+    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome,
+    StreamerMessage,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
 
@@ -51,22 +51,32 @@ async fn build_streamer_message(
     let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
 
     let mut local_receipts: Vec<views::ReceiptView> = vec![];
-    let mut outcomes = fetch_outcomes(&client, block.header.hash).await?;
+    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
     let mut indexer_chunks: Vec<IndexerChunkView> = vec![];
 
     for chunk in chunks {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
+        let mut outcomes = shards_outcomes.get_mut(&header.shard_id).unwrap().clone();
 
-        let indexer_transactions = transactions
-            .into_iter()
-            .map(|transaction| {
-                IndexerTransactionWithOutcome {
-                    outcome: outcomes.remove(&transaction.hash).expect("The transaction execution outcome should always present in the same block as the transaction itself"),
-                    transaction,
-                }
+        let mut indexer_transactions: Vec<IndexerTransactionWithOutcome> = vec![];
+        for transaction in transactions {
+            let outcome_position = outcomes.iter().position(|outcome| outcome.execution_outcome.id == transaction.hash)
+                .expect("The transaction execution outcome should always present in the same block as the transaction itself");
+            indexer_transactions.push(IndexerTransactionWithOutcome {
+                outcome: outcomes.remove(outcome_position),
+                transaction,
             })
-            .collect::<Vec<IndexerTransactionWithOutcome>>();
+        }
+        // let indexer_transactions = transactions
+        //     .into_iter()
+        //     .map(|transaction| {
+        //         IndexerTransactionWithOutcome {
+        //             outcome: outcomes.remove(&transaction.hash).expect("The transaction execution outcome should always present in the same block as the transaction itself"),
+        //             transaction,
+        //         }
+        //     })
+        //     .collect::<Vec<IndexerTransactionWithOutcome>>();
 
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
             &client,
@@ -84,30 +94,32 @@ async fn build_streamer_message(
         let mut chunk_receipts = chunk_local_receipts;
         chunk_receipts.extend(chunk_non_local_receipts);
 
+        // Add local receipts to corresponding outcomes
+        for receipt in &local_receipts {
+            if let Some(outcome_position) = outcomes
+                .iter()
+                .position(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
+            {
+                let mut outcome = outcomes
+                    .get_mut(outcome_position)
+                    .expect("The outcome should be present as we have just found it");
+                debug_assert!(outcome.receipt.is_none());
+                outcome.receipt = Some(receipt.clone());
+            }
+        }
+
         indexer_chunks.push(IndexerChunkView {
             author,
             header,
             transactions: indexer_transactions,
             receipts: chunk_receipts,
+            receipt_execution_outcomes: outcomes,
         });
-    }
-
-    // Add local receipts to corresponding outcomes
-    for receipt in &local_receipts {
-        if let Some(outcome) = outcomes.get_mut(&receipt.receipt_id) {
-            debug_assert!(outcome.receipt.is_none());
-            outcome.receipt = Some(receipt.clone());
-        }
     }
 
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
-    Ok(StreamerMessage {
-        block,
-        chunks: indexer_chunks,
-        receipt_execution_outcomes: outcomes,
-        state_changes,
-    })
+    Ok(StreamerMessage { block, chunks: indexer_chunks, state_changes })
 }
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status

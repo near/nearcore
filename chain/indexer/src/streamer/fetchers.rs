@@ -2,13 +2,14 @@
 //! into one struct and pushes in in to the given queue
 use actix::Addr;
 use futures::stream::StreamExt;
+use std::collections::HashMap;
 use tracing::warn;
 
 pub use near_primitives::hash::CryptoHash;
 pub use near_primitives::{types, views};
 
 use super::errors::FailedToFetchData;
-use super::types::{ExecutionOutcomesWithReceipts, IndexerExecutionOutcomeWithReceipt};
+use super::types::IndexerExecutionOutcomeWithReceipt;
 use super::INDEXER;
 
 pub(crate) async fn fetch_status(
@@ -78,14 +79,21 @@ async fn fetch_single_chunk(
 pub(crate) async fn fetch_outcomes(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: CryptoHash,
-) -> Result<ExecutionOutcomesWithReceipts, FailedToFetchData> {
+) -> Result<
+    HashMap<near_primitives::types::ShardId, Vec<IndexerExecutionOutcomeWithReceipt>>,
+    FailedToFetchData,
+> {
     let outcomes = client
         .send(near_client::GetExecutionOutcomesForBlock { block_hash })
         .await?
         .map_err(FailedToFetchData::String)?;
 
-    let mut outcomes_with_receipts = ExecutionOutcomesWithReceipts::new();
-    for (_, shard_outcomes) in outcomes {
+    let mut shard_execution_outcomes_with_receipts: HashMap<
+        near_primitives::types::ShardId,
+        Vec<IndexerExecutionOutcomeWithReceipt>,
+    > = HashMap::new();
+    for (shard_id, shard_outcomes) in outcomes {
+        let mut outcomes_with_receipts: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
         for outcome in shard_outcomes {
             let receipt = match fetch_receipt_by_id(&client, outcome.id).await {
                 Ok(res) => res,
@@ -99,14 +107,13 @@ pub(crate) async fn fetch_outcomes(
                     None
                 }
             };
-            outcomes_with_receipts.insert(
-                outcome.id,
-                IndexerExecutionOutcomeWithReceipt { execution_outcome: outcome, receipt },
-            );
+            outcomes_with_receipts
+                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome: outcome, receipt });
         }
+        shard_execution_outcomes_with_receipts.insert(shard_id, outcomes_with_receipts);
     }
 
-    Ok(outcomes_with_receipts)
+    Ok(shard_execution_outcomes_with_receipts)
 }
 
 async fn fetch_receipt_by_id(
