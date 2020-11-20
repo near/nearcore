@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+* Add a way to turn off the requirement to wait for the node to be fully synced before starting streaming.
+
+## Breaking changes
+
+* `IndexerConfig` was extended with another field `await_for_node_synced`. Corresponding enum is `AwaitForNodeSyncedEnum` with variants: 
+  * `WaitForFullSync` - await for node to be fully synced (previous default behaviour)
+  * `StreamWhileSyncing`- start streaming right away while node is syncing (it's useful in case of Indexing from genesis)
+
 ## 0.5.0
 
 * Attach receipt execution outcomes to a relevant chunk and preserve their execution order (!)
