@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::process;
+use std::sync::{Arc, Mutex};
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -35,50 +36,60 @@ fn measure_function(
     metric: Metric,
     method_name: &'static str,
     measurements: &mut Measurements,
-    testbed: RuntimeTestbed,
+    testbed: Arc<Mutex<RuntimeTestbed>>,
     accounts_deployed: &[usize],
     nonces: &mut HashMap<usize, u64>,
     config: &Config,
     allow_failures: bool,
     args: Vec<u8>,
-) -> RuntimeTestbed {
+) -> Arc<Mutex<RuntimeTestbed>> {
     // Measure the speed of creating a function fixture with 1MiB input.
     let mut rng = rand_xorshift::XorShiftRng::from_seed([0u8; 16]);
+    let testbed = testbed.clone();
     let mut f = || {
         let account_idx = *accounts_deployed.choose(&mut rng).unwrap();
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-        let function_call = Action::FunctionCall(FunctionCallAction {
-            method_name: method_name.to_string(),
-            args: args.clone(),
-            gas: 10u64.pow(18),
-            deposit: 0,
-        });
-        SignedTransaction::from_actions(
-            nonce as u64,
-            account_id.clone(),
-            account_id,
-            &signer,
-            vec![function_call],
-            CryptoHash::default(),
-        )
-    };
-    measure_transactions(metric, measurements, config, Some(testbed), &mut f, allow_failures)
-}
+        let mut f_write = |account_idx, method_name: &str| {
+            let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+            let function_call = Action::FunctionCall(FunctionCallAction {
+                method_name: method_name.to_string(),
+                args: args.clone(),
+                gas: 10u64.pow(18),
+                deposit: 0,
+            });
+            let block = vec![SignedTransaction::from_actions(
+                nonce as u64,
+                account_id.clone(),
+                account_id.clone(),
+                &signer,
+                vec![function_call],
+                CryptoHash::default(),
+            )];
+            let mut testbed = testbed.lock().unwrap();
+            testbed.process_block(&block, allow_failures);
+            testbed.process_blocks_until_no_receipts(allow_failures);
+        };
 
-pub fn function_call_on_all_accounts(
-    method_name: &'static str,
-    testbed: RuntimeTestbed,
-    accounts_deployed: &[usize],
-    nonces: &mut HashMap<usize, u64>,
-    allow_failures: bool,
-    args: Vec<u8>,
-) -> RuntimeTestbed {
-    println!("Apply function call {} on all accounts", method_name);
-    let mut f = |account_idx| {
-        let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        match metric {
+            Metric::storage_has_key_10b_key_10b_value_1k
+            | Metric::storage_read_10b_key_10b_value_1k
+            | Metric::storage_remove_10b_key_10b_value_1k => {
+                f_write(account_idx, "storage_write_10_key_10b_value_1k")
+            }
+            Metric::storage_has_key_10kib_key_10b_value_1k
+            | Metric::storage_read_10kib_key_10b_value_1k
+            | Metric::storage_remove_10kib_key_10b_value_1k => {
+                f_write(account_idx, "storage_write_10kib_key_10b_value_1k")
+            }
+            Metric::storage_has_key_10b_key_10kib_value_1k
+            | Metric::storage_read_10b_key_10kib_value_1k
+            | Metric::storage_remove_10b_key_10kib_value_1k => {
+                f_write(account_idx, "storage_write_10_key_10kib_value_1k")
+            }
+            _ => {}
+        }
+
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         let function_call = Action::FunctionCall(FunctionCallAction {
             method_name: method_name.to_string(),
@@ -86,6 +97,7 @@ pub fn function_call_on_all_accounts(
             gas: 10u64.pow(18),
             deposit: 0,
         });
+
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
@@ -95,11 +107,14 @@ pub fn function_call_on_all_accounts(
             CryptoHash::default(),
         )
     };
-    let block: Vec<_> = accounts_deployed.iter().map(|i| f(*i)).collect();
-    let mut testbed = testbed;
-    testbed.process_block(&block, allow_failures);
-    testbed.process_blocks_until_no_receipts(allow_failures);
-    testbed
+    measure_transactions(
+        metric,
+        measurements,
+        config,
+        Some(testbed.clone()),
+        &mut f,
+        allow_failures,
+    )
 }
 
 macro_rules! calls_helper(
@@ -255,7 +270,6 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
                 break x;
             }
         };
-        println!("deleted account: {}", account_idx);
         deleted_accounts.insert(account_idx);
         beneficiaries.insert(beneficiary_idx);
         let account_id = get_account_id(account_idx);
@@ -538,36 +552,6 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
-        // Before read and remove key value, insert key value to all accounts
-        if metric == Metric::storage_read_10b_key_10b_value_1k {
-            testbed = function_call_on_all_accounts(
-                "storage_write_10b_key_10b_value_1k",
-                testbed,
-                &ad,
-                &mut nonces,
-                false,
-                vec![],
-            );
-        } else if metric == Metric::storage_read_10kib_key_10b_value_1k {
-            testbed = function_call_on_all_accounts(
-                "storage_write_10kib_key_10b_value_1k",
-                testbed,
-                &ad,
-                &mut nonces,
-                false,
-                vec![],
-            );
-        } else if metric == Metric::storage_read_10b_key_10kib_value_1k {
-            testbed = function_call_on_all_accounts(
-                "storage_write_10b_key_10kib_value_1k",
-                testbed,
-                &ad,
-                &mut nonces,
-                false,
-                vec![],
-            );
-        }
-
         testbed = measure_function(
             metric,
             method_name,
