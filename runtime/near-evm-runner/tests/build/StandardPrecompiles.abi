@@ -1,0 +1,137 @@
+[
+   {
+      "inputs" : [],
+      "type" : "constructor",
+      "stateMutability" : "payable"
+   },
+   {
+      "type" : "function",
+      "inputs" : [],
+      "name" : "test_all",
+      "stateMutability" : "view",
+      "outputs" : [
+         {
+            "type" : "bool",
+            "internalType" : "bool",
+            "name" : ""
+         }
+      ]
+   },
+   {
+      "outputs" : [
+         {
+            "type" : "bool",
+            "internalType" : "bool",
+            "name" : ""
+         }
+      ],
+      "stateMutability" : "view",
+      "name" : "test_blake2f",
+      "inputs" : [],
+      "type" : "function"
+   },
+   {
+      "inputs" : [],
+      "type" : "function",
+      "stateMutability" : "view",
+      "name" : "test_ecadd",
+      "outputs" : [
+         {
+            "name" : "",
+            "internalType" : "bool",
+            "type" : "bool"
+         }
+      ]
+   },
+   {
+      "inputs" : [],
+      "type" : "function",
+      "stateMutability" : "view",
+      "name" : "test_ecmul",
+      "outputs" : [
+         {
+            "internalType" : "bool",
+            "type" : "bool",
+            "name" : ""
+         }
+      ]
+   },
+   {
+      "type" : "function",
+      "inputs" : [],
+      "name" : "test_ecpair",
+      "stateMutability" : "view",
+      "outputs" : [
+         {
+            "type" : "bool",
+            "internalType" : "bool",
+            "name" : ""
+         }
+      ]
+   },
+   {
+      "type" : "function",
+      "inputs" : [],
+      "outputs" : [
+         {
+            "internalType" : "bool",
+            "type" : "bool",
+            "name" : ""
+         }
+      ],
+      "stateMutability" : "pure",
+      "name" : "test_ecrecover"
+   },
+   {
+      "inputs" : [],
+      "type" : "function",
+      "outputs" : [
+         {
+            "name" : "",
+            "type" : "bool",
+            "internalType" : "bool"
+         }
+      ],
+      "name" : "test_identity",
+      "stateMutability" : "view"
+   },
+   {
+      "outputs" : [
+         {
+            "type" : "bool",
+            "internalType" : "bool",
+            "name" : ""
+         }
+      ],
+      "stateMutability" : "view",
+      "name" : "test_modexp",
+      "inputs" : [],
+      "type" : "function"
+   },
+   {
+      "stateMutability" : "pure",
+      "name" : "test_ripemd160",
+      "outputs" : [
+         {
+            "type" : "bool",
+            "internalType" : "bool",
+            "name" : ""
+         }
+      ],
+      "inputs" : [],
+      "type" : "function"
+   },
+   {
+      "stateMutability" : "pure",
+      "name" : "test_sha256",
+      "outputs" : [
+         {
+            "type" : "bool",
+            "internalType" : "bool",
+            "name" : ""
+         }
+      ],
+      "inputs" : [],
+      "type" : "function"
+   }
+]
