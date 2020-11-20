@@ -8,7 +8,7 @@ use tracing::{debug, info};
 
 pub use near_primitives::views;
 
-use crate::IndexerConfig;
+use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
@@ -135,13 +135,18 @@ pub(crate) async fn start(
     let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
 
     'main: loop {
-        time::delay_for(INTERVAL).await;
-        let status = fetch_status(&client).await;
-        if let Ok(status) = status {
-            if status.sync_info.syncing {
-                continue;
+        match indexer_config.await_for_node_synced {
+            AwaitForNodeSyncedEnum::WaitForFullSync => {
+                time::delay_for(INTERVAL).await;
+                let status = fetch_status(&client).await;
+                if let Ok(status) = status {
+                    if status.sync_info.syncing {
+                        continue;
+                    }
+                }
             }
-        }
+            AwaitForNodeSyncedEnum::StreamWhileSyncing => {}
+        };
 
         let block = if let Ok(block) = fetch_latest_block(&view_client).await {
             block

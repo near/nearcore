@@ -206,6 +206,7 @@ fn main() {
             let indexer_config = near_indexer::IndexerConfig {
                 home_dir,
                 sync_mode: near_indexer::SyncModeEnum::FromInterruption,
+                await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
             };
             let indexer = near_indexer::Indexer::new(indexer_config);
             let stream = indexer.streamer();
