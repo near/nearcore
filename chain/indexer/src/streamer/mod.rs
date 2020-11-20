@@ -135,9 +135,9 @@ pub(crate) async fn start(
     let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
 
     'main: loop {
+        time::delay_for(INTERVAL).await;
         match indexer_config.await_for_node_synced {
             AwaitForNodeSyncedEnum::WaitForFullSync => {
-                time::delay_for(INTERVAL).await;
                 let status = fetch_status(&client).await;
                 if let Ok(status) = status {
                     if status.sync_info.syncing {
