@@ -48,6 +48,7 @@ use crate::types::{
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
 use rand::thread_rng;
+use std::sync::atomic::Ordering;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: u64 = 60;
@@ -73,6 +74,10 @@ const EXPONENTIAL_BACKOFF_LIMIT: u64 = 91;
 /// Time to wait before sending ping to all reachable peers.
 #[cfg(feature = "metric_recorder")]
 const WAIT_BEFORE_PING: u64 = 20_000;
+/// Limit number of pending connections to avoid OOM.
+const LIMIT_PEER_PENDING_INCOMING_CONNECTIONS_TOTAL: usize = 100;
+/// Limit number of Peer actors to avoid OOM.
+const LIMIT_PEER_TOTAL: usize = 100;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -145,6 +150,8 @@ pub struct PeerManagerActor {
     metric_recorder: MetricRecorder,
     edge_verifier_pool: Addr<EdgeVerifier>,
     txns_since_last_block: Arc<AtomicUsize>,
+    pending_incoming_connections_counter: Arc<AtomicUsize>,
+    peer_counter: Arc<AtomicUsize>,
 }
 
 impl PeerManagerActor {
@@ -185,6 +192,8 @@ impl PeerManagerActor {
             #[cfg(feature = "metric_recorder")]
             metric_recorder,
             txns_since_last_block,
+            pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
+            peer_counter: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -417,6 +426,7 @@ impl PeerManagerActor {
 
         // Start every peer actor on separate thread.
         let arbiter = Arbiter::new();
+        let peer_counter = self.peer_counter.clone();
         Peer::start_in_arbiter(&arbiter, move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
@@ -447,6 +457,7 @@ impl PeerManagerActor {
                 edge_info,
                 network_metrics,
                 txns_since_last_block,
+                peer_counter,
             )
         });
     }
@@ -1100,14 +1111,34 @@ impl Actor for PeerManagerActor {
         // Start server if address provided.
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
+
+            let pending_incoming_connections_counter =
+                self.pending_incoming_connections_counter.clone();
+            let peer_counter = self.peer_counter.clone();
+
             ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
                 move |listener, act, ctx| {
                     let listener = listener.unwrap();
                     let incoming = IncomingCrutch { listener };
                     info!(target: "stats", "Server listening at {}@{}", act.peer_id, server_addr);
-                    ctx.add_message_stream(
-                        incoming.filter_map(|x| future::ready(x.map(InboundTcpConnect::new).ok())),
-                    );
+
+                    ctx.add_message_stream(incoming.filter_map(move |conn| {
+                        if let Ok(conn) = conn {
+                            if let Ok(addr) = conn.peer_addr() {
+                                if pending_incoming_connections_counter.load(Ordering::SeqCst)
+                                    < LIMIT_PEER_PENDING_INCOMING_CONNECTIONS_TOTAL
+                                    && peer_counter.load(Ordering::SeqCst) < LIMIT_PEER_TOTAL
+                                {
+                                    debug!("incoming connection {}", addr);
+                                    pending_incoming_connections_counter
+                                        .fetch_add(1, Ordering::SeqCst);
+                                    return future::ready(Some(InboundTcpConnect::new(conn)));
+                                }
+                            }
+                        }
+
+                        future::ready(None)
+                    }));
                     actix::fut::ready(())
                 },
             ));
@@ -1533,6 +1564,7 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
         }
+        self.pending_incoming_connections_counter.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
