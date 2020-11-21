@@ -123,9 +123,7 @@ class JSAdapter:
     def call(self, args):
         if not isinstance(args, list):
             args = [args]
-        args.insert(0, 'node')
-        args.insert(1, 'index.js')
-        args.insert(2, 'TESTING')
+        args = ['node', 'index.js', 'TESTING'] + args
         # TODO check for errors
         return subprocess.check_output(args, cwd=self.cli_dir).decode('ascii').strip()
 
