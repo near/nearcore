@@ -426,6 +426,7 @@ impl PeerManagerActor {
         let arbiter = Arbiter::new();
         let peer_counter = self.peer_counter.clone();
         peer_counter.fetch_add(1, Ordering::SeqCst);
+
         Peer::start_in_arbiter(&arbiter, move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
@@ -1074,6 +1075,7 @@ impl PeerManagerActor {
                 .collect(),
             #[cfg(feature = "metric_recorder")]
             metric_recorder: self.metric_recorder.clone(),
+            peer_counter: self.peer_counter.load(Ordering::SeqCst),
         }
     }
 
