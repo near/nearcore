@@ -12,13 +12,13 @@ use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, Va
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use reed_solomon_erasure::ReconstructShard;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 #[derive(
     BorshSerialize,
     BorshDeserialize,
     Serialize,
-    Hash,
     Eq,
     PartialEq,
     Ord,
@@ -44,6 +44,12 @@ impl From<ChunkHash> for Vec<u8> {
 impl From<CryptoHash> for ChunkHash {
     fn from(crypto_hash: CryptoHash) -> Self {
         Self(crypto_hash)
+    }
+}
+
+impl Hash for ChunkHash {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.as_ref());
     }
 }
 
