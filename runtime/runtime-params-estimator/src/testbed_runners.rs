@@ -203,7 +203,6 @@ where
         }
     };
     let testbed_clone = testbed.clone();
-    let mut testbed_inner = testbed_clone.lock().unwrap();
 
     if config.warmup_iters_per_block > 0 {
         let bar = ProgressBar::new(warmup_total_transactions(config) as _);
@@ -213,11 +212,13 @@ where
         for block_size in config.block_sizes.clone() {
             for _ in 0..config.warmup_iters_per_block {
                 let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
+                let mut testbed_inner = testbed_clone.lock().unwrap();
                 testbed_inner.process_block(&block, allow_failures);
                 bar.inc(block_size as _);
                 bar.set_message(format!("Block size: {}", block_size).as_str());
             }
         }
+        let mut testbed_inner = testbed_clone.lock().unwrap();
         testbed_inner.process_blocks_until_no_receipts(allow_failures);
         bar.finish();
     }
@@ -233,6 +234,7 @@ where
         for block_size in config.block_sizes.clone() {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
             let start = start_count(config.metric);
+            let mut testbed_inner = testbed_clone.lock().unwrap();
             testbed_inner.process_block(&block, allow_failures);
             testbed_inner.process_blocks_until_no_receipts(allow_failures);
             let measured = end_count(config.metric, &start);
