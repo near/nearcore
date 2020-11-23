@@ -1,6 +1,7 @@
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::VMError;
+use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
 
@@ -142,6 +143,32 @@ pub fn run_vm_profiled<'a>(
         VMKind::Wasmtime => {
             panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
         }
+    }
+}
+
+#[allow(dead_code)]
+pub fn precompile<'a>(
+    code: &[u8],
+    code_hash: &CryptoHash,
+    wasm_config: &'a VMConfig,
+    cache: &'a dyn CompiledContractCache,
+    vm_kind: VMKind,
+) -> Option<VMError> {
+    use crate::cache::compile_and_serialize_wasmer;
+    match vm_kind {
+        VMKind::Wasmer => {
+            let result = compile_and_serialize_wasmer(code, wasm_config, code_hash, cache);
+            if result.is_err() {
+                result.err()
+            } else {
+                None
+            }
+        }
+        VMKind::Wasmtime => Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+            CompilationError::UnsupportedCompiler {
+                msg: "Precompilation not supported in Wasmtime yet".to_string(),
+            },
+        ))),
     }
 }
 
