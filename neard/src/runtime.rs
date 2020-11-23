@@ -805,9 +805,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .get_all_block_producers_ordered(epoch_id, last_known_block_hash)
-            .map_err(Error::from)
+        Ok(epoch_manager.get_all_block_producers_ordered(epoch_id, last_known_block_hash)?.to_vec())
     }
 
     fn get_epoch_block_approvers_ordered(
