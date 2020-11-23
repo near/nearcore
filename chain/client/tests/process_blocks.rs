@@ -808,6 +808,7 @@ fn client_sync_headers() {
             known_producers: vec![],
             #[cfg(feature = "metric_recorder")]
             metric_recorder: MetricRecorder::default(),
+            peer_counter: 0,
         }));
         wait_or_panic(2000);
     })
