@@ -145,7 +145,10 @@ pub fn run_vm_profiled<'a>(
         }
     }
 }
-
+/// `precompile` compiles WASM contract to a VM specific format and stores result into the `cache`.
+/// Further execution with the same cache will result in compilation avoidance and reusing cached
+/// result. `wasm_config` is required as during compilation we decide if gas metering shall be
+/// embedded in the native code, and so we take that into account when computing database key.
 #[allow(dead_code)]
 pub fn precompile<'a>(
     code: &[u8],
