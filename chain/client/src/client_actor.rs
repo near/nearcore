@@ -479,6 +479,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
+                warn!("EVENT_TYPE_ID=07  Got the chunk {} with parts {:?}", partial_encoded_chunk.chunk_hash().0, partial_encoded_chunk.parts().iter().map(|p| p.part_ord).collect::<Vec<_>>());
                 if let Ok(accepted_blocks) = self.client.process_partial_encoded_chunk(
                     MaybeValidated::NotValidated(partial_encoded_chunk),
                 ) {
@@ -488,6 +489,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
             }
             #[cfg(feature = "protocol_feature_forward_chunk_parts")]
             NetworkClientMessages::PartialEncodedChunkForward(forward) => {
+                warn!("EVENT_TYPE_ID=06  Got forwarded chunk {} with parts {:?}", forward.chunk_hash.0, forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>());
                 match self.client.process_partial_encoded_chunk_forward(forward) {
                     Ok(accepted_blocks) => self.process_accepted_blocks(accepted_blocks),
                     // Unknown chunk is normal if we get parts before the header
