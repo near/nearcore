@@ -34,8 +34,7 @@ function upload_binary {
 }
 
 upload_binary near
-upload_binary keypair-generator
-upload_binary genesis-csv-to-json
+upload_binary neard
 upload_binary near-vm-runner-standalone
 upload_binary state-viewer
 upload_binary store-validator
