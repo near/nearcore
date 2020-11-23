@@ -37,7 +37,7 @@ RUN --mount=type=cache,target=/tmp/target \
     cargo build -p genesis-csv-to-json --release && \
     mkdir /tmp/build && \
     cd /tmp/target/release && \
-    mv ./near ./keypair-generator ./genesis-csv-to-json /tmp/build
+    mv ./neard ./keypair-generator ./genesis-csv-to-json /tmp/build
 
 COPY scripts/run_docker.sh /tmp/build/run.sh
 

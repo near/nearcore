@@ -16,6 +16,7 @@ function upload_binary {
 }
 
 upload_binary near
+upload_binary neard
 upload_binary keypair-generator
 upload_binary genesis-csv-to-json
 upload_binary near-vm-runner-standalone
