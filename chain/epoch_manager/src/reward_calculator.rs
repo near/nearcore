@@ -54,7 +54,7 @@ impl RewardCalculator {
                 (U256::from(*max_inflation_rate.numer() as u64)
                     * U256::from(total_supply)
                     * U256::from(epoch_duration)
-                    / (U256::from(NUM_SECONDS_IN_A_YEAR)
+                    / (U256::from(self.num_seconds_per_year)
                         * U256::from(*max_inflation_rate.denom() as u64)
                         * U256::from(NUM_NS_IN_SECOND)))
                 .as_u128()
