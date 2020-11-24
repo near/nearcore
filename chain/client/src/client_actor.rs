@@ -151,6 +151,7 @@ impl ClientActor {
                 known_producers: vec![],
                 #[cfg(feature = "metric_recorder")]
                 metric_recorder: MetricRecorder::default(),
+                peer_counter: 0,
             },
             last_validator_announce_time: None,
             info_helper,
@@ -542,6 +543,10 @@ impl Handler<Status> for ClientActor {
                 {
                     return Err(format!("No blocks for {:?}.", elapsed));
                 }
+            }
+
+            if self.client.sync_status.is_syncing() {
+                return Err("Node is syncing.".to_string());
             }
         }
         let validators = self

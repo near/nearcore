@@ -16,7 +16,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 15;
+pub const DB_VERSION: DbVersion = 16;
 
 /// Protocol version type.
 pub type ProtocolVersion = u32;
@@ -47,7 +47,10 @@ pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
 /// Updates the way receipt ID, data ID and random seeds are constructed.
 pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
 
-pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 40;
+pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
+
+/// Fix the storage usage of the delete key action.
+pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
 
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
@@ -75,15 +78,17 @@ impl ProtocolVersionRange {
 pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     ForwardChunkParts,
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    RectifyInflation,
 }
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 40;
+pub const PROTOCOL_VERSION: ProtocolVersion = 41;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 41;
+pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
@@ -106,7 +111,14 @@ lazy_static! {
         let nightly_protocol_features_to_version_mapping: HashMap<
             ProtocolFeature,
             ProtocolVersion,
-        > = vec![(ProtocolFeature::ForwardChunkParts, 41)].into_iter().collect();
+        > = vec![
+            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+            (ProtocolFeature::ForwardChunkParts, 42),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            (ProtocolFeature::RectifyInflation, 43),
+        ]
+        .into_iter()
+        .collect();
         for (stable_protocol_feature, stable_protocol_version) in
             STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
         {
@@ -125,7 +137,7 @@ macro_rules! checked_feature {
         #[cfg(feature = $feature_name)]
         let is_feature_enabled = near_primitives::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
             [&near_primitives::version::ProtocolFeature::$feature]
-            >= $current_protocol_version;
+            <= $current_protocol_version;
         #[cfg(not(feature = $feature_name))]
         let is_feature_enabled = {
             // Workaround unused variable warning
@@ -137,14 +149,23 @@ macro_rules! checked_feature {
     }};
 
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{
+        checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {})
+    }};
+
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
         #[cfg(feature = $feature_name)]
         {
             if checked_feature!($feature_name, $feature, $current_protocol_version) {
                 $feature_block
+            } else {
+                $non_feature_block
             }
         }
         // Workaround unused variable warning
         #[cfg(not(feature = $feature_name))]
-        let _ = $current_protocol_version;
+        {
+            let _ = $current_protocol_version;
+            $non_feature_block
+        }
     }};
 }

@@ -26,6 +26,9 @@ pub use crate::reward_calculator::RewardCalculator;
 use crate::types::EpochInfoAggregator;
 pub use crate::types::RngSeed;
 
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
+
 mod proposals;
 mod reward_calculator;
 pub mod test_utils;
@@ -332,6 +335,26 @@ impl EpochManager {
             .collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
+
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        let (validator_reward, minted_amount) = {
+            let last_epoch_last_block_hash =
+                self.get_block_info(&block_info.epoch_first_block)?.prev_hash;
+            let last_block_in_last_epoch = self.get_block_info(&last_epoch_last_block_hash)?;
+            assert!(block_info.timestamp_nanosec > last_block_in_last_epoch.timestamp_nanosec);
+            let epoch_duration =
+                block_info.timestamp_nanosec - last_block_in_last_epoch.timestamp_nanosec;
+            self.reward_calculator.calculate_reward(
+                validator_block_chunk_stats,
+                &validator_stake,
+                block_info.total_supply,
+                epoch_protocol_version,
+                self.genesis_protocol_version,
+                #[cfg(feature = "protocol_feature_rectify_inflation")]
+                epoch_duration,
+            )
+        };
+        #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
         let (validator_reward, minted_amount) = self.reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
@@ -339,6 +362,28 @@ impl EpochManager {
             epoch_protocol_version,
             self.genesis_protocol_version,
         );
+
+        //        let (validator_reward, minted_amount) = checked_feature!("protocol_feature_rectify_inflation", RectifyInflation, epoch_protocol_version, {
+        //          let epoch_first_block = self.get_block_info(&block_info.epoch_first_block)?;
+        //          assert!(block_info.timestamp >= epoch_first_block.timestamp);
+        //          let time_diff = block_info.timestamp - epoch_first_block.timestamp;
+        //          self.reward_calculator.calculate_reward(
+        //                validator_block_chunk_stats,
+        //                &validator_stake,
+        //                block_info.total_supply,
+        //                epoch_protocol_version,
+        //                self.genesis_protocol_version,
+        //                time_diff
+        //          )
+        //        }, {
+        //            self.reward_calculator.calculate_reward(
+        //                validator_block_chunk_stats,
+        //                &validator_stake,
+        //                block_info.total_supply,
+        //                epoch_protocol_version,
+        //                self.genesis_protocol_version,
+        //            )
+        //        });
         let next_next_epoch_info = match proposals_to_epoch_info(
             &self.config,
             rng_seed,
@@ -1224,6 +1269,8 @@ mod tests {
     };
 
     use super::*;
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    use crate::reward_calculator::NUM_NS_IN_SECOND;
 
     impl EpochManager {
         /// Returns number of produced and expected blocks by given validator.
@@ -1824,6 +1871,8 @@ mod tests {
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(90, 100),
             online_max_threshold: Rational::new(99, 100),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: 50,
         };
         let mut epoch_manager = setup_epoch_manager(
             validators,
@@ -1884,6 +1933,10 @@ mod tests {
             total_supply,
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                epoch_length * NUM_NS_IN_SECOND
+            },
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
@@ -1920,6 +1973,8 @@ mod tests {
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(90, 100),
             online_max_threshold: Rational::new(99, 100),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: 50,
         };
         let mut epoch_manager = setup_epoch_manager(
             validators,
@@ -1980,6 +2035,10 @@ mod tests {
             total_supply,
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                epoch_length * NUM_NS_IN_SECOND
+            },
         );
         let test1_reward = *validator_reward.get("test1").unwrap();
         let test2_reward = *validator_reward.get("test2").unwrap();
@@ -2027,6 +2086,8 @@ mod tests {
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(90, 100),
             online_max_threshold: Rational::new(99, 100),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: 1_000_000,
         };
         let mut epoch_manager = setup_epoch_manager(
             validators,
@@ -2080,6 +2141,10 @@ mod tests {
             total_supply,
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                epoch_length * NUM_NS_IN_SECOND
+            },
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();

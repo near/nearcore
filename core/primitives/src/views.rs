@@ -37,12 +37,13 @@ use crate::transaction::{
     FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce,
-    NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause,
-    StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
-    ValidatorStake,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
+    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
+    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
+    StoreValue, ValidatorKickoutReason, ValidatorStake,
 };
 use crate::version::{ProtocolVersion, Version};
+use std::sync::Arc;
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -56,6 +57,24 @@ pub struct AccountView {
     /// TODO(2271): deprecated.
     #[serde(default)]
     pub storage_paid_at: BlockHeight,
+}
+/// State for the view call.
+#[derive(Debug)]
+pub struct ViewApplyState {
+    /// Currently building block height.
+    pub block_height: BlockHeight,
+    /// Prev block hash
+    pub last_block_hash: CryptoHash,
+    /// Current epoch id
+    pub epoch_id: EpochId,
+    /// Current epoch height
+    pub epoch_height: EpochHeight,
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    pub block_timestamp: u64,
+    /// Current Protocol version when we apply the state transition
+    pub current_protocol_version: ProtocolVersion,
+    /// Cache for compiled contracts.
+    pub cache: Option<Arc<dyn CompiledContractCache>>,
 }
 
 impl From<&Account> for AccountView {

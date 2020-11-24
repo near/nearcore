@@ -29,7 +29,10 @@ use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
-use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_primitives::version::{
+    ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+};
 use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CacheError, CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
@@ -378,13 +381,7 @@ pub(crate) fn action_deploy_contract(
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash))?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
-    account.storage_usage =
-        account.storage_usage.checked_sub(prev_code_length).ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Storage usage integer underflow for account {}",
-                account_id
-            ))
-        })?;
+    account.storage_usage = account.storage_usage.checked_sub(prev_code_length).unwrap_or(0);
     account.storage_usage =
         account.storage_usage.checked_add(code.code.len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -426,32 +423,31 @@ pub(crate) fn action_delete_key(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let access_key = get_access_key(state_update, &account_id, &delete_key.public_key)?;
-    if access_key.is_none() {
+    if let Some(access_key) = access_key {
+        let storage_usage_config = &fee_config.storage_usage_config;
+        let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
+        {
+            delete_key.public_key.try_to_vec().unwrap().len() as u64
+                + access_key.try_to_vec().unwrap().len() as u64
+                + storage_usage_config.num_extra_bytes_record
+        } else {
+            delete_key.public_key.try_to_vec().unwrap().len() as u64
+                + Some(access_key).try_to_vec().unwrap().len() as u64
+                + storage_usage_config.num_extra_bytes_record
+        };
+        // Remove access key
+        remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
+        account.storage_usage = account.storage_usage.checked_sub(storage_usage).unwrap_or(0);
+    } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
             public_key: delete_key.public_key.clone(),
             account_id: account_id.clone(),
         }
         .into());
-        return Ok(());
     }
-    // Remove access key
-    remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
-    let storage_usage_config = &fee_config.storage_usage_config;
-    account.storage_usage = account
-        .storage_usage
-        .checked_sub(
-            delete_key.public_key.try_to_vec().unwrap().len() as u64
-                + access_key.try_to_vec().unwrap().len() as u64
-                + storage_usage_config.num_extra_bytes_record,
-        )
-        .ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Storage usage integer underflow for account {}",
-                account_id
-            ))
-        })?;
     Ok(())
 }
 

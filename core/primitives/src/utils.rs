@@ -14,7 +14,7 @@ use lazy_static::lazy_static;
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{AccountId, NumSeats, NumShards, ShardId};
+use crate::types::{AccountId, CompiledContractCache, NumSeats, NumShards, ShardId};
 use crate::version::{
     ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
 };
@@ -324,6 +324,12 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", serde_json::to_string(&self.0).unwrap())
+    }
+}
+
+impl fmt::Debug for dyn CompiledContractCache {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Compiled contracts cache")
     }
 }
 

@@ -261,7 +261,6 @@ impl BlockHeader {
         chunk_tx_root: MerkleHash,
         outcome_root: MerkleHash,
         timestamp: u64,
-        chunks_included: u64,
         challenges_root: MerkleHash,
         random_value: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
@@ -289,6 +288,7 @@ impl BlockHeader {
             block_merkle_root,
         };
         if protocol_version <= 29 {
+            let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -357,13 +357,14 @@ impl BlockHeader {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
-        chunks_included: u64,
+        num_shards: u64,
         challenges_root: MerkleHash,
         timestamp: DateTime<Utc>,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
     ) -> Self {
+        let chunks_included = if height == 0 { num_shards } else { 0 };
         let inner_lite = BlockHeaderInnerLite {
             height,
             epoch_id: EpochId::default(),
@@ -648,6 +649,16 @@ impl BlockHeader {
 
     pub fn num_approvals(&self) -> u64 {
         self.approvals().iter().filter(|x| x.is_some()).count() as u64
+    }
+
+    pub fn verify_chunks_included(&self) -> bool {
+        match self {
+            BlockHeader::BlockHeaderV1(header) => {
+                header.inner_rest.chunk_mask.iter().map(|&x| u64::from(x)).sum::<u64>()
+                    == header.inner_rest.chunks_included
+            }
+            BlockHeader::BlockHeaderV2(_header) => true,
+        }
     }
 
     #[inline]
