@@ -52,6 +52,8 @@ pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
 
 pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
+/// Upgrading RuntimeConfig Fees.
+/// See [NEP 120](https://github.com/nearprotocol/NEPs/pull/120)
 pub const RUNTIME_CONFIG_UPGRADE_FEES_PROTOCOL_VERSION: ProtocolVersion = 42;
 
 pub struct ProtocolVersionRange {
