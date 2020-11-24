@@ -178,6 +178,8 @@ pub struct Peer {
     network_metrics: NetworkMetrics,
     /// How many transactions we have received since the last block message
     txns_since_last_block: Arc<AtomicUsize>,
+    /// How many peer actors are created
+    peer_counter: Arc<AtomicUsize>,
 }
 
 impl Peer {
@@ -194,6 +196,7 @@ impl Peer {
         edge_info: Option<EdgeInfo>,
         network_metrics: NetworkMetrics,
         txns_since_last_block: Arc<AtomicUsize>,
+        peer_counter: Arc<AtomicUsize>,
     ) -> Self {
         Peer {
             node_info,
@@ -214,6 +217,7 @@ impl Peer {
             last_time_received_message_update: Instant::now(),
             network_metrics,
             txns_since_last_block,
+            peer_counter,
         }
     }
 
@@ -621,6 +625,7 @@ impl Actor for Peer {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        self.peer_counter.fetch_sub(1, Ordering::SeqCst);
         near_metrics::dec_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
         debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.node_info.id, self.peer_info, self.peer_status);
         if let Some(peer_info) = self.peer_info.as_ref() {

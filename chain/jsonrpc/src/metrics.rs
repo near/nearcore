@@ -6,7 +6,8 @@ lazy_static! {
         near_metrics::try_create_histogram_vec(
             "near_rpc_processing_time",
             "Time taken to process rpc queries",
-            &["method"]
+            &["method"],
+            Some(prometheus::exponential_buckets(0.001, 2.0, 16).unwrap())
         );
     pub static ref RPC_TIMEOUT_TOTAL: near_metrics::Result<IntCounter> =
         near_metrics::try_create_int_counter(
@@ -15,23 +16,23 @@ lazy_static! {
         );
     pub static ref PROMETHEUS_REQUEST_COUNT: near_metrics::Result<IntCounter> =
         near_metrics::try_create_int_counter(
-            "http_prometheus_requests_total",
+            "near_http_prometheus_requests_total",
             "Total count of Prometheus requests received"
         );
     pub static ref HTTP_RPC_REQUEST_COUNT: near_metrics::Result<IntCounterVec> =
         near_metrics::try_create_int_counter_vec(
-            "http_rpc_requests_total",
+            "near_rpc_total_count",
             "Total count of HTTP RPC requests received, by method",
             &["method"]
         );
     pub static ref HTTP_STATUS_REQUEST_COUNT: near_metrics::Result<IntCounter> =
         near_metrics::try_create_int_counter(
-            "http_status_requests_total",
+            "near_http_status_requests_total",
             "Total count of HTTP Status requests received"
         );
     pub static ref RPC_ERROR_COUNT: near_metrics::Result<IntCounterVec> =
         near_metrics::try_create_int_counter_vec(
-            "rpc_error_count",
+            "near_rpc_error_count",
             "Total count of errors by method and message",
             &["method", "err_code"]
         );

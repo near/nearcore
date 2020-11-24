@@ -18,7 +18,7 @@ use neard::config::init_testnet_configs;
 use neard::genesis_validate::validate_genesis;
 use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 
-fn init_logging(verbose: Option<&str>, ansi: bool) {
+fn init_logging(verbose: Option<&str>) {
     let mut env_filter = EnvFilter::new(
         "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info",
     );
@@ -56,7 +56,6 @@ fn init_logging(verbose: Option<&str>, ansi: bool) {
     tracing_subscriber::fmt::Subscriber::builder()
         .with_env_filter(env_filter)
         .with_writer(io::stderr)
-        .with_ansi(ansi)
         .init();
 }
 
@@ -66,8 +65,10 @@ fn main() {
     openssl_probe::init_ssl_cert_env_vars();
 
     let default_home = get_default_home();
-    let version =
-        Version { version: crate_version!().to_string(), build: git_version!().to_string() };
+    let version = Version {
+        version: crate_version!().to_string(),
+        build: git_version!(fallback = "unknown").to_string(),
+    };
     let matches = App::new("NEAR Protocol Node")
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .version(format!("{} (build {})", version.version, version.build).as_str())
@@ -79,7 +80,6 @@ fn main() {
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
-        .arg(Arg::with_name("no-color").long("no-color").takes_value(false).help("Disable ansi charset and colored logging."))
         .subcommand(SubCommand::with_name("init").about("Initializes NEAR configuration")
             .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true).help("Chain ID, by default creates new random"))
             .arg(Arg::with_name("account-id").long("account-id").takes_value(true).help("Account ID for the validator key"))
@@ -109,7 +109,7 @@ fn main() {
         .subcommand(SubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
         .get_matches();
 
-    init_logging(matches.value_of("verbose"), !matches.is_present("no-color"));
+    init_logging(matches.value_of("verbose"));
     info!(target: "near", "Version: {}, Build: {}, Latest Protocol: {}", version.version, version.build, PROTOCOL_VERSION);
 
     #[cfg(feature = "adversarial")]

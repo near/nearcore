@@ -35,14 +35,14 @@ use near_primitives::types::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewStateResult,
+    QueryResponseKind, ViewApplyState, ViewStateResult,
 };
 use near_store::{
     get_access_key_raw, get_genesis_hash, get_genesis_state_roots, set_genesis_hash,
-    set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges,
+    set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store,
+    StoreCompiledContractCache, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::cache::StoreCompiledContractCache;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
@@ -1404,19 +1404,23 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let view_state = ViewApplyState {
+            block_height: height,
+            last_block_hash: *last_block_hash,
+            epoch_id: epoch_id.clone(),
+            epoch_height,
+            block_timestamp,
+            current_protocol_version,
+            cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
+        };
         self.trie_viewer.call_function(
             state_update,
-            height,
-            block_timestamp,
-            last_block_hash,
-            epoch_height,
-            epoch_id,
+            &view_state,
             contract_id,
             method_name,
             args,
             logs,
             epoch_info_provider,
-            current_protocol_version,
         )
     }
 
