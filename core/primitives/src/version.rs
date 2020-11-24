@@ -78,6 +78,8 @@ impl ProtocolVersionRange {
 pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     ForwardChunkParts,
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    RectifyInflation,
 }
 
 /// Current latest stable version of the protocol.
@@ -86,7 +88,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 41;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 42;
+pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
@@ -109,7 +111,14 @@ lazy_static! {
         let nightly_protocol_features_to_version_mapping: HashMap<
             ProtocolFeature,
             ProtocolVersion,
-        > = vec![(ProtocolFeature::ForwardChunkParts, 42)].into_iter().collect();
+        > = vec![
+            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+            (ProtocolFeature::ForwardChunkParts, 42),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            (ProtocolFeature::RectifyInflation, 43),
+        ]
+        .into_iter()
+        .collect();
         for (stable_protocol_feature, stable_protocol_version) in
             STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
         {
@@ -140,14 +149,23 @@ macro_rules! checked_feature {
     }};
 
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{
+        checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {})
+    }};
+
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
         #[cfg(feature = $feature_name)]
         {
             if checked_feature!($feature_name, $feature, $current_protocol_version) {
                 $feature_block
+            } else {
+                $non_feature_block
             }
         }
         // Workaround unused variable warning
         #[cfg(not(feature = $feature_name))]
-        let _ = $current_protocol_version;
+        {
+            let _ = $current_protocol_version;
+            $non_feature_block
+        }
     }};
 }
