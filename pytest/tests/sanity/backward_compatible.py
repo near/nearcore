@@ -19,22 +19,15 @@ import cluster
 from utils import load_binary_file
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, sign_create_account_with_full_access_key_and_balance_tx
 
-mode = sys.argv[1] if len(sys.argv) >= 2 else None
-
 def main():
     node_root = "/tmp/near/backward"
     if os.path.exists(node_root):
         shutil.rmtree(node_root)
     subprocess.check_output('mkdir -p /tmp/near', shell=True)
 
-    is_nightly = mode == 'nightly'
-    # Test backward compatibility with latest rc release if nightly features are enabled
-    # Test compatibility with current master without nightly features to avoid accidental feature leak.
-    branch = branches.latest_rc_branch() if is_nightly else 'master'
-    if is_nightly:
-        print(f"Latest rc release branch is {branch}")
+    branch = branches.latest_rc_branch()
     near_root, (stable_branch,
-                current_branch) = branches.prepare_ab_test(branch, ['nightly_protocol', 'nightly_protocol_features'] if is_nightly else None)
+                current_branch) = branches.prepare_ab_test(branch)
 
     # Setup local network.
     subprocess.call([
