@@ -63,7 +63,10 @@ def main():
         nodes.append(
             cluster.spin_up_node(config, near_root, node_dirs[i], i,
                                  nodes[0].node_key.pk, nodes[0].addr()))
-    config["binary_name"] = "near-%s" % current_branch
+    if os.getenv('NAYDUCK'):
+        config["binary_name"] = "near"
+    else:
+        config["binary_name"] = "near-%s" % current_branch
     nodes.append(
         cluster.spin_up_node(config, near_root, node_dirs[3], 3,
                              nodes[0].node_key.pk, nodes[0].addr()))

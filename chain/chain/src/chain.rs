@@ -2880,6 +2880,28 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::EpochOutOfBounds.into());
         }
 
+        // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
+        // overflow-related problems
+        let block_height = block.header().height();
+        if block_height > head.height + self.epoch_length * 20 {
+            return Err(ErrorKind::InvalidBlockHeight(block_height).into());
+        }
+
+        // Block is an orphan if we do not know about the previous full block.
+        if !is_next && !self.chain_store_update.block_exists(&block.header().prev_hash())? {
+            // Before we add the block to the orphan pool, do some checks:
+            // 1. Block header is signed by the block producer for height.
+            // 2. Chunk headers in block body match block header.
+            // Not checked:
+            // - Block producer could be slashed
+            // - Chunk header signatures could be wrong
+            if !self.partial_verify_orphan_header_signature(&block.header())? {
+                return Err(ErrorKind::InvalidSignature.into());
+            }
+            block.check_validity()?;
+            return Err(ErrorKind::Orphan.into());
+        }
+
         // First real I/O expense.
         let prev = self.get_previous_header(block.header())?;
         let prev_hash = *prev.hash();
@@ -2888,18 +2910,6 @@ impl<'a> ChainUpdate<'a> {
         let prev_epoch_id = prev.epoch_id().clone();
         let prev_random_value = *prev.random_value();
         let prev_height = prev.height();
-
-        // Block is an orphan if we do not know about the previous full block.
-        if !is_next && !self.chain_store_update.block_exists(&prev_hash)? {
-            return Err(ErrorKind::Orphan.into());
-        }
-
-        // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
-        // overflow-related problems
-        let block_height = block.header().height();
-        if block_height > head.height + self.epoch_length * 20 {
-            return Err(ErrorKind::InvalidBlockHeight(block_height).into());
-        }
 
         // Do not accept old forks
         if prev_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash) {
@@ -3168,6 +3178,10 @@ impl<'a> ChainUpdate<'a> {
         }
 
         if header.chunk_mask().len() as u64 != self.runtime_adapter.num_shards() {
+            return Err(ErrorKind::InvalidChunkMask.into());
+        }
+
+        if !header.verify_chunks_included() {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 
@@ -3585,6 +3599,22 @@ impl<'a> ChainUpdate<'a> {
             }
         }
         Ok(result)
+    }
+
+    /// Verify header signature when the epoch is known, but not the whole chain.
+    /// Same as verify_header_signature except it does not verify that block producer hasn't been slashed
+    fn partial_verify_orphan_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let block_producer =
+            self.runtime_adapter.get_block_producer(header.epoch_id(), header.height())?;
+        // DEVNOTE: we pass head which is not necessarily on block's chain, but it's only used for
+        // slashing info which we will ignore
+        let head = self.chain_store_update.head()?;
+        let (block_producer, _slashed) = self.runtime_adapter.get_validator_by_account_id(
+            header.epoch_id(),
+            &head.last_block_hash,
+            &block_producer,
+        )?;
+        Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
     }
 }
 

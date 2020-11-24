@@ -2,6 +2,7 @@ import os
 import subprocess
 
 import semver
+import sys
 from github import Github
 
 
@@ -61,13 +62,14 @@ def escaped(branch):
     return branch.replace('/', '-')
 
 
-def compile_current(features=None):
+def compile_current():
     """Compile current branch."""
     branch = current_branch()
-    if features is not None:
-        subprocess.check_output(['cargo', 'build', '-p', 'neard', '--features', ','.join(features)])
-    else:
+    try:
+        # Accommodate rename from near to neard
         subprocess.check_output(['cargo', 'build', '-p', 'neard'])
+    except:
+        subprocess.check_output(['cargo', 'build', '-p', 'near'])
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
     branch = escaped(branch)
     if os.path.exists('../target/debug/near'):
@@ -97,7 +99,7 @@ def download_binary(uname, branch):
         ['chmod', '+x', f'../target/debug/state-viewer-{branch}'])
 
 
-def prepare_ab_test(other_branch, features=None):
+def prepare_ab_test(other_branch):
     # Use NEAR_AB_BINARY_EXISTS to avoid rebuild / re-download when testing locally.
     #if not os.environ.get('NEAR_AB_BINARY_EXISTS'):
     #    compile_current()
@@ -106,10 +108,15 @@ def prepare_ab_test(other_branch, features=None):
     #        download_binary(uname, other_branch)
     #    else:
     # TODO: re-enable caching
-    compile_current(features)
     uname = os.uname()[0]
+    if not os.getenv('NAYDUCK'):
+        compile_current()
     try:
         download_binary(uname, other_branch)
     except Exception:
-        compile_binary(str(other_branch))
+        if not os.getenv('NAYDUCK'):
+            compile_binary(str(other_branch))
+        else:
+            print('RC binary should be downloaded for NayDuck.')
+            sys.exit(1)
     return '../target/debug/', [other_branch, escaped(current_branch())]

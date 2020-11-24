@@ -65,8 +65,10 @@ fn main() {
     openssl_probe::init_ssl_cert_env_vars();
 
     let default_home = get_default_home();
-    let version =
-        Version { version: crate_version!().to_string(), build: git_version!().to_string() };
+    let version = Version {
+        version: crate_version!().to_string(),
+        build: git_version!(fallback = "unknown").to_string(),
+    };
     let matches = App::new("NEAR Protocol Node")
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .version(format!("{} (build {})", version.version, version.build).as_str())
