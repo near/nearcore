@@ -69,7 +69,6 @@ fn measure_function(
             let mut testbed = testbed.lock().unwrap();
             testbed.process_block(&block, allow_failures);
             testbed.process_blocks_until_no_receipts(allow_failures);
-
         };
 
         match metric {
@@ -85,7 +84,8 @@ fn measure_function(
             }
             Metric::storage_has_key_10b_key_10kib_value_1k
             | Metric::storage_read_10b_key_10kib_value_1k
-            | Metric::storage_remove_10b_key_10kib_value_1k => {
+            | Metric::storage_remove_10b_key_10kib_value_1k
+            | Metric::storage_write_10b_key_10kib_value_1k_evict => {
                 f_write(account_idx, "storage_write_10b_key_10kib_value_1k")
             }
             _ => {}
