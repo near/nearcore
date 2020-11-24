@@ -151,6 +151,7 @@ impl ClientActor {
                 known_producers: vec![],
                 #[cfg(feature = "metric_recorder")]
                 metric_recorder: MetricRecorder::default(),
+                peer_counter: 0,
             },
             last_validator_announce_time: None,
             info_helper,
