@@ -4,12 +4,13 @@ use serde::{Deserialize, Serialize};
 use near_primitives::account::Account;
 use near_primitives::serialize::u128_dec_format;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolVersion, RUNTIME_CONFIG_UPGRADE_FEES_PROTOCOL_VERSION};
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
 };
 use near_vm_logic::{ExtCostsConfig, VMConfig, VMLimitConfig};
+use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 
 /// The structure that holds the parameters of the runtime, mostly economics.
@@ -41,7 +42,7 @@ impl Default for RuntimeConfig {
     }
 }
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref FEE_UPGRADE_CONFIG: Mutex<Option<Arc<RuntimeConfig>>> = Mutex::new(None);
 }
 
@@ -63,15 +64,15 @@ impl RuntimeConfig {
         genesis_protocol_version: ProtocolVersion,
         protocol_version: ProtocolVersion,
     ) -> Arc<Self> {
-        if genesis_protocol_version < PROTOCOL_FEE_UPGRADE
-            && protocol_version >= PROTOCOL_FEE_UPGRADE
+        if genesis_protocol_version < RUNTIME_CONFIG_UPGRADE_FEES_PROTOCOL_VERSION
+            && protocol_version >= RUNTIME_CONFIG_UPGRADE_FEES_PROTOCOL_VERSION
         {
-            let fee_config = FEE_UPGRADE_CONFIG.lock().unwrap();
-            if let Some(fee_config) = fee_config {
+            let mut fee_config = FEE_UPGRADE_CONFIG.lock().unwrap();
+            if let Some(fee_config) = fee_config.deref_mut() {
                 fee_config.clone()
             } else {
                 let upgraded_config = Arc::new(genesis_runtime_config.upgrade_fees());
-                *fee_config = Some(Arc::new(upgraded_config.clone()));
+                *fee_config = Some(upgraded_config.clone());
                 upgraded_config
             }
         } else {
@@ -80,6 +81,7 @@ impl RuntimeConfig {
     }
 
     fn upgrade_fees(&self) -> Self {
+        let SAFETY_MULTIPLIER = 3;
         Self {
             storage_amount_per_byte: self.storage_amount_per_byte,
             transaction_costs: RuntimeFeesConfig {

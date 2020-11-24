@@ -47,10 +47,12 @@ pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
 /// Updates the way receipt ID, data ID and random seeds are constructed.
 pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
 
-pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
-
 /// Fix the storage usage of the delete key action.
 pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
+
+pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
+
+pub const RUNTIME_CONFIG_UPGRADE_FEES_PROTOCOL_VERSION: ProtocolVersion = 42;
 
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
@@ -84,11 +86,11 @@ pub enum ProtocolFeature {
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 41;
+pub const PROTOCOL_VERSION: ProtocolVersion = 42;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 43;
+pub const PROTOCOL_VERSION: ProtocolVersion = 44;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
@@ -113,9 +115,9 @@ lazy_static! {
             ProtocolVersion,
         > = vec![
             #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-            (ProtocolFeature::ForwardChunkParts, 42),
+            (ProtocolFeature::ForwardChunkParts, 43),
             #[cfg(feature = "protocol_feature_rectify_inflation")]
-            (ProtocolFeature::RectifyInflation, 43),
+            (ProtocolFeature::RectifyInflation, 44),
         ]
         .into_iter()
         .collect();
