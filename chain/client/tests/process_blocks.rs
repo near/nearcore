@@ -627,11 +627,13 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             false,
             network_mock.clone(),
         );
+        let mut sent_bad_blocks = false;
         *network_mock.write().unwrap() =
             Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        if block.header().height() == 4 {
+                        if block.header().height() >= 4 && !sent_bad_blocks {
+                            sent_bad_blocks = true;
                             let mut block_mut = block.clone();
                             match mode {
                                 InvalidBlockMode::InvalidHeader => {
@@ -806,6 +808,7 @@ fn client_sync_headers() {
             known_producers: vec![],
             #[cfg(feature = "metric_recorder")]
             metric_recorder: MetricRecorder::default(),
+            peer_counter: 0,
         }));
         wait_or_panic(2000);
     })
@@ -1110,6 +1113,77 @@ fn test_bad_orphan() {
     }
     let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
     assert!(res.is_ok());
+}
+
+#[test]
+fn test_bad_chunk_mask() {
+    init_test_logger();
+    let chain_genesis = ChainGenesis::test();
+    let validators = vec!["test0", "test1"];
+    let mut clients: Vec<Client> = validators
+        .iter()
+        .map(|account_id| {
+            setup_client(
+                create_test_store(),
+                vec![validators.clone()],
+                1,
+                2,
+                Some(account_id),
+                false,
+                Arc::new(MockNetworkAdapter::default()),
+                chain_genesis.clone(),
+            )
+        })
+        .collect();
+    for height in 1..5 {
+        let block_producer = (height % 2) as usize;
+        let chunk_producer = ((height + 1) % 2) as usize;
+
+        let (encoded_chunk, merkle_paths, receipts) =
+            create_chunk_on_height(&mut clients[chunk_producer], height);
+        for client in clients.iter_mut() {
+            let mut chain_store =
+                ChainStore::new(client.chain.store().owned_store(), chain_genesis.height);
+            client
+                .shards_mgr
+                .distribute_encoded_chunk(
+                    encoded_chunk.clone(),
+                    merkle_paths.clone(),
+                    receipts.clone(),
+                    &mut chain_store,
+                )
+                .unwrap();
+        }
+
+        let mut block = clients[block_producer].produce_block(height).unwrap().unwrap();
+        {
+            let mut chunk_header = encoded_chunk.cloned_header();
+            *chunk_header.height_included_mut() = height;
+            let mut chunk_headers: Vec<_> = block.chunks().iter().cloned().collect();
+            chunk_headers[0] = chunk_header;
+            block.set_chunks(chunk_headers.clone());
+            block.mut_header().get_mut().inner_rest.chunk_headers_root =
+                Block::compute_chunk_headers_root(&chunk_headers).0;
+            block.mut_header().get_mut().inner_rest.chunk_tx_root =
+                Block::compute_chunk_tx_root(&chunk_headers);
+            block.mut_header().get_mut().inner_rest.chunk_receipts_root =
+                Block::compute_chunk_receipts_root(&chunk_headers);
+            block.mut_header().get_mut().inner_lite.prev_state_root =
+                Block::compute_state_root(&chunk_headers);
+            block.mut_header().get_mut().inner_rest.chunk_mask = vec![true, false];
+            let mess_with_chunk_mask = height == 4;
+            if mess_with_chunk_mask {
+                block.mut_header().get_mut().inner_rest.chunk_mask = vec![false, true];
+            }
+            block
+                .mut_header()
+                .resign(&*clients[block_producer].validator_signer.as_ref().unwrap().clone());
+            let (_, res1) = clients[chunk_producer].process_block(block.clone(), Provenance::NONE);
+            let (_, res2) = clients[block_producer].process_block(block.clone(), Provenance::NONE);
+            assert_eq!(res1.is_err(), mess_with_chunk_mask);
+            assert_eq!(res2.is_err(), mess_with_chunk_mask);
+        }
+    }
 }
 
 #[test]

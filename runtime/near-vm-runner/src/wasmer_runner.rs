@@ -1,6 +1,7 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
-use crate::{cache, imports, CompiledContractCache};
+use crate::{cache, imports};
+use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};

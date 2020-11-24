@@ -36,7 +36,8 @@ near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 default = ["jemallocator"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_forward_chunk_parts = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts"]
+protocol_feature_rectify_inflation = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation"]
 nightly_protocol = []
 
 
