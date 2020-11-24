@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
 use chrono;
-use log::{trace, warn};
+use log::{info, trace, warn};
 
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
@@ -267,7 +267,7 @@ pub struct RoutingTable {
     /// Access to store on disk
     store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
-    raw_graph: Graph,
+    pub raw_graph: Graph,
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
@@ -765,6 +765,92 @@ pub struct Graph {
 impl Graph {
     pub fn new(source: PeerId) -> Self {
         Self { source, adjacency: HashMap::new(), total_active_edges: 0 }
+    }
+
+    pub fn log_diameter(&self) {
+        let n = self.adjacency.len();
+
+        if !self.adjacency.contains_key(&self.source) {
+            info!(target: "routing", "Waiting to have reachable peers");
+            return;
+        }
+
+        if n >= 5000 {
+            info!(target: "routing", "Too many nodes {}", n);
+            return;
+        }
+
+        let mut dist = vec![vec![n; n]; n];
+
+        let order = self
+            .adjacency
+            .keys()
+            .enumerate()
+            .map(|(a, b)| (b.clone(), a))
+            .collect::<HashMap<_, _>>();
+
+        for i in 0..n {
+            dist[i][i] = 0;
+        }
+
+        for (u, row) in self.adjacency.iter() {
+            let u_ix = *order.get(u).unwrap();
+            for v in row {
+                if let Some(&v_ix) = order.get(v) {
+                    dist[u_ix][v_ix] = 1;
+                    dist[v_ix][u_ix] = 1;
+                }
+            }
+        }
+
+        for k in 0..n {
+            for i in 0..n {
+                for j in 0..n {
+                    dist[i][j] = std::cmp::min(dist[i][j], dist[i][k] + dist[k][j]);
+                }
+            }
+        }
+
+        let source = *order.get(&self.source).unwrap();
+        let mut diameter = 0;
+
+        let mut reachable = 0;
+        let mut all_dist = HashMap::new();
+        let mut dist_from_me = HashMap::new();
+
+        for i in 0..n {
+            if dist[source][i] == n {
+                continue;
+            }
+
+            reachable += 1;
+
+            dist_from_me
+                .entry(dist[source][i])
+                .and_modify(|x| {
+                    *x += 1;
+                })
+                .or_insert(1);
+
+            for j in 0..i {
+                if dist[source][j] == n {
+                    continue;
+                }
+
+                diameter = std::cmp::max(diameter, dist[i][j]);
+                all_dist
+                    .entry(dist[i][j])
+                    .and_modify(|x| {
+                        *x += 1;
+                    })
+                    .or_insert(1);
+            }
+        }
+
+        info!(target: "routing", "Diameter: {}", diameter);
+        info!(target: "routing", "Reachable: {}", reachable);
+        info!(target: "routing", "All pair of distances frequency: {:?}", all_dist);
+        info!(target: "routing", "Distance from me frequency: {:?}", dist_from_me);
     }
 
     fn contains_edge(&mut self, peer0: &PeerId, peer1: &PeerId) -> bool {

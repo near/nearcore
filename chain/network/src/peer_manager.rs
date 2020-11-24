@@ -639,6 +639,8 @@ impl PeerManagerActor {
 
     /// Periodically query peer actors for latest weight and traffic info.
     fn monitor_peer_stats(&mut self, ctx: &mut Context<Self>) {
+        self.routing_table.raw_graph.log_diameter();
+
         for (peer_id, active_peer) in self.active_peers.iter() {
             let peer_id1 = peer_id.clone();
             active_peer
