@@ -71,6 +71,7 @@ fn measure_function(
             testbed.process_blocks_until_no_receipts(allow_failures);
         };
 
+        f_write(account_idx, "noop");
         match metric {
             Metric::storage_has_key_10b_key_10b_value_1k
             | Metric::storage_read_10b_key_10b_value_1k
