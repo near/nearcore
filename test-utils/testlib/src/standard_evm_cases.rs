@@ -9,6 +9,7 @@ use near_evm_runner::utils::{
 };
 
 use_contract!(cryptozombies, "../../runtime/near-evm-runner/tests/build/zombieAttack.abi");
+use_contract!(precompiles, "../../runtime/near-evm-runner/tests/build/StandardPrecompiles.abi");
 
 pub fn test_evm_deploy_call(node: impl Node) {
     let node_user = node.user();
@@ -26,8 +27,9 @@ pub fn test_evm_deploy_call(node: impl Node) {
     let result = node_user.view_call(&evm_account(), "get_balance", &contract_id).unwrap();
     assert_eq!(result.result, u256_to_arr(&U256::from(10)).to_vec());
 
-    let (input, _decoder) = cryptozombies::functions::create_random_zombie::call("test");
     let contract_id = address_from_arr(&contract_id);
+
+    let (input, _decoder) = cryptozombies::functions::create_random_zombie::call("test");
     let args = encode_call_function_args(contract_id, input);
     assert_eq!(
         node_user
@@ -95,4 +97,34 @@ pub fn test_evm_deploy_call(node: impl Node) {
         .as_success_decoded()
         .unwrap();
     assert_eq!(result.len(), 0);
+}
+
+pub fn test_evm_call_standard_precompiles(node: impl Node) {
+    let node_user = node.user();
+    let bytes = hex::decode(
+        include_bytes!("../../../runtime/near-evm-runner/tests/build/StandardPrecompiles.bin")
+            .to_vec(),
+    )
+    .unwrap();
+
+    let contract_id = node_user
+        .function_call(alice_account(), evm_account(), "deploy_code", bytes, 10u64.pow(14), 0)
+        .unwrap()
+        .status
+        .as_success_decoded()
+        .unwrap();
+    let contract_id = address_from_arr(&contract_id);
+
+    let alice_address = near_evm_runner::utils::near_account_id_to_evm_address(&alice_account());
+
+    let (input, _decoder) = precompiles::functions::test_all::call();
+    let args = encode_view_call_function_args(alice_address, contract_id, U256::zero(), input);
+    let bytes = node_user
+        .function_call(alice_account(), evm_account(), "view", args.clone(), 10u64.pow(14), 0)
+        .unwrap()
+        .status
+        .as_success_decoded()
+        .unwrap();
+    let res = precompiles::functions::test_all::decode_output(&bytes).unwrap();
+    assert_eq!(res, true);
 }
