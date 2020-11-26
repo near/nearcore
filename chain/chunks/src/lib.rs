@@ -65,12 +65,14 @@ pub enum ChunkStatus {
     Invalid,
 }
 
+pub type DemursRemain = bool;
+
 #[derive(Debug)]
 pub enum ProcessPartialEncodedChunkResult {
-    Known,
+    Known(DemursRemain),
     /// The CryptoHash is the previous block hash (which might be unknown to the caller) to start
     ///     unblocking the blocks from
-    HaveAllPartsAndReceipts(CryptoHash),
+    HaveAllPartsAndReceipts(CryptoHash, DemursRemain),
     /// The Header is the header of the current chunk, which is unknown to the caller, to request
     ///     parts / receipts for
     NeedMorePartsOrReceipts(Box<ShardChunkHeader>),
@@ -1154,7 +1156,8 @@ impl ShardsManager {
                         )?;
                         self.process_seals(&partial_encoded_chunk)?;
                     }
-                    return Ok(ProcessPartialEncodedChunkResult::Known);
+                    let demurs_remain = self.seals_mgr.has_active_demur(&chunk_hash);
+                    return Ok(ProcessPartialEncodedChunkResult::Known(demurs_remain));
                 }
             }
         };
@@ -1173,7 +1176,8 @@ impl ShardsManager {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
                     return Err(Error::DuplicateChunkHeight.into());
                 }
-                return Ok(ProcessPartialEncodedChunkResult::Known);
+                let demurs_remain = self.seals_mgr.has_active_demur(&chunk_hash);
+                return Ok(ProcessPartialEncodedChunkResult::Known(demurs_remain));
             }
         }
 
@@ -1274,10 +1278,16 @@ impl ShardsManager {
             // If we do care about the shard, we will remove the request once the full chunk is
             //    assembled.
             if !cares_about_shard {
+                let demurs_remain = self.seals_mgr.has_active_demur(&chunk_hash);
                 self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
-                self.requested_partial_encoded_chunks.remove(&chunk_hash);
+                // We can only remove this from requested chunks if there are not parts
+                // we are waiting for to fulfil demurs.
+                if !demurs_remain {
+                    self.requested_partial_encoded_chunks.remove(&chunk_hash);
+                }
                 return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(
                     prev_block_hash,
+                    demurs_remain,
                 ));
             }
         }
@@ -1304,7 +1314,11 @@ impl ShardsManager {
 
             self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
-            return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash));
+            // We know there is no demur for this chunk now that we reconstructed it
+            return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(
+                prev_block_hash,
+                false,
+            ));
         }
 
         match self.chunk_forwards_cache.cache_remove(&chunk_hash) {
@@ -2072,7 +2086,7 @@ mod test {
             .unwrap();
 
         match result {
-            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => (),
+            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_, _) => (),
             other_result => panic!("Expected HaveAllPartsAndReceipts, but got {:?}", other_result),
         }
         // No requests should have been sent since all the required parts were contained in the

@@ -421,6 +421,13 @@ impl PartialEncodedChunk {
         }
     }
 
+    pub fn take_header(self) -> ShardChunkHeader {
+        match self {
+            Self::V1(chunk) => ShardChunkHeader::V1(chunk.header),
+            Self::V2(chunk) => chunk.header,
+        }
+    }
+
     pub fn chunk_hash(&self) -> ChunkHash {
         match self {
             Self::V1(chunk) => chunk.header.hash.clone(),
