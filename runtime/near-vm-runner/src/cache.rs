@@ -71,19 +71,26 @@ fn compile_and_serialize_wasmer(
     Ok(module)
 }
 
-fn deserialize_wasmer(serialized: &[u8]) -> Result<wasmer_runtime::Module, VMError> {
+/// Deserializes contract or error from the binary data. Signature means that we could either
+/// return module or cached error, which both considered Ok(), or encounter an error during
+/// deserialization process.
+fn deserialize_wasmer(
+    serialized: &[u8],
+) -> Result<Result<wasmer_runtime::Module, VMError>, VMError> {
     let record = CacheRecord::try_from_slice(serialized)
         .map_err(|_e| VMError::CacheError(DeserializationError))?;
     let serialized_artifact = match record {
-        CacheRecord::Error(err) => return Err(err),
+        CacheRecord::Error(err) => return Ok(Err(err)),
         CacheRecord::Code(code) => code,
     };
     let artifact = Artifact::deserialize(serialized_artifact.as_slice())
         .map_err(|_e| VMError::CacheError(DeserializationError))?;
     unsafe {
         let compiler = compiler_for_backend(Backend::Singlepass).unwrap();
-        load_cache_with(artifact, compiler.as_ref())
-            .map_err(|_e| VMError::CacheError(DeserializationError))
+        match load_cache_with(artifact, compiler.as_ref()) {
+            Ok(module) => Ok(Ok(module)),
+            Err(_) => Err(VMError::CacheError(DeserializationError)),
+        }
     }
 }
 
@@ -102,7 +109,7 @@ pub(crate) fn compile_module_cached_wasmer(
     match cache.get(&(key.0).0) {
         Ok(serialized) => match serialized {
             Some(serialized) => match deserialize_wasmer(serialized.as_slice()) {
-                Ok(module) => Ok(module),
+                Ok(module_or_error) => module_or_error,
                 Err(e) => {
                     error!(target: "runtime", "Cannot deserialize cached contract: {:?}", e);
                     Err(VMError::CacheError(DeserializationError))

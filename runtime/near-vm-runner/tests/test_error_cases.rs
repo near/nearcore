@@ -525,3 +525,8 @@ fn test_external_call_error() {
         );
     });
 }
+
+#[test]
+fn test_contract_caching() {
+    // In progress.
+}
