@@ -67,8 +67,8 @@ pub fn measure_actions(
     actions: Vec<Action>,
     sender_is_receiver: bool,
     use_unique_accounts: bool,
+    nonces: &mut HashMap<usize, u64>,
 ) -> Arc<Mutex<RuntimeTestbed>> {
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut accounts_used = HashSet::new();
     let mut f = || {
         let account_idx = loop {

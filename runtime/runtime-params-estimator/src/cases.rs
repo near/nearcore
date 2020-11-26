@@ -46,8 +46,17 @@ fn measure_function(
     // Measure the speed of creating a function fixture with 1MiB input.
     let mut rng = rand_xorshift::XorShiftRng::from_seed([0u8; 16]);
     let testbed = testbed.clone();
+    let mut accounts_used = HashSet::new();
     let mut f = || {
-        let account_idx = *accounts_deployed.choose(&mut rng).unwrap();
+        let account_idx = loop {
+            let i = rand::thread_rng().gen::<usize>() % accounts_deployed.len();
+            let x = accounts_deployed[i];
+            if accounts_used.contains(&x) {
+                continue;
+            }
+            break x;
+        };
+        accounts_used.insert(account_idx);
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let mut f_write = |account_idx, method_name: &str| {
@@ -214,12 +223,14 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         process::exit(0);
     }
     config.block_sizes = vec![100];
+    let mut nonces: HashMap<usize, u64> = HashMap::new();
+
     // Warmup for receipts
-    measure_actions(Metric::warmup, &mut m, &config, None, vec![], false, false);
+    measure_actions(Metric::warmup, &mut m, &config, None, vec![], false, false, &mut nonces);
     // Measure the speed of processing empty receipts.
-    measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
+    measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false, &mut nonces);
     // Measure the speed of processing a sir receipt (where sender is receiver).
-    measure_actions(Metric::SirReceipt, &mut m, &config, None, vec![], true, false);
+    measure_actions(Metric::SirReceipt, &mut m, &config, None, vec![], true, false, &mut nonces);
 
     // Measure the speed of processing simple transfers.
     measure_actions(
@@ -230,10 +241,10 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         vec![Action::Transfer(TransferAction { deposit: 1 })],
         false,
         false,
+        &mut nonces,
     );
 
     // Measure the speed of creating account.
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut f = || {
         let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
         let account_id = get_account_id(account_idx);
@@ -256,7 +267,6 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     measure_transactions(Metric::ActionCreateAccount, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of deleting an account.
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut deleted_accounts = HashSet::new();
     let mut beneficiaries = HashSet::new();
     let mut f = || {
@@ -304,6 +314,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         })],
         true,
         true,
+        &mut nonces,
     );
 
     // Measure the speed of adding a function call access key.
@@ -328,6 +339,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         })],
         true,
         true,
+        &mut nonces,
     );
 
     // Measure the speed of adding an access key with 1k methods each 10bytes long.
@@ -353,10 +365,10 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         })],
         true,
         true,
+        &mut nonces,
     );
 
     // Measure the speed of deleting an access key.
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
     // Accounts with deleted access keys.
     let mut deleted_accounts = HashSet::new();
     let mut f = || {
@@ -391,6 +403,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         vec![Action::Stake(StakeAction { stake: 1, public_key })],
         true,
         true,
+        &mut nonces,
     );
 
     // Measure the speed of deploying some code.
@@ -399,7 +412,6 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     let code_100k = include_bytes!("../test-contract/res/medium_contract.wasm");
     let code_1m = include_bytes!("../test-contract/res/large_contract.wasm");
     let curr_code = RefCell::new(smallest_code.to_vec());
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut accounts_deployed = HashSet::new();
     let mut good_code_accounts = HashSet::new();
     let good_account = RefCell::new(false);
@@ -465,6 +477,8 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     let ad: Vec<_> = good_code_accounts.into_iter().collect();
 
+    config.block_sizes = vec![2];
+
     testbed = measure_function(
         Metric::warmup,
         "noop",
@@ -500,8 +514,6 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         false,
         vec![],
     );
-
-    config.block_sizes = vec![2];
 
     // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
     let v = calls_helper! {
