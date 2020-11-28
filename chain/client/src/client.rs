@@ -4,10 +4,9 @@
 use std::collections::{HashMap, HashSet};
 use std::iter;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use cached::{Cached, SizedCache};
-use chrono::Utc;
 use log::{debug, error, info, warn};
 
 use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
@@ -34,6 +33,7 @@ use near_primitives::sharding::{
     ShardChunkHeader,
 };
 use near_primitives::syncing::ReceiptResponse;
+use near_primitives::time::{UtcProxy, InstantProxy, Instant};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -179,19 +179,20 @@ impl Client {
             challenges: Default::default(),
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
-            last_time_head_progress_made: Instant::now(),
+            last_time_head_progress_made: InstantProxy::now(file!(), line!()),
         })
     }
 
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
     // this method was called. If yes, rebroadcasts the current head.
     pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
-        if Instant::now() > self.last_time_head_progress_made + stall_timeout
+        // We use the time proxy for driving the logic.
+        if InstantProxy::now(file!(), line!()) > self.last_time_head_progress_made + stall_timeout
             && !self.sync_status.is_syncing()
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
             self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
-            self.last_time_head_progress_made = Instant::now();
+            self.last_time_head_progress_made = InstantProxy::now(file!(), line!());
         }
         Ok(())
     }
@@ -498,9 +499,11 @@ impl Client {
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
+        //
+        // Time ends up not being used. We use the time proxy, because why not.
         self.chain.mut_store().save_latest_known(LatestKnown {
             height: next_height,
-            seen: to_timestamp(Utc::now()),
+            seen: to_timestamp(UtcProxy::now(file!(), line!())),
         })?;
 
         near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
@@ -749,7 +752,8 @@ impl Client {
         }
 
         if let Ok(Some(_)) = result {
-            self.last_time_head_progress_made = Instant::now();
+            // We use the time proxy for driving the logic.
+            self.last_time_head_progress_made = InstantProxy::now(file!(), line!());
         }
 
         let protocol_version = self
@@ -916,8 +920,10 @@ impl Client {
                 self.chain.get_block_header(&last_final_hash)?.height()
             };
 
+            // We use the time proxy, since the time passed is compared against proxied time in
+            // `process_timer`.
             self.doomslug.set_tip(
-                Instant::now(),
+                InstantProxy::now(file!(), line!()),
                 tip.last_block_hash,
                 tip.height,
                 last_final_height,
@@ -1342,7 +1348,11 @@ impl Client {
                 }
             };
 
-        self.doomslug.on_approval_message(Instant::now(), &approval, &block_producer_stakes);
+        // Here the time argument may drive the stored readiness to produce a new block.
+        // The time since which we are ready to produce a new block is later compared
+        // against current time in `fn ready_to_produce_block`. We use a time proxy,
+        // since this is meaningful logic.
+        self.doomslug.on_approval_message(InstantProxy::now(file!(), line!()), &approval, &block_producer_stakes);
     }
 
     /// Forwards given transaction to upcoming validators.

@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use csv::ReaderBuilder;
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +13,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, Account, Function
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
+use near_primitives::time::{Utc, Time};
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_runtime_utils::is_valid_account_id;
@@ -297,7 +298,7 @@ mod tests {
         let mut writer = WriterBuilder::new().has_headers(true).from_writer(file.reopen().unwrap());
         writer
             .serialize(Row {
-                genesis_time: Some(Utc::now()),
+                genesis_time: Some(Utc::now_in_test()),
                 account_id: "alice_near".to_string(),
                 regular_pks: vec![
                     PublicKey::empty(KeyType::ED25519),

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use futures::{future, FutureExt};
 use rand::{thread_rng, Rng};
 
@@ -31,6 +31,7 @@ use near_network::{
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::time::{Instant, Utc, Time};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
 };
@@ -50,7 +51,6 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use num_rational::Rational;
 use std::mem::swap;
-use std::time::Instant;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -181,6 +181,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
+    // We don't use the time proxy in test utils.
     let (_, client, view_client_addr) = setup(
         vec![validators],
         1,
@@ -195,7 +196,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
         false,
         network_adapter.clone(),
         transaction_validity_period,
-        Utc::now(),
+        Utc::now_in_test(),
     );
     let client_addr = client.start();
     let client_addr1 = client_addr.clone();
@@ -232,7 +233,7 @@ impl BlockStats {
             hash2depth: HashMap::new(),
             num_blocks: 0,
             max_chain_length: 0,
-            last_check: Instant::now(),
+            last_check: Instant::now_in_test(),
             max_divergence: 0,
             last_hash: None,
             parent: HashMap::new(),
@@ -281,7 +282,7 @@ impl BlockStats {
     }
 
     pub fn check_stats(&mut self, force: bool) {
-        let now = Instant::now();
+        let now = Instant::now_in_test();
         let diff = now.duration_since(self.last_check);
         if !force && diff.lt(&Duration::from_secs(60)) {
             return;
@@ -386,7 +387,8 @@ pub fn setup_mock_all_validators(
     let key_pairs = key_pairs;
 
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
-    let genesis_time = Utc::now();
+    // We don't use the time proxy in test utils.
+    let genesis_time = Utc::now_in_test();
     let mut ret = vec![];
 
     let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =

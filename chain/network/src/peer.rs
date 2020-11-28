@@ -5,7 +5,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
@@ -21,6 +21,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
+use near_primitives::time::{Instant, Time};
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
@@ -226,7 +227,8 @@ impl Peer {
             genesis_id: Default::default(),
             chain_info: Default::default(),
             edge_info,
-            last_time_received_message_update: Instant::now(),
+            // Used as a timer -- we do not use the time proxy.
+            last_time_received_message_update: Instant::system_time(file!(), line!()),
             network_metrics,
             txns_since_last_block,
             peer_counter,
@@ -628,7 +630,8 @@ impl Peer {
             if self.last_time_received_message_update.elapsed()
                 > UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             {
-                self.last_time_received_message_update = Instant::now();
+                // A timer -- we do not use the time proxy.
+                self.last_time_received_message_update = Instant::system_time(file!(), line!());
                 self.peer_manager_addr.do_send(PeerRequest::ReceivedMessage(
                     peer_id,
                     self.last_time_received_message_update,

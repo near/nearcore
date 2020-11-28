@@ -1,7 +1,7 @@
 use std::cmp;
 use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use borsh::BorshSerialize;
 use cached::{Cached, SizedCache};
@@ -30,6 +30,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkV1, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
     ShardChunkHeader, ShardProof,
 };
+use near_primitives::time::{UtcProxy, InstantProxy, Instant};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -129,13 +130,16 @@ impl RequestPool {
         let mut removed_requests = HashSet::<ChunkHash>::default();
         let mut requests = Vec::new();
         for (chunk_hash, mut chunk_request) in self.requests.iter_mut() {
-            if chunk_request.added.elapsed() > self.max_duration {
+            // eprintln!("added={:?} now={:?}", chunk_request.added, InstantProxy::now(file!(), line!()));
+            if InstantProxy::now(file!(), line!()).saturating_duration_since(chunk_request.added) > self.max_duration {
                 debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
                 removed_requests.insert(chunk_hash.clone());
                 continue;
             }
-            if chunk_request.last_requested.elapsed() > self.retry_duration {
-                chunk_request.last_requested = Instant::now();
+            if InstantProxy::now(file!(), line!()).saturating_duration_since(chunk_request.last_requested) > self.retry_duration {
+                // For request retry logic, we use the time proxy. However, it should not
+                // make a difference either way.
+                chunk_request.last_requested = InstantProxy::now(file!(), line!());
                 requests.push((chunk_hash.clone(), chunk_request.clone()));
             }
         }
@@ -261,8 +265,9 @@ impl SealsManager {
                 };
 
                 let chosen = Self::get_random_part_ords(candidates);
+                // `sent` is not accessed, but will be accessed once #3657 is merged.
                 let demur =
-                    ActiveSealDemur { part_ords: chosen, chunk_producer, sent: Utc::now(), height };
+                    ActiveSealDemur { part_ords: chosen, chunk_producer, sent: UtcProxy::now(file!(), line!()), height };
 
                 Ok(entry.insert(demur))
             }
@@ -620,8 +625,10 @@ impl ShardsManager {
                 height,
                 parent_hash,
                 shard_id,
-                last_requested: Instant::now(),
-                added: Instant::now(),
+                // For request retry logic, we use the time proxy.
+                last_requested: InstantProxy::now(file!(), line!()),
+                // Drives full fetch / switch to others logic, so we use the time proxy.
+                added: InstantProxy::now(file!(), line!()),
             },
         );
 
@@ -686,16 +693,17 @@ impl ShardsManager {
             });
             let old_block = header_head.last_block_hash != chunk_request.parent_hash
                 && header_head.prev_block_hash != chunk_request.parent_hash;
+            let now = InstantProxy::now(file!(), line!());
 
             match self.request_partial_encoded_chunk(
                 chunk_request.height,
                 &chunk_request.parent_hash,
                 chunk_request.shard_id,
                 &chunk_hash,
-                chunk_request.added.elapsed()
+                now.saturating_duration_since(chunk_request.added)
                     > self.requested_partial_encoded_chunks.switch_to_full_fetch_duration,
                 old_block
-                    || chunk_request.added.elapsed()
+                    || now.saturating_duration_since(chunk_request.added)
                         > self.requested_partial_encoded_chunks.switch_to_others_duration,
                 fetch_from_archival,
             ) {
@@ -1717,11 +1725,12 @@ mod test {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::time::{Instant, Time};
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use near_network::NetworkRequests;
     use near_primitives::block::Tip;
@@ -1747,8 +1756,8 @@ mod test {
                 height: 0,
                 parent_hash: Default::default(),
                 shard_id: 0,
-                added: Instant::now(),
-                last_requested: Instant::now(),
+                added: Instant::now_in_test(),
+                last_requested: Instant::now_in_test(),
             },
         );
         std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
@@ -1824,8 +1833,8 @@ mod test {
                 height: header.height_created(),
                 parent_hash: header.prev_block_hash(),
                 shard_id: header.shard_id(),
-                last_requested: Instant::now(),
-                added: Instant::now(),
+                last_requested: Instant::now_in_test(),
+                added: Instant::now_in_test(),
             },
         );
         shards_manager

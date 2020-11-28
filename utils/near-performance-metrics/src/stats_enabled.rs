@@ -318,6 +318,7 @@ where
 
     reset_memory_usage_max();
     let initial_memory_usage = current_thread_memory_usage();
+    // Time measurement. We use system time.
     let now = Instant::now();
     stat.lock().unwrap().pre_log(now);
     let result = f(msg);
@@ -394,6 +395,7 @@ where
         let this = unsafe { self.get_unchecked_mut() };
 
         let stat = get_thread_stats_logger();
+        // Time measurement. We use system time.
         let now = Instant::now();
         stat.lock().unwrap().pre_log(now);
 

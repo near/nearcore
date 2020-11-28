@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use borsh::BorshDeserialize;
 use strum::IntoEnumIterator;
@@ -17,6 +17,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::time::{Instant, Time};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
@@ -98,7 +99,8 @@ impl StoreValidator {
             store: store.clone(),
             inner: StoreValidatorCache::new(),
             timeout: None,
-            start_time: Instant::now(),
+            // For basic timeout. We do not use the time proxy.
+            start_time: Instant::system_time(file!(), line!()),
             errors: vec![],
             tests: 0,
         }
@@ -340,7 +342,8 @@ impl StoreValidator {
         Ok(())
     }
     pub fn validate(&mut self) {
-        self.start_time = Instant::now();
+        // For basic timeout, we do not use the time proxy.
+        self.start_time = Instant::system_time(file!(), line!());
 
         // Init checks
         // Check Head-Tail validity and fill cache with their values

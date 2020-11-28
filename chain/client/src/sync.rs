@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::{ops::Add, time::Duration as TimeDuration};
 
 use ansi_term::Color::{Purple, Yellow};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration};
 use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
 use rand::seq::{IteratorRandom, SliceRandom};
@@ -19,6 +19,7 @@ use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::syncing::get_num_state_parts;
+use near_primitives::time::{Utc, UtcProxy};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId};
 use near_primitives::utils::to_timestamp;
@@ -151,10 +152,12 @@ impl HeaderSync {
         stall_ban_timeout: TimeDuration,
         expected_height_per_second: u64,
     ) -> Self {
+        // The current time is compared against time that influences our decision
+        // to ban a peer. We use the time proxy.
         HeaderSync {
             network_adapter,
             history_locator: vec![],
-            prev_header_sync: (Utc::now(), 0, 0, 0),
+            prev_header_sync: (UtcProxy::now(file!(), line!()), 0, 0, 0),
             syncing_peer: None,
             stalling_ts: None,
             initial_timeout: Duration::from_std(initial_timeout).unwrap(),
@@ -221,7 +224,9 @@ impl HeaderSync {
         header_head: &Tip,
         highest_height: BlockHeight,
     ) -> bool {
-        let now = Utc::now();
+        // The current time influences our decision to ban the peer.
+        // We use the time proxy in case we wish to test that.
+        let now = UtcProxy::now(file!(), line!());
         let (timeout, old_expected_height, prev_height, prev_highest_height) =
             self.prev_header_sync;
 
@@ -526,7 +531,13 @@ impl BlockSync {
         };
         let next_height = chain.get_block_header(&next_hash)?.height();
 
-        let request = BlockSyncRequest { height: next_height, hash: next_hash, when: Utc::now() };
+        // The current time influcences our decision to run a block body sync.
+        // We use the time proxy.
+        let request = BlockSyncRequest {
+            height: next_height,
+            hash: next_hash,
+            when: UtcProxy::now(file!(), line!())
+        };
 
         let head = chain.head()?;
         let header_head = chain.header_head()?;
@@ -558,11 +569,13 @@ impl BlockSync {
 
     /// Check if we should run block body sync and ask for more full blocks.
     fn block_sync_due(&mut self, chain: &Chain) -> Result<bool, near_chain::Error> {
+        // The current time influcences our decision to run a block body sync.
+        // We use the time proxy.
         match &self.last_request {
             None => Ok(true),
             Some(request) => Ok(chain.head()?.height >= request.height
                 || chain.is_chunk_orphan(&request.hash)
-                || Utc::now() - request.when > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
+                || UtcProxy::now(file!(), line!()) - request.when > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
         }
     }
 }
@@ -584,10 +597,14 @@ struct PendingRequestStatus {
 
 impl PendingRequestStatus {
     fn new(timeout: Duration) -> Self {
-        Self { missing_parts: 1, wait_until: Utc::now().add(timeout) }
+        // The current time influences the result of `fn possible_targets`.
+        // We use the time proxy.
+        Self { missing_parts: 1, wait_until: UtcProxy::now(file!(), line!()).add(timeout) }
     }
     fn expired(&self) -> bool {
-        Utc::now() > self.wait_until
+        // The current time influences the result of `fn possible_targets`.
+        // We use the time proxy.
+        UtcProxy::now(file!(), line!()) > self.wait_until
     }
 }
 
@@ -1044,7 +1061,9 @@ impl StateSync {
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
-        let now = Utc::now();
+        // The current time influences the result of this function.
+        // We use the time proxy.
+        let now = UtcProxy::now(file!(), line!());
 
         let (request_block, have_block) = self.sync_block_status(&prev_hash, chain, now)?;
 

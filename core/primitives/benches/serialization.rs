@@ -9,6 +9,7 @@ use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
+use near_primitives::time::{Utc, Time};
 use near_primitives::test_utils::account_new;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::{EpochId, StateRoot};
@@ -39,7 +40,7 @@ fn create_block() -> Block {
     let genesis = Block::genesis(
         PROTOCOL_VERSION,
         genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
-        Utc::now(),
+        Utc::now_in_test(),
         0,
         1_000,
         1_000,

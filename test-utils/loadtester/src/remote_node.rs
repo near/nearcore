@@ -2,7 +2,7 @@ use std::format;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use borsh::BorshSerialize;
 use futures::{future, future::BoxFuture, FutureExt, TryFutureExt};
@@ -14,6 +14,7 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc_primitives::message::Message;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
+use near_primitives::time::{Instant, Time};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;
@@ -48,12 +49,12 @@ pub fn wait<F, T>(mut f: F) -> T
 where
     F: FnMut() -> Result<T, Box<dyn std::error::Error>>,
 {
-    let started = Instant::now();
+    let started = Instant::now_in_test();
     loop {
         match f() {
             Ok(r) => return r,
             Err(err) => {
-                if Instant::now().duration_since(started) > MAX_WAIT_RPC {
+                if Instant::now_in_test().duration_since(started) > MAX_WAIT_RPC {
                     panic!("{}: {}", MAX_WAIT_REACHED_ERR, err);
                 } else {
                     thread::sleep(Duration::from_millis(100));
@@ -67,12 +68,12 @@ pub fn try_wait<F, T>(mut f: F) -> Result<T, Box<dyn std::error::Error>>
 where
     F: FnMut() -> Result<T, Box<dyn std::error::Error>>,
 {
-    let started = Instant::now();
+    let started = Instant::now_in_test();
     loop {
         match f() {
             Ok(r) => return Ok(r),
             Err(err) => {
-                if Instant::now().duration_since(started) > MAX_WAIT_RPC {
+                if Instant::now_in_test().duration_since(started) > MAX_WAIT_RPC {
                     return Err(err);
                 } else {
                     thread::sleep(Duration::from_millis(100));

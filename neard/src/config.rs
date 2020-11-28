@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use actix;
 use actix_web;
-use chrono::Utc;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -24,6 +23,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::state_record::StateRecord;
+use near_primitives::time::{Utc, Time};
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
     NumShards, ShardId,
@@ -504,7 +504,7 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            genesis_time: Utc::now(),
+            genesis_time: Utc::system_time(file!(), line!()), // For neard. We don't use the time proxy.
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
@@ -867,9 +867,10 @@ pub fn init_configs(
             );
             add_protocol_account(&mut records);
 
+            // The functionality is for neard. We don't use the time proxy.
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: Utc::now(),
+                genesis_time: Utc::system_time(file!(), line!()),
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,

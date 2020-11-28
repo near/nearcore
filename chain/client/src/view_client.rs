@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use cached::{Cached, SizedCache};
@@ -43,6 +43,7 @@ use near_primitives::syncing::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
     ShardStateSyncResponseV2,
 };
+use near_primitives::time::{Instant, Time};
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, TransactionOrReceiptId,
@@ -160,7 +161,8 @@ impl ViewClientActor {
     }
 
     fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut SizedCache<K, Instant>) -> bool {
-        let now = Instant::now();
+        // Drives network-related waiting for request. We do not need the time proxy.
+        let now = Instant::system_time(file!(), line!());
         let need_request = match cache.cache_get(&key) {
             Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
             None => true,

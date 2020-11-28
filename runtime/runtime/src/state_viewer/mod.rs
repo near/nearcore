@@ -8,6 +8,7 @@ use near_primitives::{
     receipt::ActionReceipt,
     runtime::{apply_state::ApplyState, config::RuntimeConfig},
     serialize::to_base64,
+    time::{Instant, Time},
     transaction::FunctionCallAction,
     trie_key::trie_key_parsers,
     types::{AccountId, EpochInfoProvider},
@@ -175,7 +176,9 @@ impl TrieViewer {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
-        let now = Instant::now();
+        // Here we do not call into the time proxy, because the `now` is used only
+        // for debugging.
+        let now = Instant::system_time(file!(), line!());
         if !is_valid_account_id(contract_id) {
             return Err(errors::CallFunctionError::InvalidAccountId {
                 requested_account_id: contract_id.clone(),

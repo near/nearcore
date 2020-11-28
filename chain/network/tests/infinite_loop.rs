@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, System};
@@ -14,6 +13,7 @@ use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses,
 use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time::{Instant, Time};
 use near_store::test_utils::create_test_store;
 
 /// Make Peer Manager with mocked client ready to accept any announce account.
@@ -99,7 +99,7 @@ fn test_infinite_loop() {
         };
 
         let state = Arc::new(AtomicUsize::new(0));
-        let start = Instant::now();
+        let start = Instant::now_in_test();
 
         WaitOrTimeout::new(
             Box::new(move |_| {
@@ -139,7 +139,7 @@ fn test_infinite_loop() {
                 } else if state_value == 4 {
                     assert_eq!(counter1.load(Ordering::SeqCst), 1);
                     assert_eq!(counter2.load(Ordering::SeqCst), 1);
-                    if Instant::now().duration_since(start).as_millis() > 800 {
+                    if Instant::now_in_test().duration_since(start).as_millis() > 800 {
                         System::current().stop();
                     }
                 }

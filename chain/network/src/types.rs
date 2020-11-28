@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime};
 use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use strum::AsStaticStr;
@@ -31,6 +31,7 @@ use near_primitives::syncing::{
     EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
     ShardStateSyncResponseV1,
 };
+use near_primitives::time::{Utc, Time};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -999,8 +1000,8 @@ impl KnownPeerState {
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
-            first_seen: to_timestamp(Utc::now()),
-            last_seen: to_timestamp(Utc::now()),
+            first_seen: to_timestamp(Utc::system_time(file!(), line!())),
+            last_seen: to_timestamp(Utc::system_time(file!(), line!())),
         }
     }
 
@@ -1404,6 +1405,13 @@ impl StateResponseInfo {
     }
 }
 
+#[derive(Deserialize, Debug)]
+pub struct AdvTimeTravelPayload {
+    pub diff: i64,
+    pub rate: f64,
+    pub proxify: Vec<(String, u32, bool)>,
+}
+
 #[cfg(feature = "adversarial")]
 #[derive(Debug)]
 pub enum NetworkAdversarialMessage {
@@ -1414,6 +1422,7 @@ pub enum NetworkAdversarialMessage {
     AdvGetSavedBlocks,
     AdvCheckStorageConsistency,
     AdvSetSyncInfo(u64),
+    AdvTimeTravel(AdvTimeTravelPayload),
 }
 
 #[derive(Debug, strum::AsRefStr, AsStaticStr)]

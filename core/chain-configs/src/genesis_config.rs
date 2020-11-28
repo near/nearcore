@@ -60,6 +60,9 @@ pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
     pub protocol_version: ProtocolVersion,
     /// Official time of blockchain start.
+    //
+    // The default value appears in unit tests, but it's not accessed.
+    // We don't use the time proxy.
     #[default(Utc::now())]
     pub genesis_time: DateTime<Utc>,
     /// ID of the blockchain. This must be unique for every blockchain.

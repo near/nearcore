@@ -1,7 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::ops::Sub;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 use serde::Serialize;
 
@@ -15,6 +14,7 @@ use near_crypto::{SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time::{Instant, Utc, Time};
 use near_primitives::types::AccountId;
 use near_primitives::utils::index_to_bytes;
 use near_store::{
@@ -476,7 +476,8 @@ impl RoutingTable {
                             if cur_nonce == nonce {
                                 self.peer_last_time_reachable.insert(
                                     peer_id.clone(),
-                                    chrono::Utc::now()
+                                    // Use system time for all times related to peer reachability
+                                    Utc::system_time(file!(), line!())
                                         .sub(chrono::Duration::seconds(SAVE_PEERS_MAX_TIME as i64)),
                                 );
                                 update
@@ -492,7 +493,7 @@ impl RoutingTable {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
             }
         } else {
-            self.peer_last_time_reachable.insert(peer_id.clone(), chrono::Utc::now());
+            self.peer_last_time_reachable.insert(peer_id.clone(), Utc::system_time(file!(), line!()));
         }
     }
 
@@ -578,7 +579,7 @@ impl RoutingTable {
         if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
             res = nonces
                 .cache_remove(&(pong.nonce as usize))
-                .and_then(|sent| Some(Instant::now().duration_since(sent).as_secs_f64() * 1000f64));
+                .and_then(|sent| Some(Instant::system_time(file!(), line!()).duration_since(sent).as_secs_f64() * 1000f64));
         }
 
         self.pong_info.cache_set(pong.nonce as usize, pong);
@@ -594,7 +595,7 @@ impl RoutingTable {
             self.waiting_pong.cache_get_mut(&target).unwrap()
         };
 
-        entry.cache_set(nonce, Instant::now());
+        entry.cache_set(nonce, Instant::system_time(file!(), line!()));
     }
 
     pub fn get_ping(&mut self, peer_id: PeerId) -> usize {
@@ -621,7 +622,7 @@ impl RoutingTable {
     }
 
     fn try_save_edges(&mut self) {
-        let now = chrono::Utc::now();
+        let now = Utc::system_time(file!(), line!());
         let mut oldest_time = now;
         let to_save = self
             .peer_last_time_reachable
@@ -690,7 +691,7 @@ impl RoutingTable {
 
         self.peer_forwarding = self.raw_graph.calculate_distance();
 
-        let now = chrono::Utc::now();
+        let now = Utc::system_time(file!(), line!());
         for peer in self.peer_forwarding.keys() {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }

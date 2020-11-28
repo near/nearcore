@@ -1,6 +1,5 @@
 use std::cmp::min;
 use std::sync::Arc;
-use std::time::Instant;
 
 use actix::Addr;
 use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
@@ -16,6 +15,7 @@ use near_primitives::serialize::to_base;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
+use near_primitives::time::{Instant, Time};
 use near_primitives::types::{BlockHeight, Gas};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
@@ -63,7 +63,8 @@ impl InfoHelper {
             nearcore_version: client_config.version.clone(),
             sys: System::new(),
             pid: get_current_pid().ok(),
-            started: Instant::now(),
+            // For instrumentation. We do not use the time proxy.
+            started: Instant::system_time(file!(), line!()),
             num_blocks_processed: 0,
             gas_used: 0,
             telemetry_actor,
@@ -158,7 +159,8 @@ impl InfoHelper {
         set_gauge(&metrics::CPU_USAGE, cpu_usage as i64);
         set_gauge(&metrics::MEMORY_USAGE, (memory_usage * 1024) as i64);
 
-        self.started = Instant::now();
+        // For instrumentation. We do not use the time proxy.
+        self.started = Instant::system_time(file!(), line!());
         self.num_blocks_processed = 0;
         self.gas_used = 0;
 

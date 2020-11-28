@@ -4,7 +4,6 @@ use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::Utc;
 use num_rational::Rational;
 use serde::Serialize;
 use tracing::debug;
@@ -21,6 +20,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::time::{Utc, Time};
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
     TransferAction,
@@ -1109,7 +1109,7 @@ pub fn setup_with_tx_validity_period(
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
-            time: Utc::now(),
+            time: Utc::now_in_test(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -1149,7 +1149,7 @@ pub fn setup_with_validators(
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
-            time: Utc::now(),
+            time: Utc::now_in_test(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -1268,7 +1268,8 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
 impl ChainGenesis {
     pub fn test() -> Self {
         ChainGenesis {
-            time: Utc::now(),
+            // Test init, so we use system time.
+            time: Utc::system_time(file!(), line!()),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 0,
@@ -1284,14 +1285,13 @@ impl ChainGenesis {
 
 #[cfg(test)]
 mod test {
-    use std::time::Instant;
-
     use borsh::BorshSerialize;
     use rand::Rng;
 
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
+    use near_primitives::time::{Instant, Time};
     use near_primitives::types::NumShards;
     use near_store::test_utils::create_test_store;
 
@@ -1335,10 +1335,10 @@ mod test {
                 create_receipt_from_receiver_id(format!("test{}", random_number))
             })
             .collect::<Vec<_>>();
-        let start = Instant::now();
+        let start = Instant::now_in_test();
         let naive_result = runtime_adapter.naive_build_receipt_hashes(&receipts);
         let naive_duration = start.elapsed();
-        let start = Instant::now();
+        let start = Instant::now_in_test();
         let prod_result = runtime_adapter.build_receipts_hashes(&receipts);
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);

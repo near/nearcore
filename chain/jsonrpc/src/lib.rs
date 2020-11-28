@@ -31,7 +31,9 @@ use near_jsonrpc_primitives::rpc::{
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
-use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
+use near_network::types::{
+    NetworkAdversarialMessage, NetworkViewClientMessages, AdvTimeTravelPayload
+};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
@@ -217,6 +219,9 @@ impl JsonRpcHandler {
         {
             let params = request.params.clone();
 
+            // "adv_time_travel"
+            // "adv_disable_doomslug"
+            // println!("{:?}", request.method);
             let res = match request.method.as_ref() {
                 // Adversarial controls
                 "adv_set_weight" => Some(self.adv_set_sync_info(params).await),
@@ -226,6 +231,7 @@ impl JsonRpcHandler {
                 "adv_switch_to_height" => Some(self.adv_switch_to_height(params).await),
                 "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
                 "adv_check_store" => Some(self.adv_check_store(params).await),
+                "adv_time_travel" => Some(self.adv_time_travel(params).await),
                 _ => None,
             };
 
@@ -990,6 +996,25 @@ impl JsonRpcHandler {
             },
             _ => Err(RpcError::server_error::<String>(None)),
         }
+    }
+
+    async fn adv_time_travel(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let payload = parse_params::<AdvTimeTravelPayload>(params)?;
+        actix::spawn(
+            self.client_addr
+                .send(NetworkClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvTimeTravel(payload),
+                ))
+                .map(|_| ()),
+        );
+        // actix::spawn(
+        //     self.view_client_addr
+        //         .send(NetworkViewClientMessages::Adversarial(
+        //             NetworkAdversarialMessage::AdvTimeTravel(timestamp),
+        //         ))
+        //         .map(|_| ()),
+        // );
+        Ok(Value::String("".to_string()))
     }
 }
 

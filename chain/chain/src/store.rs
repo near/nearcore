@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
-use chrono::Utc;
 
 use near_chain_primitives::error::{Error, ErrorKind};
 use near_primitives::block::{Approval, Tip};
@@ -22,6 +21,7 @@ use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
     StateHeaderKey, StatePartKey,
 };
+use near_primitives::time::UtcProxy;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
@@ -1792,7 +1792,12 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn try_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
         let latest_known = self.get_latest_known().ok();
         if latest_known.is_none() || height > latest_known.unwrap().height {
-            self.save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
+            // Time ends up as the processing time of the last known / checked height.
+            // We use a proxy for that time.
+            self.save_latest_known(LatestKnown {
+                height,
+                seen: to_timestamp(UtcProxy::now(file!(), line!())),
+            })?;
         }
         Ok(())
     }
@@ -1801,7 +1806,9 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn adv_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
         let header = self.get_header_by_height(height)?;
         let tip = Tip::from_header(&header);
-        self.save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
+        // Time ends up as the processing time of the last known / checked height.
+        // We use a proxy for that time.
+        self.save_latest_known(LatestKnown { height, seen: to_timestamp(UtcProxy::now(file!(), line!())) })?;
         self.save_head(&tip)?;
         Ok(())
     }

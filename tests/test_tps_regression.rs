@@ -10,6 +10,7 @@ mod test {
     use std::sync::{Arc, RwLock};
     use std::thread;
 
+    use near_primitives::time::{Instant, Time};
     use near_primitives::transaction::SignedTransaction;
     use std::time::{Duration, Instant};
     use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
@@ -77,14 +78,14 @@ mod test {
             // Delay between transactions.
             let tx_delay =
                 Duration::from_nanos((Duration::from_secs(1).as_nanos() as u64) / (tps as u64));
-            let timeout = Instant::now() + timeout;
+            let timeout = Instant::now_in_test() + timeout;
             let nodes = nodes.to_vec();
             let submitted_transactions = submitted_transactions.clone();
 
             thread::spawn(move || {
                 let nonces = vec![0u64; nodes.len()];
                 let nonces = Arc::new(RwLock::new(nonces));
-                while Instant::now() < timeout {
+                while Instant::now_in_test() < timeout {
                     {
                         let nodes = nodes.to_vec();
                         let nonces = nonces.clone();
@@ -105,11 +106,11 @@ mod test {
 
         // Create thread that observes new blocks and counts new transactions in them.
         let observer_handler = {
-            let timeout = Instant::now() + timeout;
+            let timeout = Instant::now_in_test() + timeout;
             let observed_transactions = observed_transactions.clone();
             thread::spawn(move || {
                 let mut prev_ind = 0;
-                while Instant::now() < timeout {
+                while Instant::now_in_test() < timeout {
                     // Get random node.
                     let node = &nodes[sample_queryable_node(&nodes)];
                     if let Some(new_ind) = node.read().unwrap().user().get_best_height() {

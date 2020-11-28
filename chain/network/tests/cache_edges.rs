@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -10,6 +10,7 @@ use near_network::routing::{
 };
 use near_network::test_utils::random_peer_id;
 use near_primitives::network::PeerId;
+use near_primitives::time::{Utc, Time};
 use near_store::test_utils::create_test_store;
 use near_store::{ColComponentEdges, ColPeerComponent, Store};
 
@@ -35,7 +36,7 @@ impl RoutingTableTest {
     fn new() -> Self {
         let me = random_peer_id();
         let store = create_test_store();
-        let now = Utc::now();
+        let now = Utc::now_in_test();
 
         Self {
             routing_table: RoutingTable::new(me.clone(), store.clone()),

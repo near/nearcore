@@ -65,12 +65,14 @@ impl Stats {
     /// Measure stats from this moment.
     pub fn measure_from(&mut self, node: &RemoteNode) {
         self.from_height = Some(get_result(|| node.get_current_height()));
+        // We do not proxy the time for load testing.
         self.from_timestamp = Some(Instant::now());
     }
 
     /// Measure stats to this moment.
     pub fn measure_to(&mut self, node: &RemoteNode) {
         self.to_height = Some(get_result(|| node.get_current_height()));
+        // We do not proxy the time for load testing.
         self.to_timestamp = Some(Instant::now());
         self.out_tx_counter_frozen = Some(self.out_tx_counter.load(Ordering::SeqCst));
     }

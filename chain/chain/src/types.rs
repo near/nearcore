@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use num_rational::Rational;
 use serde::Serialize;
 
@@ -20,6 +20,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
+use near_primitives::time::Utc;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -697,11 +698,10 @@ pub enum ValidatorInfoIdentifier {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-
     use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::merkle::verify_path;
+    use near_primitives::time::{Utc, Time};
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
@@ -719,7 +719,7 @@ mod tests {
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
-            Utc::now(),
+            Utc::now_in_test(),
             0,
             100,
             1_000_000_000,

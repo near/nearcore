@@ -29,6 +29,7 @@ where
     *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
     let f2 = move |a: &mut A, b: &mut A::Context| {
         let stat = get_thread_stats_logger();
+        // Time measurement. We use system time.
         let now = Instant::now();
         stat.lock().unwrap().pre_log(now);
 

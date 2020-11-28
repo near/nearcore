@@ -4,6 +4,7 @@ use crate::testbed::RuntimeTestbed;
 use indicatif::{ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
+use near_primitives::time::{Instant, Time};
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_vm_logic::VMKind;
 use rand::Rng;
@@ -12,7 +13,6 @@ use std::convert::TryInto;
 use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {
@@ -154,7 +154,7 @@ fn end_count_instructions() -> u64 {
 }
 
 fn start_count_time() -> Consumed {
-    Consumed::Instant(Instant::now())
+    Consumed::Instant(Instant::system_time(file!(), line!()))
 }
 
 fn end_count_time(consumed: &Consumed) -> u64 {

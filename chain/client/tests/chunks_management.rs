@@ -1,7 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
 
 use actix::{Addr, System};
 use futures::{future, FutureExt};
@@ -25,6 +24,7 @@ use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2,
 };
+use near_primitives::time::{Instant, Time};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -164,7 +164,7 @@ fn chunks_produced_and_distributed_common(
 
                     println!(
                             "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {};\nAPPROVALS: {:?}",
-                            Instant::now(),
+                            Instant::now_in_test(),
                             block.hash(),
                             block.header().height(),
                             block.chunks()[0].height_created(),

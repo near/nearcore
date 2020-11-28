@@ -5,13 +5,12 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicUsize, Arc};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, SyncContext, WrapFuture,
 };
-use chrono::Utc;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -20,6 +19,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time::{Instant, Utc, Time};
 use near_primitives::types::AccountId;
 use near_primitives::utils::from_timestamp;
 use near_store::Store;
@@ -375,9 +375,10 @@ impl PeerManagerActor {
                 full_peer_info,
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
-                last_time_peer_requested: Instant::now(),
-                last_time_received_message: Instant::now(),
-                connection_established_time: Instant::now(),
+                // Related to networking timing, so we do not use the time proxy.
+                last_time_peer_requested: Instant::system_time(file!(), line!()),
+                last_time_received_message: Instant::system_time(file!(), line!()),
+                connection_established_time: Instant::system_time(file!(), line!()),
                 peer_type,
             },
         );
@@ -409,7 +410,7 @@ impl PeerManagerActor {
                 // Ask for peers list on connection.
                 let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
                 if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
-                    active_peer.last_time_peer_requested = Instant::now();
+                    active_peer.last_time_peer_requested = Instant::system_time(file!(), line!());
                 }
 
                 if peer_type == PeerType::Outbound {
@@ -672,7 +673,7 @@ impl PeerManagerActor {
         let msg = SendMessage { message: PeerMessage::PeersRequest };
         for (_, active_peer) in self.active_peers.iter_mut() {
             if active_peer.last_time_peer_requested.elapsed().as_secs() > REQUEST_PEERS_SECS {
-                active_peer.last_time_peer_requested = Instant::now();
+                active_peer.last_time_peer_requested = Instant::system_time(file!(), line!());
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
@@ -929,8 +930,10 @@ impl PeerManagerActor {
         let mut to_unban = vec![];
         for (peer_id, peer_state) in self.peer_store.iter() {
             if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
+                // The current time influences banning. We don't test that.
+                // We don't use the time proxy.
                 let interval = unwrap_or_error!(
-                    (Utc::now() - from_timestamp(last_banned)).to_std(),
+                    (Utc::system_time(file!(), line!()) - from_timestamp(last_banned)).to_std(),
                     "Failed to convert time"
                 );
                 if interval > self.config.ban_window {
