@@ -18,7 +18,7 @@ num-traits = "0.2.12"
 enum-primitive-derive = "0.2"
 
 sha2 = ">=0.8,<0.10"
-sha3 = "0.8"
+sha3 = ">=0.8,<0.10"
 rlp = "0.4.2"
 keccak-hash = "0.4.1"
 ripemd160 = "0.9.0"
