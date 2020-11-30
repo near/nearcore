@@ -72,7 +72,7 @@ fn compile_and_serialize_wasmer(
 
 /// Deserializes contract or error from the binary data. Signature means that we could either
 /// return module or cached error, which both considered Ok(), or encounter an error during
-/// deserialization process.
+/// the deserialization process.
 fn deserialize_wasmer(
     serialized: &[u8],
 ) -> Result<Result<wasmer_runtime::Module, VMError>, CacheError> {
