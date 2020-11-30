@@ -47,7 +47,10 @@ pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
 /// Updates the way receipt ID, data ID and random seeds are constructed.
 pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
 
-pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 40;
+/// Fix the storage usage of the delete key action.
+pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
+
+pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
@@ -75,17 +78,19 @@ impl ProtocolVersionRange {
 pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     ForwardChunkParts,
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    RectifyInflation,
     #[cfg(feature = "protocol_feature_evm")]
     EVM,
 }
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 40;
+pub const PROTOCOL_VERSION: ProtocolVersion = 41;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 42;
+pub const PROTOCOL_VERSION: ProtocolVersion = 44;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
@@ -110,9 +115,11 @@ lazy_static! {
             ProtocolVersion,
         > = vec![
             #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-            (ProtocolFeature::ForwardChunkParts, 41),
+            (ProtocolFeature::ForwardChunkParts, 42),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            (ProtocolFeature::RectifyInflation, 43),
             #[cfg(feature = "protocol_feature_evm")]
-            (ProtocolFeature::EVM, 42),
+            (ProtocolFeature::EVM, 44),
         ]
         .into_iter()
         .collect();
@@ -146,14 +153,23 @@ macro_rules! checked_feature {
     }};
 
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{
+        checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {})
+    }};
+
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
         #[cfg(feature = $feature_name)]
         {
             if checked_feature!($feature_name, $feature, $current_protocol_version) {
                 $feature_block
+            } else {
+                $non_feature_block
             }
         }
         // Workaround unused variable warning
         #[cfg(not(feature = $feature_name))]
-        let _ = $current_protocol_version;
+        {
+            let _ = $current_protocol_version;
+            $non_feature_block
+        }
     }};
 }

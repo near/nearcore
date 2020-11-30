@@ -18,6 +18,9 @@ use crate::proposals::find_threshold;
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
 
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+use {crate::reward_calculator::NUM_NS_IN_SECOND, crate::NUM_SECONDS_IN_A_YEAR};
+
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
@@ -162,6 +165,8 @@ pub fn default_reward_calculator() -> RewardCalculator {
         protocol_treasury_account: "near".to_string(),
         online_min_threshold: Rational::new(90, 100),
         online_max_threshold: Rational::new(99, 100),
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     }
 }
 
@@ -243,6 +248,10 @@ pub fn record_block_with_final_block_hash(
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
+                #[cfg(feature = "protocol_feature_rectify_inflation")]
+                {
+                    height * NUM_NS_IN_SECOND
+                },
             ),
             [0; 32],
         )
@@ -272,6 +281,10 @@ pub fn record_block_with_slashes(
                 slashed,
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
+                #[cfg(feature = "protocol_feature_rectify_inflation")]
+                {
+                    height * NUM_NS_IN_SECOND
+                },
             ),
             [0; 32],
         )
@@ -311,6 +324,8 @@ pub fn block_info(
         latest_protocol_version: PROTOCOL_VERSION,
         slashed: Default::default(),
         total_supply,
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        timestamp_nanosec: height * NUM_NS_IN_SECOND,
     }
 }
 

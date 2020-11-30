@@ -627,11 +627,13 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             false,
             network_mock.clone(),
         );
+        let mut sent_bad_blocks = false;
         *network_mock.write().unwrap() =
             Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        if block.header().height() == 4 {
+                        if block.header().height() >= 4 && !sent_bad_blocks {
+                            sent_bad_blocks = true;
                             let mut block_mut = block.clone();
                             match mode {
                                 InvalidBlockMode::InvalidHeader => {
@@ -806,6 +808,7 @@ fn client_sync_headers() {
             known_producers: vec![],
             #[cfg(feature = "metric_recorder")]
             metric_recorder: MetricRecorder::default(),
+            peer_counter: 0,
         }));
         wait_or_panic(2000);
     })

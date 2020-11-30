@@ -17,6 +17,7 @@ serde_json = "1"
 smart-default = "0.6"
 primitive-types = "0.6"
 num-rational = "0.2.4"
+chrono = { version = "0.4.4", optional = true}
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
@@ -25,3 +26,6 @@ near-store = { path = "../../core/store" }
 
 [features]
 expensive_tests = []
+protocol_feature_rectify_inflation = ["near-primitives/protocol_feature_rectify_inflation", "chrono"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "protocol_feature_rectify_inflation"]
+nightly_protocol = ["near-primitives/nightly_protocol"]

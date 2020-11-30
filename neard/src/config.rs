@@ -14,7 +14,7 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -405,6 +405,7 @@ pub struct Config {
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
     pub archive: bool,
+    pub log_summary_style: LogSummaryStyle,
     #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
     #[serde(default = "default_view_client_threads")]
@@ -427,6 +428,7 @@ impl Default for Config {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
+            log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
             view_client_threads: 4,
         }
@@ -591,6 +593,7 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
+                log_summary_style: config.log_summary_style,
                 gc_blocks_limit: config.gc_blocks_limit,
                 view_client_threads: config.view_client_threads,
             },
