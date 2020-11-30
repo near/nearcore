@@ -625,9 +625,10 @@ pub fn run_evm(
         Err(VMLogicError::InconsistentStateError(err)) => {
             (None, Some(VMError::InconsistentStateError(err)))
         }
-        Err(_) => {
-            (None, Some(VMError::FunctionCallError(FunctionCallError::EvmError(EvmError::Unknown))))
+        Err(VMLogicError::HostError(_)) => {
+            unreachable!("EVM runner shouldn't get Wasm Errors");
         }
+        Err(VMLogicError::ExternalError(err)) => (None, Some(VMError::ExternalError(err))),
     }
 }
 

@@ -2960,7 +2960,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.9.1",
- "sha3 0.8.2",
+ "sha3",
  "vm",
 ]
 
@@ -3272,7 +3272,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.9.1",
- "sha3 0.9.1",
+ "sha3",
 ]
 
 [[package]]
@@ -4785,19 +4785,6 @@ dependencies = [
  "cpuid-bool",
  "digest 0.9.0",
  "opaque-debug 0.3.0",
-]
-
-[[package]]
-name = "sha3"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd26bc0e7a2e3a7c959bc494caf58b72ee0c71d67704e9520f736ca7e4853ecf"
-dependencies = [
- "block-buffer 0.7.3",
- "byte-tools",
- "digest 0.8.1",
- "keccak",
- "opaque-debug 0.2.3",
 ]
 
 [[package]]

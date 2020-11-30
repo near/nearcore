@@ -258,8 +258,6 @@ pub enum EvmError {
     OutOfBounds,
     /// Execution has been reverted with REVERT.
     Reverted,
-    /// EVM error unknown
-    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
