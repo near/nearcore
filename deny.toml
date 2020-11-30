@@ -81,4 +81,6 @@ skip = [
     { name = "smallvec", version = "=0.6.13" },
     { name = "syn", version = "=0.15.44" },
     { name = "unicode-xid", version = "=0.1.0" },
+    { name = "primitive-types", version = "=0.6.2" },
+    { name = "fixed-hash", version = "=0.5.2" },
 ]

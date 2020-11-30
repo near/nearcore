@@ -2920,7 +2920,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "num-rational 0.2.4",
- "primitive-types 0.6.2",
+ "primitive-types 0.7.2",
  "rand 0.6.5",
  "rand 0.7.3",
  "serde",
