@@ -65,14 +65,15 @@ pub enum ChunkStatus {
     Invalid,
 }
 
-pub type DemursRemain = bool;
-
 #[derive(Debug)]
 pub enum ProcessPartialEncodedChunkResult {
-    Known(DemursRemain),
+    Known,
     /// The CryptoHash is the previous block hash (which might be unknown to the caller) to start
     ///     unblocking the blocks from
-    HaveAllPartsAndReceipts(CryptoHash, DemursRemain),
+    HaveAllPartsAndReceipts {
+        prev_block_hash: CryptoHash,
+        demurs_remain: bool,
+    },
     /// The Header is the header of the current chunk, which is unknown to the caller, to request
     ///     parts / receipts for
     NeedMorePartsOrReceipts(Box<ShardChunkHeader>),
@@ -162,13 +163,10 @@ struct ActiveSealDemur {
 
 impl Seal<'_> {
     fn remove_part_ords<'a, I: IntoIterator<Item = &'a u64>>(self, parts: I) {
-        match self {
-            Seal::Active(demur) => {
-                for ord in parts {
-                    demur.part_ords.remove(ord);
-                }
+        if let Seal::Active(demur) = self {
+            for ord in parts {
+                demur.part_ords.remove(ord);
             }
-            Seal::Past => (),
         }
     }
 
@@ -972,7 +970,7 @@ impl ShardsManager {
     {
         let num_total_parts = self.runtime_adapter.num_total_parts();
         for part_info in parts {
-            // TODO: only validate parts we care about
+            // TODO(#3662): only validate parts we care about
             self.validate_part(merkle_root, part_info, num_total_parts)?;
         }
         Ok(())
@@ -1156,8 +1154,7 @@ impl ShardsManager {
                         )?;
                         self.process_seals(&partial_encoded_chunk)?;
                     }
-                    let demurs_remain = self.seals_mgr.has_active_demur(&chunk_hash);
-                    return Ok(ProcessPartialEncodedChunkResult::Known(demurs_remain));
+                    return Ok(ProcessPartialEncodedChunkResult::Known);
                 }
             }
         };
@@ -1176,8 +1173,7 @@ impl ShardsManager {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
                     return Err(Error::DuplicateChunkHeight.into());
                 }
-                let demurs_remain = self.seals_mgr.has_active_demur(&chunk_hash);
-                return Ok(ProcessPartialEncodedChunkResult::Known(demurs_remain));
+                return Ok(ProcessPartialEncodedChunkResult::Known);
             }
         }
 
@@ -1285,10 +1281,10 @@ impl ShardsManager {
                 if !demurs_remain {
                     self.requested_partial_encoded_chunks.remove(&chunk_hash);
                 }
-                return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(
+                return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts {
                     prev_block_hash,
                     demurs_remain,
-                ));
+                });
             }
         }
 
@@ -1315,10 +1311,10 @@ impl ShardsManager {
             self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
             // We know there is no demur for this chunk now that we reconstructed it
-            return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(
+            return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts {
                 prev_block_hash,
-                false,
-            ));
+                demurs_remain: false,
+            });
         }
 
         match self.chunk_forwards_cache.cache_remove(&chunk_hash) {
@@ -2086,7 +2082,7 @@ mod test {
             .unwrap();
 
         match result {
-            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_, _) => (),
+            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts { .. } => (),
             other_result => panic!("Expected HaveAllPartsAndReceipts, but got {:?}", other_result),
         }
         // No requests should have been sent since all the required parts were contained in the

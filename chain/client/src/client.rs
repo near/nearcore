@@ -803,20 +803,11 @@ impl Client {
                 )?;
 
                 match process_result {
-                    ProcessPartialEncodedChunkResult::Known(demurs_remain) => {
-                        if demurs_remain {
-                            self.shards_mgr.request_chunks(
-                                iter::once(partial_encoded_chunk.take_header()),
-                                &self.chain.header_head()?,
-                                protocol_version,
-                            );
-                        }
-                        Ok(vec![])
-                    }
-                    ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(
+                    ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
+                    ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts {
                         prev_block_hash,
                         demurs_remain,
-                    ) => {
+                    } => {
                         if demurs_remain {
                             self.shards_mgr.request_chunks(
                                 iter::once(partial_encoded_chunk.take_header()),
