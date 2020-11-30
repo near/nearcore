@@ -131,6 +131,7 @@ impl TrieViewer {
             current_protocol_version: view_state.current_protocol_version,
             config: config.clone(),
             cache: view_state.cache,
+            #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
         };
         let action_receipt = ActionReceipt {
@@ -189,6 +190,7 @@ impl TrieViewer {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "protocol_feature_evm")]
     use near_chain_configs::TEST_EVM_CHAIN_ID;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::trie_key::TrieKey;
@@ -211,6 +213,7 @@ mod tests {
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
+            #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TEST_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
@@ -239,6 +242,7 @@ mod tests {
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
+            #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TEST_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
@@ -271,6 +275,7 @@ mod tests {
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
+            #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: 0x99,
         };
         let result = viewer.call_function(
@@ -302,6 +307,7 @@ mod tests {
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
+            #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: 0x99,
         };
         let view_call_result = viewer.call_function(
@@ -384,6 +390,7 @@ mod tests {
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
+            #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: 0x99,
         };
         let mut logs = vec![];

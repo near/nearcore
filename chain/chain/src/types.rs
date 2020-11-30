@@ -586,6 +586,7 @@ pub trait RuntimeAdapter: Send + Sync {
         header_head: &CryptoHash,
     ) -> Result<bool, Error>;
 
+    #[cfg(feature = "protocol_feature_evm")]
     fn evm_chain_id(&self) -> u128;
 
     /// Build receipts hashes.

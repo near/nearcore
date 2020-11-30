@@ -3328,11 +3328,13 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-runtime-standalone",
  "near-store",
  "neard",
  "node-runtime",
  "openssl-probe",
  "rand 0.7.3",
+ "runtime-params-estimator",
  "serde_json",
  "testlib",
 ]

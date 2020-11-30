@@ -232,6 +232,7 @@ impl RuntimeStandalone {
             config: self.runtime_config.clone(),
             // TODO: shall we use compiled contracts cache in standalone runtime?
             cache: None,
+            #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: CHAIN_ID,
         };
 
@@ -315,6 +316,7 @@ impl RuntimeStandalone {
             block_timestamp: self.cur_block.block_timestamp,
             current_protocol_version: PROTOCOL_VERSION,
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
+            #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: CHAIN_ID,
         };
         let mut logs = vec![];

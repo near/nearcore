@@ -960,6 +960,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Err(ErrorKind::NotAValidator.into())
     }
 
+    #[cfg(feature = "protocol_feature_evm")]
     fn evm_chain_id(&self) -> u128 {
         // See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
         1313161555

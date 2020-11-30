@@ -27,9 +27,11 @@ use near_runtime_fees::{default_evm_deposit, EvmCostConfig};
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
+#[cfg(feature = "protocol_feature_evm")]
 /// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
 pub const TEST_EVM_CHAIN_ID: u128 = 1313161555;
 
+#[cfg(feature = "protocol_feature_evm")]
 /// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161554.json
 pub const MAINNET_EVM_CHAIN_ID: u128 = 1313161554;
 

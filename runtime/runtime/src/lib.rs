@@ -90,6 +90,7 @@ pub struct ApplyState {
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// Ethereum chain id.
+    #[cfg(feature = "protocol_feature_evm")]
     pub evm_chain_id: u128,
 }
 
@@ -198,7 +199,6 @@ impl Default for ActionResult {
     }
 }
 
-#[derive(Copy, Clone)]
 pub struct Runtime {}
 
 impl Runtime {
@@ -1540,6 +1540,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
         };
 

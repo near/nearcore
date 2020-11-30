@@ -184,7 +184,7 @@ pub enum HostError {
     Deprecated { method_name: String },
 }
 
-/// Errors specifically from EVM pre-compile.
+/// Errors specifically from native EVM.
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum EvmError {
     /// Contract not found.
@@ -262,12 +262,13 @@ pub enum EvmError {
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum VMLogicError {
+    /// Errors coming from native Wasm VM.
     HostError(HostError),
     /// Serialized external error from External trait implementation.
     ExternalError(Vec<u8>),
     /// An error that is caused by an operation on an inconsistent state.
     InconsistentStateError(InconsistentStateError),
-    /// An error coming from EVM precompile.
+    /// An error coming from native EVM.
     EvmError(EvmError),
 }
 

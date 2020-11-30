@@ -12,6 +12,7 @@ use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::gas_counter::reset_evm_gas_counter;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::VMConfig;
+use node_runtime::Runtime;
 use num_rational::Ratio;
 use num_traits::cast::ToPrimitive;
 use rand::Rng;
@@ -321,7 +322,7 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
         let runtime_node = RuntimeNode {
             signer: Arc::new(signer.clone()),
             client: Arc::new(RwLock::new(MockClient {
-                runtime: testbed.runtime,
+                runtime: Runtime::new(),
                 runtime_config: testbed.genesis.config.runtime_config.clone(),
                 tries: testbed.tries.clone(),
                 state_root: testbed.root,
@@ -347,7 +348,7 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
 
         testbed.tries = runtime_node.client.read().unwrap().tries.clone();
         testbed.root = runtime_node.client.read().unwrap().state_root;
-        testbed.runtime = runtime_node.client.read().unwrap().runtime;
+        testbed.runtime = Runtime::new();
 
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
