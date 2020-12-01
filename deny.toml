@@ -83,4 +83,10 @@ skip = [
     { name = "unicode-xid", version = "=0.1.0" },
     { name = "primitive-types", version = "=0.6.2" },
     { name = "fixed-hash", version = "=0.5.2" },
+
+    # param estimator uses newer imports, but it's not part of neard
+    { name = "indicatif", version = "=0.15.0" },
+    { name = "num-rational", version = "=0.3.0" },
+    { name = "rand_xorshift", version = "=0.2.0" },
+    { name = "wasmparser", version = "=0.59.0" },
 ]
