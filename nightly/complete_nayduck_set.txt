@@ -150,7 +150,6 @@ pytest adversarial/start_from_genesis.py overtake doomslug_off --features nightl
 # python upgradable test
 # upgradable.py moves `near` binary, and must be the last python test in the set
 pytest --timeout=600 sanity/upgradable.py
-pytest --timeout=600 sanity/upgradable.py --features nightly_protocol --features nightly_protocol_features
 
 # catchup tests
 expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_third_epoch
