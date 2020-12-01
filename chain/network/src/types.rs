@@ -1290,6 +1290,7 @@ pub struct NetworkInfo {
     pub known_producers: Vec<KnownProducer>,
     #[cfg(feature = "metric_recorder")]
     pub metric_recorder: MetricRecorder,
+    pub peer_counter: usize,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkInfo
