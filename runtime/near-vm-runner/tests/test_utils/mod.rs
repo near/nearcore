@@ -3,11 +3,14 @@ use std::hash::{Hash, Hasher};
 
 use wabt::Wat2Wasm;
 
+use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ProtocolVersion;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, VMError};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 pub const CURRENT_ACCOUNT_ID: &str = "alice";
 pub const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -94,4 +97,54 @@ pub fn make_simple_contract_call_vm(
 
 pub fn wat2wasm_no_validate(wat: &str) -> Vec<u8> {
     Wat2Wasm::new().validate(false).convert(wat).unwrap().as_ref().to_vec()
+}
+
+pub struct MockCompiledContractCache {
+    pub store: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
+}
+
+impl CompiledContractCache for MockCompiledContractCache {
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error> {
+        self.store.lock().unwrap().insert(key.to_vec(), value.to_vec());
+        Ok(())
+    }
+
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
+        match self.store.lock().unwrap().get(key) {
+            Some(value) => Ok(Some(value.clone())),
+            None => Ok(None),
+        }
+    }
+}
+
+pub fn make_cached_contract_call_vm(
+    cache: &mut dyn CompiledContractCache,
+    code: &[u8],
+    method_name: &[u8],
+    prepaid_gas: u64,
+    vm_kind: VMKind,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    let mut fake_external = MockedExternal::new();
+    let mut context = create_context(vec![]);
+    let config = VMConfig::default();
+    let fees = RuntimeFeesConfig::default();
+    let promise_results = vec![];
+    context.prepaid_gas = prepaid_gas;
+    let mut hash = DefaultHasher::new();
+    code.hash(&mut hash);
+    let code_hash = hash.finish().to_le_bytes().to_vec();
+
+    run_vm(
+        code_hash,
+        &code,
+        method_name,
+        &mut fake_external,
+        context.clone(),
+        &config,
+        &fees,
+        &promise_results,
+        vm_kind,
+        LATEST_PROTOCOL_VERSION,
+        Some(cache),
+    )
 }
