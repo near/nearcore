@@ -307,6 +307,35 @@ where
     Ok(())
 }
 
+#[allow(unused)]
+fn map_col_from_key<U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
+where
+    U: BorshSerialize,
+    F: Fn(&[u8]) -> U,
+{
+    let mut store_update = store.store_update();
+    let batch_size_limit = 10_000_000;
+    let mut batch_size = 0;
+    for (key, _) in store.iter(col) {
+        let new_value = f(&key);
+        let new_bytes = new_value.try_to_vec()?;
+        batch_size += key.as_ref().len() + new_bytes.len() + 8;
+        store_update.set(col, key.as_ref(), &new_bytes);
+
+        if batch_size > batch_size_limit {
+            store_update.commit()?;
+            store_update = store.store_update();
+            batch_size = 0;
+        }
+    }
+
+    if batch_size > 0 {
+        store_update.commit()?;
+    }
+
+    Ok(())
+}
+
 /// Lift all chunks to the versioned structure
 pub fn migrate_13_to_14(path: &String) {
     let store = create_store(path);
@@ -480,4 +509,46 @@ pub fn migrate_14_to_15(path: &String) {
     }
     store_update.commit().unwrap();
     set_store_version(&store, 15);
+}
+
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+pub fn migrate_16_to_rectify_inflation(path: &String) {
+    use near_primitives::epoch_manager::BlockInfo;
+    use near_primitives::epoch_manager::SlashState;
+    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
+    use near_primitives::version::ProtocolVersion;
+    #[derive(BorshDeserialize)]
+    struct OldBlockInfo {
+        pub height: BlockHeight,
+        pub last_finalized_height: BlockHeight,
+        pub last_final_block_hash: CryptoHash,
+        pub prev_hash: CryptoHash,
+        pub epoch_first_block: CryptoHash,
+        pub epoch_id: EpochId,
+        pub proposals: Vec<ValidatorStake>,
+        pub chunk_mask: Vec<bool>,
+        pub latest_protocol_version: ProtocolVersion,
+        pub slashed: HashMap<AccountId, SlashState>,
+        pub total_supply: Balance,
+    }
+    let store = create_store(path);
+    map_col_from_key(&store, DBCol::ColBlockInfo, |key| {
+        let block_header =
+            store.get_ser::<BlockHeader>(DBCol::ColBlockHeader, key).unwrap().unwrap();
+        let old_block_info =
+            store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
+        BlockInfo::new(
+            block_header.height(),
+            old_block_info.last_finalized_height,
+            *block_header.last_final_block(),
+            *block_header.prev_hash(),
+            block_header.validator_proposals().to_vec(),
+            block_header.chunk_mask().to_vec(),
+            vec![],
+            block_header.total_supply(),
+            block_header.latest_protocol_version(),
+            block_header.raw_timestamp(),
+        )
+    })
+    .unwrap();
 }

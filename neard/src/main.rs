@@ -71,7 +71,7 @@ fn main() {
     };
     let matches = App::new("NEAR Protocol Node")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .version(format!("{} (build {})", version.version, version.build).as_str())
+        .version(format!("{} (build {}) (protocol {})", version.version, version.build, PROTOCOL_VERSION).as_str())
         .arg(Arg::with_name("verbose").long("verbose").help("Verbose logging").takes_value(true))
         .arg(
             Arg::with_name("home")

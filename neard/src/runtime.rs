@@ -52,6 +52,9 @@ use node_runtime::{
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_runtime_configs::RuntimeConfig;
 
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+use near_epoch_manager::NUM_SECONDS_IN_A_YEAR;
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -169,6 +172,8 @@ impl NightshadeRuntime {
             protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
             online_max_threshold: genesis.config.online_max_threshold,
             online_min_threshold: genesis.config.online_min_threshold,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         };
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
@@ -1014,6 +1019,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_header_info.slashed_validators,
             block_header_info.total_supply,
             block_header_info.latest_protocol_version,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            block_header_info.timestamp_nanosec,
         );
         let rng_seed = (block_header_info.random_value.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
@@ -1491,6 +1498,9 @@ mod test {
 
     use super::*;
 
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    use primitive_types::U256;
+
     fn stake(
         nonce: Nonce,
         signer: &dyn Signer,
@@ -1556,6 +1566,8 @@ mod test {
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
         pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
         pub last_proposals: Vec<ValidatorStake>,
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        time: u64,
     }
 
     impl TestEnv {
@@ -1610,6 +1622,8 @@ mod test {
                     chunk_mask: vec![],
                     total_supply: genesis_total_supply,
                     latest_protocol_version: genesis_protocol_version,
+                    #[cfg(feature = "protocol_feature_rectify_inflation")]
+                    timestamp_nanosec: 0,
                 })
                 .unwrap();
             Self {
@@ -1625,6 +1639,8 @@ mod test {
                 last_receipts: HashMap::default(),
                 last_proposals: vec![],
                 last_shard_proposals: HashMap::default(),
+                #[cfg(feature = "protocol_feature_rectify_inflation")]
+                time: 0,
             }
         }
 
@@ -1678,10 +1694,17 @@ mod test {
                     chunk_mask,
                     total_supply: self.runtime.genesis_config.total_supply,
                     latest_protocol_version: self.runtime.genesis_config.protocol_version,
+                    #[cfg(feature = "protocol_feature_rectify_inflation")]
+                    timestamp_nanosec: self.time + 10u64.pow(9),
                 })
                 .unwrap();
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                self.time += 10u64.pow(9);
+            }
+
             self.head = Tip {
                 last_block_hash: new_hash,
                 prev_block_hash: self.head.last_block_hash,
@@ -1709,19 +1732,47 @@ mod test {
         }
 
         /// Compute per epoch per validator reward and per epoch protocol treasury reward
-        pub fn compute_reward(&self, num_validators: usize) -> (Balance, Balance) {
-            let per_epoch_total_reward = *self.runtime.genesis_config.max_inflation_rate.numer()
-                as u128
-                * self.runtime.genesis_config.total_supply
-                * self.runtime.genesis_config.epoch_length as u128
-                / (self.runtime.genesis_config.num_blocks_per_year as u128
-                    * *self.runtime.genesis_config.max_inflation_rate.denom() as u128);
-            let per_epoch_protocol_treasury = per_epoch_total_reward
-                * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
-                / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
-            let per_epoch_per_validator_reward =
-                (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
-            (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
+        pub fn compute_reward(
+            &self,
+            num_validators: usize,
+            #[cfg(feature = "protocol_feature_rectify_inflation")] epoch_duration: u64,
+        ) -> (Balance, Balance) {
+            #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
+            {
+                let per_epoch_total_reward = *self.runtime.genesis_config.max_inflation_rate.numer()
+                    as u128
+                    * self.runtime.genesis_config.total_supply
+                    * self.runtime.genesis_config.epoch_length as u128
+                    / (self.runtime.genesis_config.num_blocks_per_year as u128
+                        * *self.runtime.genesis_config.max_inflation_rate.denom() as u128);
+                let per_epoch_protocol_treasury = per_epoch_total_reward
+                    * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
+                    / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
+                let per_epoch_per_validator_reward =
+                    (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
+                (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
+            }
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                let num_seconds_per_year = 60 * 60 * 24 * 365;
+                let num_ns_in_second = 1_000_000_000;
+                let per_epoch_total_reward =
+                    (U256::from(*self.runtime.genesis_config.max_inflation_rate.numer() as u64)
+                        * U256::from(self.runtime.genesis_config.total_supply)
+                        * U256::from(epoch_duration)
+                        / (U256::from(num_seconds_per_year)
+                            * U256::from(
+                                *self.runtime.genesis_config.max_inflation_rate.denom() as u128
+                            )
+                            * U256::from(num_ns_in_second)))
+                    .as_u128();
+                let per_epoch_protocol_treasury = per_epoch_total_reward
+                    * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
+                    / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
+                let per_epoch_per_validator_reward =
+                    (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
+                (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
+            }
         }
     }
 
@@ -2053,12 +2104,11 @@ mod test {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
-        let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
@@ -2066,7 +2116,7 @@ mod test {
         let state_part = env.runtime.obtain_state_part(0, &env.state_roots[0], 0, 1).unwrap();
         let root_node = env.runtime.get_state_root_node(0, &env.state_roots[0]).unwrap();
         let mut new_env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], false);
         for i in 1..=2 {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
@@ -2093,12 +2143,18 @@ mod test {
                     chunk_mask: vec![true],
                     total_supply: new_env.runtime.genesis_config.total_supply,
                     latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
+                    #[cfg(feature = "protocol_feature_rectify_inflation")]
+                    timestamp_nanosec: new_env.time,
                 })
                 .unwrap();
             new_env.head.height = i;
             new_env.head.last_block_hash = cur_hash;
             new_env.head.prev_block_hash = prev_hash;
             new_env.last_proposals = proposals;
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                new_env.time += 10u64.pow(9);
+            }
         }
         assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]));
         let mut root_node_wrong = root_node.clone();
@@ -2116,11 +2172,11 @@ mod test {
 
         let account = new_env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
-        assert_eq!(account.locked, TESTING_INIT_STAKE + 1 + 2 * per_epoch_per_validator_reward);
+        assert_eq!(account.locked, TESTING_INIT_STAKE + 1);
 
         let account = new_env.view_account(&block_producers[1].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-        assert_eq!(account.locked, TESTING_INIT_STAKE + 2 * per_epoch_per_validator_reward);
+        assert_eq!(account.locked, TESTING_INIT_STAKE);
     }
 
     /// Test two shards: the first shard has 2 validators (test1, test4) and the second shard
@@ -2185,13 +2241,12 @@ mod test {
             2,
             vec![],
             vec![],
-            true,
+            false,
         );
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
-        let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
         env.step_default(vec![staking_transaction]);
@@ -2259,7 +2314,7 @@ mod test {
             vec![NextEpochValidatorInfo {
                 account_id: "test2".to_string(),
                 public_key: block_producers[1].public_key(),
-                stake: TESTING_INIT_STAKE + per_epoch_per_validator_reward,
+                stake: TESTING_INIT_STAKE,
                 shards: vec![0],
             }
             .into()]
@@ -2673,11 +2728,12 @@ mod test {
     fn test_validator_reward() {
         init_test_logger();
         let num_nodes = 4;
+        let epoch_length = 4;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new(
             "test_validator_reward",
             vec![validators.clone()],
-            4,
+            epoch_length,
             vec![],
             vec![],
             true,
@@ -2691,7 +2747,11 @@ mod test {
             env.step_default(vec![]);
         }
 
+        #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
         let (validator_reward, protocol_treasury_reward) = env.compute_reward(num_nodes);
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        let (validator_reward, protocol_treasury_reward) =
+            env.compute_reward(num_nodes, epoch_length * 10u64.pow(9));
         for i in 0..4 {
             let account = env.view_account(&block_producers[i].validator_id());
             assert_eq!(account.locked, TESTING_INIT_STAKE + validator_reward);
