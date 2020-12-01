@@ -293,13 +293,7 @@ impl RosettaAccountBalances {
         let locked = account.locked;
         let liquid_for_storage = get_liquid_balance_for_storage(account, runtime_config);
 
-        Self {
-            liquid_for_storage,
-            liquid: amount
-                .checked_sub(liquid_for_storage)
-                .expect("liquid balance for storage cannot be bigger than the total balance"),
-            locked,
-        }
+        Self { liquid_for_storage, liquid: amount.saturating_sub(liquid_for_storage), locked }
     }
 }
 
@@ -369,13 +363,13 @@ pub(crate) async fn query_accounts(
     >,
     crate::errors::ErrorKind,
 > {
-    account_ids
+    futures::stream::iter(account_ids)
         .map(|account_id| async move {
             let (_, _, account_info) =
                 query_account(block_id.clone(), account_id.clone(), &view_client_addr).await?;
             Ok((account_id.clone(), account_info))
         })
-        .collect::<futures::stream::FuturesUnordered<_>>()
+        .buffer_unordered(10)
         .collect::<Vec<
             Result<
                 (near_primitives::types::AccountId, near_primitives::views::AccountView),
