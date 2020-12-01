@@ -45,8 +45,8 @@ use near_primitives::views::{
 
 use crate::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt, Query, TxStatus,
-    TxStatusError,
+    GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt,
+    GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
 };
 use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
@@ -601,6 +601,23 @@ impl Handler<GetStateChanges> for ViewClientActor {
         self.chain
             .store()
             .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())
+            .map(|state_changes| state_changes.into_iter().map(Into::into).collect())
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// Returns a list of changes in a store with causes for a given block.
+impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
+    type Result = Result<StateChangesView, String>;
+
+    fn handle(
+        &mut self,
+        msg: GetStateChangesWithCauseInBlock,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        self.chain
+            .store()
+            .get_state_changes_with_cause_in_block(&msg.block_hash)
             .map(|state_changes| state_changes.into_iter().map(Into::into).collect())
             .map_err(|e| e.to_string())
     }

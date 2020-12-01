@@ -232,6 +232,98 @@ pub type StateChanges = Vec<StateChangeWithCause>;
 
 #[easy_ext::ext(StateChangesExt)]
 impl StateChanges {
+    pub fn from_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
+    ) -> Result<StateChanges, std::io::Error> {
+        let mut state_changes = Self::new();
+
+        for raw_change in raw_changes {
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
+
+            match trie_key {
+                TrieKey::Account { account_id } => state_changes.extend(changes.into_iter().map(
+                    |RawStateChange { cause, data }| StateChangeWithCause {
+                        cause,
+                        value: if let Some(change_data) = data {
+                            StateChangeValue::AccountUpdate {
+                                account_id: account_id.clone(),
+                                account: <_>::try_from_slice(&change_data).expect(
+                                    "Failed to parse internally stored account information",
+                                ),
+                            }
+                        } else {
+                            StateChangeValue::AccountDeletion { account_id: account_id.clone() }
+                        },
+                    },
+                )),
+                TrieKey::AccessKey { account_id, public_key } => {
+                    state_changes.extend(changes.into_iter().map(
+                        |RawStateChange { cause, data }| StateChangeWithCause {
+                            cause,
+                            value: if let Some(change_data) = data {
+                                StateChangeValue::AccessKeyUpdate {
+                                    account_id: account_id.clone(),
+                                    public_key: public_key.clone(),
+                                    access_key: <_>::try_from_slice(&change_data)
+                                        .expect("Failed to parse internally stored access key"),
+                                }
+                            } else {
+                                StateChangeValue::AccessKeyDeletion {
+                                    account_id: account_id.clone(),
+                                    public_key: public_key.clone(),
+                                }
+                            },
+                        },
+                    ))
+                }
+                TrieKey::ContractCode { account_id } => {
+                    state_changes.extend(changes.into_iter().map(
+                        |RawStateChange { cause, data }| StateChangeWithCause {
+                            cause,
+                            value: if let Some(change_data) = data {
+                                StateChangeValue::ContractCodeUpdate {
+                                    account_id: account_id.clone(),
+                                    code: change_data.into(),
+                                }
+                            } else {
+                                StateChangeValue::ContractCodeDeletion {
+                                    account_id: account_id.clone(),
+                                }
+                            },
+                        },
+                    ));
+                }
+                TrieKey::ContractData { account_id, key } => {
+                    state_changes.extend(changes.into_iter().map(
+                        |RawStateChange { cause, data }| StateChangeWithCause {
+                            cause,
+                            value: if let Some(change_data) = data {
+                                StateChangeValue::DataUpdate {
+                                    account_id: account_id.clone(),
+                                    key: key.to_vec().into(),
+                                    value: change_data.into(),
+                                }
+                            } else {
+                                StateChangeValue::DataDeletion {
+                                    account_id: account_id.clone(),
+                                    key: key.to_vec().into(),
+                                }
+                            },
+                        },
+                    ));
+                }
+                // The next variants considered as unnecessary as too low level
+                TrieKey::ReceivedData { .. } => {}
+                TrieKey::PostponedReceiptId { .. } => {}
+                TrieKey::PendingDataCount { .. } => {}
+                TrieKey::PostponedReceipt { .. } => {}
+                TrieKey::DelayedReceiptIndices => {}
+                TrieKey::DelayedReceipt { .. } => {}
+            }
+        }
+
+        Ok(state_changes)
+    }
     pub fn from_account_changes(
         raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {

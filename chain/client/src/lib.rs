@@ -7,8 +7,8 @@ pub use crate::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
     GetExecutionOutcome, GetExecutionOutcomeResponse, GetExecutionOutcomesForBlock, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetReceipt, GetStateChanges, GetStateChangesInBlock,
-    GetValidatorInfo, GetValidatorOrdered, Query, Status, StatusResponse, SyncStatus, TxStatus,
-    TxStatusError,
+    GetStateChangesWithCauseInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status,
+    StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 #[cfg(feature = "adversarial")]
 pub use crate::view_client::AdversarialControls;
