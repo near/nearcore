@@ -526,7 +526,7 @@ impl EpochManager {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<&[(ValidatorStake, bool)], EpochError> {
-        // TODO: Revisit this when we enable slashing
+        // TODO(3674): Revisit this when we enable slashing
         if self.epoch_validators_ordered.cache_get(epoch_id).is_none() {
             let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
             let epoch_info = self.get_epoch_info(epoch_id)?;
