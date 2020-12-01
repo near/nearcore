@@ -273,6 +273,8 @@ impl Block {
             approvals,
             next_bp_hash,
             block_merkle_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            prev.height(),
         );
 
         Self::block_from_protocol_version(

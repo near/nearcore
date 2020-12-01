@@ -14,6 +14,8 @@ use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::block_header::BlockHeaderInnerRestV3;
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderV1,
     BlockHeaderV2,
@@ -44,6 +46,9 @@ use crate::types::{
 };
 use crate::version::{ProtocolVersion, Version};
 use std::sync::Arc;
+
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::block_header::BlockHeaderV3;
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -360,6 +365,8 @@ impl From<Challenge> for ChallengeView {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockHeight,
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    pub prev_height: Option<BlockHeight>,
     pub epoch_id: CryptoHash,
     pub next_epoch_id: CryptoHash,
     pub hash: CryptoHash,
@@ -402,6 +409,8 @@ impl From<BlockHeader> for BlockHeaderView {
     fn from(header: BlockHeader) -> Self {
         Self {
             height: header.height(),
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            prev_height: header.prev_height(),
             epoch_id: header.epoch_id().0,
             next_epoch_id: header.next_epoch_id().0,
             hash: header.hash().clone(),
@@ -450,6 +459,14 @@ impl From<BlockHeaderView> for BlockHeader {
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
         };
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        let last_header_v2_version = 9999;
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        let last_header_v2_version = crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
+            .get(&crate::version::ProtocolFeature::BlockHeaderV3)
+            .unwrap()
+            .clone()
+            - 1;
         if view.latest_protocol_version <= 29 {
             let mut header = BlockHeaderV1 {
                 prev_hash: view.prev_hash,
@@ -480,7 +497,7 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV1(Box::new(header))
-        } else {
+        } else if view.latest_protocol_version <= last_header_v2_version {
             let mut header = BlockHeaderV2 {
                 prev_hash: view.prev_hash,
                 inner_lite,
@@ -509,6 +526,41 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV2(Box::new(header))
+        } else {
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            unreachable!();
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            {
+                let mut header = BlockHeaderV3 {
+                    prev_hash: view.prev_hash,
+                    inner_lite,
+                    inner_rest: BlockHeaderInnerRestV3 {
+                        chunk_receipts_root: view.chunk_receipts_root,
+                        chunk_headers_root: view.chunk_headers_root,
+                        chunk_tx_root: view.chunk_tx_root,
+                        challenges_root: view.challenges_root,
+                        random_value: view.random_value,
+                        validator_proposals: view
+                            .validator_proposals
+                            .into_iter()
+                            .map(|v| v.into())
+                            .collect(),
+                        chunk_mask: view.chunk_mask,
+                        gas_price: view.gas_price,
+                        total_supply: view.total_supply,
+                        challenges_result: view.challenges_result,
+                        last_final_block: view.last_final_block,
+                        last_ds_final_block: view.last_ds_final_block,
+                        prev_height: view.prev_height.unwrap_or_default(),
+                        approvals: view.approvals.clone(),
+                        latest_protocol_version: view.latest_protocol_version,
+                    },
+                    signature: view.signature,
+                    hash: CryptoHash::default(),
+                };
+                header.init();
+                BlockHeader::BlockHeaderV3(Box::new(header))
+            }
         }
     }
 }
@@ -543,6 +595,18 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
                 block_merkle_root: header.inner_lite.block_merkle_root,
             },
             BlockHeader::BlockHeaderV2(header) => BlockHeaderInnerLiteView {
+                height: header.inner_lite.height,
+                epoch_id: header.inner_lite.epoch_id.0,
+                next_epoch_id: header.inner_lite.next_epoch_id.0,
+                prev_state_root: header.inner_lite.prev_state_root,
+                outcome_root: header.inner_lite.outcome_root,
+                timestamp: header.inner_lite.timestamp,
+                timestamp_nanosec: header.inner_lite.timestamp,
+                next_bp_hash: header.inner_lite.next_bp_hash,
+                block_merkle_root: header.inner_lite.block_merkle_root,
+            },
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            BlockHeader::BlockHeaderV3(header) => BlockHeaderInnerLiteView {
                 height: header.inner_lite.height,
                 epoch_id: header.inner_lite.epoch_id.0,
                 next_epoch_id: header.inner_lite.next_epoch_id.0,

@@ -2898,6 +2898,7 @@ impl<'a> ChainUpdate<'a> {
             // Before we add the block to the orphan pool, do some checks:
             // 1. Block header is signed by the block producer for height.
             // 2. Chunk headers in block body match block header.
+            // 3. Header has enough approvals from epoch block producers.
             // Not checked:
             // - Block producer could be slashed
             // - Chunk header signatures could be wrong
@@ -2905,6 +2906,7 @@ impl<'a> ChainUpdate<'a> {
                 return Err(ErrorKind::InvalidSignature.into());
             }
             block.check_validity()?;
+            self.verify_orphan_header_approvals(&block.header())?;
             return Err(ErrorKind::Orphan.into());
         }
 
@@ -3191,6 +3193,13 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        if let Some(prev_height) = header.prev_height() {
+            if prev_height != prev_header.height() {
+                return Err(ErrorKind::Other("Invalid prev_height".to_string()).into());
+            }
+        }
+
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
         if header.raw_timestamp() <= prev_header.raw_timestamp() {
@@ -3217,7 +3226,7 @@ impl<'a> ChainUpdate<'a> {
                 .runtime_adapter
                 .get_epoch_block_approvers_ordered(header.prev_hash())?
                 .iter()
-                .map(|x| (x.stake_this_epoch, x.stake_next_epoch))
+                .map(|(x, is_slashed)| (x.stake_this_epoch, x.stake_next_epoch, *is_slashed))
                 .collect();
             if !Doomslug::can_approved_block_be_produced(
                 self.doomslug_threshold_mode,
@@ -3256,6 +3265,35 @@ impl<'a> ChainUpdate<'a> {
         }
 
         Ok(())
+    }
+
+    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+    fn verify_orphan_header_approvals(&mut self, _header: &BlockHeader) -> Result<(), Error> {
+        Ok(())
+    }
+
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    fn verify_orphan_header_approvals(&mut self, header: &BlockHeader) -> Result<(), Error> {
+        let prev_hash = header.prev_hash();
+        let prev_height = match header.prev_height() {
+            None => {
+                // this will accept orphans of V1 and V2
+                // TODO: reject header V1 and V2 after a certain height
+                return Ok(());
+            }
+            Some(prev_height) => prev_height,
+        };
+        let height = header.height();
+        let epoch_id = header.epoch_id();
+        let approvals = header.approvals();
+        self.runtime_adapter.verify_approvals_and_threshold_orphan(
+            epoch_id,
+            self.doomslug_threshold_mode,
+            prev_hash,
+            prev_height,
+            height,
+            approvals,
+        )
     }
 
     /// Update the header head if this header has most work.

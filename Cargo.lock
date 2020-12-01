@@ -3323,6 +3323,7 @@ dependencies = [
  "lazy_static",
  "log",
  "near-actix-utils",
+ "near-chain",
  "near-chain-configs",
  "near-crypto",
  "near-jsonrpc",

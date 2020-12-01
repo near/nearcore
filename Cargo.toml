@@ -68,6 +68,7 @@ near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
 near-runtime-standalone = { path = "./runtime/runtime-standalone" }
 runtime-params-estimator = { path = "./runtime/runtime-params-estimator" }
+near-chain = { path = "./chain/chain" }
 
 node-runtime = { path = "./runtime/runtime" }
 
@@ -111,5 +112,6 @@ delay_detector = ["neard/delay_detector"]
 rosetta_rpc = ["neard/rosetta_rpc"]
 protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_parts"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
-nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm"]
+nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3"]
 protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "near-runtime-standalone/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
+protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]

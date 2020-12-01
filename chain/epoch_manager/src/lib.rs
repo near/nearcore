@@ -666,10 +666,30 @@ impl EpochManager {
         Ok(self.epoch_validators_ordered_unique.cache_get(epoch_id).unwrap())
     }
 
+    /// get_heuristic_block_approvers_ordered: block producers for epoch
+    /// get_all_block_approvers_ordered: block producers for epoch, slashing info, sometimes block producers for next epoch
+    pub fn get_heuristic_block_approvers_ordered(
+        &mut self,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ApprovalStake>, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let mut settlement = vec![];
+        for validator_id in epoch_info.block_producers_settlement.iter() {
+            let validator_stake = epoch_info.validators[*validator_id as usize].clone();
+            settlement.push(validator_stake);
+        }
+
+        let mut result = vec![];
+        for validator_stake in settlement.into_iter() {
+            result.push(validator_stake.get_approval_stake(false));
+        }
+        Ok(result)
+    }
+
     pub fn get_all_block_approvers_ordered(
         &mut self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<ApprovalStake>, EpochError> {
+    ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
         let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
 
@@ -690,21 +710,20 @@ impl EpochManager {
         let mut result = vec![];
         let mut validators: HashMap<AccountId, usize> = HashMap::default();
         for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
-            if !is_slashed {
-                match validators.get(&validator_stake.account_id) {
-                    None => {
-                        validators.insert(validator_stake.account_id.clone(), result.len());
-                        result.push(
-                            validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
-                        );
-                    }
-                    Some(old_ord) => {
-                        if ord >= settlement_epoch_boundary {
-                            result[*old_ord].stake_next_epoch = validator_stake.stake;
-                        };
-                    }
-                };
-            }
+            match validators.get(&validator_stake.account_id) {
+                None => {
+                    validators.insert(validator_stake.account_id.clone(), result.len());
+                    result.push((
+                        validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
+                        is_slashed,
+                    ));
+                }
+                Some(old_ord) => {
+                    if ord >= settlement_epoch_boundary {
+                        result[*old_ord].0.stake_next_epoch = validator_stake.stake;
+                    };
+                }
+            };
         }
         Ok(result)
     }

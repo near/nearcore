@@ -981,6 +981,10 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidApprovals);
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::Orphan);
     }
     {
