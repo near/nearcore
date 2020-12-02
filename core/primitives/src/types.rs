@@ -331,10 +331,9 @@ impl StateChanges {
 
         Ok(state_changes
             .into_iter()
-            .filter(|state_change| match state_change.value {
-                StateChangeValue::AccountUpdate { .. }
-                | StateChangeValue::AccountDeletion { .. } => true,
-                _ => false,
+            .filter(|state_change| {
+                matches!(state_change.value, StateChangeValue::AccountUpdate { .. }
+                | StateChangeValue::AccountDeletion { .. })
             })
             .collect())
     }
@@ -346,10 +345,9 @@ impl StateChanges {
 
         Ok(state_changes
             .into_iter()
-            .filter(|state_change| match state_change.value {
-                StateChangeValue::AccessKeyUpdate { .. }
-                | StateChangeValue::AccessKeyDeletion { .. } => true,
-                _ => false,
+            .filter(|state_change| {
+                matches!(state_change.value, StateChangeValue::AccessKeyUpdate { .. }
+                | StateChangeValue::AccessKeyDeletion { .. })
             })
             .collect())
     }
@@ -361,10 +359,9 @@ impl StateChanges {
 
         Ok(state_changes
             .into_iter()
-            .filter(|state_change| match state_change.value {
-                StateChangeValue::ContractCodeUpdate { .. }
-                | StateChangeValue::ContractCodeDeletion { .. } => true,
-                _ => false,
+            .filter(|state_change| {
+                matches!(state_change.value,StateChangeValue::ContractCodeUpdate { .. }
+                | StateChangeValue::ContractCodeDeletion { .. } )
             })
             .collect())
     }
@@ -376,10 +373,7 @@ impl StateChanges {
 
         Ok(state_changes
             .into_iter()
-            .filter(|state_change| match state_change.value {
-                StateChangeValue::DataUpdate { .. } | StateChangeValue::DataDeletion { .. } => true,
-                _ => false,
-            })
+            .filter(|state_change| matches!(state_change.value, StateChangeValue::DataUpdate { .. } | StateChangeValue::DataDeletion { .. }))
             .collect())
     }
 }
