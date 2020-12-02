@@ -151,8 +151,6 @@ pub enum Metric {
     data_receipt_10b_1000,
     data_receipt_100kib_1000,
     cpu_ram_soak_test,
-
-    deploy_evm_contract,
 }
 
 #[allow(unused_variables)]
