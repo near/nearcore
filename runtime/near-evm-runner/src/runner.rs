@@ -542,9 +542,7 @@ pub fn run_evm(
     if evm_gas_result.is_none() {
         return (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::EvmError(EvmError::Revert(
-                b"Not enough gas to run EVM".to_vec(),
-            )))),
+            Some(VMError::FunctionCallError(FunctionCallError::EvmError(EvmError::OutOfGas))),
         );
     }
     let evm_gas = evm_gas_result.unwrap();
