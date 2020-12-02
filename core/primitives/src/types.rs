@@ -327,127 +327,60 @@ impl StateChanges {
     pub fn from_account_changes(
         raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
-        let mut state_changes = Self::new();
+        let state_changes = Self::from_changes(raw_changes)?;
 
-        for raw_change in raw_changes {
-            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
-            let account_id = match trie_key {
-                TrieKey::Account { account_id } => account_id,
-                _ => panic!("Conflicting data stored under TrieKey::Account prefix"),
-            };
-            state_changes.extend(changes.into_iter().map(|RawStateChange { cause, data }| {
-                StateChangeWithCause {
-                    cause,
-                    value: if let Some(change_data) = data {
-                        StateChangeValue::AccountUpdate {
-                            account_id: account_id.clone(),
-                            account: <_>::try_from_slice(&change_data)
-                                .expect("Failed to parse internally stored account information"),
-                        }
-                    } else {
-                        StateChangeValue::AccountDeletion { account_id: account_id.clone() }
-                    },
-                }
-            }));
-        }
-
-        Ok(state_changes)
+        Ok(state_changes
+            .into_iter()
+            .filter(|state_change| match state_change.value {
+                StateChangeValue::AccountUpdate { .. }
+                | StateChangeValue::AccountDeletion { .. } => true,
+                _ => false,
+            })
+            .collect())
     }
 
     pub fn from_access_key_changes(
         raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
-        let mut state_changes = Self::new();
+        let state_changes = Self::from_changes(raw_changes)?;
 
-        for raw_change in raw_changes {
-            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
-            let (account_id, public_key) = match trie_key {
-                TrieKey::AccessKey { account_id, public_key } => (account_id, public_key),
-                _ => panic!("Conflicting data stored under TrieKey::AccessKey prefix"),
-            };
-            state_changes.extend(changes.into_iter().map(|RawStateChange { cause, data }| {
-                StateChangeWithCause {
-                    cause,
-                    value: if let Some(change_data) = data {
-                        StateChangeValue::AccessKeyUpdate {
-                            account_id: account_id.clone(),
-                            public_key: public_key.clone(),
-                            access_key: <_>::try_from_slice(&change_data)
-                                .expect("Failed to parse internally stored access key"),
-                        }
-                    } else {
-                        StateChangeValue::AccessKeyDeletion {
-                            account_id: account_id.clone(),
-                            public_key: public_key.clone(),
-                        }
-                    },
-                }
-            }));
-        }
-
-        Ok(state_changes)
+        Ok(state_changes
+            .into_iter()
+            .filter(|state_change| match state_change.value {
+                StateChangeValue::AccessKeyUpdate { .. }
+                | StateChangeValue::AccessKeyDeletion { .. } => true,
+                _ => false,
+            })
+            .collect())
     }
 
     pub fn from_contract_code_changes(
         raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
-        let mut state_changes = Self::new();
+        let state_changes = Self::from_changes(raw_changes)?;
 
-        for raw_change in raw_changes {
-            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
-            let account_id = match trie_key {
-                TrieKey::ContractCode { account_id } => account_id,
-                _ => panic!("Conflicting data stored under TrieKey::ContractCode prefix"),
-            };
-            state_changes.extend(changes.into_iter().map(|RawStateChange { cause, data }| {
-                StateChangeWithCause {
-                    cause,
-                    value: if let Some(change_data) = data {
-                        StateChangeValue::ContractCodeUpdate {
-                            account_id: account_id.clone(),
-                            code: change_data.into(),
-                        }
-                    } else {
-                        StateChangeValue::ContractCodeDeletion { account_id: account_id.clone() }
-                    },
-                }
-            }));
-        }
-
-        Ok(state_changes)
+        Ok(state_changes
+            .into_iter()
+            .filter(|state_change| match state_change.value {
+                StateChangeValue::ContractCodeUpdate { .. }
+                | StateChangeValue::ContractCodeDeletion { .. } => true,
+                _ => false,
+            })
+            .collect())
     }
 
     pub fn from_data_changes(
         raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
-        let mut state_changes = Self::new();
+        let state_changes = Self::from_changes(raw_changes)?;
 
-        for raw_change in raw_changes {
-            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
-            let (account_id, data_key) = match trie_key {
-                TrieKey::ContractData { account_id, key } => (account_id, key),
-                _ => panic!("Conflicting data stored under TrieKey::ContractData prefix"),
-            };
-            state_changes.extend(changes.into_iter().map(|RawStateChange { cause, data }| {
-                StateChangeWithCause {
-                    cause,
-                    value: if let Some(change_data) = data {
-                        StateChangeValue::DataUpdate {
-                            account_id: account_id.clone(),
-                            key: data_key.to_vec().into(),
-                            value: change_data.into(),
-                        }
-                    } else {
-                        StateChangeValue::DataDeletion {
-                            account_id: account_id.clone(),
-                            key: data_key.to_vec().into(),
-                        }
-                    },
-                }
-            }));
-        }
-
-        Ok(state_changes)
+        Ok(state_changes
+            .into_iter()
+            .filter(|state_change| match state_change.value {
+                StateChangeValue::DataUpdate { .. } | StateChangeValue::DataDeletion { .. } => true,
+                _ => false,
+            })
+            .collect())
     }
 }
 
