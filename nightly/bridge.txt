@@ -10,7 +10,23 @@ pytest --timeout=1000 bridge/end2end.py 2 2
 pytest --timeout=1000 bridge/end2end.py 20 0
 pytest --timeout=1000 bridge/end2end.py 1 20
 pytest --timeout=1000 bridge/end2end.py 20 20
+
+pytest --timeout=1000 bridge/end2end.py 2 2 no_txs_in_same_block
+pytest --timeout=1500 bridge/end2end.py 20 0 no_txs_in_same_block
+pytest --timeout=1500 bridge/end2end.py 1 20 no_txs_in_same_block
+pytest --timeout=2000 bridge/end2end.py 20 20 no_txs_in_same_block
+
+pytest --timeout=1500 bridge/end2end.py 2 2 no_txs_in_parallel
+
 pytest --timeout=1000 bridge/multiple_relays.py
 pytest --timeout=1000 bridge/multiple_relays.py add_relay_while_tx
+
 pytest --timeout=1000 bridge/turn_off_relays.py
-pytest --timeout=1000 bridge/turn_off_relays.py one_more_restart
+pytest --timeout=1500 bridge/turn_off_relays.py one_more_restart
+
+pytest --timeout=1000 bridge/two_users.py
+pytest --timeout=1000 bridge/two_users.py same_amount
+pytest --timeout=1000 bridge/two_users.py no_txs_in_same_block
+pytest --timeout=1000 bridge/two_users.py no_txs_in_same_block same_amount
+pytest --timeout=1500 bridge/two_users.py no_txs_in_parallel
+pytest --timeout=1500 bridge/two_users.py no_txs_in_parallel same_amount
