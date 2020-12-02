@@ -463,9 +463,10 @@ impl ShardsManager {
             shard_id,
         )?;
 
+        let me = self.me.as_ref();
         let shard_representative_target = if !request_own_parts_from_others
             && !request_from_archival
-            && Some(chunk_producer_account_id) != self.me.as_ref()
+            && Some(chunk_producer_account_id) != me
         {
             AccountIdOrPeerTrackingShard::from_account(shard_id, chunk_producer_account_id.clone())
         } else {
@@ -483,7 +484,7 @@ impl ShardsManager {
             let need_to_fetch_part = if request_full || seal.contains_part_ord(&part_ord) {
                 true
             } else {
-                if let Some(me) = &self.me {
+                if let Some(me) = me {
                     &self.runtime_adapter.get_part_owner(&parent_hash, part_ord)? == me
                 } else {
                     false
@@ -496,7 +497,7 @@ impl ShardsManager {
                 } else {
                     let part_owner = self.runtime_adapter.get_part_owner(&parent_hash, part_ord)?;
 
-                    if Some(&part_owner) == self.me.as_ref() {
+                    if Some(&part_owner) == me {
                         // If missing own part, request it from the chunk producer / node tracking shard
                         shard_representative_target.clone()
                     } else {
@@ -520,9 +521,10 @@ impl ShardsManager {
             bp_to_parts.entry(shard_representative_target.clone()).or_insert_with(|| vec![]);
         }
 
+        let no_account_id = me.is_none();
         for (target, part_ords) in bp_to_parts {
             // extra check that we are not sending request to ourselves.
-            if self.me.clone().map_or(true, |me| Some(me) != target.account_id) {
+            if no_account_id || me != target.account_id.as_ref() {
                 let request = PartialEncodedChunkRequestMsg {
                     chunk_hash: chunk_hash.clone(),
                     part_ords,
@@ -536,8 +538,8 @@ impl ShardsManager {
                 self.network_adapter
                     .do_send(NetworkRequests::PartialEncodedChunkRequest { target, request });
             } else {
-                warn!(target: "client", "{} requests parts {:?} for chunk {:?} from self",
-                    self.me.clone().unwrap(), part_ords, chunk_hash
+                warn!(target: "client", "{:?} requests parts {:?} for chunk {:?} from self",
+                    me, part_ords, chunk_hash
                 );
             }
         }
@@ -1370,7 +1372,7 @@ impl ShardsManager {
             );
             if cares_about_shard {
                 self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkForward {
-                    account_id: bp.account_id,
+                    account_id: bp.account_id.clone(),
                     forward: forward.clone(),
                 });
             }
