@@ -22,8 +22,6 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_runtime_configs::RuntimeConfig;
-#[cfg(feature = "protocol_feature_evm")]
-use near_runtime_fees::{default_evm_deposit, EvmCostConfig};
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -174,15 +172,8 @@ impl GenesisConfig {
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        #[allow(unused_mut)]
-        let mut genesis_config: GenesisConfig =
+        let genesis_config: GenesisConfig =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        #[cfg(feature = "protocol_feature_evm")]
-        {
-            genesis_config.runtime_config.transaction_costs.evm_config = EvmCostConfig::default();
-            genesis_config.runtime_config.transaction_costs.evm_deposit = default_evm_deposit();
-        }
-
         genesis_config
     }
 

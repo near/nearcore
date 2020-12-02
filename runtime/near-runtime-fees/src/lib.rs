@@ -15,11 +15,6 @@ pub type EvmGas = u64;
 #[cfg(feature = "protocol_feature_evm")]
 const EVM_DEPOSIT: Balance = 1_000_000_000_000_000_000_000_000_000;
 
-#[cfg(feature = "protocol_feature_evm")]
-pub fn default_evm_deposit() -> Balance {
-    EVM_DEPOSIT
-}
-
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
 /// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
@@ -78,14 +73,11 @@ pub struct RuntimeFeesConfig {
 
     /// Describes cost of running method of evm, include deploy code and call contract function
     #[cfg(feature = "protocol_feature_evm")]
-    // Do not serialize and deserialize evm fields to keep genesis unchanged
-    #[serde(skip)]
     pub evm_config: EvmCostConfig,
 
     /// New EVM deposit.
     /// Fee to create new EVM account.
     #[cfg(feature = "protocol_feature_evm")]
-    #[serde(skip)]
     pub evm_deposit: Balance,
 }
 
