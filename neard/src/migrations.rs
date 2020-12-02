@@ -67,13 +67,8 @@ fn apply_block_at_height(
     for (outcome_with_id, proof) in apply_result.outcomes.into_iter().zip(outcome_paths.into_iter())
     {
         let id = outcome_with_id.id;
-        let mut existing_outcomes = chain_store.get_outcomes_by_id(&id)?;
-        existing_outcomes.push(ExecutionOutcomeWithIdAndProof {
-            proof,
-            block_hash,
-            outcome_with_id,
-        });
-        store_update.set_ser(DBCol::ColTransactionResult, id.as_ref(), &existing_outcomes)?;
+        let outcome = vec![ExecutionOutcomeWithIdAndProof { proof, block_hash, outcome_with_id }];
+        store_update.set_ser(DBCol::ColTransactionResult, id.as_ref(), &outcome)?;
     }
     Ok(())
 }
