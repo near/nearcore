@@ -1370,7 +1370,7 @@ impl ShardsManager {
             );
             if cares_about_shard {
                 self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkForward {
-                    account_id: bp.account_id,
+                    account_id: bp.account_id.clone(),
                     forward: forward.clone(),
                 });
             }
