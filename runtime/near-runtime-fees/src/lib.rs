@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 pub type Balance = u128;
 pub type Gas = u64;
+#[cfg(feature = "protocol_feature_evm")]
 pub type EvmGas = u64;
 
 /// The amount is 1000 * 10e24 = 1000 NEAR.

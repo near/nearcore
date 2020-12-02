@@ -26,6 +26,7 @@ use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 
 const DEFAULT_EPOCH_LENGTH: u64 = 3;
 
+#[cfg(feature = "protocol_feature_evm")]
 /// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
 const CHAIN_ID: u128 = 1313161555;
 

@@ -79,9 +79,7 @@ pub mod wasmtime_runner {
                 Some(VMLogicError::InconsistentStateError(e)) => {
                     VMError::InconsistentStateError(e.clone())
                 }
-                Some(VMLogicError::EvmError(e)) => {
-                    VMError::FunctionCallError(FunctionCallError::EvmError(e.clone()))
-                }
+                Some(VMLogicError::EvmError(_)) => unreachable!("Wasm can't return EVM error"),
                 None => panic!("Error is not properly set"),
             }
         } else {
