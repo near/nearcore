@@ -91,22 +91,17 @@ skip = [
     { name = "wasmparser", version = "=0.59.0" },
 
     # bindgen used in rocksdb and in actix-http
-    { name = "cfg-if",  version="1.0.10" },
+    { name = "cfg-if",  version= "=1.0.10" },
 
     # wasmtime and actix-http
-    { name = "gimli", version = "0.23.0" },
+    { name = "gimli", version = "=0.23.0" },
 
     # actix-http's deps backtrace and flate2 use different versions
-    { name = "miniz_oxide", version="0.4.3" },
+    { name = "miniz_oxide", version = "=0.4.3" },
 
     # Wasmtime and actix-http
-    { name = "object", version="0.22.0" },
+    { name = "object", version = "=0.22.0" },
 
     # wasmer and wasmtime
-    { name = "target-lexicon", version = "0.11.1" },
-
-    # wasmer and wasmtime
-    { name = "wasmparser", version = "0.59.0" },
-
-
+    { name = "target-lexicon", version = "=0.11.1" },
 ]
