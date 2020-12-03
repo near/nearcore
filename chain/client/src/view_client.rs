@@ -934,6 +934,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             },
             NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
+                /*
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
                         let header = match self.chain.get_state_response_header(shard_id, sync_hash)
@@ -963,14 +964,28 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         }
                     },
                 };
-                NetworkViewClientResponses::StateResponse(Box::new(StateResponseInfo {
-                    shard_id,
-                    sync_hash,
-                    state_response,
-                }))
+                match state_response {
+                    ShardStateSyncResponse::V1(state_response) => {
+                        let info = StateResponseInfo::V1(StateResponseInfoV1 {
+                            shard_id,
+                            sync_hash,
+                            state_response,
+                        });
+                        NetworkViewClientResponses::StateResponse(Box::new(info))
+                    }
+                    state_response @ ShardStateSyncResponse::V2(_) => {
+                        let info = StateResponseInfo::V2(StateResponseInfoV2 {
+                            shard_id,
+                            sync_hash,
+                            state_response,
+                        });
+                        NetworkViewClientResponses::StateResponse(Box::new(info))
+                    }
+                }*/
+                NetworkViewClientResponses::NoResponse
             }
             NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
-                trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
+                /*trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
                         let part = match self
@@ -1008,7 +1023,10 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     shard_id,
                     sync_hash,
                     state_response,
-                }))
+                });
+                NetworkViewClientResponses::StateResponse(Box::new(info))
+                */
+                NetworkViewClientResponses::NoResponse
             }
             NetworkViewClientMessages::AnnounceAccount(announce_accounts) => {
                 let mut filtered_announce_accounts = Vec::new();
