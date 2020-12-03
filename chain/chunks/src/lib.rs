@@ -536,6 +536,8 @@ impl ShardsManager {
                     },
                 };
 
+                warn!("EVENT_TYPE_ID=10  Sending chunk request {:?} to {:?}", request, target);
+
                 self.network_adapter
                     .do_send(NetworkRequests::PartialEncodedChunkRequest { target, request });
             } else {

@@ -1758,6 +1758,14 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
         );
         let RoutedMessageFrom { mut msg, from } = msg;
 
+        if let RoutedMessageBody::VersionedPartialEncodedChunk(chunk) = &msg.body {
+            warn!(
+                "EVENT_TYPE_ID=30  Handling routed PartialEncodedChunk {} with parts {:?}",
+                chunk.chunk_hash().0,
+                chunk.parts().iter().map(|part| part.part_ord).collect::<Vec<_>>()
+            );
+        }
+
         if msg.expect_response() {
             trace!(target: "network", "Received peer message that requires route back: {}", PeerMessage::Routed(msg.clone()));
             self.routing_table.add_route_back(msg.hash(), from.clone());

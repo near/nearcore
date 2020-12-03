@@ -471,6 +471,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkResponse(response) => {
+                warn!("EVENT_TYPE_ID=20  Chunk Response {} with parts {:?}", response.chunk_hash.0, response.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>());
                 if let Ok(accepted_blocks) =
                     self.client.process_partial_encoded_chunk_response(response)
                 {
