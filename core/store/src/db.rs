@@ -461,8 +461,8 @@ fn rocksdb_options() -> Options {
     opts.set_max_open_files(512);
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(1048576);
-    opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
-    opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
+    opts.set_write_buffer_size(1024 * 1024 * 64 / 2);
+    opts.set_db_write_buffer_size(1024 * 1024 * 64);
     #[cfg(not(feature = "single_thread_rocksdb"))]
     {
         opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
@@ -485,7 +485,10 @@ fn rocksdb_options() -> Options {
 fn rocksdb_block_based_options() -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_size(1024 * 16);
+    #[cfg(feature = "no_cache")]
+    let cache_size = 1024 * 1024 * 16;
     // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
+    #[cfg(not(feature = "no_cache"))]
     let cache_size = 1024 * 1024 * 32;
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
