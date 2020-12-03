@@ -113,7 +113,7 @@ pub fn measure_actions(
 #[inline(always)]
 pub unsafe fn syscall3(fd: u32, buf: &mut [u8]) {
     let mut f = File::from_raw_fd(std::mem::transmute::<u32, i32>(fd));
-    f.read(buf);
+    let _ = f.read(buf);
     std::mem::forget(f); // Skips closing the file descriptor, but throw away reference
 }
 
