@@ -30,7 +30,9 @@ serde_json = {version= "1", features= ["preserve_order"]}
 
 [features]
 default = ["costs_counting"]
+protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm"]
 wasmtime_default = []
+
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []

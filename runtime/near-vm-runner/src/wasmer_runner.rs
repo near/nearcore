@@ -1,6 +1,7 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
-use crate::{cache, imports, CompiledContractCache};
+use crate::{cache, imports};
+use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
@@ -160,6 +161,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                         VMLogicError::InconsistentStateError(e) => {
                             VMError::InconsistentStateError(e.clone())
                         }
+                        VMLogicError::EvmError(_) => unreachable!("Wasm can't return EVM error"),
                     }
                 } else {
                     panic!(

@@ -7,6 +7,14 @@ use serde::{Deserialize, Serialize};
 use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats, ShardId};
 use near_primitives::version::Version;
 
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub enum LogSummaryStyle {
+    #[serde(rename = "plain")]
+    Plain,
+    #[serde(rename = "colored")]
+    Colored,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
     /// Version of the binary.
@@ -45,6 +53,8 @@ pub struct ClientConfig {
     pub min_num_peers: usize,
     /// Period between logging summary information.
     pub log_summary_period: Duration,
+    /// Enable coloring of the logs
+    pub log_summary_style: LogSummaryStyle,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Epoch length.
@@ -127,6 +137,7 @@ impl ClientConfig {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,
+            log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
         }
     }

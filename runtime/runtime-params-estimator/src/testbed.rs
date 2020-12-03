@@ -4,15 +4,15 @@ use std::path::Path;
 
 use borsh::BorshDeserialize;
 
+use near_chain_configs::Genesis;
 use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{create_store, ColState, ShardTries};
+use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use neard::get_store_path;
-use node_runtime::cache::StoreCompiledContractCache;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
 use std::sync::Arc;
@@ -24,9 +24,10 @@ pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
     #[allow(dead_code)]
     workdir: tempfile::TempDir,
-    tries: ShardTries,
-    root: MerkleHash,
-    runtime: Runtime,
+    pub tries: ShardTries,
+    pub root: MerkleHash,
+    pub runtime: Runtime,
+    pub genesis: Genesis,
     prev_receipts: Vec<Receipt>,
     apply_state: ApplyState,
     epoch_info_provider: MockEpochInfoProvider,
@@ -40,6 +41,7 @@ impl RuntimeTestbed {
         let store = create_store(&get_store_path(workdir.path()));
         let tries = ShardTries::new(store.clone(), 1);
 
+        let genesis = Genesis::from_file(dump_dir.join("genesis.json"));
         let mut state_file = dump_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
         store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
@@ -90,6 +92,8 @@ impl RuntimeTestbed {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
         };
         Self {
             workdir,
@@ -99,6 +103,7 @@ impl RuntimeTestbed {
             prev_receipts,
             apply_state,
             epoch_info_provider: MockEpochInfoProvider::default(),
+            genesis,
         }
     }
 

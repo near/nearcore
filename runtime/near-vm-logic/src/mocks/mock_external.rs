@@ -66,6 +66,18 @@ impl External for MockedExternal {
         Ok(())
     }
 
+    fn storage_remove_subtree(&mut self, prefix: &[u8]) -> Result<()> {
+        let keys: Vec<_> = self
+            .fake_trie
+            .iter()
+            .filter_map(|(key, _)| if key.starts_with(prefix) { Some(key.clone()) } else { None })
+            .collect();
+        for key in keys {
+            self.fake_trie.remove(&key);
+        }
+        Ok(())
+    }
+
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool> {
         Ok(self.fake_trie.contains_key(key))
     }

@@ -113,6 +113,8 @@ pub struct BlockHeaderInfo {
     pub chunk_mask: Vec<bool>,
     pub total_supply: Balance,
     pub latest_protocol_version: ProtocolVersion,
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    pub timestamp_nanosec: u64,
 }
 
 impl BlockHeaderInfo {
@@ -129,6 +131,8 @@ impl BlockHeaderInfo {
             chunk_mask: header.chunk_mask().to_vec(),
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            timestamp_nanosec: header.raw_timestamp(),
         }
     }
 }
@@ -581,6 +585,9 @@ pub trait RuntimeAdapter: Send + Sync {
         chunk_prev_block_hash: &CryptoHash,
         header_head: &CryptoHash,
     ) -> Result<bool, Error>;
+
+    #[cfg(feature = "protocol_feature_evm")]
+    fn evm_chain_id(&self) -> u128;
 
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`

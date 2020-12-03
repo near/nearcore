@@ -18,8 +18,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
+    EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
+    StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{
     create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
@@ -33,7 +34,6 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
-use near_vm_runner::CompiledContractCache;
 #[cfg(feature = "costs_counting")]
 pub use near_vm_runner::EXT_COSTS_COUNTER;
 
@@ -89,6 +89,9 @@ pub struct ApplyState {
     pub config: Arc<RuntimeConfig>,
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
+    /// Ethereum chain id.
+    #[cfg(feature = "protocol_feature_evm")]
+    pub evm_chain_id: u128,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -304,6 +307,7 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
+        // println!("enter apply_action");
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(
             &apply_state.config.transaction_costs,
@@ -434,6 +438,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_key,
+                    apply_state.current_protocol_version,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
@@ -1441,15 +1446,17 @@ impl Runtime {
 mod tests {
     use super::*;
 
-    use crate::cache::StoreCompiledContractCache;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
-    use near_primitives::transaction::{FunctionCallAction, TransferAction};
+    use near_primitives::transaction::{
+        AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
+    };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
+    use near_store::StoreCompiledContractCache;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -1506,6 +1513,8 @@ mod tests {
 
         let mut initial_state = tries.new_trie_update(0, root);
         let mut initial_account = account_new(initial_balance, hash(&[]));
+        // For the account and a full access key
+        initial_account.storage_usage = 182;
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         set_access_key(
@@ -1531,6 +1540,8 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
@@ -2212,5 +2223,108 @@ mod tests {
         assert_eq!(result.stats.gas_deficit_amount, expected_deficit);
         // Burnt all the fees + all prepaid gas.
         assert_eq!(result.stats.tx_burnt_amount, total_receipt_cost);
+    }
+
+    #[test]
+    fn test_delete_key_add_key() {
+        let initial_locked = to_yocto(500_000);
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+            setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
+
+        let state_update = tries.new_trie_update(0, root);
+        let initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+
+        let actions = vec![
+            Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() }),
+            Action::AddKey(AddKeyAction {
+                public_key: signer.public_key(),
+                access_key: AccessKey::full_access(),
+            }),
+        ];
+
+        let receipts = vec![Receipt {
+            predecessor_id: alice_account(),
+            receiver_id: alice_account(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: alice_account(),
+                signer_public_key: signer.public_key(),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        }];
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(0),
+                root,
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+            )
+            .unwrap();
+        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
+
+        let state_update = tries.new_trie_update(0, root);
+        let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+
+        assert_eq!(initial_account_state.storage_usage, final_account_state.storage_usage);
+    }
+
+    #[test]
+    fn test_delete_key_underflow() {
+        let initial_locked = to_yocto(500_000);
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+            setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
+
+        let mut state_update = tries.new_trie_update(0, root);
+        let mut initial_account_state =
+            get_account(&state_update, &alice_account()).unwrap().unwrap();
+        initial_account_state.storage_usage = 10;
+        set_account(&mut state_update, alice_account(), &initial_account_state);
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().0;
+        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
+
+        let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() })];
+
+        let receipts = vec![Receipt {
+            predecessor_id: alice_account(),
+            receiver_id: alice_account(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: alice_account(),
+                signer_public_key: signer.public_key(),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        }];
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(0),
+                root,
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+            )
+            .unwrap();
+        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
+
+        let state_update = tries.new_trie_update(0, root);
+        let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+
+        assert_eq!(final_account_state.storage_usage, 0);
     }
 }

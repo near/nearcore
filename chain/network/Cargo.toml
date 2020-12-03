@@ -44,9 +44,7 @@ near-telemetry = { path = "../telemetry" }
 adversarial = []
 metric_recorder = []
 delay_detector = ["delay-detector"]
-protocol_feature_forward_chunk_parts = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts"]
-nightly_protocol = []
+protocol_feature_forward_chunk_parts = ["near-primitives/protocol_feature_forward_chunk_parts"]
 
 [[bench]]
 name = "graph"
