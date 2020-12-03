@@ -754,7 +754,10 @@ impl ClientActor {
             );
             delay = core::cmp::min(
                 delay,
-                self.doomslug_timer_next_attempt.signed_duration_since(now).to_std().unwrap(),
+                self.doomslug_timer_next_attempt
+                    .signed_duration_since(now)
+                    .to_std()
+                    .unwrap_or(delay),
             )
         }
         if self.block_production_started {
@@ -771,7 +774,10 @@ impl ClientActor {
 
             delay = core::cmp::min(
                 delay,
-                self.block_production_next_attempt.signed_duration_since(now).to_std().unwrap(),
+                self.block_production_next_attempt
+                    .signed_duration_since(now)
+                    .to_std()
+                    .unwrap_or(delay),
             )
         }
         self.chunk_request_retry_next_attempt = self.run_timer(
@@ -786,7 +792,10 @@ impl ClientActor {
         );
         core::cmp::min(
             delay,
-            self.chunk_request_retry_next_attempt.signed_duration_since(now).to_std().unwrap(),
+            self.chunk_request_retry_next_attempt
+                .signed_duration_since(now)
+                .to_std()
+                .unwrap_or(delay),
         )
     }
 

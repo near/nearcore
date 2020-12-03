@@ -129,6 +129,9 @@ pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 /// Number of epochs before protocol upgrade.
 pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
 
+#[cfg(feature = "protocol_feature_evm")]
+pub const TEST_EVM_CHAIN_ID: u128 = 0x99;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -475,16 +478,13 @@ impl Genesis {
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records.extend(
-                state_records_account_with_key(
-                    account,
-                    &signer.public_key.clone(),
-                    TESTING_INIT_BALANCE
-                        - if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
-                    if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
-                    CryptoHash::default(),
-                )
-                .into_iter(),
+            add_account_with_key(
+                &mut records,
+                account,
+                &signer.public_key.clone(),
+                TESTING_INIT_BALANCE - if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
+                if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
+                CryptoHash::default(),
             );
         }
         add_protocol_account(&mut records);
@@ -678,37 +678,37 @@ fn add_protocol_account(records: &mut Vec<StateRecord>) {
         KeyType::ED25519,
         PROTOCOL_TREASURY_ACCOUNT,
     );
-    records.extend(state_records_account_with_key(
+    add_account_with_key(
+        records,
         PROTOCOL_TREASURY_ACCOUNT,
         &signer.public_key,
         TESTING_INIT_BALANCE,
         0,
         CryptoHash::default(),
-    ));
+    );
 }
 
 fn random_chain_id() -> String {
     format!("test-chain-{}", generate_random_string(5))
 }
 
-fn state_records_account_with_key(
+fn add_account_with_key(
+    records: &mut Vec<StateRecord>,
     account_id: &str,
     public_key: &PublicKey,
     amount: u128,
     staked: u128,
     code_hash: CryptoHash,
-) -> Vec<StateRecord> {
-    vec![
-        StateRecord::Account {
-            account_id: account_id.to_string(),
-            account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
-        },
-        StateRecord::AccessKey {
-            account_id: account_id.to_string(),
-            public_key: public_key.clone(),
-            access_key: AccessKey::full_access(),
-        },
-    ]
+) {
+    records.push(StateRecord::Account {
+        account_id: account_id.to_string(),
+        account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
+    });
+    records.push(StateRecord::AccessKey {
+        account_id: account_id.to_string(),
+        public_key: public_key.clone(),
+        access_key: AccessKey::full_access(),
+    });
 }
 
 /// Generate a validator key and save it to the file path.
@@ -827,11 +827,24 @@ pub fn init_configs(
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
-            let mut records = state_records_account_with_key(
+            let mut records = vec![];
+            add_account_with_key(
+                &mut records,
                 &account_id,
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
+                CryptoHash::default(),
+            );
+            #[cfg(feature = "protocol_feature_evm")]
+            // EVM account is created here only for new generated genesis
+            // For existing network, evm account has to be created with linkdrop
+            add_account_with_key(
+                &mut records,
+                "evm",
+                &signer.public_key(),
+                TESTING_INIT_BALANCE,
+                0,
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);

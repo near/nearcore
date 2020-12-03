@@ -1,14 +1,14 @@
 # NEAR Client Attributions
 
 We have taken inspiration and few pieces of code from:
- * [Parity Ethereum](https://github.com/paritytech/parity-ethereum)
+ * [OpenEthereum](https://github.com/openethereum/openethereum)
  * [Parity Substrate](https://github.com/paritytech/substrate)
  * [Parity Trie](https://github.com/paritytech/trie)
  * [Grin](https://github.com/mimblewimble/grin/)
 
 ## Licenses
 
-### Parity {Ethereum, Substrate}
+### OpenEthereum, Parity Substrate
 
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
