@@ -13,12 +13,13 @@ members = [
     "core/store",
     "core/metrics",
     "utils/actix",
-    "runtime/runtime",
-    "runtime/runtime-standalone",
+    "runtime/near-evm-runner",
     "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
+    "runtime/runtime",
+    "runtime/runtime-standalone",
     "runtime/runtime-params-estimator",
     "chain/chain",
     "chain/chunks",
@@ -65,6 +66,8 @@ near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
+near-runtime-standalone = { path = "./runtime/runtime-standalone" }
+runtime-params-estimator = { path = "./runtime/runtime-params-estimator" }
 
 node-runtime = { path = "./runtime/runtime" }
 
@@ -107,5 +110,6 @@ metric_recorder = ["neard/metric_recorder"]
 delay_detector = ["neard/delay_detector"]
 rosetta_rpc = ["neard/rosetta_rpc"]
 protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_parts"]
-nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features"]
+nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
+nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm"]
+protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "near-runtime-standalone/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]

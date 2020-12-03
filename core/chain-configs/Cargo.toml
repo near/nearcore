@@ -16,3 +16,8 @@ sha2 = "0.9"
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
 near-runtime-configs = { path = "../runtime-configs" }
+near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
+
+[features]
+default = []
+protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm"]

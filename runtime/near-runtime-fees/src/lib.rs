@@ -6,7 +6,14 @@
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
+pub type Balance = u128;
 pub type Gas = u64;
+#[cfg(feature = "protocol_feature_evm")]
+pub type EvmGas = u64;
+
+/// The amount is 1000 * 10e24 = 1000 NEAR.
+#[cfg(feature = "protocol_feature_evm")]
+const EVM_DEPOSIT: Balance = 1_000_000_000_000_000_000_000_000_000;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
@@ -44,6 +51,7 @@ impl Fee {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[serde(default)]
 pub struct RuntimeFeesConfig {
     /// Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost
     /// of actions.
@@ -63,6 +71,16 @@ pub struct RuntimeFeesConfig {
 
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational,
+
+    /// Describes cost of running method of evm, include deploy code and call contract function
+    #[cfg(feature = "protocol_feature_evm")]
+    pub evm_config: EvmCostConfig,
+
+    /// New EVM deposit.
+    /// Fee to create new EVM account.
+    #[cfg(feature = "protocol_feature_evm")]
+    #[serde(with = "u128_dec_format")]
+    pub evm_deposit: Balance,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -133,6 +151,87 @@ pub struct StorageUsageConfig {
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
+}
+
+/// Describe cost of evm
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmCostConfig {
+    /// Base cost of instantiate an evm instance for any evm operation
+    pub bootstrap_cost: Gas,
+    /// For every unit of gas used by evm in deploy evm contract, equivalent near gas cost
+    pub deploy_cost_per_evm_gas: Gas,
+    /// For every byte of evm contract, result near gas cost
+    pub deploy_cost_per_byte: Gas,
+    /// For bootstrapped evm, base cost to invoke a contract function
+    pub funcall_cost_base: Gas,
+    /// For every unit of gas used by evm in funcall, equivalent near gas cost
+    pub funcall_cost_per_evm_gas: Gas,
+    /// Evm precompiled function costs
+    pub precompile_costs: EvmPrecompileCostConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmPrecompileCostConfig {
+    pub ecrecover_cost: EvmLinearCost,
+    pub sha256_cost: EvmLinearCost,
+    pub ripemd160_cost: EvmLinearCost,
+    pub identity_cost: EvmLinearCost,
+    pub modexp_cost: EvmModexpCost,
+    pub bn128_add_cost: EvmBls12ConstOpCost,
+    pub bn128_mul_cost: EvmBls12ConstOpCost,
+    pub bn128_pairing_cost: EvmBn128PairingCost,
+    pub blake2f_cost: EvmBlake2FCost,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmLinearCost {
+    pub base: u64,
+    pub word: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmModexpCost {
+    pub divisor: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmBls12ConstOpCost {
+    pub price: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct EvmBn128PairingCost {
+    pub base: u64,
+    pub pair: u64,
+}
+
+pub type EvmBlake2FCost = u64;
+
+impl Default for EvmCostConfig {
+    fn default() -> Self {
+        Self {
+            // Got inside emu-cost docker, numbers differ slightly in different runs:
+            // cd /host/nearcore/runtime/near-evm-runner/tests
+            // ../../runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=../../runtime-params-estimator/emu-cost/counter_plugin/libcounter.so ../../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 200000 --iters 1 --warmup-iters 1 --evm-only
+            bootstrap_cost: 373945633846,
+            deploy_cost_per_evm_gas: 3004467,
+            deploy_cost_per_byte: 2732257,
+            funcall_cost_base: 300126401250,
+            funcall_cost_per_evm_gas: 116076934,
+            precompile_costs: EvmPrecompileCostConfig {
+                // Data from openethereum/ethcore/res/ethereum/ethercore.json
+                ecrecover_cost: EvmLinearCost { base: 3000, word: 0 },
+                sha256_cost: EvmLinearCost { base: 60, word: 12 },
+                ripemd160_cost: EvmLinearCost { base: 600, word: 120 },
+                identity_cost: EvmLinearCost { base: 15, word: 3 },
+                modexp_cost: EvmModexpCost { divisor: 20 },
+                bn128_add_cost: EvmBls12ConstOpCost { price: 150 },
+                bn128_mul_cost: EvmBls12ConstOpCost { price: 6000 },
+                bn128_pairing_cost: EvmBn128PairingCost { base: 45000, pair: 34000 },
+                blake2f_cost: 1,
+            },
+        }
+    }
 }
 
 impl Default for RuntimeFeesConfig {
@@ -228,6 +327,10 @@ impl Default for RuntimeFeesConfig {
             },
             burnt_gas_reward: Rational::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_config: EvmCostConfig::default(),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_deposit: EVM_DEPOSIT,
         }
     }
 }
@@ -263,6 +366,27 @@ impl RuntimeFeesConfig {
             },
             burnt_gas_reward: Rational::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational::from_integer(0),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_config: EvmCostConfig {
+                bootstrap_cost: 0,
+                deploy_cost_per_evm_gas: 0,
+                deploy_cost_per_byte: 0,
+                funcall_cost_base: 0,
+                funcall_cost_per_evm_gas: 0,
+                precompile_costs: EvmPrecompileCostConfig {
+                    ecrecover_cost: EvmLinearCost { base: 0, word: 0 },
+                    sha256_cost: EvmLinearCost { base: 0, word: 0 },
+                    ripemd160_cost: EvmLinearCost { base: 0, word: 0 },
+                    identity_cost: EvmLinearCost { base: 0, word: 0 },
+                    modexp_cost: EvmModexpCost { divisor: 1 },
+                    bn128_add_cost: EvmBls12ConstOpCost { price: 0 },
+                    bn128_mul_cost: EvmBls12ConstOpCost { price: 0 },
+                    bn128_pairing_cost: EvmBn128PairingCost { base: 0, pair: 0 },
+                    blake2f_cost: 0,
+                },
+            },
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_deposit: 0,
         }
     }
 
@@ -273,6 +397,30 @@ impl RuntimeFeesConfig {
     pub fn min_receipt_with_function_call_gas(&self) -> Gas {
         self.action_receipt_creation_config.min_send_and_exec_fee()
             + self.action_creation_config.function_call_cost.min_send_and_exec_fee()
+    }
+}
+
+/// Serde serializer for u128 to integer.
+/// This is copy from core/primitives/src/serialize.rs
+/// It is required as this module doesn't depend on primitives.
+/// TODO(3384): move basic primitives into a separate module and use in runtime.
+pub mod u128_dec_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(num: &u128, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{}", num))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u128, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        u128::from_str_radix(&s, 10).map_err(de::Error::custom)
     }
 }
 

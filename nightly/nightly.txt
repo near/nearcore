@@ -145,6 +145,7 @@ expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_testnet
 expensive nearcore test_cases_testnet_rpc test::test_add_access_key_with_allowance_testnet
 expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_with_allowance_testnet
 expensive nearcore test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
+expensive nearcore test_cases_testnet_rpc test::test_evm_deploy_call_testnet
 
 # GC tests
 expensive --timeout=900 near-chain gc tests::test_gc_remove_fork_large
