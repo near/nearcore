@@ -1118,6 +1118,7 @@ impl Actor for PeerManagerActor {
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
 
+            println!("peer manager actor started");
             let pending_incoming_connections_counter =
                 self.pending_incoming_connections_counter.clone();
             let peer_counter = self.peer_counter.clone();

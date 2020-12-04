@@ -6,8 +6,8 @@ use std::sync::RwLock;
 
 mod runner;
 use actix::actors::mocker::Mocker;
-use actix::Actor;
 use actix::System;
+use actix::{Actor, Arbiter};
 use futures::{future, FutureExt};
 
 use core::time::Duration;
@@ -238,9 +238,12 @@ fn connection_spam_security_test() {
     let vec: Arc<RwLock<Vec<TcpStream>>> = Arc::new(RwLock::new(Vec::new()));
     let vec2: Arc<RwLock<Vec<TcpStream>>> = vec.clone();
     System::run(move || {
+        let arbiter = Arbiter::new();
         let port = open_port();
 
-        let pm = make_peer_manager("test1", port, vec![], 10).start();
+        let pm = PeerManagerActor::start_in_arbiter(&arbiter, move |_ctx| {
+            make_peer_manager("test1", port, vec![], 10)
+        });
 
         let addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
 
