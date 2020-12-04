@@ -2439,3 +2439,23 @@ fn test_fork_execution_outcome() {
         env.clients[0].chain.store().get_outcomes_by_id(&receipt_id).unwrap();
     assert!(receipt_execution_outcomes.is_empty());
 }
+
+#[test]
+fn test_not_broadcast_block_on_accept() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let mut env = TestEnv::new_with_runtime_and_network_adapter(
+        ChainGenesis::test(),
+        2,
+        1,
+        create_nightshade_runtimes(&genesis, 2),
+        vec![Arc::new(MockNetworkAdapter::default()), network_adapter.clone()],
+    );
+    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
+    for i in 0..2 {
+        env.process_block(i, b1.clone(), Provenance::NONE);
+    }
+    assert!(network_adapter.requests.read().unwrap().is_empty());
+}
