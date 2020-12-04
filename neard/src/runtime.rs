@@ -56,17 +56,12 @@ const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 /// Wrapper type for epoch manager to get avoid implementing trait for foreign types.
+#[derive(Clone)]
 pub struct SafeEpochManager(pub Arc<RwLock<EpochManager>>);
 
 impl AsRef<RwLock<EpochManager>> for SafeEpochManager {
     fn as_ref(&self) -> &RwLock<EpochManager> {
         self.0.as_ref()
-    }
-}
-
-impl Clone for SafeEpochManager {
-    fn clone(&self) -> Self {
-        SafeEpochManager(self.0.clone())
     }
 }
 

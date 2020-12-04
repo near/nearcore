@@ -1817,16 +1817,18 @@ mod tests {
     use crate::peer_manager::EdgeVerifier;
     use crate::routing::Edge;
     use crate::test_utils::open_port;
-    use crate::types::{NetworkViewClientResponses, SyncData};
+    use crate::types::{EdgeList, NetworkViewClientResponses, SyncData};
     use crate::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
     use actix::actors::mocker::Mocker;
     use actix::{Actor, System};
+    use chrono::Utc;
     use near_client::{ClientActor, ViewClientActor};
     use near_primitives::network::PeerId;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_store::test_utils::create_test_store;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::time::Duration;
 
     type ClientMock = Mocker<ClientActor>;
     type ViewClientMock = Mocker<ViewClientActor>;
@@ -1858,9 +1860,14 @@ mod tests {
 
             let counter = Arc::new(AtomicUsize::new(0));
             let counter1 = counter.clone();
-            let edge_verifier_addr = EdgeVerifierMock::mock(Box::new(move |_msg, _ctx| {
-                counter1.fetch_add(1, Ordering::SeqCst);
-                Box::new(true)
+            let edge_verifier_addr = EdgeVerifierMock::mock(Box::new(move |msg, _ctx| {
+                let msg = msg.downcast_ref::<EdgeList>().unwrap();
+                if !msg.0.is_empty() {
+                    counter1.fetch_add(1, Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+
+                Box::new(Some(true))
             }))
             .start();
             peer_manager.edge_verifier_pool = edge_verifier_addr.recipient();
@@ -1870,16 +1877,21 @@ mod tests {
                 sync_data: SyncData::edge(Edge::new(
                     peer_id.clone(),
                     peer_id,
-                    0,
+                    2,
                     Default::default(),
                     Default::default(),
                 )),
             };
             actix::spawn(async move {
+                let before = Utc::now();
+                pm.send(request.clone()).await.unwrap();
+                actix::clock::delay_for(Duration::from_millis(100)).await;
                 for _ in 0..100 {
                     pm.send(request.clone()).await.unwrap();
                 }
+                let after = Utc::now();
                 assert_eq!(counter.load(Ordering::SeqCst), 1);
+                assert!(after - before < chrono::Duration::milliseconds(250));
                 System::current().stop();
             })
         })
