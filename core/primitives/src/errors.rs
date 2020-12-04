@@ -107,13 +107,13 @@ impl std::error::Error for StorageError {}
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
     InvalidAccessKeyError(InvalidAccessKeyError),
-    /// TX signer_id is not in a valid format or not satisfy requirements see `near_core::primitives::utils::is_valid_account_id`
+    /// TX signer_id is not in a valid format or not satisfy requirements see `near_runtime_utils::utils::is_valid_account_id`
     InvalidSignerId { signer_id: AccountId },
     /// TX signer_id is not found in a storage
     SignerDoesNotExist { signer_id: AccountId },
     /// Transaction nonce must be account[access_key].nonce + 1
     InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
-    /// TX receiver_id is not in a valid format or not satisfy requirements see `near_core::primitives::utils::is_valid_account_id`
+    /// TX receiver_id is not in a valid format or not satisfy requirements see `near_runtime_utils::is_valid_account_id`
     InvalidReceiverId { receiver_id: AccountId },
     /// TX signature is not valid
     InvalidSignature,
@@ -422,7 +422,7 @@ impl Display for InvalidTxError {
                 signer_id, balance, cost
             ),
             InvalidTxError::LackBalanceForState { signer_id, amount } => {
-                write!(f, "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {}", signer_id, amount)
+                write!(f, "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {} yoctoNEAR more", signer_id, amount)
             }
             InvalidTxError::CostOverflow => {
                 write!(f, "Transaction gas or balance cost is too high")
@@ -635,7 +635,7 @@ impl Display for ActionErrorKind {
             ),
             ActionErrorKind::LackBalanceForState { account_id, amount } => write!(
                 f,
-                "The account {} wouldn't have enough balance to cover storage, required to have {}",
+                "The account {} wouldn't have enough balance to cover storage, required to have {} yoctoNEAR more",
                 account_id, amount
             ),
             ActionErrorKind::TriesToUnstake { account_id } => {

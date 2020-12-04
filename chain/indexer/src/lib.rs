@@ -14,8 +14,8 @@ pub use neard::{get_default_home, init_configs, NearConfig};
 mod streamer;
 
 pub use self::streamer::{
-    ExecutionOutcomesWithReceipts, IndexerChunkView, IndexerExecutionOutcomeWithReceipt,
-    IndexerTransactionWithOutcome, StreamerMessage,
+    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome,
+    StreamerMessage,
 };
 pub use near_primitives;
 
@@ -30,6 +30,15 @@ pub enum SyncModeEnum {
     BlockHeight(u64),
 }
 
+/// Enum to define whether await for node to be fully synced or stream while syncing (useful for indexing from genesis)
+#[derive(Debug, Clone)]
+pub enum AwaitForNodeSyncedEnum {
+    /// Don't stream until the node is fully synced
+    WaitForFullSync,
+    /// Stream while node is syncing
+    StreamWhileSyncing,
+}
+
 /// NEAR Indexer configuration to be provided to `Indexer::new(IndexerConfig)`
 #[derive(Debug, Clone)]
 pub struct IndexerConfig {
@@ -37,6 +46,8 @@ pub struct IndexerConfig {
     pub home_dir: std::path::PathBuf,
     /// Mode of syncing for NEAR Indexer instance
     pub sync_mode: SyncModeEnum,
+    /// Whether await for node to be synced or not
+    pub await_for_node_synced: AwaitForNodeSyncedEnum,
 }
 
 /// This is the core component, which handles `nearcore` and internal `streamer`.

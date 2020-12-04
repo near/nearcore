@@ -3,7 +3,10 @@ use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
@@ -48,7 +51,6 @@ use crate::types::{
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
 use rand::thread_rng;
-use std::cmp::Ordering;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: u64 = 60;
@@ -74,6 +76,8 @@ const EXPONENTIAL_BACKOFF_LIMIT: u64 = 91;
 /// Time to wait before sending ping to all reachable peers.
 #[cfg(feature = "metric_recorder")]
 const WAIT_BEFORE_PING: u64 = 20_000;
+/// Limit number of pending Peer actors to avoid OOM.
+const LIMIT_PENDING_PEERS: usize = 60;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -147,6 +151,8 @@ pub struct PeerManagerActor {
     edge_verifier_pool: Recipient<EdgeList>,
     txns_since_last_block: Arc<AtomicUsize>,
     epoch_info_provider: Box<dyn EpochInfoProvider>,
+    pending_incoming_connections_counter: Arc<AtomicUsize>,
+    peer_counter: Arc<AtomicUsize>,
 }
 
 impl PeerManagerActor {
@@ -189,6 +195,8 @@ impl PeerManagerActor {
             metric_recorder,
             txns_since_last_block,
             epoch_info_provider,
+            pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
+            peer_counter: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -421,6 +429,9 @@ impl PeerManagerActor {
 
         // Start every peer actor on separate thread.
         let arbiter = Arbiter::new();
+        let peer_counter = self.peer_counter.clone();
+        peer_counter.fetch_add(1, Ordering::SeqCst);
+
         Peer::start_in_arbiter(&arbiter, move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
@@ -451,6 +462,7 @@ impl PeerManagerActor {
                 edge_info,
                 network_metrics,
                 txns_since_last_block,
+                peer_counter,
             )
         });
     }
@@ -1068,6 +1080,7 @@ impl PeerManagerActor {
                 .collect(),
             #[cfg(feature = "metric_recorder")]
             metric_recorder: self.metric_recorder.clone(),
+            peer_counter: self.peer_counter.load(Ordering::SeqCst),
         }
     }
 
@@ -1104,14 +1117,31 @@ impl Actor for PeerManagerActor {
         // Start server if address provided.
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
+
+            let pending_incoming_connections_counter =
+                self.pending_incoming_connections_counter.clone();
+            let peer_counter = self.peer_counter.clone();
+            let max_num_peers: usize = self.config.max_num_peers as usize;
+
             ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
                 move |listener, act, ctx| {
                     let listener = listener.unwrap();
                     let incoming = IncomingCrutch { listener };
                     info!(target: "stats", "Server listening at {}@{}", act.peer_id, server_addr);
-                    ctx.add_message_stream(
-                        incoming.filter_map(|x| future::ready(x.map(InboundTcpConnect::new).ok())),
-                    );
+
+                    ctx.add_message_stream(incoming.filter_map(move |conn| {
+                        if let Ok(conn) = conn {
+                            if pending_incoming_connections_counter.load(Ordering::SeqCst)
+                                + peer_counter.load(Ordering::SeqCst)
+                                < max_num_peers + LIMIT_PENDING_PEERS
+                            {
+                                pending_incoming_connections_counter.fetch_add(1, Ordering::SeqCst);
+                                return future::ready(Some(InboundTcpConnect::new(conn)));
+                            }
+                        }
+
+                        future::ready(None)
+                    }));
                     actix::fut::ready(())
                 },
             ));
@@ -1368,7 +1398,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             &account_announcement.epoch_id,
                             &current_announce_account.epoch_id,
                         ) {
-                            Ok(Ordering::Greater) => {}
+                            Ok(std::cmp::Ordering::Greater) => {}
                             _ => continue,
                         }
                     }
@@ -1537,6 +1567,7 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
         }
+        self.pending_incoming_connections_counter.fetch_sub(1, Ordering::SeqCst);
     }
 }
 

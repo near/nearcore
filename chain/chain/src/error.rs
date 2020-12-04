@@ -320,7 +320,7 @@ impl From<BlockValidityError> for Error {
             BlockValidityError::InvalidReceiptRoot => ErrorKind::InvalidChunkReceiptsRoot,
             BlockValidityError::InvalidTransactionRoot => ErrorKind::InvalidTxRoot,
             BlockValidityError::InvalidChunkHeaderRoot => ErrorKind::InvalidChunkHeadersRoot,
-            BlockValidityError::InvalidNumChunksIncluded => ErrorKind::InvalidChunkMask,
+            BlockValidityError::InvalidChunkMask => ErrorKind::InvalidChunkMask,
             BlockValidityError::InvalidChallengeRoot => ErrorKind::InvalidChallengeRoot,
         }
         .into()

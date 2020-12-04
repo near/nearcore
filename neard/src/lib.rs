@@ -28,6 +28,9 @@ use near_store::migrations::{
     migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+use near_store::migrations::migrate_16_to_rectify_inflation;
+
 pub mod config;
 pub mod genesis_validate;
 mod migrations;
@@ -176,9 +179,23 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         let store = create_store(&path);
         set_store_version(&store, 16);
     }
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    if db_version <= 16 {
+        // version 16 => rectify inflation: add `timestamp` to `BlockInfo`
+        migrate_16_to_rectify_inflation(&path);
+    }
+    #[cfg(feature = "nightly_protocol")]
+    {
+        let store = create_store(&path);
+        // set some dummy value to avoid conflict with other migrations from nightly features
+        set_store_version(&store, 10000);
+    }
 
-    let db_version = get_store_version(path);
-    debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
+    #[cfg(not(feature = "nightly_protocol"))]
+    {
+        let db_version = get_store_version(path);
+        debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
+    }
 }
 
 pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<Store> {

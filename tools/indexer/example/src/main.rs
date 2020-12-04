@@ -185,7 +185,7 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
             streamer_message.chunks.len(),
             streamer_message.chunks.iter().map(|chunk| chunk.transactions.len()).sum::<usize>(),
             streamer_message.chunks.iter().map(|chunk| chunk.receipts.len()).sum::<usize>(),
-            streamer_message.receipt_execution_outcomes.len(),
+            streamer_message.chunks.iter().map(|chunk| chunk.receipt_execution_outcomes.len()).sum::<usize>(),
         );
     }
 }
@@ -206,6 +206,7 @@ fn main() {
             let indexer_config = near_indexer::IndexerConfig {
                 home_dir,
                 sync_mode: near_indexer::SyncModeEnum::FromInterruption,
+                await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
             };
             let indexer = near_indexer::Indexer::new(indexer_config);
             let stream = indexer.streamer();

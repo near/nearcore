@@ -151,6 +151,7 @@ impl ClientActor {
                 known_producers: vec![],
                 #[cfg(feature = "metric_recorder")]
                 metric_recorder: MetricRecorder::default(),
+                peer_counter: 0,
             },
             last_validator_announce_time: None,
             info_helper,
@@ -555,7 +556,7 @@ impl Handler<Status> for ClientActor {
             .map_err(|err| err.to_string())?
             .into_iter()
             .map(|(validator_stake, is_slashed)| ValidatorInfo {
-                account_id: validator_stake.account_id,
+                account_id: validator_stake.account_id.clone(),
                 is_slashed,
             })
             .collect();
@@ -753,7 +754,10 @@ impl ClientActor {
             );
             delay = core::cmp::min(
                 delay,
-                self.doomslug_timer_next_attempt.signed_duration_since(now).to_std().unwrap(),
+                self.doomslug_timer_next_attempt
+                    .signed_duration_since(now)
+                    .to_std()
+                    .unwrap_or(delay),
             )
         }
         if self.block_production_started {
@@ -770,7 +774,10 @@ impl ClientActor {
 
             delay = core::cmp::min(
                 delay,
-                self.block_production_next_attempt.signed_duration_since(now).to_std().unwrap(),
+                self.block_production_next_attempt
+                    .signed_duration_since(now)
+                    .to_std()
+                    .unwrap_or(delay),
             )
         }
         self.chunk_request_retry_next_attempt = self.run_timer(
@@ -785,7 +792,10 @@ impl ClientActor {
         );
         core::cmp::min(
             delay,
-            self.chunk_request_retry_next_attempt.signed_duration_since(now).to_std().unwrap(),
+            self.chunk_request_retry_next_attempt
+                .signed_duration_since(now)
+                .to_std()
+                .unwrap_or(delay),
         )
     }
 

@@ -474,6 +474,7 @@ pub fn setup_mock_all_validators(
                             known_producers: vec![],
                             #[cfg(feature = "metric_recorder")]
                             metric_recorder: MetricRecorder::default(),
+                            peer_counter: 0,
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }

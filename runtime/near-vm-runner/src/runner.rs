@@ -1,4 +1,4 @@
-use crate::CompiledContractCache;
+use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::VMError;
 use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};

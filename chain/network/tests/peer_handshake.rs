@@ -1,6 +1,8 @@
 pub use runner::*;
+use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::RwLock;
 
 mod runner;
 use actix::actors::mocker::Mocker;
@@ -8,6 +10,7 @@ use actix::Actor;
 use actix::System;
 use futures::{future, FutureExt};
 
+use core::time::Duration;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeout};
@@ -19,6 +22,7 @@ use near_store::test_utils::create_test_store;
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
 
+#[cfg(test)]
 fn make_peer_manager(
     seed: &str,
     port: u16,
@@ -225,4 +229,48 @@ fn check_connection_with_new_identity() {
     }));
 
     start_test(runner);
+}
+
+#[test]
+fn connection_spam_security_test() {
+    init_test_logger();
+
+    let vec: Arc<RwLock<Vec<TcpStream>>> = Arc::new(RwLock::new(Vec::new()));
+    let vec2: Arc<RwLock<Vec<TcpStream>>> = vec.clone();
+    System::run(move || {
+        let port = open_port();
+
+        let pm = make_peer_manager("test1", port, vec![], 10).start();
+
+        let addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+
+        while vec.read().unwrap().len() < 100 {
+            if let Ok(stream) = TcpStream::connect_timeout(&addr.clone(), Duration::from_secs(10)) {
+                vec.write().unwrap().push(stream);
+            }
+        }
+
+        let iter = Arc::new(AtomicUsize::new(0));
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                let iter = iter.clone();
+                actix::spawn(pm.send(GetInfo {}).then(move |res| {
+                    let info = res.unwrap();
+                    if info.peer_counter >= 70 {
+                        iter.fetch_add(1, Ordering::SeqCst);
+                        if iter.load(Ordering::SeqCst) >= 10 {
+                            assert_eq!(info.peer_counter, 70);
+                            System::current().stop();
+                        }
+                    }
+                    future::ready(())
+                }));
+            }),
+            100,
+            500000,
+        )
+        .start();
+    })
+    .unwrap();
+    assert_eq!(vec2.read().unwrap().len(), 100);
 }
