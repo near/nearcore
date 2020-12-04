@@ -22,6 +22,9 @@ pub fn bob_account() -> AccountId {
 pub fn eve_dot_alice_account() -> AccountId {
     "eve.alice.near".to_string()
 }
+pub fn evm_account() -> AccountId {
+    "evm".to_string()
+}
 
 pub fn default_code_hash() -> CryptoHash {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

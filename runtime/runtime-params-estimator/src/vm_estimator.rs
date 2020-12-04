@@ -1,6 +1,4 @@
-use crate::testbed_runners::end_count;
-use crate::testbed_runners::start_count;
-use crate::testbed_runners::GasMetric;
+use crate::testbed_runners::{end_count, start_count, GasMetric};
 use glob::glob;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
@@ -161,12 +159,13 @@ pub fn cost_to_compile(
             "About to compile {}",
             match vm_kind {
                 VMKind::Wasmer => "wasmer",
-                VMKind::Wasmtime =>
+                VMKind::Wasmtime => {
                     if USING_LIGHTBEAM {
                         "wasmtime-lightbeam"
                     } else {
                         "wasmtime"
-                    },
+                    }
+                }
             }
         );
     };
@@ -175,7 +174,7 @@ pub fn cost_to_compile(
         .filter(|path| fs::metadata(path).is_ok())
         .map(|path| {
             if verbose {
-                print!("Testing {}: ", path.display());
+                print!("Testing deploy {}: ", path.display());
             };
             if let Some((size, cost)) = load_and_compile(path, gas_metric, vm_kind) {
                 if verbose {

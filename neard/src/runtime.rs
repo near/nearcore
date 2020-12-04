@@ -14,6 +14,8 @@ use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::{Genesis, GenesisConfig};
+#[cfg(feature = "protocol_feature_evm")]
+use near_chain_configs::{MAINNET_EVM_CHAIN_ID, TEST_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -452,6 +454,8 @@ impl NightshadeRuntime {
                 current_protocol_version,
             ),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: self.evm_chain_id(),
         };
 
         let apply_result = self
@@ -810,9 +814,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .get_all_block_producers_ordered(epoch_id, last_known_block_hash)
-            .map_err(Error::from)
+        Ok(epoch_manager.get_all_block_producers_ordered(epoch_id, last_known_block_hash)?.to_vec())
     }
 
     fn get_epoch_block_approvers_ordered(
@@ -1157,6 +1159,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &mut logs,
                     &self.epoch_manager,
                     current_protocol_version,
+                    #[cfg(feature = "protocol_feature_evm")]
+                    self.evm_chain_id(),
                 ) {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::CallResult(CallResult { result, logs }),
@@ -1252,8 +1256,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
-                    "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                    state_root, part_id, num_parts, e
+                       "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
+                       state_root, part_id, num_parts, e
                 );
                 return Err(e.to_string().into());
             }
@@ -1374,6 +1378,15 @@ impl RuntimeAdapter for NightshadeRuntime {
             && chunk_next_epoch_id != head_epoch_id
             && chunk_epoch_id != head_next_epoch_id)
     }
+
+    #[cfg(feature = "protocol_feature_evm")]
+    /// ID of the EVM chain: https://github.com/ethereum-lists/chains
+    fn evm_chain_id(&self) -> u128 {
+        match self.genesis_config.chain_id.as_str() {
+            "mainnet" => MAINNET_EVM_CHAIN_ID,
+            _ => TEST_EVM_CHAIN_ID,
+        }
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1402,6 +1415,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u128,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let view_state = ViewApplyState {
@@ -1412,10 +1426,12 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             block_timestamp,
             current_protocol_version,
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id,
         };
         self.trie_viewer.call_function(
             state_update,
-            &view_state,
+            view_state,
             contract_id,
             method_name,
             args,
