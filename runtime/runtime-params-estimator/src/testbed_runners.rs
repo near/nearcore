@@ -233,8 +233,8 @@ where
     for _ in 0..config.iter_per_block {
         for block_size in config.block_sizes.clone() {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-            let start = start_count(config.metric);
             let mut testbed_inner = testbed_clone.lock().unwrap();
+            let start = start_count(config.metric);
             testbed_inner.process_block(&block, allow_failures);
             testbed_inner.process_blocks_until_no_receipts(allow_failures);
             let measured = end_count(config.metric, &start);
