@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+* State changes return changes with cause instead of kinds
+
+## Breaking changes 
+
+* `StreamerMessage` now contains `StateChangesView` which is an alias for  `Vec<StateChangesWithCauseView>`, previously it contained `StateChangesKindsView`
+
 ## 0.6.0
 
 * Add a way to turn off the requirement to wait for the node to be fully synced before starting streaming.
