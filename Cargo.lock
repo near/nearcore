@@ -3185,7 +3185,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "3.0.0"
+version = "2.3.0"
 dependencies = [
  "num-rational 0.2.4",
  "serde",
@@ -3260,7 +3260,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "3.0.0"
+version = "2.3.0"
 dependencies = [
  "base64 0.11.0",
  "borsh",
