@@ -1,5 +1,4 @@
 use num_rational::Ratio;
-use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -46,17 +45,11 @@ fn measure_function(
     // Measure the speed of creating a function fixture with 1MiB input.
     let mut rng = rand_xorshift::XorShiftRng::from_seed([0u8; 16]);
     let testbed = testbed.clone();
-    let mut accounts_used = HashSet::new();
+    let mut accounts_deployed = accounts_deployed.to_vec();
     let mut f = || {
-        let account_idx = loop {
-            let i = rand::thread_rng().gen::<usize>() % accounts_deployed.len();
-            let x = accounts_deployed[i];
-            if accounts_used.contains(&x) {
-                continue;
-            }
-            break x;
-        };
-        accounts_used.insert(account_idx);
+        let i = rng.gen::<usize>() % accounts_deployed.len();
+        let account_idx = accounts_deployed[i];
+        accounts_deployed.remove(i);
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let mut f_write = |account_idx, method_name: &str| {
