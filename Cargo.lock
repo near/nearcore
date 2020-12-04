@@ -3185,7 +3185,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "2.2.0"
+version = "3.0.0"
 dependencies = [
  "num-rational 0.2.4",
  "serde",

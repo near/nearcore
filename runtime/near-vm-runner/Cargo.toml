@@ -20,7 +20,7 @@ pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.17.0", features = ["lightbeam"], default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
-near-runtime-fees = { path="../near-runtime-fees", version = "2.2.0" }
+near-runtime-fees = { path="../near-runtime-fees", version = "3.0.0" }
 near-vm-logic = { path="../near-vm-logic", version = "2.2.0", default-features = false, features = []}
 near-vm-errors = { path = "../near-vm-errors", version = "2.2.0" }
 near-primitives = { path = "../../core/primitives" }
