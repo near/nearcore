@@ -470,8 +470,6 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     let ad: Vec<_> = good_code_accounts.into_iter().collect();
 
-    config.block_sizes = vec![2];
-
     testbed = measure_function(
         Metric::warmup,
         "noop",
@@ -507,6 +505,8 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         false,
         vec![],
     );
+
+    config.block_sizes = vec![2];
 
     // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
     let v = calls_helper! {
