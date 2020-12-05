@@ -17,3 +17,5 @@ This crate contains utility functions for NEAR runtime.
 # Historically, `near-primitives` contained a bunch of dependencies that prevented this crate from being compiled to Wasm.
 
 [dependencies]
+lazy_static = "1.4"
+regex = "1"

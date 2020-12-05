@@ -1,4 +1,6 @@
 use num_rational::Ratio;
+#[cfg(feature = "protocol_feature_evm")]
+use num_traits::cast::FromPrimitive;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -14,6 +16,8 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 
+#[cfg(feature = "protocol_feature_evm")]
+use crate::evm_estimator::cost_of_evm;
 use crate::ext_costs_generator::ExtCostsGenerator;
 use crate::runtime_fees_generator::RuntimeFeesGenerator;
 use crate::stats::Measurements;
@@ -21,6 +25,7 @@ use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
 use crate::vm_estimator::{cost_per_op, cost_to_compile, load_and_compile};
+
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
@@ -202,7 +207,8 @@ pub enum Metric {
     cpu_ram_soak_test,
 }
 
-pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
+#[allow(unused_variables)]
+pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeConfig {
     let mut m = Measurements::new(config.metric);
     if only_compile {
         let (contract_compile_cost, contract_compile_base_cost) =
@@ -214,6 +220,25 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
             ratio_to_gas(config.metric, contract_compile_base_cost)
         );
         process::exit(0);
+    } else {
+        #[cfg(feature = "protocol_feature_evm")]
+        if only_evm {
+            config.block_sizes = vec![100];
+            let cost = cost_of_evm(&config, true);
+            println!(
+                "EVM base deploy (and init evm instance) cost: {}, deploy cost per EVM gas: {}, deploy cost per byte: {}",
+                ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.2).unwrap()),
+                ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.0).unwrap()),
+                ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.1).unwrap()),
+            );
+            println!(
+                "EVM base function call cost: {}, function call cost per EVM gas: {}",
+                ratio_to_gas(config.metric, cost.funcall_cost.1),
+                ratio_to_gas(config.metric, cost.funcall_cost.0),
+            );
+
+            process::exit(0);
+        }
     }
     config.block_sizes = vec![100];
     let mut nonces: HashMap<usize, u64> = HashMap::new();

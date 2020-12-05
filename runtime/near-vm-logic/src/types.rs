@@ -29,6 +29,16 @@ pub enum ReturnData {
     None,
 }
 
+impl ReturnData {
+    /// Function to extract value from ReturnData.
+    pub fn as_value(self) -> Option<Vec<u8>> {
+        match self {
+            ReturnData::Value(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
 /// When there is a callback attached to one or more contract calls the execution results of these
 /// calls are available to the contract invoked through the callback.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

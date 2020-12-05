@@ -7,22 +7,24 @@ use near_jsonrpc::ServerError;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ChunkView, ExecutionOutcomeView,
-    ExecutionOutcomeWithIdView, ExecutionStatusView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ExecutionOutcomeView,
+    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    FinalExecutionStatus, ViewApplyState, ViewStateResult,
 };
-use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_store::{ShardTries, TrieUpdate};
+use neard::config::MIN_GAS_PRICE;
+#[cfg(feature = "protocol_feature_evm")]
+use neard::config::TEST_EVM_CHAIN_ID;
+use node_runtime::config::RuntimeConfig;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
-use near_primitives::test_utils::MockEpochInfoProvider;
-use neard::config::MIN_GAS_PRICE;
-use node_runtime::config::RuntimeConfig;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -136,6 +138,8 @@ impl RuntimeUser {
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
             cache: None,
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: TEST_EVM_CHAIN_ID,
         }
     }
 
@@ -212,6 +216,42 @@ impl User for RuntimeUser {
         self.trie_viewer
             .view_state(&state_update, account_id, prefix)
             .map_err(|err| err.to_string())
+    }
+
+    fn view_call(
+        &self,
+        account_id: &AccountId,
+        method_name: &str,
+        args: &[u8],
+    ) -> Result<CallResult, String> {
+        let apply_state = self.apply_state();
+        let client = self.client.read().expect(POISONED_LOCK_ERR);
+        let state_update = client.get_state_update();
+        let mut result = CallResult::default();
+        let view_state = ViewApplyState {
+            block_height: apply_state.block_index,
+            last_block_hash: apply_state.last_block_hash,
+            epoch_id: apply_state.epoch_id,
+            epoch_height: apply_state.epoch_height,
+            block_timestamp: apply_state.block_timestamp,
+            current_protocol_version: PROTOCOL_VERSION,
+            cache: apply_state.cache,
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: TEST_EVM_CHAIN_ID,
+        };
+        result.result = self
+            .trie_viewer
+            .call_function(
+                state_update,
+                view_state,
+                account_id,
+                method_name,
+                args,
+                &mut result.logs,
+                &self.epoch_info_provider,
+            )
+            .map_err(|err| err.to_string())?;
+        Ok(result)
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {

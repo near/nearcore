@@ -47,10 +47,10 @@ pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
 /// Updates the way receipt ID, data ID and random seeds are constructed.
 pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
 
-pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
-
 /// Fix the storage usage of the delete key action.
 pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
+
+pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
@@ -70,16 +70,18 @@ impl ProtocolVersionRange {
 /// New Protocol features should go here. Features are guarded by their corresponding feature flag.
 /// For example, if we have `ProtocolFeature::EVM` and a corresponding feature flag `evm`, it will look
 /// like
-/// ```
-/// #[cfg(feature = "evm")]
-/// EVM
-/// ```
+///
+/// #[cfg(feature = "protocol_feature_evm")]
+/// EVM code
+///
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     ForwardChunkParts,
     #[cfg(feature = "protocol_feature_rectify_inflation")]
     RectifyInflation,
+    #[cfg(feature = "protocol_feature_evm")]
+    EVM,
 }
 
 /// Current latest stable version of the protocol.
@@ -88,7 +90,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 41;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 43;
+pub const PROTOCOL_VERSION: ProtocolVersion = 44;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
@@ -116,6 +118,8 @@ lazy_static! {
             (ProtocolFeature::ForwardChunkParts, 42),
             #[cfg(feature = "protocol_feature_rectify_inflation")]
             (ProtocolFeature::RectifyInflation, 43),
+            #[cfg(feature = "protocol_feature_evm")]
+            (ProtocolFeature::EVM, 44),
         ]
         .into_iter()
         .collect();
