@@ -391,7 +391,7 @@ fn invalid_blocks_common(is_requested: bool) {
         let (client, view_client) = setup_mock(
             vec!["test"],
             "other",
-            false,
+            true,
             false,
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
@@ -506,92 +506,6 @@ fn test_invalid_blocks_requested() {
     invalid_blocks_common(true);
 }
 
-#[test]
-fn invalid_blocks() {
-    init_test_logger();
-    System::run(|| {
-        let (client, view_client) = setup_mock(
-            vec!["test"],
-            "other",
-            false,
-            false,
-            Box::new(move |msg, _ctx, _client_actor| {
-                match msg {
-                    NetworkRequests::Block { block } => {
-                        assert_eq!(block.header().height(), 1);
-                        assert_eq!(block.header().chunk_mask().len(), 1);
-                        System::current().stop();
-                    }
-                    _ => {}
-                };
-                NetworkResponses::NoResponse
-            }),
-        );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
-            let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
-            let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
-            // Send block with invalid chunk mask
-            let mut block = Block::produce(
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                last_block.chunks.iter().cloned().map(Into::into).collect(),
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
-                },
-                vec![],
-                Rational::from_integer(0),
-                0,
-                100,
-                Some(0),
-                vec![],
-                vec![],
-                &signer,
-                last_block.header.next_bp_hash,
-                CryptoHash::default(),
-            );
-            block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
-            client.do_send(NetworkClientMessages::Block(
-                block.clone(),
-                PeerInfo::random().id,
-                false,
-            ));
-
-            // Send proper block.
-            block_merkle_tree.insert(last_block.header.hash);
-            let block2 = Block::produce(
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                last_block.chunks.into_iter().map(Into::into).collect(),
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
-                },
-                vec![],
-                Rational::from_integer(0),
-                0,
-                100,
-                Some(0),
-                vec![],
-                vec![],
-                &signer,
-                last_block.header.next_bp_hash,
-                block_merkle_tree.root(),
-            );
-            client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
-            future::ready(())
-        }));
-        near_network::test_utils::wait_or_panic(5000);
-    })
-    .unwrap();
-}
-
 enum InvalidBlockMode {
     /// Header is invalid
     InvalidHeader,
@@ -600,6 +514,7 @@ enum InvalidBlockMode {
     /// Block is invalid for other reasons
     InvalidBlock,
 }
+
 fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     init_test_logger();
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];
@@ -2438,4 +2353,24 @@ fn test_fork_execution_outcome() {
     let receipt_execution_outcomes =
         env.clients[0].chain.store().get_outcomes_by_id(&receipt_id).unwrap();
     assert!(receipt_execution_outcomes.is_empty());
+}
+
+#[test]
+fn test_not_broadcast_block_on_accept() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let mut env = TestEnv::new_with_runtime_and_network_adapter(
+        ChainGenesis::test(),
+        2,
+        1,
+        create_nightshade_runtimes(&genesis, 2),
+        vec![Arc::new(MockNetworkAdapter::default()), network_adapter.clone()],
+    );
+    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
+    for i in 0..2 {
+        env.process_block(i, b1.clone(), Provenance::NONE);
+    }
+    assert!(network_adapter.requests.read().unwrap().is_empty());
 }
