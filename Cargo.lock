@@ -2943,6 +2943,7 @@ dependencies = [
  "ethereum-types",
  "evm",
  "hex",
+ "itertools 0.9.0",
  "keccak-hash",
  "lazy-static-include",
  "lazy_static",
