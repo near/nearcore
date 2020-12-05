@@ -286,6 +286,11 @@ pub trait ChainStoreAccess {
         block_hash: &CryptoHash,
     ) -> Result<StateChangesKinds, Error>;
 
+    fn get_state_changes_with_cause_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChanges, Error>;
+
     fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
@@ -995,6 +1000,17 @@ impl ChainStoreAccess for ChainStore {
         Ok(StateChangesKinds::from_changes(&mut block_changes)?)
     }
 
+    fn get_state_changes_with_cause_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChanges, Error> {
+        let storage_key = KeyForStateChanges::get_prefix(&block_hash);
+
+        let mut block_changes = storage_key.find_iter(&self.store);
+
+        Ok(StateChanges::from_changes(&mut block_changes)?)
+    }
+
     /// Retrieve the key-value changes from the store and decode them appropriately.
     ///
     /// We store different types of data, so we need to take care of all the types. That is, the
@@ -1624,6 +1640,13 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         block_hash: &CryptoHash,
     ) -> Result<StateChangesKinds, Error> {
         self.chain_store.get_state_changes_in_block(block_hash)
+    }
+
+    fn get_state_changes_with_cause_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChanges, Error> {
+        self.chain_store.get_state_changes_with_cause_in_block(block_hash)
     }
 
     fn get_state_changes(

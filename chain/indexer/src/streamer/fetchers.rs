@@ -60,9 +60,9 @@ pub(crate) async fn fetch_block_by_hash(
 pub(crate) async fn fetch_state_changes(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: CryptoHash,
-) -> Result<views::StateChangesKindsView, FailedToFetchData> {
+) -> Result<views::StateChangesView, FailedToFetchData> {
     client
-        .send(near_client::GetStateChangesInBlock { block_hash })
+        .send(near_client::GetStateChangesWithCauseInBlock { block_hash })
         .await?
         .map_err(FailedToFetchData::String)
 }
