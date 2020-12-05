@@ -93,22 +93,10 @@ impl AnnounceAccount {
         peer_id: &PeerId,
         epoch_id: &EpochId,
     ) -> CryptoHash {
-        let header = AnnounceAccountRouteHeader {
-            account_id: account_id.clone(),
-            peer_id: peer_id.clone(),
-            epoch_id: epoch_id.clone(),
-        };
-        hash(&header.try_to_vec().unwrap())
+        hash(&(account_id, peer_id, epoch_id).try_to_vec().unwrap())
     }
 
     pub fn hash(&self) -> CryptoHash {
         AnnounceAccount::build_header_hash(&self.account_id, &self.peer_id, &self.epoch_id)
     }
-}
-
-#[derive(BorshSerialize, BorshDeserialize)]
-struct AnnounceAccountRouteHeader {
-    pub account_id: AccountId,
-    pub peer_id: PeerId,
-    pub epoch_id: EpochId,
 }

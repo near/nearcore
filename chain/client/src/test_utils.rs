@@ -1,6 +1,6 @@
 use log::info;
 use std::cmp::max;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -391,7 +391,6 @@ pub fn setup_mock_all_validators(
     //    them at the end of this function
     let mut locked_connectors = connectors.write().unwrap();
 
-    let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
     let genesis_block = Arc::new(RwLock::new(None));
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
@@ -414,7 +413,6 @@ pub fn setup_mock_all_validators(
         let connectors1 = connectors.clone();
         let connectors2 = connectors.clone();
         let network_mock1 = network_mock.clone();
-        let announced_accounts1 = announced_accounts.clone();
         let last_height1 = last_height.clone();
         let last_height2 = last_height.clone();
         let largest_endorsed_height1 = largest_endorsed_height.clone();
@@ -722,21 +720,6 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::AnnounceAccount(announce_account) => {
-                            let mut aa = announced_accounts1.write().unwrap();
-                            let key = (
-                                announce_account.account_id.clone(),
-                                announce_account.epoch_id.clone(),
-                            );
-                            if aa.get(&key).is_none() {
-                                aa.insert(key);
-                                for (_, view_client) in connectors1.read().unwrap().iter() {
-                                    view_client.do_send(NetworkViewClientMessages::AnnounceAccount(
-                                        vec![(announce_account.clone(), None)],
-                                    ))
-                                }
-                            }
-                        }
                         NetworkRequests::Approval { approval_message } => {
                             let height_mod = approval_message.approval.target_height % 300;
 
@@ -812,7 +795,8 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::Challenge(_)
                         | NetworkRequests::RequestUpdateNonce(_, _)
                         | NetworkRequests::ResponseUpdateNonce(_)
-                        | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
+                        | NetworkRequests::ReceiptOutComeRequest(_, _)
+                        | NetworkRequests::AnnounceAccount(_) => {}
                     };
                 }
                 Box::new(Some(resp))
