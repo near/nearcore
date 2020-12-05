@@ -188,8 +188,12 @@ pub fn near_erc721_domain(chain_id: U256) -> RawU256 {
     bytes.extend_from_slice(
         &keccak("EIP712Domain(string name,string version,uint256 chainId)".as_bytes()).as_bytes(),
     );
-    bytes.extend_from_slice(b"NEAR");
-    bytes.extend_from_slice(&[0x01]);
+    let near = b"NEAR";
+    let near: RawU256 = keccak(&near).into();
+    bytes.extend_from_slice(&near);
+    let version = b"1";
+    let version: RawU256 = keccak(&version).into();
+    bytes.extend_from_slice(&version);
     bytes.extend_from_slice(&u256_to_arr(&chain_id));
     keccak(&bytes).into()
 }
@@ -200,6 +204,139 @@ pub fn method_name_to_rlp(method_name: String) -> [u8; 4] {
     result
 }
 
+pub fn encode_address(addr: Address) -> Vec<u8> {
+    let mut bytes = vec![0u8; 12];
+    bytes.extend_from_slice(&addr.0);
+    bytes
+}
+
+pub fn encode_string(s: &str) -> Vec<u8> {
+    let mut bytes = vec![];
+    bytes.extend_from_slice(&keccak(s.as_bytes()).as_bytes());
+    bytes
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Arg {
+    #[allow(dead_code)]
+    pub name: String,
+    pub t: String,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Method {
+    pub name: String,
+    pub args: Vec<Arg>,
+}
+
+impl Arg {
+    fn parse_arg(text: &str) -> Result<(Arg, &str)> {
+        let (t, remains) = parse_ident(text)?;
+        let remains = consume(remains, ' ')?;
+        let (name, remains) = parse_ident(remains)?;
+        Ok((Arg { t, name }, remains))
+    }
+}
+
+impl Method {
+    fn parse_method_args(text: &str) -> Result<(Vec<Arg>, &str)> {
+        let mut remains = consume(text, '(')?;
+        if remains.len() == 0 {
+            return Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName));
+        }
+        let mut args = vec![];
+        let first = remains.chars().next().unwrap();
+        if is_arg_start(first) {
+            let (arg, r) = Arg::parse_arg(remains)?;
+            remains = r;
+            args.push(arg);
+            while remains.chars().next() == Some(',') {
+                remains = consume(remains, ',')?;
+                let (arg, r) = Arg::parse_arg(remains)?;
+                remains = r;
+                args.push(arg);
+            }
+        }
+
+        let remains = consume(remains, ')')?;
+
+        Ok((args, remains))
+    }
+
+    fn parse_method(method_name: &str) -> Result<(Method, &str)> {
+        let (name, remains) = parse_ident(method_name)?;
+        let (args, remains) = Method::parse_method_args(remains)?;
+        Ok((Method { name, args }, remains))
+    }
+
+    pub fn methods_from_method_name(method_name: &str) -> Result<Vec<Method>> {
+        let mut method_name = method_name;
+        let mut methods = vec![];
+        while method_name.len() > 0 {
+            let (method, method_name_remains) = Method::parse_method(method_name)?;
+            method_name = method_name_remains;
+            methods.push(method);
+        }
+        Ok(methods)
+    }
+}
+
+fn parse_ident(text: &str) -> Result<(String, &str)> {
+    let mut chars = text.chars();
+    if text.len() == 0 || !is_arg_start(chars.next().unwrap()) {
+        return Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName));
+    }
+
+    let mut i = 1;
+    for c in chars {
+        if !is_arg_char(c) {
+            break;
+        }
+        i += 1;
+    }
+    Ok((text[..i].to_string(), &text[i..]))
+}
+
+fn consume(text: &str, c: char) -> Result<&str> {
+    let first = text.chars().next();
+    if first.is_none() || first.unwrap() != c {
+        return Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName));
+    }
+
+    Ok(&text[1..])
+}
+
+fn is_arg_start(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_'
+}
+
+fn is_arg_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+fn methods_signature(methods: &[Method]) -> String {
+    methods
+        .iter()
+        .map(|m| {
+            format!(
+                "{}({})",
+                &m.name,
+                itertools::join(m.args.iter().map(|arg| arg.t.as_str()), ",")
+            )
+        })
+        .collect()
+}
+
+/// Return a signature of the method_name
+/// E.g. method_signature("adopt(uint256 petId)") -> "adopt(uint256)"
+fn signature_from_method_name(method_name: &str) -> Result<String> {
+    let methods = Method::methods_from_method_name(method_name)?;
+    Ok(methods_signature(&methods))
+}
+
+#[derive(Debug, Clone)]
+pub struct ParseMethodNameError;
+
 pub fn prepare_meta_call_args(
     domain_separator: &RawU256,
     account_id: &AccountId,
@@ -209,29 +346,33 @@ pub fn prepare_meta_call_args(
     contract_address: Address,
     method_name: &str,
     args: &[u8],
-) -> RawU256 {
-    let mut bytes = Vec::with_capacity(32 + 32 + 20 + account_id.len() + 4 + args.len());
-    bytes.extend_from_slice(
-        &keccak(
-            "NearTx(string evmId, uint256 nonce, uint256 feeAmount, uint256 feeAddress, address contractAddress, string contractMethod, Arguments arguments)"
-                .as_bytes(),
-        )
-        .as_bytes(),
-    );
-    bytes.extend_from_slice(account_id.as_bytes());
+) -> Result<RawU256> {
+    let mut bytes = Vec::new();
+    let method_arg_start = method_name.find('(').unwrap();
+    let arguments = "Arguments".to_string() + &method_name[method_arg_start..];
+    let types = "NearTx(string evmId,uint256 nonce,uint256 feeAmount,address feeAddress,address contractAddress,string contractMethod,Arguments arguments)".to_string() + &arguments;
+    bytes.extend_from_slice(&keccak(types.as_bytes()).as_bytes());
+    bytes.extend_from_slice(&keccak(account_id.as_bytes()).as_bytes());
     bytes.extend_from_slice(&u256_to_arr(&nonce));
     bytes.extend_from_slice(&u256_to_arr(&fee_amount));
-    bytes.extend_from_slice(&fee_address.0);
-    bytes.extend_from_slice(&contract_address.0);
-    bytes.extend_from_slice(&method_name.as_bytes());
-    // TODO: hash?
-    bytes.extend_from_slice(args);
+    bytes.extend_from_slice(&encode_address(fee_address));
+    bytes.extend_from_slice(&encode_address(contract_address));
+    let method_sig = signature_from_method_name(method_name)?;
+    bytes.extend_from_slice(&keccak(method_sig.as_bytes()).as_bytes());
+
+    let mut arg_bytes = Vec::new();
+    arg_bytes.extend_from_slice(&keccak(arguments.as_bytes()).as_bytes());
+    arg_bytes.extend_from_slice(&args);
+
+    let arg_bytes_hash: RawU256 = keccak(&arg_bytes).into();
+    bytes.extend_from_slice(&arg_bytes_hash);
+
     let message: RawU256 = keccak(&bytes).into();
     let mut bytes = Vec::with_capacity(2 + 32 + 32);
     bytes.extend_from_slice(&[0x19, 0x01]);
     bytes.extend_from_slice(domain_separator);
     bytes.extend_from_slice(&message);
-    keccak(&bytes).into()
+    Ok(keccak(&bytes).into())
 }
 
 /// Format
@@ -253,8 +394,7 @@ pub fn parse_meta_call(
     }
     let mut signature: [u8; 65] = [0; 65];
     // Signatures coming from outside are srv but ecrecover takes vsr, so move last byte to first position.
-    // TODO: There is overflow.
-    signature[0] = args[64] + 27;
+    signature[0] = args[64];
     signature[1..].copy_from_slice(&args[..64]);
     let nonce = U256::from_big_endian(&args[65..97]);
     let fee_amount = U256::from_big_endian(&args[97..129]);
@@ -277,7 +417,7 @@ pub fn parse_meta_call(
         contract_address,
         &method_name,
         args,
-    );
+    )?;
     let sender = ecrecover_address(&msg, &signature);
     if sender == Address::zero() {
         return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
@@ -293,17 +433,14 @@ pub fn ecrecover_address(hash: &RawHash, signature: &[u8; 65]) -> Address {
     use sha3::Digest;
 
     let hash = secp256k1::Message::parse(&H256::from_slice(hash).0);
-    let v = &signature[0];
+    let v = signature[0];
     let bit = match v {
-        27..=30 => v - 27,
-        _ => {
-            // ??
-            return Address::zero();
-        }
+        0..=26 => v,
+        _ => v - 27,
     };
 
     let mut sig = [0u8; 64];
-    sig.copy_from_slice(&signature[1..]);
+    sig.copy_from_slice(&signature[1..65]);
     let s = secp256k1::Signature::parse(&sig);
 
     if let Ok(rec_id) = secp256k1::RecoveryId::parse(bit) {
@@ -314,4 +451,44 @@ pub fn ecrecover_address(hash: &RawHash, signature: &[u8; 65]) -> Address {
         }
     }
     Address::zero()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_method() {
+        let methods = Method::methods_from_method_name(
+            "Blah(Foo q,Bar w)Foo(uint256 x,Bar z)Bar(T ttt)T(string x)",
+        )
+        .unwrap();
+        assert!(
+            methods
+                == vec![
+                    Method {
+                        name: "Blah".into(),
+                        args: vec![
+                            Arg { name: "q".into(), t: "Foo".into() },
+                            Arg { name: "w".into(), t: "Bar".into() }
+                        ]
+                    },
+                    Method {
+                        name: "Foo".into(),
+                        args: vec![
+                            Arg { name: "x".into(), t: "uint256".into() },
+                            Arg { name: "z".into(), t: "Bar".into() }
+                        ]
+                    },
+                    Method {
+                        name: "Bar".into(),
+                        args: vec![Arg { name: "ttt".into(), t: "T".into() }]
+                    },
+                    Method {
+                        name: "T".into(),
+                        args: vec![Arg { name: "x".into(), t: "string".into() }]
+                    }
+                ]
+        );
+    }
 }

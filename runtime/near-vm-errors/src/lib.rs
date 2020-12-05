@@ -258,6 +258,8 @@ pub enum EvmError {
     OutOfBounds,
     /// Execution has been reverted with REVERT.
     Reverted,
+    /// Invalid method name to parse
+    InvalidMetaTransactionMethodName,
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
