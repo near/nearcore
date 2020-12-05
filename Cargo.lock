@@ -2931,7 +2931,7 @@ dependencies = [
 
 [[package]]
 name = "near-evm-runner"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "bn",
  "borsh",
@@ -2960,14 +2960,14 @@ dependencies = [
  "rlp",
  "serde",
  "serde_json",
- "sha2 0.9.1",
+ "sha2 0.8.1",
  "sha3",
  "vm",
 ]
 
 [[package]]
 name = "near-indexer"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "actix",
  "futures",
@@ -3186,7 +3186,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "num-rational 0.2.4",
  "serde",
@@ -3194,7 +3194,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-standalone"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "near-crypto",
  "near-pool",
@@ -3206,7 +3206,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-utils"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "lazy_static",
  "regex",
@@ -3250,7 +3250,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "borsh",
  "ethereum-types",
@@ -3261,7 +3261,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "base64 0.11.0",
  "borsh",
@@ -3272,13 +3272,13 @@ dependencies = [
  "near-vm-errors",
  "serde",
  "serde_json",
- "sha2 0.9.1",
+ "sha2 0.8.1",
  "sha3",
 ]
 
 [[package]]
 name = "near-vm-runner"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -3300,7 +3300,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "base64 0.11.0",
  "clap 2.33.0",
@@ -3413,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
@@ -4485,7 +4485,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-params-estimator"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "borsh",
  "clap 2.33.0",
