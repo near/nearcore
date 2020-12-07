@@ -6,7 +6,7 @@ pub use near_primitives::{types, views};
 pub struct StreamerMessage {
     pub block: views::BlockView,
     pub chunks: Vec<IndexerChunkView>,
-    pub state_changes: views::StateChangesKindsView,
+    pub state_changes: views::StateChangesView,
 }
 
 #[derive(Debug)]

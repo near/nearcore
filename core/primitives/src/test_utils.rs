@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use num_rational::Rational;
@@ -432,6 +433,28 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         Ok(0)
+    }
+
+    fn verify_validator_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _account_id: &String,
+        _data: &[u8],
+        _signature: &Signature,
+    ) -> Result<bool, EpochError> {
+        Ok(true)
+    }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, EpochError> {
+        if epoch_id == other_epoch_id {
+            Ok(Ordering::Equal)
+        } else {
+            Ok(Ordering::Greater)
+        }
     }
 }
 
