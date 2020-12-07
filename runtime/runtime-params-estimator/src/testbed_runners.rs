@@ -9,6 +9,7 @@ use near_vm_logic::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -110,30 +111,34 @@ pub fn measure_actions(
 // We use several "magical" file descriptors to interact with the plugin in QEMU
 // intercepting read syscall. Plugin counts instructions executed and amount of data transferred
 // by IO operations. We "normalize" all those costs into instruction count.
-const CATCH_BASE: usize = 0xcafebabe;
+const CATCH_BASE: u32 = 0xcafebabe;
+const HYPERCALL_START_COUNTING: u32 = 0;
+const HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED: u32 = 1;
+const HYPERCALL_GET_BYTES_READ: u32 = 2;
+const HYPERCALL_GET_BYTES_WRITTEN: u32 = 3;
 
 pub enum Consumed {
     Instant(Instant),
     None,
 }
 
-fn start_count_instructions() -> Consumed {
-    let mut buf: i8 = 0;
+fn hypercall(index: u32) -> u64 {
+    let mut result: u64 = 0;
     unsafe {
-        libc::read(CATCH_BASE, &mut buf, 1);
+        libc::read((CATCH_BASE + index) as i32, &mut result as *mut _ as *mut c_void, 8);
     }
+    result
+}
+
+fn start_count_instructions() -> Consumed {
+    hypercall(HYPERCALL_START_COUNTING);
     Consumed::None
 }
 
 fn end_count_instructions() -> u64 {
-    let mut result_insn: u64 = 0;
-    let mut result_read: u64 = 0;
-    let mut result_written: u64 = 0;
-    unsafe {
-        libc::read(CATCH_BASE + 1, &mut result_insn, 8);
-        libc::read(CATCH_BASE + 2, &mut result_read, 8);
-        libc::read(CATCH_BASE + 3, &mut result_written, 8);
-    }
+    let result_insn = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED);
+    let result_read = hypercall(HYPERCALL_GET_BYTES_READ);
+    let result_written = hypercall(HYPERCALL_GET_BYTES_WRITTEN);
     // See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
     result_insn + result_read * 27 + result_written * 47
 }
