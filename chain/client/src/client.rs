@@ -795,6 +795,8 @@ impl Client {
                     return Err(Error::Other("Invalid chunk version".to_string()));
                 };
 
+                let chunk_hash = partial_encoded_chunk.chunk_hash();
+                let height_included = partial_encoded_chunk.height_included();
                 let process_result = self.shards_mgr.process_partial_encoded_chunk(
                     partial_encoded_chunk.clone().into(),
                     self.chain.mut_store(),
@@ -804,9 +806,11 @@ impl Client {
 
                 match process_result {
                     ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
-                    ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash) => {
-                        Ok(self
-                            .process_blocks_with_missing_chunks(prev_block_hash, protocol_version))
+                    ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => {
+                        self.chain
+                            .blocks_with_missing_chunks
+                            .accept_chunk(&chunk_hash, height_included);
+                        Ok(self.process_blocks_with_missing_chunks(protocol_version))
                     }
                     ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
                         self.shards_mgr.request_chunks(
@@ -1072,7 +1076,6 @@ impl Client {
     #[must_use]
     pub fn process_blocks_with_missing_chunks(
         &mut self,
-        last_accepted_block_hash: CryptoHash,
         protocol_version: ProtocolVersion,
     ) -> Vec<AcceptedBlock> {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
@@ -1080,7 +1083,7 @@ impl Client {
         let challenges = Arc::new(RwLock::new(vec![]));
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
-        self.chain.check_blocks_with_missing_chunks(&me.map(|x| x.clone()), last_accepted_block_hash, |accepted_block| {
+        self.chain.check_blocks_with_missing_chunks(&me.map(|x| x.clone()), |accepted_block| {
             debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
             accepted_blocks.write().unwrap().push(accepted_block);
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
