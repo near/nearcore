@@ -144,24 +144,19 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        if let Some(val) = guard.cache_get(hash) {
-            Ok(val.clone())
+        let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
+        let val = self
+            .store
+            .get(ColState, key.as_ref())
+            .map_err(|_| StorageError::StorageInternalError)?;
+        if let Some(val) = val {
+            //            if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
+            //                guard.cache_set(*hash, val.clone());
+            //            }
+            Ok(val)
         } else {
-            let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
-            let val = self
-                .store
-                .get(ColState, key.as_ref())
-                .map_err(|_| StorageError::StorageInternalError)?;
-            if let Some(val) = val {
-                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.cache_set(*hash, val.clone());
-                }
-                Ok(val)
-            } else {
-                // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
-                Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
-            }
+            // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
+            Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
         }
     }
 
