@@ -2446,9 +2446,9 @@ checksum = "3576a87f2ba00f6f106fdfcd16db1d698d648a26ad8e0573cad8537c3c362d2a"
 
 [[package]]
 name = "libc"
-version = "0.2.71"
+version = "0.2.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9457b06509d27052635f90d6466700c65095fdf75409b3fbdd903e988b886f49"
+checksum = "1482821306169ec4d07f6aca392a4681f66c75c9918aa49641a2595db64053cb"
 
 [[package]]
 name = "libloading"
@@ -2960,7 +2960,7 @@ dependencies = [
  "rlp",
  "serde",
  "serde_json",
- "sha2 0.8.1",
+ "sha2 0.9.1",
  "sha3",
  "vm",
 ]
@@ -3272,7 +3272,7 @@ dependencies = [
  "near-vm-errors",
  "serde",
  "serde_json",
- "sha2 0.8.1",
+ "sha2 0.9.1",
  "sha3",
 ]
 
@@ -4499,6 +4499,7 @@ dependencies = [
  "hex",
  "indicatif 0.15.0",
  "lazy-static-include",
+ "libc",
  "near-chain-configs",
  "near-crypto",
  "near-evm-runner",

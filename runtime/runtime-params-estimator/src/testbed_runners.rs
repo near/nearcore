@@ -107,18 +107,9 @@ pub fn measure_actions(
     measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
-// TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
-#[cfg(any(target_arch = "x86_64"))]
-#[inline(always)]
-pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
-    llvm_asm!("syscall"
-         : "+{rax}"(n)
-         : "{rdi}"(a1) "{rsi}"(a2) "{rdx}"(a3)
-         : "rcx", "r11", "memory"
-         : "volatile");
-    n
-}
-
+// We use several "magical" file descriptors to interact with the plugin in QEMU
+// intercepting read syscall. Plugin counts instructions executed and amount of data transferred
+// by IO operations. We "normalize" all those costs into instruction count.
 const CATCH_BASE: usize = 0xcafebabe;
 
 pub enum Consumed {
@@ -129,27 +120,22 @@ pub enum Consumed {
 fn start_count_instructions() -> Consumed {
     let mut buf: i8 = 0;
     unsafe {
-        syscall3(
-            0, /* sys_read */
-            CATCH_BASE,
-            std::mem::transmute::<*mut i8, usize>(&mut buf),
-            1,
-        );
+        libc::read(CATCH_BASE, &mut buf, 1);
     }
     Consumed::None
 }
 
 fn end_count_instructions() -> u64 {
-    let mut result: u64 = 0;
+    let mut result_insn: u64 = 0;
+    let mut result_read: u64 = 0;
+    let mut result_written: u64 = 0;
     unsafe {
-        syscall3(
-            0, /* sys_read */
-            CATCH_BASE + 1,
-            std::mem::transmute::<*mut u64, usize>(&mut result),
-            8,
-        );
+        libc::read(CATCH_BASE + 1, &mut result_insn, 8);
+        libc::read(CATCH_BASE + 2, &mut result_read, 8);
+        libc::read(CATCH_BASE + 3, &mut result_written, 8);
     }
-    result
+    // See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
+    result_insn + result_read * 27 + result_written * 47
 }
 
 fn start_count_time() -> Consumed {
