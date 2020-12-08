@@ -827,7 +827,7 @@ impl Client {
 
             // If the epoch_id cannot be looked up then we have not processed
             // `partial_encoded_chunk.prev_block()` yet.
-            Err(_) => missing_block_handler(self, partial_encoded_chunk.unwrap()),
+            Err(_) => missing_block_handler(self, partial_encoded_chunk.extract()),
         }
     }
 

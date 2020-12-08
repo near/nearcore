@@ -1117,7 +1117,7 @@ impl ShardsManager {
         // We must check the protocol version every time, since a new value
         // could be passed to the function, whereas the signature check is intrinsic
         // to the header, thus only needs to happen exactly once.
-        let partial_encoded_chunk = partial_encoded_chunk.unwrap();
+        let partial_encoded_chunk = partial_encoded_chunk.extract();
         if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
             return Err(Error::InvalidChunkHeader);
         }

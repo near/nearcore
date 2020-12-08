@@ -42,7 +42,7 @@ impl<T> MaybeValidated<T> {
         }
     }
 
-    pub fn unwrap(self) -> T {
+    pub fn extract(self) -> T {
         match self {
             Self::Validated(t) => t,
             Self::NotValidated(t) => t,
