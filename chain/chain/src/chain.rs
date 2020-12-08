@@ -2198,6 +2198,12 @@ impl Chain {
         self.store.head()
     }
 
+    /// Gets chain tail height
+    #[inline]
+    pub fn tail(&self) -> Result<BlockHeight, Error> {
+        self.store.tail()
+    }
+
     /// Gets chain header head.
     #[inline]
     pub fn header_head(&self) -> Result<Tip, Error> {

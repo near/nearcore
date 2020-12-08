@@ -922,8 +922,6 @@ impl Client {
             {
                 self.collect_block_approval(&approval, approval_type);
             }
-
-            self.rebroadcast_block(block.clone());
         }
 
         if status.is_new_head() {

@@ -956,6 +956,11 @@ impl ClientActor {
             debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
             return;
         }
+        let tail = unwrap_or_return!(self.client.chain.tail());
+        if block.header().height() < tail {
+            debug!(target: "client", "dropping block {} that is too far behind. Block height {} current tail height {}", block.hash(), block.header().height(), tail);
+            return;
+        }
         let prev_hash = *block.header().prev_hash();
         let block_protocol_version = block.header().latest_protocol_version();
         let provenance =
