@@ -52,7 +52,7 @@ pub(crate) struct InitConfigArgs {
 
 pub(crate) fn init_logging() {
     let env_filter = EnvFilter::new(
-        "tokio_reactor=info,near=info,near=error,stats=info,telemetry=info,indexer_example=info,indexer=info",
+        "tokio_reactor=info,near=info,near=error,stats=info,telemetry=info,indexer_example=info,indexer=info,near-performance-metrics=info",
     );
     tracing_subscriber::fmt::Subscriber::builder()
         .with_env_filter(env_filter)

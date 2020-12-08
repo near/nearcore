@@ -50,6 +50,7 @@ use crate::types::{
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
+use near_performance_metrics_macros::perf;
 use rand::thread_rng;
 
 /// How often to request peers from active peers.
@@ -114,6 +115,7 @@ impl Actor for EdgeVerifier {
 impl Handler<EdgeList> for EdgeVerifier {
     type Result = bool;
 
+    #[perf]
     fn handle(&mut self, msg: EdgeList, _ctx: &mut Self::Context) -> Self::Result {
         msg.0.iter().all(|edge| edge.verify())
     }
@@ -1179,6 +1181,7 @@ impl Actor for PeerManagerActor {
 impl Handler<NetworkRequests> for PeerManagerActor {
     type Result = NetworkResponses;
 
+    #[perf]
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(format!("network request {}", msg.as_ref()).into());
@@ -1561,6 +1564,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 impl Handler<InboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("inbound tcp connect".into());
@@ -1577,6 +1581,7 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
 impl Handler<OutboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: OutboundTcpConnect, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("outbound tcp connect".into());
@@ -1622,6 +1627,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
 impl Handler<Consolidate> for PeerManagerActor {
     type Result = ConsolidateResponse;
 
+    #[perf]
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("consolidate".into());
@@ -1706,6 +1712,7 @@ impl Handler<Consolidate> for PeerManagerActor {
 impl Handler<Unregister> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("unregister".into());
@@ -1716,6 +1723,7 @@ impl Handler<Unregister> for PeerManagerActor {
 impl Handler<Ban> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: Ban, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("ban".into());
@@ -1726,7 +1734,8 @@ impl Handler<Ban> for PeerManagerActor {
 impl Handler<PeersRequest> for PeerManagerActor {
     type Result = PeerList;
 
-    fn handle(&mut self, _msg: PeersRequest, _ctx: &mut Self::Context) -> Self::Result {
+    #[perf]
+    fn handle(&mut self, msg: PeersRequest, _ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peers request".into());
         PeerList { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
@@ -1736,6 +1745,7 @@ impl Handler<PeersRequest> for PeerManagerActor {
 impl Handler<PeersResponse> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: PeersResponse, _ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peers response".into());
@@ -1753,6 +1763,7 @@ impl Handler<PeersResponse> for PeerManagerActor {
 impl Handler<RoutedMessageFrom> for PeerManagerActor {
     type Result = bool;
 
+    #[perf]
     fn handle(&mut self, msg: RoutedMessageFrom, ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(
@@ -1789,6 +1800,7 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
 impl Handler<RawRoutedMessage> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: RawRoutedMessage, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(
@@ -1805,6 +1817,7 @@ impl Handler<RawRoutedMessage> for PeerManagerActor {
 impl Handler<PeerRequest> for PeerManagerActor {
     type Result = PeerResponse;
 
+    #[perf]
     fn handle(&mut self, msg: PeerRequest, ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
@@ -1839,6 +1852,7 @@ impl Handler<PeerRequest> for PeerManagerActor {
 #[cfg(feature = "metric_recorder")]
 impl Handler<PeerMessageMetadata> for PeerManagerActor {
     type Result = ();
+    #[perf]
     fn handle(&mut self, msg: PeerMessageMetadata, _ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peer message metadata".into());
