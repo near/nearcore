@@ -27,7 +27,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
+    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
+    ShardChunkHeader,
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
@@ -45,8 +46,6 @@ use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_network::types::PartialEncodedChunkForwardMsg;
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
-use near_primitives::sharding::PartialEncodedChunkV2;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
