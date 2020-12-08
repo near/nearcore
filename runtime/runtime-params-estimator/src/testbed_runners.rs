@@ -10,6 +10,7 @@ use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::{fs::File, io::Read, os::unix::io::FromRawFd};
 
@@ -63,12 +64,12 @@ pub fn measure_actions(
     metric: Metric,
     measurements: &mut Measurements,
     config: &Config,
-    testbed: Option<RuntimeTestbed>,
+    testbed: Option<Arc<Mutex<RuntimeTestbed>>>,
     actions: Vec<Action>,
     sender_is_receiver: bool,
     use_unique_accounts: bool,
-) -> RuntimeTestbed {
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    nonces: &mut HashMap<usize, u64>,
+) -> Arc<Mutex<RuntimeTestbed>> {
     let mut accounts_used = HashSet::new();
     let mut f = || {
         let account_idx = loop {
@@ -171,14 +172,14 @@ pub fn measure_transactions<F>(
     metric: Metric,
     measurements: &mut Measurements,
     config: &Config,
-    testbed: Option<RuntimeTestbed>,
+    testbed: Option<Arc<Mutex<RuntimeTestbed>>>,
     f: &mut F,
     allow_failures: bool,
-) -> RuntimeTestbed
+) -> Arc<Mutex<RuntimeTestbed>>
 where
     F: FnMut() -> SignedTransaction,
 {
-    let mut testbed = match testbed {
+    let testbed = match testbed.clone() {
         Some(x) => {
             println!("{:?}. Reusing testbed.", metric);
             x
@@ -186,9 +187,10 @@ where
         None => {
             let path = PathBuf::from(config.state_dump_path.as_str());
             println!("{:?}. Preparing testbed. Loading state.", metric);
-            RuntimeTestbed::from_state_dump(&path)
+            Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&path)))
         }
     };
+    let testbed_clone = testbed.clone();
 
     if config.warmup_iters_per_block > 0 {
         let bar = ProgressBar::new(warmup_total_transactions(config) as _);
@@ -198,12 +200,14 @@ where
         for block_size in config.block_sizes.clone() {
             for _ in 0..config.warmup_iters_per_block {
                 let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-                testbed.process_block(&block, allow_failures);
+                let mut testbed_inner = testbed_clone.lock().unwrap();
+                testbed_inner.process_block(&block, allow_failures);
                 bar.inc(block_size as _);
                 bar.set_message(format!("Block size: {}", block_size).as_str());
             }
         }
-        testbed.process_blocks_until_no_receipts(allow_failures);
+        let mut testbed_inner = testbed_clone.lock().unwrap();
+        testbed_inner.process_blocks_until_no_receipts(allow_failures);
         bar.finish();
     }
 
@@ -217,9 +221,10 @@ where
     for _ in 0..config.iter_per_block {
         for block_size in config.block_sizes.clone() {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
+            let mut testbed_inner = testbed_clone.lock().unwrap();
             let start = start_count(config.metric);
-            testbed.process_block(&block, allow_failures);
-            testbed.process_blocks_until_no_receipts(allow_failures);
+            testbed_inner.process_block(&block, allow_failures);
+            testbed_inner.process_blocks_until_no_receipts(allow_failures);
             let measured = end_count(config.metric, &start);
             measurements.record_measurement(metric.clone(), block_size, measured);
             bar.inc(block_size as _);
