@@ -35,6 +35,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
     ValidatorStake,
 };
+use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::{checked_feature, unwrap_or_return};
@@ -1082,21 +1083,17 @@ impl ShardsManager {
 
     pub fn process_partial_encoded_chunk(
         &mut self,
-        partial_encoded_chunk: PartialEncodedChunkV2,
+        partial_encoded_chunk: MaybeValidated<PartialEncodedChunkV2>,
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
         protocol_version: ProtocolVersion,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         // Check validity first
 
-        if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
-            return Err(Error::InvalidChunkHeader);
-        }
-        let header = partial_encoded_chunk.header.clone();
-        let chunk_hash = header.chunk_hash();
-
-        // 1. Checking signature validity
-        match self.runtime_adapter.verify_chunk_header_signature(&header) {
+        // 1. Checking signature validity (if needed)
+        let signature_check = partial_encoded_chunk
+            .validate_with(|pec| self.runtime_adapter.verify_chunk_header_signature(&pec.header));
+        match signature_check {
             Ok(false) => {
                 byzantine_assert!(false);
                 return Err(Error::InvalidChunkSignature);
@@ -1116,6 +1113,16 @@ impl ShardsManager {
                 };
             }
         };
+
+        // We must check the protocol version every time, since a new value
+        // could be passed to the function, whereas the signature check is intrinsic
+        // to the header, thus only needs to happen exactly once.
+        let partial_encoded_chunk = partial_encoded_chunk.extract();
+        if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
+            return Err(Error::InvalidChunkHeader);
+        }
+        let header = partial_encoded_chunk.header.clone();
+        let chunk_hash = header.chunk_hash();
 
         // 2. Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1314,7 +1321,9 @@ impl ShardsManager {
                 // properly in the next call. Note no requests are actually sent at this point.
                 self.request_chunk_single(header, None, protocol_version);
                 self.process_partial_encoded_chunk(
-                    forwarded_chunk,
+                    // We can assert the signature on the header is valid because
+                    // it would have been checked in an earlier call to this function.
+                    MaybeValidated::Validated(forwarded_chunk),
                     chain_store,
                     rs,
                     protocol_version,
@@ -1838,7 +1847,7 @@ mod test {
         for partial_encoded_chunk in vec![partial_encoded_chunk1, partial_encoded_chunk2] {
             shards_manager
                 .process_partial_encoded_chunk(
-                    partial_encoded_chunk.into(),
+                    MaybeValidated::NotValidated(partial_encoded_chunk.into()),
                     &mut chain_store,
                     &mut rs,
                     PROTOCOL_VERSION,
@@ -1953,7 +1962,7 @@ mod test {
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         let result = shards_manager
             .process_partial_encoded_chunk(
-                partial_encoded_chunk,
+                MaybeValidated::NotValidated(partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
                 PROTOCOL_VERSION,
@@ -2024,7 +2033,7 @@ mod test {
         };
         let result = shards_manager
             .process_partial_encoded_chunk(
-                partial_encoded_chunk,
+                MaybeValidated::NotValidated(partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
                 PROTOCOL_VERSION,
