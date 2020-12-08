@@ -75,14 +75,17 @@ impl EncodedChunksCache {
     }
 
     // `chunk_header` must be `Some` if the entry is absent, caller must ensure that
-    pub fn get_or_insert_from_header(
+    pub fn get_or_insert_from_header<F>(
         &mut self,
         chunk_hash: ChunkHash,
-        chunk_header: ShardChunkHeader,
-    ) -> &mut EncodedChunksCacheEntry {
+        lazy_chunk_header: F,
+    ) -> &mut EncodedChunksCacheEntry
+    where
+        F: FnOnce() -> ShardChunkHeader,
+    {
         self.encoded_chunks
             .entry(chunk_hash)
-            .or_insert_with(|| EncodedChunksCacheEntry::from_chunk_header(chunk_header))
+            .or_insert_with(|| EncodedChunksCacheEntry::from_chunk_header(lazy_chunk_header()))
     }
 
     pub fn height_within_front_horizon(&self, height: BlockHeight) -> bool {
@@ -103,7 +106,7 @@ impl EncodedChunksCache {
     ) {
         let chunk_hash = partial_encoded_chunk.header.chunk_hash();
         let entry = self
-            .get_or_insert_from_header(chunk_hash.clone(), partial_encoded_chunk.header.clone());
+            .get_or_insert_from_header(chunk_hash.clone(), || partial_encoded_chunk.header.clone());
         let height = entry.header.height_created();
         entry.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
         self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
