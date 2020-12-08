@@ -36,7 +36,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
-use near_primitives::utils::from_timestamp;
+use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
@@ -479,9 +479,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
-                if let Ok(accepted_blocks) =
-                    self.client.process_partial_encoded_chunk(partial_encoded_chunk)
-                {
+                if let Ok(accepted_blocks) = self.client.process_partial_encoded_chunk(
+                    MaybeValidated::NotValidated(partial_encoded_chunk),
+                ) {
                     self.process_accepted_blocks(accepted_blocks);
                 }
                 NetworkClientResponses::NoResponse
