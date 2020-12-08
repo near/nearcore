@@ -12,8 +12,8 @@ use near_primitives::epoch_manager::{
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
-    ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, NumShards,
+    ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -25,13 +25,18 @@ use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 use crate::types::EpochInfoAggregator;
 pub use crate::types::RngSeed;
+use near_chain_configs::Genesis;
+use std::convert::TryInto;
+
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 
 mod proposals;
 mod reward_calculator;
 pub mod test_utils;
 mod types;
 
-const EPOCH_CACHE_SIZE: usize = 10;
+const EPOCH_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
@@ -52,6 +57,10 @@ pub struct EpochManager {
     blocks_info: SizedCache<CryptoHash, BlockInfo>,
     /// Cache of epoch id to epoch start height
     epoch_id_to_start: SizedCache<EpochId, BlockHeight>,
+    /// Epoch validators ordered by `block_producer_settlement`.
+    epoch_validators_ordered: SizedCache<EpochId, Vec<(ValidatorStake, bool)>>,
+    /// Unique validators ordered by `block_producer_settlement`.
+    epoch_validators_ordered_unique: SizedCache<EpochId, Vec<(ValidatorStake, bool)>>,
     /// Aggregator that crunches data when we process block info
     epoch_info_aggregator: Option<EpochInfoAggregator>,
     /// Largest final height. Monotonically increasing.
@@ -77,6 +86,8 @@ impl EpochManager {
             epochs_info: SizedCache::with_size(EPOCH_CACHE_SIZE),
             blocks_info: SizedCache::with_size(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SizedCache::with_size(EPOCH_CACHE_SIZE),
+            epoch_validators_ordered: SizedCache::with_size(EPOCH_CACHE_SIZE),
+            epoch_validators_ordered_unique: SizedCache::with_size(EPOCH_CACHE_SIZE),
             epoch_info_aggregator: None,
             largest_final_height: 0,
         };
@@ -105,6 +116,62 @@ impl EpochManager {
             store_update.commit()?;
         }
         Ok(epoch_manager)
+    }
+
+    pub fn from_genesis(genesis: &Genesis, store: Arc<Store>) -> Self {
+        let initial_epoch_config = EpochConfig {
+            epoch_length: genesis.config.epoch_length,
+            num_shards: genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
+            num_block_producer_seats: genesis.config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: genesis
+                .config
+                .num_block_producer_seats_per_shard
+                .clone(),
+            avg_hidden_validator_seats_per_shard: genesis
+                .config
+                .avg_hidden_validator_seats_per_shard
+                .clone(),
+            block_producer_kickout_threshold: genesis.config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: genesis.config.chunk_producer_kickout_threshold,
+            fishermen_threshold: genesis.config.fishermen_threshold,
+            online_min_threshold: genesis.config.online_min_threshold,
+            online_max_threshold: genesis.config.online_max_threshold,
+            protocol_upgrade_num_epochs: genesis.config.protocol_upgrade_num_epochs,
+            protocol_upgrade_stake_threshold: genesis.config.protocol_upgrade_stake_threshold,
+            minimum_stake_divisor: genesis.config.minimum_stake_divisor,
+        };
+        let reward_calculator = RewardCalculator {
+            max_inflation_rate: genesis.config.max_inflation_rate,
+            num_blocks_per_year: genesis.config.num_blocks_per_year,
+            epoch_length: genesis.config.epoch_length,
+            protocol_reward_rate: genesis.config.protocol_reward_rate,
+            protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
+            online_max_threshold: genesis.config.online_max_threshold,
+            online_min_threshold: genesis.config.online_min_threshold,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
+        };
+        EpochManager::new(
+            store.clone(),
+            initial_epoch_config,
+            genesis.config.protocol_version,
+            reward_calculator,
+            genesis
+                .config
+                .validators
+                .iter()
+                .map(|account_info| ValidatorStake {
+                    account_id: account_info.account_id.clone(),
+                    public_key: account_info
+                        .public_key
+                        .clone()
+                        .try_into()
+                        .expect("Failed to deserialize validator public key"),
+                    stake: account_info.amount,
+                })
+                .collect(),
+        )
+        .expect("Failed to initialize Epoch Manager")
     }
 
     /// # Parameters
@@ -332,6 +399,26 @@ impl EpochManager {
             .collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
+
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        let (validator_reward, minted_amount) = {
+            let last_epoch_last_block_hash =
+                self.get_block_info(&block_info.epoch_first_block)?.prev_hash;
+            let last_block_in_last_epoch = self.get_block_info(&last_epoch_last_block_hash)?;
+            assert!(block_info.timestamp_nanosec > last_block_in_last_epoch.timestamp_nanosec);
+            let epoch_duration =
+                block_info.timestamp_nanosec - last_block_in_last_epoch.timestamp_nanosec;
+            self.reward_calculator.calculate_reward(
+                validator_block_chunk_stats,
+                &validator_stake,
+                block_info.total_supply,
+                epoch_protocol_version,
+                self.genesis_protocol_version,
+                #[cfg(feature = "protocol_feature_rectify_inflation")]
+                epoch_duration,
+            )
+        };
+        #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
         let (validator_reward, minted_amount) = self.reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
@@ -339,6 +426,28 @@ impl EpochManager {
             epoch_protocol_version,
             self.genesis_protocol_version,
         );
+
+        //        let (validator_reward, minted_amount) = checked_feature!("protocol_feature_rectify_inflation", RectifyInflation, epoch_protocol_version, {
+        //          let epoch_first_block = self.get_block_info(&block_info.epoch_first_block)?;
+        //          assert!(block_info.timestamp >= epoch_first_block.timestamp);
+        //          let time_diff = block_info.timestamp - epoch_first_block.timestamp;
+        //          self.reward_calculator.calculate_reward(
+        //                validator_block_chunk_stats,
+        //                &validator_stake,
+        //                block_info.total_supply,
+        //                epoch_protocol_version,
+        //                self.genesis_protocol_version,
+        //                time_diff
+        //          )
+        //        }, {
+        //            self.reward_calculator.calculate_reward(
+        //                validator_block_chunk_stats,
+        //                &validator_stake,
+        //                block_info.total_supply,
+        //                epoch_protocol_version,
+        //                self.genesis_protocol_version,
+        //            )
+        //        });
         let next_next_epoch_info = match proposals_to_epoch_info(
             &self.config,
             rng_seed,
@@ -519,16 +628,20 @@ impl EpochManager {
         &mut self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
-        let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        let mut settlement = vec![];
-        for validator_id in epoch_info.block_producers_settlement.iter() {
-            let validator_stake = epoch_info.validators[*validator_id as usize].clone();
-            let is_slashed = slashed.contains_key(&validator_stake.account_id);
-            settlement.push((validator_stake, is_slashed));
+    ) -> Result<&[(ValidatorStake, bool)], EpochError> {
+        // TODO(3674): Revisit this when we enable slashing
+        if self.epoch_validators_ordered.cache_get(epoch_id).is_none() {
+            let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
+            let epoch_info = self.get_epoch_info(epoch_id)?;
+            let mut settlement = Vec::with_capacity(epoch_info.block_producers_settlement.len());
+            for validator_id in epoch_info.block_producers_settlement.iter() {
+                let validator_stake = epoch_info.validators[*validator_id as usize].clone();
+                let is_slashed = slashed.contains_key(&validator_stake.account_id);
+                settlement.push((validator_stake, is_slashed));
+            }
+            self.epoch_validators_ordered.cache_set(epoch_id.clone(), settlement);
         }
-        Ok(settlement)
+        Ok(self.epoch_validators_ordered.cache_get(epoch_id).unwrap())
     }
 
     /// Returns all unique block producers in current epoch sorted by account_id, with indicator on whether they are slashed or not.
@@ -536,18 +649,21 @@ impl EpochManager {
         &mut self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
-        let settlement =
-            self.get_all_block_producers_settlement(epoch_id, last_known_block_hash)?;
-        let mut result = vec![];
-        let mut validators: HashSet<AccountId> = HashSet::default();
-        for (validator_stake, is_slashed) in settlement.into_iter() {
-            if !validators.contains(&validator_stake.account_id) {
-                validators.insert(validator_stake.account_id.clone());
-                result.push((validator_stake, is_slashed));
+    ) -> Result<&[(ValidatorStake, bool)], EpochError> {
+        if self.epoch_validators_ordered_unique.cache_get(epoch_id).is_none() {
+            let settlement =
+                self.get_all_block_producers_settlement(epoch_id, last_known_block_hash)?;
+            let mut result = vec![];
+            let mut validators: HashSet<AccountId> = HashSet::default();
+            for (validator_stake, is_slashed) in settlement.into_iter() {
+                if !validators.contains(&validator_stake.account_id) {
+                    validators.insert(validator_stake.account_id.clone());
+                    result.push((validator_stake.clone(), *is_slashed));
+                }
             }
+            self.epoch_validators_ordered_unique.cache_set(epoch_id.clone(), result);
         }
-        Ok(result)
+        Ok(self.epoch_validators_ordered_unique.cache_get(epoch_id).unwrap())
     }
 
     pub fn get_all_block_approvers_ordered(
@@ -558,7 +674,7 @@ impl EpochManager {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
 
         let mut settlement =
-            self.get_all_block_producers_settlement(&current_epoch_id, parent_hash)?;
+            self.get_all_block_producers_settlement(&current_epoch_id, parent_hash)?.to_vec();
 
         let settlement_epoch_boundary = settlement.len();
 
@@ -1224,6 +1340,8 @@ mod tests {
     };
 
     use super::*;
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    use crate::reward_calculator::NUM_NS_IN_SECOND;
 
     impl EpochManager {
         /// Returns number of produced and expected blocks by given validator.
@@ -1824,6 +1942,8 @@ mod tests {
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(90, 100),
             online_max_threshold: Rational::new(99, 100),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: 50,
         };
         let mut epoch_manager = setup_epoch_manager(
             validators,
@@ -1884,6 +2004,10 @@ mod tests {
             total_supply,
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                epoch_length * NUM_NS_IN_SECOND
+            },
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
@@ -1920,6 +2044,8 @@ mod tests {
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(90, 100),
             online_max_threshold: Rational::new(99, 100),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: 50,
         };
         let mut epoch_manager = setup_epoch_manager(
             validators,
@@ -1980,6 +2106,10 @@ mod tests {
             total_supply,
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                epoch_length * NUM_NS_IN_SECOND
+            },
         );
         let test1_reward = *validator_reward.get("test1").unwrap();
         let test2_reward = *validator_reward.get("test2").unwrap();
@@ -2027,6 +2157,8 @@ mod tests {
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(90, 100),
             online_max_threshold: Rational::new(99, 100),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: 1_000_000,
         };
         let mut epoch_manager = setup_epoch_manager(
             validators,
@@ -2080,6 +2212,10 @@ mod tests {
             total_supply,
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                epoch_length * NUM_NS_IN_SECOND
+            },
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
@@ -3037,5 +3173,33 @@ mod tests {
         let new_epoch_aggregator_final_hash =
             epoch_manager.epoch_info_aggregator.as_ref().map(|a| a.last_block_hash).unwrap();
         assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
+    }
+
+    #[test]
+    fn test_epoch_validators_cache() {
+        let amount_staked = 1_000_000;
+        let validators = vec![("test1", amount_staked), ("test2", amount_staked)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 10, 0, 90, 60);
+        let h = hash_range(10);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        for i in 1..4 {
+            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+        }
+        assert_eq!(epoch_manager.epoch_validators_ordered.cache_size(), 0);
+
+        let epoch_id = EpochId(h[2]);
+        let epoch_validators =
+            epoch_manager.get_all_block_producers_settlement(&epoch_id, &h[3]).unwrap().to_vec();
+        assert_eq!(epoch_manager.epoch_validators_ordered.cache_size(), 1);
+        let epoch_validators_in_cache =
+            epoch_manager.epoch_validators_ordered.cache_get(&epoch_id).unwrap().clone();
+        assert_eq!(epoch_validators, epoch_validators_in_cache);
+
+        assert_eq!(epoch_manager.epoch_validators_ordered_unique.cache_size(), 0);
+        let epoch_validators_unique =
+            epoch_manager.get_all_block_producers_ordered(&epoch_id, &h[3]).unwrap().to_vec();
+        let epoch_validators_unique_in_cache =
+            epoch_manager.epoch_validators_ordered_unique.cache_get(&epoch_id).unwrap().clone();
+        assert_eq!(epoch_validators_unique, epoch_validators_unique_in_cache);
     }
 }

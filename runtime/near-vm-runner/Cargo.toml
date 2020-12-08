@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-runner"
-version = "2.2.0"
+version = "2.3.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -20,11 +20,12 @@ pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.17.0", features = ["lightbeam"], default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
-near-runtime-fees = { path="../near-runtime-fees", version = "2.2.0" }
-near-vm-logic = { path="../near-vm-logic", version = "2.2.0", default-features = false, features = []}
-near-vm-errors = { path = "../near-vm-errors", version = "2.2.0" }
+near-runtime-fees = { path="../near-runtime-fees", version = "2.3.0" }
+near-vm-logic = { path="../near-vm-logic", version = "2.3.0", default-features = false, features = []}
+near-vm-errors = { path = "../near-vm-errors", version = "2.3.0" }
 near-primitives = { path = "../../core/primitives" }
 log = "0.4"
+near-evm-runner = { path = "../near-evm-runner", version = "2.3.0", optional = true}
 
 [dev-dependencies]
 assert_matches = "1.3"
@@ -38,6 +39,7 @@ wasmer_default = []
 wasmtime_default = ["wasmtime_vm"]
 no_cpu_compatibility_checks = []
 lightbeam = ["wasmtime_vm"]
+protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting"]

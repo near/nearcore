@@ -35,6 +35,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
     ValidatorStake,
 };
+use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::{checked_feature, unwrap_or_return};
@@ -463,9 +464,10 @@ impl ShardsManager {
             shard_id,
         )?;
 
+        let me = self.me.as_ref();
         let shard_representative_target = if !request_own_parts_from_others
             && !request_from_archival
-            && Some(chunk_producer_account_id) != self.me.as_ref()
+            && Some(chunk_producer_account_id) != me
         {
             AccountIdOrPeerTrackingShard::from_account(shard_id, chunk_producer_account_id.clone())
         } else {
@@ -483,7 +485,7 @@ impl ShardsManager {
             let need_to_fetch_part = if request_full || seal.contains_part_ord(&part_ord) {
                 true
             } else {
-                if let Some(me) = &self.me {
+                if let Some(me) = me {
                     &self.runtime_adapter.get_part_owner(&parent_hash, part_ord)? == me
                 } else {
                     false
@@ -496,7 +498,7 @@ impl ShardsManager {
                 } else {
                     let part_owner = self.runtime_adapter.get_part_owner(&parent_hash, part_ord)?;
 
-                    if Some(&part_owner) == self.me.as_ref() {
+                    if Some(&part_owner) == me {
                         // If missing own part, request it from the chunk producer / node tracking shard
                         shard_representative_target.clone()
                     } else {
@@ -520,9 +522,10 @@ impl ShardsManager {
             bp_to_parts.entry(shard_representative_target.clone()).or_insert_with(|| vec![]);
         }
 
+        let no_account_id = me.is_none();
         for (target, part_ords) in bp_to_parts {
             // extra check that we are not sending request to ourselves.
-            if self.me.clone().map_or(true, |me| Some(me) != target.account_id) {
+            if no_account_id || me != target.account_id.as_ref() {
                 let request = PartialEncodedChunkRequestMsg {
                     chunk_hash: chunk_hash.clone(),
                     part_ords,
@@ -536,8 +539,8 @@ impl ShardsManager {
                 self.network_adapter
                     .do_send(NetworkRequests::PartialEncodedChunkRequest { target, request });
             } else {
-                warn!(target: "client", "{} requests parts {:?} for chunk {:?} from self",
-                    self.me.clone().unwrap(), part_ords, chunk_hash
+                warn!(target: "client", "{:?} requests parts {:?} for chunk {:?} from self",
+                    me, part_ords, chunk_hash
                 );
             }
         }
@@ -1080,21 +1083,17 @@ impl ShardsManager {
 
     pub fn process_partial_encoded_chunk(
         &mut self,
-        partial_encoded_chunk: PartialEncodedChunkV2,
+        partial_encoded_chunk: MaybeValidated<PartialEncodedChunkV2>,
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
         protocol_version: ProtocolVersion,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         // Check validity first
 
-        if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
-            return Err(Error::InvalidChunkHeader);
-        }
-        let header = partial_encoded_chunk.header.clone();
-        let chunk_hash = header.chunk_hash();
-
-        // 1. Checking signature validity
-        match self.runtime_adapter.verify_chunk_header_signature(&header) {
+        // 1. Checking signature validity (if needed)
+        let signature_check = partial_encoded_chunk
+            .validate_with(|pec| self.runtime_adapter.verify_chunk_header_signature(&pec.header));
+        match signature_check {
             Ok(false) => {
                 byzantine_assert!(false);
                 return Err(Error::InvalidChunkSignature);
@@ -1114,6 +1113,16 @@ impl ShardsManager {
                 };
             }
         };
+
+        // We must check the protocol version every time, since a new value
+        // could be passed to the function, whereas the signature check is intrinsic
+        // to the header, thus only needs to happen exactly once.
+        let partial_encoded_chunk = partial_encoded_chunk.extract();
+        if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
+            return Err(Error::InvalidChunkHeader);
+        }
+        let header = partial_encoded_chunk.header.clone();
+        let chunk_hash = header.chunk_hash();
 
         // 2. Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1312,7 +1321,9 @@ impl ShardsManager {
                 // properly in the next call. Note no requests are actually sent at this point.
                 self.request_chunk_single(header, None, protocol_version);
                 self.process_partial_encoded_chunk(
-                    forwarded_chunk,
+                    // We can assert the signature on the header is valid because
+                    // it would have been checked in an earlier call to this function.
+                    MaybeValidated::Validated(forwarded_chunk),
                     chain_store,
                     rs,
                     protocol_version,
@@ -1370,7 +1381,7 @@ impl ShardsManager {
             );
             if cares_about_shard {
                 self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkForward {
-                    account_id: bp.account_id,
+                    account_id: bp.account_id.clone(),
                     forward: forward.clone(),
                 });
             }
@@ -1699,17 +1710,14 @@ impl ShardsManager {
 
 #[cfg(test)]
 mod test {
-    use crate::test_utils::{ChunkForwardingTestFixture, SealsManagerTestFixture};
-    use crate::{
-        ChunkRequestInfo, ProcessPartialEncodedChunkResult, Seal, SealsManager, ShardsManager,
-        CHUNK_REQUEST_RETRY_MS, NUM_PARTS_REQUESTED_IN_SEAL,
-    };
+    use super::*;
+    use crate::test_utils::*;
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::sharding::{ChunkHash, PartialEncodedChunkV2};
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -1839,7 +1847,7 @@ mod test {
         for partial_encoded_chunk in vec![partial_encoded_chunk1, partial_encoded_chunk2] {
             shards_manager
                 .process_partial_encoded_chunk(
-                    partial_encoded_chunk.into(),
+                    MaybeValidated::NotValidated(partial_encoded_chunk.into()),
                     &mut chain_store,
                     &mut rs,
                     PROTOCOL_VERSION,
@@ -1954,7 +1962,7 @@ mod test {
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         let result = shards_manager
             .process_partial_encoded_chunk(
-                partial_encoded_chunk,
+                MaybeValidated::NotValidated(partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
                 PROTOCOL_VERSION,
@@ -2025,7 +2033,7 @@ mod test {
         };
         let result = shards_manager
             .process_partial_encoded_chunk(
-                partial_encoded_chunk,
+                MaybeValidated::NotValidated(partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
                 PROTOCOL_VERSION,

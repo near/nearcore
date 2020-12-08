@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -113,6 +112,8 @@ pub struct BlockHeaderInfo {
     pub chunk_mask: Vec<bool>,
     pub total_supply: Balance,
     pub latest_protocol_version: ProtocolVersion,
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    pub timestamp_nanosec: u64,
 }
 
 impl BlockHeaderInfo {
@@ -129,6 +130,8 @@ impl BlockHeaderInfo {
             chunk_mask: header.chunk_mask().to_vec(),
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            timestamp_nanosec: header.raw_timestamp(),
         }
     }
 }
@@ -570,17 +573,14 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error>;
-
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         chunk_prev_block_hash: &CryptoHash,
         header_head: &CryptoHash,
     ) -> Result<bool, Error>;
+
+    #[cfg(feature = "protocol_feature_evm")]
+    fn evm_chain_id(&self) -> u128;
 
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`

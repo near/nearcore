@@ -312,6 +312,14 @@ impl Message for GetStateChangesInBlock {
     type Result = Result<StateChangesKindsView, String>;
 }
 
+pub struct GetStateChangesWithCauseInBlock {
+    pub block_hash: CryptoHash,
+}
+
+impl Message for GetStateChangesWithCauseInBlock {
+    type Result = Result<StateChangesView, String>;
+}
+
 pub struct GetExecutionOutcome {
     pub id: TransactionOrReceiptId,
 }

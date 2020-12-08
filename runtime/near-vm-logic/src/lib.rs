@@ -1,7 +1,7 @@
 mod config;
 mod context;
 mod dependencies;
-mod gas_counter;
+pub mod gas_counter;
 mod logic;
 pub mod mocks;
 pub mod serde_with;

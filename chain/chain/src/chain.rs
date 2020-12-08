@@ -2198,6 +2198,12 @@ impl Chain {
         self.store.head()
     }
 
+    /// Gets chain tail height
+    #[inline]
+    pub fn tail(&self) -> Result<BlockHeight, Error> {
+        self.store.tail()
+    }
+
     /// Gets chain header head.
     #[inline]
     pub fn header_head(&self) -> Result<Tip, Error> {
@@ -3178,6 +3184,10 @@ impl<'a> ChainUpdate<'a> {
         }
 
         if header.chunk_mask().len() as u64 != self.runtime_adapter.num_shards() {
+            return Err(ErrorKind::InvalidChunkMask.into());
+        }
+
+        if !header.verify_chunks_included() {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 

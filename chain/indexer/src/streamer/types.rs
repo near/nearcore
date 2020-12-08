@@ -1,17 +1,12 @@
-use std::collections::HashMap;
-
 pub use near_primitives::hash::CryptoHash;
 pub use near_primitives::{types, views};
-
-pub type ExecutionOutcomesWithReceipts = HashMap<CryptoHash, IndexerExecutionOutcomeWithReceipt>;
 
 /// Resulting struct represents block with chunks
 #[derive(Debug)]
 pub struct StreamerMessage {
     pub block: views::BlockView,
     pub chunks: Vec<IndexerChunkView>,
-    pub receipt_execution_outcomes: ExecutionOutcomesWithReceipts,
-    pub state_changes: views::StateChangesKindsView,
+    pub state_changes: views::StateChangesView,
 }
 
 #[derive(Debug)]
@@ -20,6 +15,7 @@ pub struct IndexerChunkView {
     pub header: views::ChunkHeaderView,
     pub transactions: Vec<IndexerTransactionWithOutcome>,
     pub receipts: Vec<views::ReceiptView>,
+    pub receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt>,
 }
 
 #[derive(Clone, Debug)]
