@@ -1,6 +1,11 @@
 use crate::hash::{hash as sha256, CryptoHash};
+use crate::serialize::base64_format;
+use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct ContractCode {
+    #[serde(rename = "code_base64", with = "base64_format")]
     pub code: Vec<u8>,
     pub hash: CryptoHash,
 }

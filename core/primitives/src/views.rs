@@ -19,6 +19,7 @@ use crate::block_header::{
     BlockHeaderV2,
 };
 use crate::challenge::{Challenge, ChallengesResult};
+use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
@@ -224,6 +225,7 @@ impl std::iter::FromIterator<AccessKeyInfoView> for AccessKeyList {
 #[serde(untagged)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
+    ViewCode(ContractCode),
     ViewState(ViewStateResult),
     CallResult(CallResult),
     Error(QueryError),
@@ -254,6 +256,9 @@ pub enum QueryRequest {
         method_name: String,
         #[serde(rename = "args_base64", with = "base64_format")]
         args: FunctionArgs,
+    },
+    ViewCode {
+        account_id: AccountId,
     },
 }
 

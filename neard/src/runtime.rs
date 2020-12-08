@@ -21,6 +21,7 @@ use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
+use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::BlockInfo;
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -1131,6 +1132,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Err(e) => Err(e),
                 }
             }
+            QueryRequest::ViewCode { account_id } => {
+                match self.view_contract_code(shard_id, *state_root, account_id) {
+                    Ok(r) => Ok(QueryResponse {
+                        kind: QueryResponseKind::ViewCode(r),
+                        block_height,
+                        block_hash: *block_hash,
+                    }),
+                    Err(e) => Err(e),
+                }
+            }
             QueryRequest::CallFunction { account_id, method_name, args } => {
                 let mut logs = vec![];
                 let (epoch_height, current_protocol_version) = {
@@ -1384,6 +1395,16 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<Account, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
+    }
+
+    fn view_contract_code(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<ContractCode, Box<dyn std::error::Error>> {
+        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        self.trie_viewer.view_contract_code(&state_update, account_id)
     }
 
     fn call_function(

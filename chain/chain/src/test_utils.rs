@@ -13,6 +13,7 @@ use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
+use near_primitives::contract::ContractCode;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -721,6 +722,14 @@ impl RuntimeAdapter for KeyValueRuntime {
                     }
                     .into(),
                 ),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewCode { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewCode(ContractCode {
+                    code: vec![],
+                    hash: CryptoHash::default(),
+                }),
                 block_height,
                 block_hash: *block_hash,
             }),
