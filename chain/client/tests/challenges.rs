@@ -26,6 +26,7 @@ use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
+use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -475,7 +476,9 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         one_part_receipt_proofs,
         &vec![merkle_paths[0].clone()],
     );
-    assert!(env.clients[1].process_partial_encoded_chunk(partial_encoded_chunk).is_ok());
+    assert!(env.clients[1]
+        .process_partial_encoded_chunk(MaybeValidated::NotValidated(partial_encoded_chunk))
+        .is_ok());
     env.process_block(1, block.clone(), Provenance::NONE);
 
     // At this point we should create a challenge and send it out.
