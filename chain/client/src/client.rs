@@ -796,7 +796,6 @@ impl Client {
                 };
 
                 let chunk_hash = partial_encoded_chunk.chunk_hash();
-                let height_included = partial_encoded_chunk.height_included();
                 let process_result = self.shards_mgr.process_partial_encoded_chunk(
                     partial_encoded_chunk.clone().into(),
                     self.chain.mut_store(),
@@ -807,9 +806,7 @@ impl Client {
                 match process_result {
                     ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
                     ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => {
-                        self.chain
-                            .blocks_with_missing_chunks
-                            .accept_chunk(&chunk_hash, height_included);
+                        self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
                         Ok(self.process_blocks_with_missing_chunks(protocol_version))
                     }
                     ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {

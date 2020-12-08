@@ -119,7 +119,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
         self.blocks_waiting_for_chunks.insert(block_hash, block);
     }
 
-    pub fn accept_chunk(&mut self, chunk_hash: &ChunkHash, height_included: BlockHeight) {
+    pub fn accept_chunk(&mut self, chunk_hash: &ChunkHash) {
         let block_hashes = self.missing_chunks.remove(chunk_hash).unwrap_or_else(HashSet::new);
         for block_hash in block_hashes {
             match self.blocks_missing_chunks.entry(block_hash) {
@@ -138,11 +138,6 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
                 }
             }
         }
-        // Chunks are accepted in order of height (because they rely on knowing the prev_block),
-        // so if we accept a chunk at `height_included` then we know we are not waiting for anything
-        // below that height. This is another way we can keep the size of this data structure
-        // under its limit.
-        self.prune_blocks_below_height(height_included);
     }
 
     fn mark_block_as_ready(&mut self, block_hash: &BlockHash) {
@@ -159,7 +154,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
         }
     }
 
-    fn prune_blocks_below_height(&mut self, height: BlockHeight) {
+    pub fn prune_blocks_below_height(&mut self, height: BlockHeight) {
         let heights_to_remove: Vec<BlockHeight> =
             self.height_idx.keys().copied().take_while(|h| *h < height).collect();
         for h in heights_to_remove {
@@ -232,12 +227,12 @@ mod test {
         assert!(pool.contains(&block.hash));
 
         for chunk_hash in chunk_hashes.iter().skip(1) {
-            pool.accept_chunk(chunk_hash, block_height);
+            pool.accept_chunk(chunk_hash);
             assert!(pool.contains(&block.hash));
         }
 
         // after the last chunk is accepted the block is ready to process
-        pool.accept_chunk(&chunk_hashes[0], block_height);
+        pool.accept_chunk(&chunk_hashes[0]);
         assert!(!pool.contains(&block.hash));
         assert_eq!(pool.ready_blocks(), vec![block]);
     }
@@ -267,7 +262,7 @@ mod test {
     }
 
     #[test]
-    fn should_remove_old_blocks_if_later_chunk_added() {
+    fn should_remove_old_blocks_when_prune_called() {
         let mut pool: MissingChunksPool<MockBlock> = MissingChunksPool::default();
 
         let block = MockBlock::new(0);
@@ -284,7 +279,8 @@ mod test {
         let later_block_hash = later_block.hash;
         pool.add_block_with_missing_chunks(later_block, vec![get_chunk_hash(300)]);
 
-        pool.accept_chunk(&missing_chunk_hash, block_height);
+        pool.accept_chunk(&missing_chunk_hash);
+        pool.prune_blocks_below_height(block_height);
         assert_eq!(pool.ready_blocks(), vec![block]);
         assert!(!pool.contains(&early_block_hash));
         assert!(pool.contains(&later_block_hash));
