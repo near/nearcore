@@ -783,9 +783,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_height: BlockHeight,
         approvals: &[Option<Signature>],
     ) -> Result<(), Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let info =
-            epoch_manager.get_heuristic_block_approvers_ordered(epoch_id).map_err(Error::from)?;
+        let info = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_heuristic_block_approvers_ordered(epoch_id).map_err(Error::from)?
+        };
 
         let message_to_sign = Approval::get_data_for_sig(
             &if prev_block_height + 1 == block_height {
@@ -821,9 +822,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_height: BlockHeight,
         approvals: &[Option<Signature>],
     ) -> Result<bool, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let info =
-            epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?;
+        let info = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?
+        };
         if approvals.len() > info.len() {
             return Ok(false);
         }

@@ -460,13 +460,15 @@ impl From<BlockHeaderView> for BlockHeader {
             block_merkle_root: view.block_merkle_root,
         };
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        let last_header_v2_version = 9999;
+        let last_header_v2_version = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        let last_header_v2_version = crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-            .get(&crate::version::ProtocolFeature::BlockHeaderV3)
-            .unwrap()
-            .clone()
-            - 1;
+        let last_header_v2_version = Some(
+            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
+                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
+                .unwrap()
+                .clone()
+                - 1,
+        );
         if view.latest_protocol_version <= 29 {
             let mut header = BlockHeaderV1 {
                 prev_hash: view.prev_hash,
@@ -497,7 +499,9 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV1(Box::new(header))
-        } else if view.latest_protocol_version <= last_header_v2_version {
+        } else if last_header_v2_version.is_none()
+            || view.latest_protocol_version <= last_header_v2_version.unwrap()
+        {
             let mut header = BlockHeaderV2 {
                 prev_hash: view.prev_hash,
                 inner_lite,

@@ -32,6 +32,7 @@ use near_network::{
     PeerInfo,
 };
 use near_primitives::block::{Approval, ApprovalInner};
+use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash, Digest};
 use near_primitives::merkle::verify_hash;
@@ -46,7 +47,7 @@ use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, Validat
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{BlockHeaderView, QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::NEAR_BASE;
@@ -1940,7 +1941,6 @@ fn test_gas_price_change_no_chunk() {
     let min_gas_price = 5000;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = 30;
     genesis.config.min_gas_price = min_gas_price;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
@@ -2361,4 +2361,49 @@ fn test_not_broadcast_block_on_accept() {
         env.process_block(i, b1.clone(), Provenance::NONE);
     }
     assert!(network_adapter.requests.read().unwrap().is_empty());
+}
+
+#[test]
+#[should_panic]
+// TODO: reject header version downgrade
+fn test_header_version_downgrade() {
+    use borsh::ser::BorshSerialize;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = 5;
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    for i in 1..10 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block, Provenance::NONE);
+    }
+    let block = {
+        let mut block = env.clients[0].produce_block(10).unwrap().unwrap();
+        // Convert header to BlockHeaderV1
+        let mut header_view: BlockHeaderView = block.header().clone().into();
+        header_view.latest_protocol_version = 1;
+        let mut header = header_view.into();
+
+        // BlockHeaderV1, but protocol version is newest
+        match header {
+            BlockHeader::BlockHeaderV1(ref mut header) => {
+                header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
+                let (hash, signature) = validator_signer.sign_block_header_parts(
+                    header.prev_hash,
+                    &header.inner_lite.try_to_vec().expect("Failed to serialize"),
+                    &header.inner_rest.try_to_vec().expect("Failed to serialize"),
+                );
+                header.hash = hash;
+                header.signature = signature;
+            }
+            _ => {
+                unreachable!();
+            }
+        }
+        *block.mut_header() = header;
+        block
+    };
+    let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+    assert!(!res.is_ok());
 }

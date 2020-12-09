@@ -361,13 +361,15 @@ impl BlockHeader {
             block_merkle_root,
         };
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        let last_header_v2_version = 9999;
+        let last_header_v2_version = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        let last_header_v2_version = crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-            .get(&crate::version::ProtocolFeature::BlockHeaderV3)
-            .unwrap()
-            .clone()
-            - 1;
+        let last_header_v2_version = Some(
+            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
+                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
+                .unwrap()
+                .clone()
+                - 1,
+        );
         if protocol_version <= 29 {
             let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
@@ -399,7 +401,9 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
-        } else if protocol_version <= last_header_v2_version {
+        } else if last_header_v2_version.is_none()
+            || protocol_version <= last_header_v2_version.unwrap()
+        {
             let inner_rest = BlockHeaderInnerRestV2 {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -492,13 +496,15 @@ impl BlockHeader {
             block_merkle_root: CryptoHash::default(),
         };
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        let last_header_v2_version = 9999;
+        let last_header_v2_version = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        let last_header_v2_version = crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-            .get(&crate::version::ProtocolFeature::BlockHeaderV3)
-            .unwrap()
-            .clone()
-            - 1;
+        let last_header_v2_version = Some(
+            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
+                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
+                .unwrap()
+                .clone()
+                - 1,
+        );
         if genesis_protocol_version <= 29 {
             let inner_rest = BlockHeaderInnerRest {
                 chunk_receipts_root,
@@ -529,7 +535,9 @@ impl BlockHeader {
                 signature: Signature::empty(KeyType::ED25519),
                 hash,
             }))
-        } else if genesis_protocol_version <= last_header_v2_version {
+        } else if last_header_v2_version.is_none()
+            || genesis_protocol_version <= last_header_v2_version.unwrap()
+        {
             let inner_rest = BlockHeaderInnerRestV2 {
                 chunk_receipts_root,
                 chunk_headers_root,
