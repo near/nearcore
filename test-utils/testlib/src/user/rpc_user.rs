@@ -12,7 +12,6 @@ use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_jsonrpc::ServerError;
 use near_jsonrpc_client::ChunkId;
-use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
@@ -21,8 +20,9 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
 };
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, EpochValidatorInfo,
-    ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
+    EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
+    ViewStateResult,
 };
 
 use crate::user::User;
@@ -71,7 +71,7 @@ impl User for RpcUser {
         self.query(format!("contract/{}", account_id), prefix)?.try_into()
     }
 
-    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCode, String> {
+    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
         self.query(format!("code/{}", account_id), &[])?.try_into()
     }
 

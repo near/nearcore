@@ -4,7 +4,6 @@ use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::ServerError;
-use near_primitives::contract::ContractCode;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
