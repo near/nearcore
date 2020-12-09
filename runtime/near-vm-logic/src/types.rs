@@ -74,6 +74,10 @@ impl<T> Clone for FixedArray<T> {
 /// Profile of gas consumption.
 pub type ProfileData = FixedArray<u64>;
 
+pub fn clone_profile(profile: &ProfileData) -> ProfileData {
+  profile.clone()
+}
+
 impl ProfileData {
 
   const EXT_START: usize = 1;
