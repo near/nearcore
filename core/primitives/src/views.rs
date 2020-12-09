@@ -351,6 +351,17 @@ impl TryFrom<QueryResponse> for AccessKeyView {
     }
 }
 
+impl TryFrom<QueryResponse> for ContractCode {
+    type Error = String;
+
+    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
+        match query_response.kind {
+            QueryResponseKind::ViewCode(contract_code) => Ok(contract_code),
+            _ => Err("Invalid type of response".into()),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChallengeView {
     // TODO: decide how to represent challenges in json.

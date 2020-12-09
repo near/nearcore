@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::ServerError;
+use near_primitives::contract::ContractCode;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -207,6 +208,14 @@ impl User for RuntimeUser {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_account(&state_update, account_id)
+            .map(|account| account.into())
+            .map_err(|err| err.to_string())
+    }
+
+    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCode, String> {
+        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        self.trie_viewer
+            .view_contract_code(&state_update, account_id)
             .map(|account| account.into())
             .map_err(|err| err.to_string())
     }

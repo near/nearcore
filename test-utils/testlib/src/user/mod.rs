@@ -5,6 +5,7 @@ use futures::{future::LocalBoxFuture, FutureExt};
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::ServerError;
 use near_primitives::account::AccessKey;
+use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{
@@ -31,6 +32,8 @@ pub trait User {
     fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
         Ok(self.view_account(account_id)?.amount)
     }
+
+    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCode, String>;
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String>;
 
