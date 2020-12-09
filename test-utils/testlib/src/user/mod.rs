@@ -33,7 +33,7 @@ pub trait User {
         Ok(self.view_account(account_id)?.amount)
     }
 
-    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCode, String>;
+    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String>;
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String>;
 

@@ -1135,7 +1135,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             QueryRequest::ViewCode { account_id } => {
                 match self.view_contract_code(shard_id, *state_root, account_id) {
                     Ok(r) => Ok(QueryResponse {
-                        kind: QueryResponseKind::ViewCode(r),
+                        kind: QueryResponseKind::ViewCode(r.into()),
                         block_height,
                         block_hash: *block_hash,
                     }),

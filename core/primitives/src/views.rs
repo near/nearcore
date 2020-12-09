@@ -59,6 +59,15 @@ pub struct AccountView {
     #[serde(default)]
     pub storage_paid_at: BlockHeight,
 }
+
+/// A view of the contract code.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct ContractCodeView {
+    #[serde(rename = "code_base64", with = "base64_format")]
+    pub code: Vec<u8>,
+    pub hash: CryptoHash,
+}
+
 /// State for the view call.
 #[derive(Debug)]
 pub struct ViewApplyState {
@@ -113,6 +122,30 @@ impl From<&AccountView> for Account {
 impl From<AccountView> for Account {
     fn from(view: AccountView) -> Self {
         (&view).into()
+    }
+}
+
+impl From<&ContractCode> for ContractCodeView {
+    fn from(contract_code: &ContractCode) -> Self {
+        ContractCodeView { code: contract_code.code.clone(), hash: contract_code.hash.clone() }
+    }
+}
+
+impl From<ContractCode> for ContractCodeView {
+    fn from(contract_code: ContractCode) -> Self {
+        (&contract_code).into()
+    }
+}
+
+impl From<&ContractCodeView> for ContractCode {
+    fn from(contract_code: &ContractCodeView) -> Self {
+        ContractCode { code: contract_code.code.clone(), hash: contract_code.hash.clone() }
+    }
+}
+
+impl From<ContractCodeView> for ContractCode {
+    fn from(contract_code: ContractCodeView) -> Self {
+        (&contract_code).into()
     }
 }
 
@@ -225,7 +258,7 @@ impl std::iter::FromIterator<AccessKeyInfoView> for AccessKeyList {
 #[serde(untagged)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
-    ViewCode(ContractCode),
+    ViewCode(ContractCodeView),
     ViewState(ViewStateResult),
     CallResult(CallResult),
     Error(QueryError),
@@ -351,7 +384,7 @@ impl TryFrom<QueryResponse> for AccessKeyView {
     }
 }
 
-impl TryFrom<QueryResponse> for ContractCode {
+impl TryFrom<QueryResponse> for ContractCodeView {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
