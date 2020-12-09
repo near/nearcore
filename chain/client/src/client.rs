@@ -33,7 +33,7 @@ use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
-use near_primitives::utils::to_timestamp;
+use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::metrics;
@@ -728,7 +728,9 @@ impl Client {
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
         let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
-        self.process_partial_encoded_chunk(partial_chunk)
+        // We already know the header signature is valid because we read it from the
+        // shard manager.
+        self.process_partial_encoded_chunk(MaybeValidated::Validated(partial_chunk))
     }
 
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
@@ -771,12 +773,14 @@ impl Client {
             parts: forward.parts,
             receipts: Vec::new(),
         });
-        self.process_partial_encoded_chunk(partial_chunk)
+        // We already know the header signature is valid because we read it from the
+        // shard manager.
+        self.process_partial_encoded_chunk(MaybeValidated::Validated(partial_chunk))
     }
 
     pub fn process_partial_encoded_chunk(
         &mut self,
-        partial_encoded_chunk: PartialEncodedChunk,
+        partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
         fn missing_block_handler(
             client: &mut Client,
@@ -795,8 +799,9 @@ impl Client {
                     return Err(Error::Other("Invalid chunk version".to_string()));
                 };
 
+                let pec = PartialEncodedChunk::clone(&partial_encoded_chunk);
                 let process_result = self.shards_mgr.process_partial_encoded_chunk(
-                    partial_encoded_chunk.clone().into(),
+                    partial_encoded_chunk.map(Into::into),
                     self.chain.mut_store(),
                     &mut self.rs,
                     protocol_version,
@@ -816,15 +821,13 @@ impl Client {
                         );
                         Ok(vec![])
                     }
-                    ProcessPartialEncodedChunkResult::NeedBlock => {
-                        missing_block_handler(self, partial_encoded_chunk)
-                    }
+                    ProcessPartialEncodedChunkResult::NeedBlock => missing_block_handler(self, pec),
                 }
             }
 
             // If the epoch_id cannot be looked up then we have not processed
             // `partial_encoded_chunk.prev_block()` yet.
-            Err(_) => missing_block_handler(self, partial_encoded_chunk),
+            Err(_) => missing_block_handler(self, partial_encoded_chunk.extract()),
         }
     }
 
@@ -919,8 +922,6 @@ impl Client {
             {
                 self.collect_block_approval(&approval, approval_type);
             }
-
-            self.rebroadcast_block(block.clone());
         }
 
         if status.is_new_head() {
@@ -1053,9 +1054,9 @@ impl Client {
         let mut partial_encoded_chunks =
             self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
         for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
-            if let Ok(accepted_blocks) =
-                self.process_partial_encoded_chunk(PartialEncodedChunk::V2(partial_encoded_chunk))
-            {
+            let chunk =
+                MaybeValidated::NotValidated(PartialEncodedChunk::V2(partial_encoded_chunk));
+            if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(chunk) {
                 // Executing process_partial_encoded_chunk can unlock some blocks.
                 // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
                 // for which we track shards will be unblocked here.
@@ -1615,6 +1616,7 @@ mod test {
     use near_primitives::block_header::ApprovalType;
     use near_primitives::network::PeerId;
     use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
+    use near_primitives::utils::MaybeValidated;
 
     fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
         let genesis = Genesis::test(vec!["test0", "test1"], 1);
@@ -1704,7 +1706,7 @@ mod test {
         // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
         // based on a missing block.
         let result = client.shards_mgr.process_partial_encoded_chunk(
-            mock_chunk.clone(),
+            MaybeValidated::NotValidated(mock_chunk.clone()),
             client.chain.mut_store(),
             &mut client.rs,
             PROTOCOL_VERSION,
@@ -1713,7 +1715,9 @@ mod test {
 
         // Client::process_partial_encoded_chunk should not return an error
         // if the chunk is based on a missing block.
-        let result = client.process_partial_encoded_chunk(PartialEncodedChunk::V2(mock_chunk));
+        let result = client.process_partial_encoded_chunk(MaybeValidated::NotValidated(
+            PartialEncodedChunk::V2(mock_chunk),
+        ));
         match result {
             Ok(accepted_blocks) => assert!(accepted_blocks.is_empty()),
             Err(e) => panic!("Client::process_partial_encoded_chunk failed with {:?}", e),
