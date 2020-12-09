@@ -961,7 +961,6 @@ impl ClientActor {
             debug!(target: "client", "dropping block {} that is too far behind. Block height {} current tail height {}", block.hash(), block.header().height(), tail);
             return;
         }
-        self.client.chain.blocks_with_missing_chunks.prune_blocks_below_height(tail);
         let prev_hash = *block.header().prev_hash();
         let block_protocol_version = block.header().latest_protocol_version();
         let provenance =

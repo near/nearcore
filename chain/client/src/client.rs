@@ -926,7 +926,10 @@ impl Client {
         }
 
         if status.is_new_head() {
-            self.shards_mgr.update_largest_seen_height(block.header().height());
+            let height = block.header().height();
+            self.shards_mgr.update_largest_seen_height(height);
+            let prune_height = height - 2 * self.config.epoch_length;
+            self.chain.blocks_with_missing_chunks.prune_blocks_below_height(prune_height);
             if !self.config.archive {
                 let timer = near_metrics::start_timer(&metrics::GC_TIME);
                 if let Err(err) = self
