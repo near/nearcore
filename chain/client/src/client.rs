@@ -926,10 +926,14 @@ impl Client {
         }
 
         if status.is_new_head() {
-            let height = block.header().height();
-            self.shards_mgr.update_largest_seen_height(height);
-            let prune_height = height - 2 * self.config.epoch_length;
-            self.chain.blocks_with_missing_chunks.prune_blocks_below_height(prune_height);
+            self.shards_mgr.update_largest_seen_height(block.header().height());
+            let last_final_block = block.header().last_final_block();
+            let last_finalized_height = if last_final_block == &CryptoHash::default() {
+                self.chain.genesis().height()
+            } else {
+                self.chain.get_block_header(last_final_block).map_or(0, |header| header.height())
+            };
+            self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
             if !self.config.archive {
                 let timer = near_metrics::start_timer(&metrics::GC_TIME);
                 if let Err(err) = self
