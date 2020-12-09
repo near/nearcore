@@ -60,6 +60,7 @@ pub mod ext;
 mod metrics;
 pub mod state_viewer;
 mod verifier;
+pub use near_vm_logic::types::ProfileData;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
@@ -92,6 +93,8 @@ pub struct ApplyState {
     /// Ethereum chain id.
     #[cfg(feature = "protocol_feature_evm")]
     pub evm_chain_id: u128,
+    /// Data collected from making a contract call
+    pub profile: Option<ProfileData>,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -1459,6 +1462,7 @@ mod tests {
     use near_store::StoreCompiledContractCache;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
+    use near_vm_logic::create_profile_data;
 
     const GAS_PRICE: Balance = 5000;
 
@@ -1542,6 +1546,7 @@ mod tests {
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
+            profile: Some(create_profile_data())
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

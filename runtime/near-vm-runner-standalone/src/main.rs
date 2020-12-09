@@ -9,16 +9,13 @@
 use clap::{App, Arg};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
-use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{ActionCosts, ExtCosts, VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_logic::types::{create_profile_data, PromiseResult, ProtocolVersion};
+use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, run_vm_profiled, VMError};
-use num_rational::Ratio;
 use serde::de::{MapAccess, Visitor};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::{fmt, fs};
 
 #[derive(Debug, Clone)]
@@ -28,7 +25,10 @@ impl Serialize for State {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
         for (k, v) in &self.0 {
-            map.serialize_entry(&base64::encode(&k).to_string(), &base64::encode(&v).to_string())?;
+            map.serialize_entry(
+                &base64::encode(&k).to_string(),
+                &base64::encode(&v).to_string(),
+            )?;
         }
         map.end()
     }
@@ -50,7 +50,10 @@ impl<'de> Visitor<'de> for Base64HashMapVisitor {
         let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
 
         while let Some((key, value)) = access.next_entry::<String, String>()? {
-            map.insert(base64::decode(&key).unwrap(), base64::decode(&value).unwrap());
+            map.insert(
+                base64::decode(&key).unwrap(),
+                base64::decode(&value).unwrap(),
+            );
         }
 
         Ok(State(map))
@@ -242,11 +245,15 @@ fn main() {
         .map(|s| s.parse().unwrap())
         .unwrap_or(ProtocolVersion::MAX);
 
-    let code =
-        fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
+    let code = fs::read(
+        matches
+            .value_of("wasm-file")
+            .expect("Wasm file needs to be specified"),
+    )
+    .unwrap();
 
     let fees = RuntimeFeesConfig::default();
-    let profile_data = Rc::new(RefCell::new([0u64; ExtCosts::count() + ActionCosts::count()]));
+    let profile_data = create_profile_data();
     let do_profile = matches.is_present("profile-gas");
     let (outcome, err) = if do_profile {
         run_vm_profiled(
@@ -259,7 +266,7 @@ fn main() {
             &fees,
             &promise_results,
             vm_kind,
-            Rc::clone(&profile_data),
+            profile_data.clone(),
             protocol_version,
             None,
         )
@@ -294,69 +301,7 @@ fn main() {
     );
 
     if do_profile {
-        let profile_data = profile_data.borrow();
-
-        let mut host_gas = 0u64;
-        for e in 0..ExtCosts::count() {
-            host_gas += profile_data[e as usize];
-        }
-
-        let mut action_gas = 0u64;
-        for e in 0..ActionCosts::count() {
-            action_gas += profile_data[e as usize + ExtCosts::count()];
-        }
-
-        let wasm_gas = all_gas - host_gas - action_gas;
-        println!("------------------------------");
-        println!("Total gas: {}", all_gas);
-        println!(
-            "Host gas: {} [{}% total]",
-            host_gas,
-            Ratio::new(host_gas * 100, all_gas).to_integer()
-        );
-        println!(
-            "Action gas: {} [{}% total]",
-            action_gas,
-            Ratio::new(action_gas * 100, all_gas).to_integer()
-        );
-        println!(
-            "Wasm execution: {} [{}% total]",
-            wasm_gas,
-            Ratio::new(wasm_gas * 100, all_gas).to_integer()
-        );
-        let unaccounted_gas = all_gas - wasm_gas - action_gas - host_gas;
-        if unaccounted_gas > 0 {
-            println!(
-                "Unaccounted: {} [{}% total]",
-                unaccounted_gas,
-                Ratio::new(unaccounted_gas * 100, all_gas).to_integer()
-            );
-        }
-        println!("------ Host functions --------");
-        for e in 0..ExtCosts::count() {
-            let d = profile_data[e];
-            if d != 0 {
-                println!(
-                    "{} -> {} [{}% total, {}% host]",
-                    ExtCosts::name_of(e),
-                    d,
-                    Ratio::new(d * 100, all_gas).to_integer(),
-                    Ratio::new(d * 100, host_gas).to_integer(),
-                );
-            }
-        }
-        println!("------ Actions --------");
-        for e in 0..ActionCosts::count() {
-            let d = profile_data[e + ExtCosts::count()];
-            if d != 0 {
-                println!(
-                    "{} -> {} [{}% total]",
-                    ActionCosts::name_of(e),
-                    d,
-                    Ratio::new(d * 100, all_gas).to_integer()
-                );
-            }
-        }
-        println!("------------------------------");
+        assert_eq!(all_gas, profile_data.all_gas());
+        println!("{:#?}", profile_data);
     }
 }

@@ -24,6 +24,7 @@ sha3 = ">=0.8,<0.10"
 near-runtime-fees = { path = "../near-runtime-fees", version = "2.2.0" }
 near-vm-errors = { path = "../near-vm-errors", version = "2.2.0" }
 near-runtime-utils = { path = "../near-runtime-utils", version = "2.2.0" }
+num-rational = { version = "0.2.4" }
 
 [dev-dependencies]
 serde_json = {version= "1", features= ["preserve_order"]}

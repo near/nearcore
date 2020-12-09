@@ -3192,18 +3192,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-runtime-standalone"
-version = "2.2.0"
-dependencies = [
- "near-crypto",
- "near-pool",
- "near-primitives",
- "near-runtime-configs",
- "near-store",
- "node-runtime",
-]
-
-[[package]]
 name = "near-runtime-utils"
 version = "2.2.0"
 dependencies = [
@@ -3269,6 +3257,7 @@ dependencies = [
  "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
+ "num-rational 0.2.4",
  "serde",
  "serde_json",
  "sha2 0.9.1",
@@ -3328,7 +3317,6 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
- "near-runtime-standalone",
  "near-store",
  "neard",
  "node-runtime",

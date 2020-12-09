@@ -142,6 +142,7 @@ pub(crate) fn execute_function_call(
             promise_results,
             apply_state.current_protocol_version,
             cache,
+            &apply_state.profile,
         )
     }
 }
@@ -165,7 +166,7 @@ pub(crate) fn action_function_call(
         return Err(StorageError::StorageInconsistentState(
             "Account balance integer overflow during function call deposit".to_string(),
         )
-        .into());
+            .into());
     }
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -267,7 +268,7 @@ pub(crate) fn action_stake(
                     stake: stake.stake,
                     minimum_stake,
                 }
-                .into());
+                    .into());
                 return Ok(());
             }
         }
@@ -289,7 +290,7 @@ pub(crate) fn action_stake(
             locked: account.locked,
             balance: account.amount,
         }
-        .into());
+            .into());
     }
     Ok(())
 }
@@ -304,7 +305,7 @@ pub(crate) fn try_refund_allowance(
     if let Some(mut access_key) = get_access_key(state_update, account_id, public_key)? {
         let mut updated = false;
         if let AccessKeyPermission::FunctionCall(function_call_permission) =
-            &mut access_key.permission
+        &mut access_key.permission
         {
             if let Some(allowance) = function_call_permission.allowance.as_mut() {
                 let new_allowance = allowance.saturating_add(transfer.deposit);
@@ -353,7 +354,7 @@ pub(crate) fn action_create_account(
                 registrar_account_id: account_creation_config.registrar_account_id.clone(),
                 predecessor_id: predecessor_id.clone(),
             }
-            .into());
+                .into());
             return;
         } else {
             // OK: Valid top-level Account ID
@@ -364,7 +365,7 @@ pub(crate) fn action_create_account(
             account_id: account_id.clone(),
             predecessor_id: predecessor_id.clone(),
         }
-        .into());
+            .into());
         return;
     } else {
         // OK: Valid sub-account ID by proper predecessor.
@@ -491,7 +492,7 @@ pub(crate) fn action_delete_key(
             public_key: delete_key.public_key.clone(),
             account_id: account_id.clone(),
         }
-        .into());
+            .into());
     }
     Ok(())
 }
@@ -509,7 +510,7 @@ pub(crate) fn action_add_key(
             account_id: account_id.to_owned(),
             public_key: add_key.public_key.clone(),
         }
-        .into());
+            .into());
         return Ok(());
     }
     set_access_key(
@@ -548,7 +549,7 @@ pub(crate) fn check_actor_permissions(
                     account_id: actor_id.clone(),
                     actor_id: account_id.clone(),
                 }
-                .into());
+                    .into());
             }
         }
         Action::DeleteAccount(_) => {
@@ -557,14 +558,14 @@ pub(crate) fn check_actor_permissions(
                     account_id: account_id.clone(),
                     actor_id: actor_id.clone(),
                 }
-                .into());
+                    .into());
             }
             let account = account.as_ref().unwrap();
             if account.locked != 0 {
                 return Err(ActionErrorKind::DeleteAccountStaking {
                     account_id: account_id.clone(),
                 }
-                .into());
+                    .into());
             }
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
@@ -586,7 +587,7 @@ pub(crate) fn check_account_existence(
                 return Err(ActionErrorKind::AccountAlreadyExists {
                     account_id: account_id.clone(),
                 }
-                .into());
+                    .into());
             } else {
                 if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
                     && is_account_id_64_len_hex(&account_id)
@@ -603,7 +604,7 @@ pub(crate) fn check_account_existence(
                     return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
                         account_id: account_id.clone(),
                     }
-                    .into());
+                        .into());
                 }
             }
         }
@@ -627,7 +628,7 @@ pub(crate) fn check_account_existence(
                     return Err(ActionErrorKind::AccountDoesNotExist {
                         account_id: account_id.clone(),
                     }
-                    .into());
+                        .into());
                 };
             }
         }
@@ -641,7 +642,7 @@ pub(crate) fn check_account_existence(
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
                 }
-                .into());
+                    .into());
             }
         }
     };
@@ -718,7 +719,7 @@ mod tests {
                 kind: ActionErrorKind::CreateAccountNotAllowed {
                     account_id: account_id.clone(),
                     predecessor_id: predecessor_id.clone(),
-                }
+                },
             })
         );
     }
@@ -737,7 +738,7 @@ mod tests {
                     account_id: account_id.clone(),
                     registrar_account_id: AccountId::from("registrar"),
                     predecessor_id: predecessor_id.clone(),
-                }
+                },
             })
         );
     }

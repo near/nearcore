@@ -140,6 +140,7 @@ impl RuntimeUser {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TEST_EVM_CHAIN_ID,
+            profile: None,
         }
     }
 

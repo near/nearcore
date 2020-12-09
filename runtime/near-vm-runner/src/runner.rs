@@ -1,7 +1,7 @@
 use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::VMError;
-use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
+use near_vm_logic::types::{PromiseResult, ProtocolVersion, ProfileData};
 use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
 
 /// `run` does the following:
@@ -27,20 +27,37 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
+    profile: &Option<ProfileData>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    run_vm(
-        code_hash,
-        code,
-        method_name,
-        ext,
-        context,
-        wasm_config,
-        fees_config,
-        promise_results,
-        VMKind::default(),
-        current_protocol_version,
-        cache,
-    )
+    match profile {
+        Some(profile) => run_vm_profiled(
+            code_hash,
+            code,
+            method_name,
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            VMKind::default(),
+            profile.clone(),
+            current_protocol_version,
+            cache,
+        ),
+        _ => run_vm(
+            code_hash,
+            code,
+            method_name,
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            VMKind::default(),
+            current_protocol_version,
+            cache,
+        )
+    }
 }
 pub fn run_vm<'a>(
     code_hash: Vec<u8>,
@@ -110,7 +127,7 @@ pub fn run_vm_profiled<'a>(
     use crate::wasmer_runner::run_wasmer;
     #[cfg(feature = "wasmtime_vm")]
     use crate::wasmtime_runner::wasmtime_runner::run_wasmtime;
-    match vm_kind {
+    let (outcome, error) = match vm_kind {
         VMKind::Wasmer => run_wasmer(
             code_hash,
             code,
@@ -120,7 +137,7 @@ pub fn run_vm_profiled<'a>(
             wasm_config,
             fees_config,
             promise_results,
-            Some(profile),
+            Some(profile.clone()),
             current_protocol_version,
             cache,
         ),
@@ -134,7 +151,7 @@ pub fn run_vm_profiled<'a>(
             wasm_config,
             fees_config,
             promise_results,
-            Some(profile),
+            Some(profile.clone()),
             current_protocol_version,
             cache,
         ),
@@ -142,7 +159,17 @@ pub fn run_vm_profiled<'a>(
         VMKind::Wasmtime => {
             panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
         }
-    }
+    };
+    match &outcome {
+        Some(VMOutcome {
+                 burnt_gas,
+            ..
+             }) => {
+            *profile.data.borrow_mut().get_mut(0 as usize).unwrap() = *burnt_gas;
+        },
+        _ => ()
+    };
+    (outcome, error)
 }
 
 pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
