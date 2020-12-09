@@ -343,6 +343,28 @@ fn test_query_call_function() {
     });
 }
 
+/// query contract code
+#[test]
+fn test_query_contract_code() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let query_response = client
+            .query(RpcQueryRequest {
+                block_reference: BlockReference::latest(),
+                request: QueryRequest::ViewCode { account_id: "test".to_string() },
+            })
+            .await
+            .unwrap();
+        assert_eq!(query_response.block_height, 0);
+        let code = if let QueryResponseKind::ViewCode(code) = query_response.kind {
+            code
+        } else {
+            panic!("queried code, but received something else: {:?}", query_response.kind);
+        };
+        assert_eq!(code.code, Vec::<u8>::new());
+        assert_eq!(code.hash.to_string(), "11111111111111111111111111111111");
+    });
+}
+
 /// Retrieve client status via JSON RPC.
 #[test]
 fn test_status() {
