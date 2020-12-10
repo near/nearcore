@@ -357,6 +357,7 @@ impl BlockSync {
 
         let head = chain.head()?;
         *sync_status = SyncStatus::BodySync { current_height: head.height, highest_height };
+
         Ok(false)
     }
 

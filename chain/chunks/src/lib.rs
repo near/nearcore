@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use borsh::BorshSerialize;
 use cached::{Cached, SizedCache};
 use chrono::{DateTime, Utc};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use rand::seq::SliceRandom;
 
 use near_chain::validate::validate_chunk_proofs;
@@ -49,10 +49,10 @@ pub mod test_utils;
 mod types;
 
 const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
-pub const CHUNK_REQUEST_RETRY_MS: u64 = 100;
+pub const CHUNK_REQUEST_RETRY_MS: u64 = 200;
 pub const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
 pub const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
-const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
+const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 1_300_000;
 const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
@@ -88,6 +88,7 @@ struct ChunkRequestInfo {
     shard_id: ShardId,
     added: Instant,
     last_requested: Instant,
+    next_retry_duration: Duration,
 }
 
 struct RequestPool {
@@ -130,13 +131,15 @@ impl RequestPool {
         let mut requests = Vec::new();
         for (chunk_hash, mut chunk_request) in self.requests.iter_mut() {
             if chunk_request.added.elapsed() > self.max_duration {
-                debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
+                debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {}). Doing one final attempt to request.", chunk_hash.0, chunk_request.shard_id);
+                requests.push((chunk_hash.clone(), chunk_request.clone()));
                 removed_requests.insert(chunk_hash.clone());
                 continue;
             }
-            if chunk_request.last_requested.elapsed() > self.retry_duration {
+            if chunk_request.last_requested.elapsed() > chunk_request.next_retry_duration {
                 chunk_request.last_requested = Instant::now();
                 requests.push((chunk_hash.clone(), chunk_request.clone()));
+                chunk_request.next_retry_duration += chunk_request.next_retry_duration / 5;
             }
         }
         for chunk_hash in removed_requests {
@@ -482,7 +485,9 @@ impl ShardsManager {
                 continue;
             }
 
-            let need_to_fetch_part = if request_full || seal.contains_part_ord(&part_ord) {
+            let need_to_fetch_part = if request_full {
+                true
+            } else if seal.contains_part_ord(&part_ord) {
                 true
             } else {
                 if let Some(me) = me {
@@ -623,6 +628,7 @@ impl ShardsManager {
                 shard_id,
                 last_requested: Instant::now(),
                 added: Instant::now(),
+                next_retry_duration: self.requested_partial_encoded_chunks.retry_duration,
             },
         );
 
@@ -1091,6 +1097,12 @@ impl ShardsManager {
         protocol_version: ProtocolVersion,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         // Check validity first
+        let chunk_hash = partial_encoded_chunk.header.chunk_hash().clone();
+
+        info!(target: "chunks", "MOO processing {:?}", chunk_hash);
+        for part in partial_encoded_chunk.parts.iter() {
+            info!(target: "chunks","MOO part {}, owner: {:?}", part.part_ord, self.runtime_adapter.get_part_owner(&partial_encoded_chunk.header.prev_block_hash(), part.part_ord)?);
+        }
 
         // 1. Checking signature validity (if needed)
         let signature_check = partial_encoded_chunk
@@ -1115,6 +1127,7 @@ impl ShardsManager {
                 };
             }
         };
+        info!(target: "chunks", "MOO processing {:?} 0", chunk_hash);
 
         // We must check the protocol version every time, since a new value
         // could be passed to the function, whereas the signature check is intrinsic
@@ -1145,6 +1158,7 @@ impl ShardsManager {
             }
         };
 
+        info!(target: "chunks", "MOO processing {:?} 1", chunk_hash);
         // 3. Checking chunk height
         let chunk_requested = self.requested_partial_encoded_chunks.contains_key(&chunk_hash);
         if !chunk_requested {
@@ -1163,6 +1177,7 @@ impl ShardsManager {
             }
         }
 
+        info!(target: "chunks", "MOO processing {:?} 1.5", chunk_hash);
         // 4. Checking epoch_id validity
         let prev_block_hash = header.prev_block_hash();
         let epoch_id = match self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash) {
@@ -1175,6 +1190,7 @@ impl ShardsManager {
         };
 
         // 5. Checking part_ords' validity
+        info!(target: "chunks", "MOO processing {:?} 2", chunk_hash);
         let num_total_parts = self.runtime_adapter.num_total_parts();
         for part_info in partial_encoded_chunk.parts.iter() {
             // TODO: only validate parts we care about
@@ -1204,6 +1220,7 @@ impl ShardsManager {
             }
         }
 
+        info!(target: "chunks", "MOO processing {:?} 3", chunk_hash);
         // Consider it valid
         // Store chunk hash into chunk_hash_per_height_shard collection
         let mut store_update = chain_store.store_update();
@@ -1225,6 +1242,7 @@ impl ShardsManager {
                 self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
             }
         );
+        info!(target: "chunks", "MOO processing {:?} 5", chunk_hash);
 
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
@@ -1246,6 +1264,7 @@ impl ShardsManager {
             self.encoded_chunks.insert_chunk_header(header.shard_id(), header.clone());
         }
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
+        info!(target: "chunks", "MOO processing {:?} 7", chunk_hash);
 
         // TODO(#3180): seals are disabled in single shard setting
         /*let seal = self.seals_mgr.get_seal(

@@ -238,6 +238,13 @@ impl Peer {
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
+
+        if let PeerMessage::Routed(routed) = &msg {
+            if let RoutedMessageBody::PartialEncodedChunkRequest(rq) = &routed.body {
+                info!(target: "network", "MOO SENDING {:?}", rq);
+            }
+        }
+
         #[cfg(feature = "metric_recorder")]
         let metadata = {
             let mut metadata: PeerMessageMetadata = msg.into();
@@ -248,12 +255,21 @@ impl Peer {
             metadata
         };
 
-        match peer_message_to_bytes(msg) {
+        match peer_message_to_bytes(&msg) {
             Ok(bytes) => {
                 #[cfg(feature = "metric_recorder")]
                 self.peer_manager_addr.do_send(metadata.set_size(bytes.len()));
                 self.tracker.increment_sent(bytes.len() as u64);
+                if (bytes.len() > 50000) {
+                    debug!(target: "network", "WTF {} {}", bytes.len(), msg.msg_variant())
+                }
                 self.framed.write(bytes);
+
+                if let PeerMessage::Routed(routed) = &msg {
+                    if let RoutedMessageBody::PartialEncodedChunkRequest(rq) = &routed.body {
+                        info!(target: "network", "MOO SENT {:?}", rq);
+                    }
+                }
             }
             Err(err) => error!(target: "network", "Error converting message to bytes: {}", err),
         };

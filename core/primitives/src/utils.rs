@@ -28,6 +28,7 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 const NS_IN_SECOND: u64 = 1_000_000_000;
 
 /// A data structure for tagging data as already being validated to prevent redundant work.
+#[derive(Debug)]
 pub enum MaybeValidated<T> {
     Validated(T),
     NotValidated(T),

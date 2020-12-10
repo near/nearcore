@@ -7,6 +7,8 @@ use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::{Duration, Instant};
 
+use rand::Rng;
+
 use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
 use actix::{
@@ -928,6 +930,12 @@ impl PeerManagerActor {
 
         match self.routing_table.find_route(&msg.target) {
             Ok(peer_id) => {
+                let peer_id = if rand::thread_rng().gen_range(0, 20) == 3 {
+                    self.active_peers.keys().choose(&mut rand::thread_rng()).cloned().unwrap()
+                } else {
+                    peer_id
+                };
+                debug!(target: "network", "MOO via {}", peer_id);
                 // Remember if we expect a response for this message.
                 if msg.author == self.peer_id && msg.expect_response() {
                     trace!(target: "network", "initiate route back {:?}", msg);
@@ -970,6 +978,7 @@ impl PeerManagerActor {
         account_id: &AccountId,
         msg: RoutedMessageBody,
     ) -> bool {
+        debug!(target: "network", "MOO account: {}", account_id);
         let target = match self.routing_table.account_owner(&account_id) {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
