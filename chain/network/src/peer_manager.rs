@@ -831,8 +831,11 @@ impl PeerManagerActor {
     fn broadcast_message(&self, ctx: &mut Context<Self>, msg: SendMessage) {
         // TODO(MarX, #1363): Implement smart broadcasting. (MST)
 
+        // Change message to reference counted to allow sharing with all actors
+        // without cloning.
+        let msg = Arc::new(msg);
         let mut requests: futures::stream::FuturesUnordered<_> =
-            self.active_peers.values().map(|peer| peer.addr.send(msg.clone())).collect();
+            self.active_peers.values().map(|peer| peer.addr.send(Arc::clone(&msg))).collect();
 
         ctx.spawn(async move {
             while let Some(response) = requests.next().await {

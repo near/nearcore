@@ -611,17 +611,17 @@ impl RawRoutedMessage {
         routed_message_ttl: u8,
     ) -> RoutedMessage {
         let target = self.target.peer_id_or_hash().unwrap();
-        let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
+        let hash = RoutedMessage::build_hash(&target, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
         RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutedMessageNoSignature {
-    target: PeerIdOrHash,
-    author: PeerId,
-    body: RoutedMessageBody,
+#[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
+pub struct RoutedMessageNoSignature<'a> {
+    target: &'a PeerIdOrHash,
+    author: &'a PeerId,
+    body: &'a RoutedMessageBody,
 }
 
 /// RoutedMessage represent a package that will travel the network towards a specific peer id.
@@ -649,7 +649,11 @@ pub struct RoutedMessage {
 }
 
 impl RoutedMessage {
-    pub fn build_hash(target: PeerIdOrHash, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
+    pub fn build_hash(
+        target: &PeerIdOrHash,
+        source: &PeerId,
+        body: &RoutedMessageBody,
+    ) -> CryptoHash {
         hash(
             &RoutedMessageNoSignature { target, author: source, body }
                 .try_to_vec()
@@ -658,7 +662,7 @@ impl RoutedMessage {
     }
 
     pub fn hash(&self) -> CryptoHash {
-        RoutedMessage::build_hash(self.target.clone(), self.author.clone(), self.body.clone())
+        RoutedMessage::build_hash(&self.target, &self.author, &self.body)
     }
 
     pub fn verify(&self) -> bool {
