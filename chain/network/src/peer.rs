@@ -230,17 +230,17 @@ impl Peer {
             || self.tracker.sent_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
     }
 
-    fn send_message(&mut self, msg: PeerMessage) {
+    fn send_message(&mut self, msg: &PeerMessage) {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
-        match &msg {
+        match msg {
             PeerMessage::Block(b) if self.tracker.has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
         #[cfg(feature = "metric_recorder")]
         let metadata = {
-            let mut metadata: PeerMessageMetadata = (&msg).into();
+            let mut metadata: PeerMessageMetadata = msg.into();
             metadata = metadata.set_source(self.node_id()).set_status(Status::Sent);
             if let Some(target) = self.peer_id() {
                 metadata = metadata.set_target(target);
@@ -317,7 +317,7 @@ impl Peer {
                         }
                     };
 
-                    act.send_message(handshake);
+                    act.send_message(&handshake);
                     actix::fut::ready(())
                 }
                 Err(err) => {
@@ -439,10 +439,10 @@ impl Peer {
                     }
                     Ok(NetworkViewClientResponses::Block(block)) => {
                         // MOO need protocol version
-                        act.send_message(PeerMessage::Block(*block))
+                        act.send_message(&PeerMessage::Block(*block))
                     }
                     Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
-                        act.send_message(PeerMessage::BlockHeaders(headers))
+                        act.send_message(&PeerMessage::BlockHeaders(headers))
                     }
                     Err(err) => {
                         error!(
@@ -695,7 +695,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     })
                 {
                     debug!(target: "network", "Received connection from node with unsupported version: {}", version);
-                    self.send_message(PeerMessage::HandshakeFailure(
+                    self.send_message(&PeerMessage::HandshakeFailure(
                         self.node_info.clone(),
                         HandshakeFailureReason::ProtocolVersionMismatch {
                             version: PROTOCOL_VERSION,
@@ -811,7 +811,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
 
                 if handshake.target_peer_id != self.node_info.id {
                     debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.peer_id, handshake.target_peer_id, self.node_info.id);
-                    self.send_message(PeerMessage::HandshakeFailure(
+                    self.send_message(&PeerMessage::HandshakeFailure(
                         self.node_info.clone(),
                         HandshakeFailureReason::InvalidTarget,
                     ));
@@ -873,7 +873,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                             },
                             Ok(ConsolidateResponse::InvalidNonce(edge)) => {
                                 debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_id(), act.peer_addr);
-                                act.send_message(PeerMessage::LastEdge(*edge));
+                                act.send_message(&PeerMessage::LastEdge(*edge));
                                 actix::fut::ready(())
                             }
                             _ => {
@@ -928,7 +928,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     if let Ok(peers) = res {
                         if !peers.peers.is_empty() {
                             debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
-                            act.send_message(PeerMessage::PeersResponse(peers.peers));
+                            act.send_message(&PeerMessage::PeersResponse(peers.peers));
                         }
                     }
                     actix::fut::ready(())
@@ -945,7 +945,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 .then(|res, act, ctx| {
                     match res {
                         Ok(NetworkResponses::EdgeUpdate(edge)) => {
-                            act.send_message(PeerMessage::ResponseUpdateNonce(*edge));
+                            act.send_message(&PeerMessage::ResponseUpdateNonce(*edge));
                         }
                         Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
                             act.ban_peer(ctx, reason_for_ban);
@@ -1011,7 +1011,17 @@ impl Handler<SendMessage> for Peer {
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("send message".into());
-        self.send_message(msg.message);
+        self.send_message(&msg.message);
+    }
+}
+
+impl Handler<Arc<SendMessage>> for Peer {
+    type Result = ();
+
+    fn handle(&mut self, msg: Arc<SendMessage>, _: &mut Self::Context) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("send message".into());
+        self.send_message(&msg.as_ref().message);
     }
 }
 

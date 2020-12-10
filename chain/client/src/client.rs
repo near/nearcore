@@ -27,7 +27,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
+    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
+    ShardChunkHeader,
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
@@ -45,8 +46,6 @@ use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_network::types::PartialEncodedChunkForwardMsg;
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
-use near_primitives::sharding::PartialEncodedChunkV2;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -784,9 +783,9 @@ impl Client {
     ) -> Result<Vec<AcceptedBlock>, Error> {
         fn missing_block_handler(
             client: &mut Client,
-            pec: PartialEncodedChunk,
+            pec: PartialEncodedChunkV2,
         ) -> Result<Vec<AcceptedBlock>, Error> {
-            client.shards_mgr.store_partial_encoded_chunk(client.chain.head_header()?, pec.into());
+            client.shards_mgr.store_partial_encoded_chunk(client.chain.head_header()?, pec);
             Ok(vec![])
         }
         let block_hash = partial_encoded_chunk.prev_block();
@@ -800,9 +799,10 @@ impl Client {
                 };
 
                 let chunk_hash = partial_encoded_chunk.chunk_hash();
-                let pec = PartialEncodedChunk::clone(&partial_encoded_chunk);
+                let pec_v2: MaybeValidated<PartialEncodedChunkV2> =
+                    partial_encoded_chunk.map(Into::into);
                 let process_result = self.shards_mgr.process_partial_encoded_chunk(
-                    partial_encoded_chunk.map(Into::into),
+                    pec_v2.as_ref(),
                     self.chain.mut_store(),
                     &mut self.rs,
                     protocol_version,
@@ -814,21 +814,24 @@ impl Client {
                         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
                         Ok(self.process_blocks_with_missing_chunks(protocol_version))
                     }
-                    ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
+                    ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
+                        let chunk_header = pec_v2.extract().header;
                         self.shards_mgr.request_chunks(
-                            iter::once(*chunk_header),
+                            iter::once(chunk_header),
                             &self.chain.header_head()?,
                             protocol_version,
                         );
                         Ok(vec![])
                     }
-                    ProcessPartialEncodedChunkResult::NeedBlock => missing_block_handler(self, pec),
+                    ProcessPartialEncodedChunkResult::NeedBlock => {
+                        missing_block_handler(self, pec_v2.extract())
+                    }
                 }
             }
 
             // If the epoch_id cannot be looked up then we have not processed
             // `partial_encoded_chunk.prev_block()` yet.
-            Err(_) => missing_block_handler(self, partial_encoded_chunk.extract()),
+            Err(_) => missing_block_handler(self, partial_encoded_chunk.extract().into()),
         }
     }
 
@@ -1713,7 +1716,7 @@ mod test {
         // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
         // based on a missing block.
         let result = client.shards_mgr.process_partial_encoded_chunk(
-            MaybeValidated::NotValidated(mock_chunk.clone()),
+            MaybeValidated::NotValidated(&mock_chunk),
             client.chain.mut_store(),
             &mut client.rs,
             PROTOCOL_VERSION,
