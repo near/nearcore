@@ -9,10 +9,10 @@ use near_vm_logic::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use std::{fs::File, io::Read, os::unix::io::FromRawFd};
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {
@@ -109,16 +109,17 @@ pub fn measure_actions(
     measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
-// TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
-#[cfg(target_family = "unix")]
-#[inline(always)]
-pub unsafe fn syscall3(fd: u32, buf: &mut [u8]) {
-    let mut f = File::from_raw_fd(std::mem::transmute::<u32, i32>(fd));
-    let _ = f.read(buf);
-    std::mem::forget(f); // Skips closing the file descriptor, but throw away reference
-}
-
 const CATCH_BASE: u32 = 0xcafebabe;
+const HYPERCALL_START_COUNTING: u32 = 0;
+const HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED: u32 = 1;
+
+fn hypercall(index: u32) -> u64 {
+    let mut result: u64 = 0;
+    unsafe {
+        libc::read((CATCH_BASE + index) as i32, &mut result as *mut _ as *mut c_void, 8);
+    }
+    result
+}
 
 pub enum Consumed {
     Instant(Instant),
@@ -126,19 +127,12 @@ pub enum Consumed {
 }
 
 fn start_count_instructions() -> Consumed {
-    let mut buf: i8 = 0;
-    unsafe {
-        syscall3(CATCH_BASE, std::mem::transmute::<*mut i8, &mut [u8; 1]>(&mut buf));
-    }
+    hypercall(HYPERCALL_START_COUNTING);
     Consumed::None
 }
 
 fn end_count_instructions() -> u64 {
-    let mut result: u64 = 0;
-    unsafe {
-        syscall3(CATCH_BASE + 1, std::mem::transmute::<*mut u64, &mut [u8; 8]>(&mut result));
-    }
-    result
+    hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)
 }
 
 fn start_count_time() -> Consumed {

@@ -803,6 +803,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "capstone"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "031ba51c39151a1d6336ec859646153187204b0147c7b3f6fe2de636f1b8dbb3"
+dependencies = [
+ "capstone-sys",
+]
+
+[[package]]
+name = "capstone-sys"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fae25eddcb80e24f98c35952c37a91ff7f8d0f60dbbdafb9763e8d5cc566b8d7"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "cc"
 version = "1.0.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1261,6 +1279,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_utils"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64196eb9f551916167225134f1e8a90f0b5774331d3c900d6328fd94bafe3544"
+dependencies = [
+ "proc-macro2 1.0.24",
+ "quote 1.0.7",
+ "syn 1.0.54",
+]
+
+[[package]]
 name = "difference"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1319,6 +1348,21 @@ checksum = "134951f4028bdadb9b84baf4232681efbf277da25144b9b0ad65df75946c422b"
 
 [[package]]
 name = "dynasm"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42a814e1edeb85dd2a3c6fc0d6bf76d02ca5695d438c70ecee3d90774f3259c5"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "lazy_static",
+ "owning_ref",
+ "proc-macro2 1.0.24",
+ "quote 1.0.7",
+ "syn 1.0.54",
+]
+
+[[package]]
+name = "dynasm"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62a59fbab09460c1569eeea9b5e4cf62f13f5198b1c2ba0e5196dd7fdd17cd42"
@@ -1334,12 +1378,22 @@ dependencies = [
 
 [[package]]
 name = "dynasmrt"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a393aaeb4441a48bcf47b5b6155971f82cc1eb77e22855403ccc0415ac8328d"
+dependencies = [
+ "byteorder",
+ "memmap",
+]
+
+[[package]]
+name = "dynasmrt"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85bec3edae2841d37b1c3dc7f3fd403c9061f26e9ffeeee97a3ea909b1bb2ef1"
 dependencies = [
  "byteorder",
- "dynasm",
+ "dynasm 1.0.0",
  "memmap",
 ]
 
@@ -2345,6 +2399,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47be2f14c678be2fdcab04ab1171db51b2762ce6f0a8ee87c8dd4a04ed216135"
 
 [[package]]
+name = "iter-enum"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86a94bc12a53bf84b705acee29eb8697a5ea7b4587d836152499e5db0a6d52b9"
+dependencies = [
+ "derive_utils",
+ "quote 1.0.7",
+ "syn 1.0.54",
+]
+
+[[package]]
+name = "itertools"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f56a2d0bc861f9165be4eb3442afd3c236d8a98afd426f65d92324ae1091a484"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itertools"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2523,6 +2597,28 @@ dependencies = [
  "sha2 0.8.2",
  "subtle 2.3.0",
  "typenum",
+]
+
+[[package]]
+name = "lightbeam"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b3ef22989d6e83232ef628dc739c0a3f39a556c4b53d1943e6731bc35b7eea9"
+dependencies = [
+ "capstone",
+ "cranelift-codegen",
+ "derive_more",
+ "dynasm 0.5.2",
+ "dynasmrt 0.5.2",
+ "iter-enum",
+ "itertools 0.8.2",
+ "memoffset 0.5.6",
+ "more-asserts",
+ "smallvec 1.5.1",
+ "staticvec",
+ "thiserror",
+ "typemap",
+ "wasmparser 0.59.0",
 ]
 
 [[package]]
@@ -3661,6 +3757,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "afb2e1c3ee07430c2cf76151675e583e0f19985fa6efae47d6848a3e2c824f85"
 
 [[package]]
+name = "owning_ref"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ff55baddef9e4ad00f88b6c743a2a8062d4c6ade126c2a528644b8e444d52ce"
+dependencies = [
+ "stable_deref_trait",
+]
+
+[[package]]
 name = "page_size"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3677,7 +3782,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0bd32ec54c2ee650047a202933eed8659f60fbcfc760b11b6e057f661508c65"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.9.0",
  "paperclip-actix",
  "paperclip-core",
  "paperclip-macros",
@@ -4530,6 +4635,7 @@ dependencies = [
  "hex",
  "indicatif 0.15.0",
  "lazy-static-include",
+ "libc",
  "near-chain-configs",
  "near-crypto",
  "near-evm-runner",
@@ -4949,6 +5055,12 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "staticvec"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c87f4be0fd89694157f3814ca88715ad8ba6010c453b1e89ca264aee04d70b9"
 
 [[package]]
 name = "store-validator"
@@ -5440,6 +5552,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "traitobject"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efd1f82c56340fdf16f2a953d7bda4f8fdffba13d93b00844c25572110b26079"
+
+[[package]]
 name = "trie-db"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5496,6 +5614,15 @@ name = "try-lock"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
+
+[[package]]
+name = "typemap"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "653be63c80a3296da5551e1bfd2cca35227e13cdd08c6668903ae2f4f77aa1f6"
+dependencies = [
+ "unsafe-any",
+]
 
 [[package]]
 name = "typenum"
@@ -5565,6 +5692,15 @@ name = "unicode-xid"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7fe0bb3479651439c9112f72b6c505038574c9fbb575ed1bf3b797fa39dd564"
+
+[[package]]
+name = "unsafe-any"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f30360d7979f5e9c6e6cea48af192ea8fab4afb3cf72597154b8f08935bc9c7f"
+dependencies = [
+ "traitobject",
+]
 
 [[package]]
 name = "untrusted"
@@ -5885,8 +6021,8 @@ checksum = "d3f23543ef8f59667be4945c22eb4b1a50a79ff340555f6f23354223d2695541"
 dependencies = [
  "bincode",
  "byteorder",
- "dynasm",
- "dynasmrt",
+ "dynasm 1.0.0",
+ "dynasmrt 1.0.0",
  "lazy_static",
  "libc",
  "nix",
@@ -6014,10 +6150,23 @@ dependencies = [
  "wasmtime-cranelift",
  "wasmtime-debug",
  "wasmtime-environ",
+ "wasmtime-lightbeam",
  "wasmtime-obj",
  "wasmtime-profiling",
  "wasmtime-runtime",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "wasmtime-lightbeam"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9db30040e0c99999706b4baf7d49b9e0e793672c4e988f5855194d08ac2dbd52"
+dependencies = [
+ "cranelift-codegen",
+ "lightbeam",
+ "wasmparser 0.59.0",
+ "wasmtime-environ",
 ]
 
 [[package]]
