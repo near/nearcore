@@ -42,6 +42,13 @@ impl<T> MaybeValidated<T> {
         }
     }
 
+    pub fn as_ref(&self) -> MaybeValidated<&T> {
+        match &self {
+            Self::Validated(ref t) => MaybeValidated::Validated(t),
+            Self::NotValidated(ref t) => MaybeValidated::NotValidated(t),
+        }
+    }
+
     pub fn extract(self) -> T {
         match self {
             Self::Validated(t) => t,
