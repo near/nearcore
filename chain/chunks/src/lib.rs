@@ -611,7 +611,7 @@ impl ShardsManager {
             return;
         }
 
-        self.encoded_chunks.get_or_insert_from_header(chunk_hash.clone(), || chunk_header.clone());
+        self.encoded_chunks.get_or_insert_from_header(chunk_hash.clone(), chunk_header);
 
         self.requested_partial_encoded_chunks.insert(
             chunk_hash.clone(),
