@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 
+use near_chain::missing_chunks::MissingChunksPool;
 use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
@@ -369,6 +370,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         let adapter = chain.runtime_adapter.clone();
         let epoch_length = chain.epoch_length;
         let empty_block_pool = OrphanBlockPool::new();
+        let empty_chunks_pool = MissingChunksPool::new();
         let chain_genesis = ChainGenesis::from(&genesis);
         let economics_config = BlockEconomicsConfig::from(&chain_genesis);
 
@@ -376,7 +378,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             chain.mut_store(),
             adapter,
             &empty_block_pool,
-            &empty_block_pool,
+            &empty_chunks_pool,
             epoch_length,
             &economics_config,
             DoomslugThresholdMode::NoApprovals,
