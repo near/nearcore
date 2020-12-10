@@ -39,8 +39,10 @@ ethabi-derive = "9.0.1"
 ethereum-types = "0.8.0"
 lazy-static-include = "2.2.2"
 num-traits = "0.2.12"
+libc = "0.2.81"
 
 [features]
 default = []
 wasmtime = ["near-vm-logic/wasmtime_default"]
+lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-vm-runner/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-primitives/protocol_feature_evm", "testlib/protocol_feature_evm"]

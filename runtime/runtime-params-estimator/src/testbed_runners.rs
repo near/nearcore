@@ -9,10 +9,10 @@ use near_vm_logic::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use std::os::raw::c_void;
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {
@@ -121,8 +121,6 @@ fn hypercall(index: u32) -> u64 {
     result
 }
 
-
-
 pub enum Consumed {
     Instant(Instant),
     None,
@@ -134,7 +132,7 @@ fn start_count_instructions() -> Consumed {
 }
 
 fn end_count_instructions() -> u64 {
-  hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)
+    hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)
 }
 
 fn start_count_time() -> Consumed {
