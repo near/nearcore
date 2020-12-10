@@ -2,7 +2,7 @@ use crate::node::Node;
 use crate::runtime_utils::{alice_account, evm_account};
 use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
-use ethereum_types::U256;
+use ethereum_types::{Address, U256};
 use near_evm_runner::types::WithdrawArgs;
 use near_evm_runner::utils::{
     address_from_arr, encode_call_function_args, encode_view_call_function_args, u256_to_arr,
@@ -11,7 +11,8 @@ use near_evm_runner::utils::{
 use_contract!(cryptozombies, "../../runtime/near-evm-runner/tests/build/zombieAttack.abi");
 use_contract!(precompiles, "../../runtime/near-evm-runner/tests/build/StandardPrecompiles.abi");
 
-pub fn test_evm_deploy_call(node: impl Node) {
+/// Deploy the "CryptoZombies" contract (derived from https://cryptozombies.io/en/course/) to EVM.
+fn deploy_zombie_attack_contract(node: impl Node) -> Address {
     let node_user = node.user();
     let bytes = hex::decode(
         include_bytes!("../../../runtime/near-evm-runner/tests/build/zombieAttack.bin").to_vec(),
@@ -27,7 +28,13 @@ pub fn test_evm_deploy_call(node: impl Node) {
     let result = node_user.view_call(&evm_account(), "get_balance", &contract_id).unwrap();
     assert_eq!(result.result, u256_to_arr(&U256::from(10)).to_vec());
 
-    let contract_id = address_from_arr(&contract_id);
+    address_from_arr(&contract_id)
+}
+
+/// Tests for the "CryptoZombies" contract derived from https://cryptozombies.io/en/course/
+pub fn test_evm_deploy_call(node: impl Node) {
+    let node_user = node.user();
+    let contract_id = deploy_zombie_attack_contract(node);
 
     let (input, _decoder) = cryptozombies::functions::create_random_zombie::call("test");
     let args = encode_call_function_args(contract_id, input);
