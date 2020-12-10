@@ -314,6 +314,14 @@ mod test {
         test_evm_deploy_call(node);
     }
 
+    // cargo test --package nearcore --test test_cases_runtime test::test_evm_crypto_zombies_contract_ownership_runtime --features protocol_feature_evm,nightly_protocol_features -- --exact --nocapture
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_crypto_zombies_contract_ownership_runtime() {
+        let node = create_runtime_node();
+        test_evm_crypto_zombies_contract_ownership(node);
+    }
+
     // cargo test --package nearcore --test test_cases_runtime test::test_evm_call_standard_precompiles_runtime --features protocol_feature_evm,nightly_protocol_features -- --exact --nocapture
     #[cfg(feature = "protocol_feature_evm")]
     #[test]
