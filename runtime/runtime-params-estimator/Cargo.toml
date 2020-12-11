@@ -21,8 +21,8 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic" , features = ["costs_counting"]}
-near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting", "no_cache", "no_cpu_compatibility_checks", "wasmtime_vm" ]}
-node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", "no_cache"]}
+near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting" ]}
+node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting"]}
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 testlib = { path = "../../test-utils/testlib" }
@@ -43,6 +43,9 @@ libc = "0.2.81"
 
 [features]
 default = []
+# Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
+required = ["near-vm-runner/no_cpu_compatibility_checks", "no_cache"]
+no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-vm-runner/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-primitives/protocol_feature_evm", "testlib/protocol_feature_evm"]
