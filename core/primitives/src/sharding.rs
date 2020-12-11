@@ -428,6 +428,13 @@ impl PartialEncodedChunk {
         }
     }
 
+    pub fn height_included(&self) -> BlockHeight {
+        match self {
+            Self::V1(chunk) => chunk.header.height_included,
+            Self::V2(chunk) => chunk.header.height_included(),
+        }
+    }
+
     #[inline]
     pub fn parts(&self) -> &Vec<PartialEncodedChunkPart> {
         match self {

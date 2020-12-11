@@ -1897,12 +1897,13 @@ fn test_validate_chunk_extra() {
     // Process the previously unavailable chunk. This causes two blocks to be accepted.
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.store().owned_store(), genesis_height);
+    let chunk_header = encoded_chunk.cloned_header();
     env.clients[0]
         .shards_mgr
         .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store)
         .unwrap();
-    let accepted_blocks =
-        env.clients[0].process_blocks_with_missing_chunks(*last_block.hash(), PROTOCOL_VERSION);
+    env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
+    let accepted_blocks = env.clients[0].process_blocks_with_missing_chunks(PROTOCOL_VERSION);
     assert_eq!(accepted_blocks.len(), 2);
     for (i, accepted_block) in accepted_blocks.into_iter().enumerate() {
         if i == 0 {

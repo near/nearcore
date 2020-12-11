@@ -66,7 +66,7 @@ impl Decoder for Codec {
     }
 }
 
-pub fn peer_message_to_bytes(peer_message: PeerMessage) -> Result<Vec<u8>, std::io::Error> {
+pub fn peer_message_to_bytes(peer_message: &PeerMessage) -> Result<Vec<u8>, std::io::Error> {
     peer_message.try_to_vec()
 }
 
@@ -148,7 +148,7 @@ mod test {
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
-        codec.encode(peer_message_to_bytes(msg.clone()).unwrap(), &mut buffer).unwrap();
+        codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
         assert_eq!(bytes_to_peer_message(&decoded).unwrap(), msg);
     }
@@ -290,7 +290,7 @@ mod test {
 
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
-        codec.encode(peer_message_to_bytes(msg.clone()).unwrap(), &mut buffer).unwrap();
+        codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
 
         let err = bytes_to_peer_message(&decoded).unwrap_err();
