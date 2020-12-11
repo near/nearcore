@@ -1011,9 +1011,9 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
         // In case where the genesis is bigger than the specified limit Overflow Error is thrown
         let body = response
             .body()
-            .limit(2_500_000_000)
+            .limit(10_000_000_000)
             .await
-            .expect("Genesis file is bigger than 2.5GB. Please make the limit higher.");
+            .expect("Genesis file is bigger than 10GB. Please make the limit higher.");
 
         std::fs::write(&path, &body).expect("Failed to create / write a config file.");
 
