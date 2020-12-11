@@ -4,6 +4,7 @@ use borsh::BorshSerialize;
 use byteorder::WriteBytesExt;
 use ethereum_types::{Address, H160, H256, U256};
 use keccak_hash::keccak;
+use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vm::CreateContractAddress;
 
@@ -222,6 +223,16 @@ pub enum Value {
     List(Vec<Value>),
 }
 
+impl Decodable for Value {
+    fn decode(rlp: &Rlp<'_>) -> std::result::Result<Self, DecoderError> {
+        if rlp.is_list() {
+            Ok(Value::List(rlp.as_list()?))
+        } else {
+            Ok(Value::Bytes(rlp.decoder().decode_value(|bytes| Ok(bytes.to_vec()))?))
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct Arg {
     #[allow(dead_code)]
@@ -340,7 +351,9 @@ pub struct ParseMethodNameError;
 
 /// decode rlp-encoded args into vector of Values
 fn rlp_decode(args: &[u8]) -> Vec<Value> {
-    vec![]
+    let rlp = Rlp::new(args);
+    let res: std::result::Result<Vec<Value>, DecoderError> = rlp.as_list();
+    res.unwrap()
 }
 
 /// eip-712 hash a single argument, whose type is ty, and value is value. Definition of all types
