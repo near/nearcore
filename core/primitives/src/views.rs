@@ -125,27 +125,15 @@ impl From<AccountView> for Account {
     }
 }
 
-impl From<&ContractCode> for ContractCodeView {
-    fn from(contract_code: &ContractCode) -> Self {
-        ContractCodeView { code: contract_code.code.clone(), hash: contract_code.hash.clone() }
-    }
-}
-
 impl From<ContractCode> for ContractCodeView {
     fn from(contract_code: ContractCode) -> Self {
-        (&contract_code).into()
-    }
-}
-
-impl From<&ContractCodeView> for ContractCode {
-    fn from(contract_code: &ContractCodeView) -> Self {
-        ContractCode { code: contract_code.code.clone(), hash: contract_code.hash.clone() }
+        ContractCodeView { code: contract_code.code, hash: contract_code.hash }
     }
 }
 
 impl From<ContractCodeView> for ContractCode {
     fn from(contract_code: ContractCodeView) -> Self {
-        (&contract_code).into()
+        ContractCode { code: contract_code.code, hash: contract_code.hash }
     }
 }
 
@@ -272,6 +260,9 @@ pub enum QueryRequest {
     ViewAccount {
         account_id: AccountId,
     },
+    ViewCode {
+        account_id: AccountId,
+    },
     ViewState {
         account_id: AccountId,
         #[serde(rename = "prefix_base64", with = "base64_format")]
@@ -289,9 +280,6 @@ pub enum QueryRequest {
         method_name: String,
         #[serde(rename = "args_base64", with = "base64_format")]
         args: FunctionArgs,
-    },
-    ViewCode {
-        account_id: AccountId,
     },
 }
 
