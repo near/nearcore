@@ -19,12 +19,53 @@ use crate::version::{
     ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
 };
 use std::mem::size_of;
+use std::ops::Deref;
 
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
 pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
+
+/// A data structure for tagging data as already being validated to prevent redundant work.
+pub enum MaybeValidated<T> {
+    Validated(T),
+    NotValidated(T),
+}
+
+impl<T> MaybeValidated<T> {
+    pub fn validate_with<E, F: FnOnce(&T) -> Result<bool, E>>(&self, f: F) -> Result<bool, E> {
+        match &self {
+            Self::Validated(_) => Ok(true),
+            Self::NotValidated(t) => f(t),
+        }
+    }
+
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> MaybeValidated<U> {
+        match self {
+            Self::Validated(t) => MaybeValidated::Validated(f(t)),
+            Self::NotValidated(t) => MaybeValidated::NotValidated(f(t)),
+        }
+    }
+
+    pub fn extract(self) -> T {
+        match self {
+            Self::Validated(t) => t,
+            Self::NotValidated(t) => t,
+        }
+    }
+}
+
+impl<T: Sized> Deref for MaybeValidated<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match &self {
+            Self::Validated(t) => t,
+            Self::NotValidated(t) => t,
+        }
+    }
+}
 
 pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);
