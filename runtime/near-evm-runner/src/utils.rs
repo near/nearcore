@@ -217,6 +217,12 @@ pub fn encode_string(s: &str) -> Vec<u8> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+pub enum Value {
+    Bytes(Vec<u8>),
+    List(Vec<Value>),
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub struct Arg {
     #[allow(dead_code)]
     pub name: String,
@@ -314,6 +320,8 @@ fn is_arg_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
 }
 
+/// Return a signature of the method_name
+/// E.g. method_signature(Methods before parse: "adopt(uint256 petId)") -> "adopt(uint256)"
 fn methods_signature(methods: &[Method]) -> String {
     methods
         .iter()
@@ -327,16 +335,21 @@ fn methods_signature(methods: &[Method]) -> String {
         .collect()
 }
 
-/// Return a signature of the method_name
-/// E.g. method_signature("adopt(uint256 petId)") -> "adopt(uint256)"
-fn signature_from_method_name(method_name: &str) -> Result<String> {
-    let methods = Method::methods_from_method_name(method_name)?;
-    Ok(methods_signature(&methods))
-}
-
 #[derive(Debug, Clone)]
 pub struct ParseMethodNameError;
 
+/// decode rlp-encoded args into vector of Values
+fn rlp_decode(args: &[u8]) -> Vec<Value> {
+    vec![]
+}
+
+/// eip-712 hash a single argument, whose type is ty, and value is value. Definition of all types
+/// is in methods
+fn eip_712_hash(ty: &str, value: &Value, methods: &Vec<Method>) -> Vec<u8> {
+    vec![]
+}
+
+/// eip-712 hash struct of entire meta txn
 pub fn prepare_meta_call_args(
     domain_separator: &RawU256,
     account_id: &AccountId,
@@ -357,12 +370,20 @@ pub fn prepare_meta_call_args(
     bytes.extend_from_slice(&u256_to_arr(&fee_amount));
     bytes.extend_from_slice(&encode_address(fee_address));
     bytes.extend_from_slice(&encode_address(contract_address));
-    let method_sig = signature_from_method_name(method_name)?;
+    let methods = Method::methods_from_method_name(method_name)?;
+    let method_sig = methods_signature(&methods);
     bytes.extend_from_slice(&keccak(method_sig.as_bytes()).as_bytes());
 
     let mut arg_bytes = Vec::new();
     arg_bytes.extend_from_slice(&keccak(arguments.as_bytes()).as_bytes());
-    arg_bytes.extend_from_slice(&args);
+    let args_decoded: Vec<Value> = rlp_decode(args);
+    for i in 0..args_decoded.len() {
+        arg_bytes.extend_from_slice(&eip_712_hash(
+            &methods[0].args[i].t,
+            &args_decoded[i],
+            &methods,
+        ));
+    }
 
     let arg_bytes_hash: RawU256 = keccak(&arg_bytes).into();
     bytes.extend_from_slice(&arg_bytes_hash);
