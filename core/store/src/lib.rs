@@ -508,3 +508,12 @@ impl CompiledContractCache for StoreCompiledContractCache {
         self.store.get(DBCol::ColCachedContractCode, key)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_no_cache_disabled() {
+        #[cfg(feature = "no_cache")]
+        panic!("no cache is enabled");
+    }
+}

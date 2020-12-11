@@ -497,7 +497,7 @@ fn test_inflation() {
                     let header_view =
                         view_client.send(GetBlock::latest()).await.unwrap().unwrap().header;
                     if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
-                        // It's expected that validator will miss first chunk, hence will only be 95% online, getting 50% of their reward.
+                        // It's expected that validator will miss first chunk, hence will only be 95% online, getting 5/9 of their reward.
                         // +10% of protocol reward = 60% of max inflation are allocated.
                         #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
                         let base_reward = initial_total_supply
@@ -529,7 +529,9 @@ fn test_inflation() {
                             .as_u128()
                         };
                         // To match rounding, split into protocol reward and validator reward.
-                        let inflation = base_reward * 1 / 10 + base_reward * 5 / 10;
+                        let protocol_reward = base_reward * 1 / 10;
+                        let inflation =
+                            base_reward * 1 / 10 + (base_reward - protocol_reward) * 5 / 9;
                         if header_view.total_supply == initial_total_supply + inflation {
                             done2_copy2.store(true, Ordering::SeqCst);
                         }
