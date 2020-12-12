@@ -111,7 +111,7 @@ fn test_internal_create() {
     assert_eq!(context.get_nonce(test_addr.0.to_vec()).unwrap(), U256::from(0));
 
     // This should increment the nonce of the deploying contract
-    let (input, _) = soltest::functions::deploy_new_guy::call(8);
+    let (input, _) = soltest::functions::deploy_new_guy::call(9);
     let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
     assert_eq!(context.get_nonce(test_addr.0.to_vec()).unwrap(), U256::from(1));
 
@@ -131,6 +131,7 @@ fn test_precompiles() {
 
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     let (input, _) = soltest::functions::precompile_test::call();
+    println!("input: {:?}", hex::encode(&input));
     let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
     assert_eq!(raw.len(), 0);
 }
