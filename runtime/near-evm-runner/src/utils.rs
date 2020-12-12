@@ -200,7 +200,7 @@ pub fn near_erc721_domain(chain_id: U256) -> RawU256 {
     keccak(&bytes).into()
 }
 
-pub fn method_name_to_rlp(method_name: String) -> [u8; 4] {
+pub fn method_name_hash(method_name: String) -> [u8; 4] {
     let mut result = [0u8; 4];
     result.copy_from_slice(&keccak(method_name)[..4]);
     result
@@ -289,7 +289,7 @@ impl Arg {
 impl Method {
     fn parse(method_name: &str) -> Result<(Method, &str)> {
         let (name, remains) = parse_ident(method_name)?;
-        let (args, remains) = Args::parse_args(remains)?;
+        let (args, remains) = Arg::parse_args(remains)?;
         Ok((Method { name, args }, remains))
     }
 }
@@ -301,7 +301,7 @@ impl MethodAndTypes {
         let (method, mut types) = Method::parse(method_name)?;
         while types.len() > 0 {
             let (name, remains) = parse_ident(method_name)?;
-            let (args, remains) = Args::parse_args(remains)?;
+            let (args, remains) = Arg::parse_args(remains)?;
             parsed_types.insert(name, args);
             types = remains;
         }
@@ -378,9 +378,10 @@ fn eip_712_hash_argument(
         eip_712_hash_primitive_type(ty, value)
     } else if is_eip_712_dynamic_type(ty) {
         eip_712_hash_dynamic_type(ty, value)
-    } else if is_array_type(ty) {
+    } else if is_eip_712_array_type(ty) {
+        // TODO: array type is not parsed (!), use https://github.com/openethereum/openethereum/blob/main/util/EIP-712/src/parser.rs#L68 to parse type
         eip_712_hash_array_type(ty, value)
-    } else if types.contains_key(&str) {
+    } else if types.contains_key(&ty) {
         eip_712_hash_struct(ty, value, types)
     } else {
         Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName))
@@ -388,9 +389,45 @@ fn eip_712_hash_argument(
 }
 
 fn eip_712_hash_primitive_type(ty: &str, value: &Value) -> Result<Vec<u8>> {
-    match ty {
-        "uint256"
+    match value {
+        Value::List(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
+        Value::Bytes(bytes) => match ty {
+            "uint256" => {
+                if bytes.len() > 32 {
+                    return Err(VMLogicError::EvmError(
+                        EvmError::InvalidMetaTransactionFunctionArg,
+                    ));
+                }
+                let mut ret = vec![0u8; 32];
+                ret[(32 - bytes.len())..32].copy_from_slice(bytes);
+                Ok(ret)
+            }
+            _ => unimplemented!(),
+        },
     }
+}
+
+fn eip_712_hash_dynamic_type(ty: &str, value: &Value) -> Result<Vec<u8>> {
+    match value {
+        Value::List(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
+        Value::Bytes(bytes) => Ok(keccak(bytes).into()),
+    }
+}
+
+fn is_eip_712_array_type(ty: &str) -> bool {
+    false
+}
+
+fn eip_712_hash_array_type(ty: &str, value: &Value) -> Result<Vec<u8>> {
+    unimplemented!()
+}
+
+fn eip_712_hash_struct(
+    ty: &str,
+    value: &Value,
+    types: &HashMap<String, Vec<Arg>>,
+) -> Result<Vec<u8>> {
+    unimplemented!()
 }
 
 /// return true if ty is a eip_712 primitive type.
@@ -402,7 +439,8 @@ fn eip_712_hash_primitive_type(ty: &str, value: &Value) -> Result<Vec<u8>> {
 /// atomic types.
 fn is_eip_712_primitive_type(ty: &str) -> bool {
     const PRIMITIVE_TYPES: Vec<&'static str> = vec![
-        (1..33).map(|i| format!("bytes{}", i)).collect(),
+        // TODO: parse more thoroughly, pass type into enum of primitive type, array and reference type instead of strs
+        (1..33).map(|i| &format!("bytes{}", i)).collect(),
         vec!["uint8", "uint16", "uint32", "uint64", "uint128", "uint256"],
         vec!["int8", "int16", "int32", "int64", "int128", "int256"],
         vec!["bool"],
@@ -415,7 +453,7 @@ fn is_eip_712_primitive_type(ty: &str) -> bool {
 /// return true if ty is a dynamic type
 /// Definition: The dynamic types are bytes and string. These are like the atomic types for the
 /// purposed of type declaration, but their treatment in encoding is different.
-fn is_eip_dynamic_type(ty: &str) -> bool {
+fn is_eip_712_dynamic_type(ty: &str) -> bool {
     ty == "bytes" || ty == "bytes"
 }
 
@@ -452,7 +490,7 @@ pub fn prepare_meta_call_args(
             &methods[0].args[i].t,
             &args_decoded[i],
             &methods,
-        ))?;
+        )?);
     }
 
     let arg_bytes_hash: RawU256 = keccak(&arg_bytes).into();
@@ -469,12 +507,12 @@ pub fn prepare_meta_call_args(
 /// Format
 /// [0..65): signature: v - 1 byte, s - 32 bytes, r - 32 bytes
 /// [65..97): nonce: nonce of the `signer` account of the `signature`.
-/// : fee_amount
-/// : fee_address
-/// [97..117): contract_id: address for contract to call
-/// : method_name_length
-/// : method_name
-/// 117..: RLP encoded rest of arguments.
+/// [97, 129): fee_amount
+/// [129, 149): fee_address
+/// [149..169): contract_id: address for contract to call
+/// [169]: method_name_length
+/// [170, 170+method_name_length): method_name
+/// [170+method_name_length, ..]: RLP encoded rest of arguments.
 pub fn parse_meta_call(
     domain_separator: &RawU256,
     account_id: &AccountId,
@@ -513,8 +551,9 @@ pub fn parse_meta_call(
     if sender == Address::zero() {
         return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
     }
-    let method_name_rlp = method_name_to_rlp(method_name);
-    let input = [method_name_rlp.to_vec(), args.to_vec()].concat();
+    let method_name_selector = method_name_hash(method_name);
+    // TODO: args is rlp encoded, however, it must be eth-abi encoded and placed in input then evm runner can execute it
+    let input = [method_name_selector.to_vec(), args.to_vec()].concat();
     Ok(MetaCallArgs { sender, nonce, fee_amount, fee_address, contract_address, input })
 }
 
@@ -550,36 +589,35 @@ mod tests {
 
     #[test]
     fn test_parse_method() {
-        let methods = Method::methods_from_method_name(
-            "Blah(Foo q,Bar w)Foo(uint256 x,Bar z)Bar(T ttt)T(string x)",
-        )
-        .unwrap();
+        let methods =
+            MethodAndTypes::parse("Blah(Foo q,Bar w)Foo(uint256 x,Bar z)Bar(T ttt)T(string x)")
+                .unwrap();
         assert!(
-            methods
-                == vec![
-                    Method {
-                        name: "Blah".into(),
-                        args: vec![
-                            Arg { name: "q".into(), t: "Foo".into() },
-                            Arg { name: "w".into(), t: "Bar".into() }
-                        ]
-                    },
-                    Method {
-                        name: "Foo".into(),
-                        args: vec![
-                            Arg { name: "x".into(), t: "uint256".into() },
-                            Arg { name: "z".into(), t: "Bar".into() }
-                        ]
-                    },
-                    Method {
-                        name: "Bar".into(),
-                        args: vec![Arg { name: "ttt".into(), t: "T".into() }]
-                    },
-                    Method {
-                        name: "T".into(),
-                        args: vec![Arg { name: "x".into(), t: "string".into() }]
-                    }
-                ]
+            false //            methods
+                  //                == vec![
+                  //                    Method {
+                  //                        name: "Blah".into(),
+                  //                        args: vec![
+                  //                            Arg { name: "q".into(), t: "Foo".into() },
+                  //                            Arg { name: "w".into(), t: "Bar".into() }
+                  //                        ]
+                  //                    },
+                  //                    Method {
+                  //                        name: "Foo".into(),
+                  //                        args: vec![
+                  //                            Arg { name: "x".into(), t: "uint256".into() },
+                  //                            Arg { name: "z".into(), t: "Bar".into() }
+                  //                        ]
+                  //                    },
+                  //                    Method {
+                  //                        name: "Bar".into(),
+                  //                        args: vec![Arg { name: "ttt".into(), t: "T".into() }]
+                  //                    },
+                  //                    Method {
+                  //                        name: "T".into(),
+                  //                        args: vec![Arg { name: "x".into(), t: "string".into() }]
+                  //                    }
+                  //                ]
         );
     }
 }
