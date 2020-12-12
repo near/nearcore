@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Write;
 
 use borsh::BorshSerialize;
@@ -246,17 +247,21 @@ pub struct Method {
     pub args: Vec<Arg>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct MethodAndTypes {
+    pub method: Method,
+    pub types: HashMap<String, Vec<Arg>>,
+}
+
 impl Arg {
-    fn parse_arg(text: &str) -> Result<(Arg, &str)> {
+    fn parse(text: &str) -> Result<(Arg, &str)> {
         let (t, remains) = parse_ident(text)?;
         let remains = consume(remains, ' ')?;
         let (name, remains) = parse_ident(remains)?;
         Ok((Arg { t, name }, remains))
     }
-}
 
-impl Method {
-    fn parse_method_args(text: &str) -> Result<(Vec<Arg>, &str)> {
+    fn parse_args(text: &str) -> Result<(Vec<Arg>, &str)> {
         let mut remains = consume(text, '(')?;
         if remains.len() == 0 {
             return Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName));
@@ -264,12 +269,12 @@ impl Method {
         let mut args = vec![];
         let first = remains.chars().next().unwrap();
         if is_arg_start(first) {
-            let (arg, r) = Arg::parse_arg(remains)?;
+            let (arg, r) = Arg::parse(remains)?;
             remains = r;
             args.push(arg);
             while remains.chars().next() == Some(',') {
                 remains = consume(remains, ',')?;
-                let (arg, r) = Arg::parse_arg(remains)?;
+                let (arg, r) = Arg::parse(remains)?;
                 remains = r;
                 args.push(arg);
             }
@@ -279,22 +284,28 @@ impl Method {
 
         Ok((args, remains))
     }
+}
 
-    fn parse_method(method_name: &str) -> Result<(Method, &str)> {
+impl Method {
+    fn parse(method_name: &str) -> Result<(Method, &str)> {
         let (name, remains) = parse_ident(method_name)?;
-        let (args, remains) = Method::parse_method_args(remains)?;
+        let (args, remains) = Args::parse_args(remains)?;
         Ok((Method { name, args }, remains))
     }
+}
 
-    pub fn methods_from_method_name(method_name: &str) -> Result<Vec<Method>> {
+impl MethodAndTypes {
+    pub fn parse(method_name: &str) -> Result<Self> {
         let mut method_name = method_name;
-        let mut methods = vec![];
-        while method_name.len() > 0 {
-            let (method, method_name_remains) = Method::parse_method(method_name)?;
-            method_name = method_name_remains;
-            methods.push(method);
+        let mut parsed_types = HashMap::new();
+        let (method, mut types) = Method::parse(method_name)?;
+        while types.len() > 0 {
+            let (name, remains) = parse_ident(method_name)?;
+            let (args, remains) = Args::parse_args(remains)?;
+            parsed_types.insert(name, args);
+            types = remains;
         }
-        Ok(methods)
+        Ok(MethodAndTypes { method, types: parsed_types })
     }
 }
 
@@ -350,16 +361,62 @@ fn methods_signature(methods: &[Method]) -> String {
 pub struct ParseMethodNameError;
 
 /// decode rlp-encoded args into vector of Values
-fn rlp_decode(args: &[u8]) -> Vec<Value> {
+fn rlp_decode(args: &[u8]) -> Result<Vec<Value>> {
     let rlp = Rlp::new(args);
     let res: std::result::Result<Vec<Value>, DecoderError> = rlp.as_list();
-    res.unwrap()
+    res.map_err(|_| VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))
 }
 
 /// eip-712 hash a single argument, whose type is ty, and value is value. Definition of all types
-/// is in methods
-fn eip_712_hash(ty: &str, value: &Value, methods: &Vec<Method>) -> Vec<u8> {
-    vec![]
+/// is in types
+fn eip_712_hash_argument(
+    ty: &str,
+    value: &Value,
+    types: &HashMap<String, Vec<Arg>>,
+) -> Result<Vec<u8>> {
+    if is_eip_712_primitive_type(ty) {
+        eip_712_hash_primitive_type(ty, value)
+    } else if is_eip_712_dynamic_type(ty) {
+        eip_712_hash_dynamic_type(ty, value)
+    } else if is_array_type(ty) {
+        eip_712_hash_array_type(ty, value)
+    } else if types.contains_key(&str) {
+        eip_712_hash_struct(ty, value, types)
+    } else {
+        Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName))
+    }
+}
+
+fn eip_712_hash_primitive_type(ty: &str, value: &Value) -> Result<Vec<u8>> {
+    match ty {
+        "uint256"
+    }
+}
+
+/// return true if ty is a eip_712 primitive type.
+/// From https://eips.ethereum.org/EIPS/eip-712#definition-of-typed-structured-data-%F0%9D%95%8A
+/// Definition: The atomic types are bytes1 to bytes32, uint8 to uint256, int8 to int256,
+/// bool and address. These correspond to their definition in Solidity. Note that there are
+/// no aliases uint and int. Note that contract addresses are always plain address. Fixed point
+/// numbers are not supported by the standard. Future versions of this standard may add new
+/// atomic types.
+fn is_eip_712_primitive_type(ty: &str) -> bool {
+    const PRIMITIVE_TYPES: Vec<&'static str> = vec![
+        (1..33).map(|i| format!("bytes{}", i)).collect(),
+        vec!["uint8", "uint16", "uint32", "uint64", "uint128", "uint256"],
+        vec!["int8", "int16", "int32", "int64", "int128", "int256"],
+        vec!["bool"],
+        vec!["address"],
+    ]
+    .concat();
+    PRIMITIVE_TYPES.contains(&ty)
+}
+
+/// return true if ty is a dynamic type
+/// Definition: The dynamic types are bytes and string. These are like the atomic types for the
+/// purposed of type declaration, but their treatment in encoding is different.
+fn is_eip_dynamic_type(ty: &str) -> bool {
+    ty == "bytes" || ty == "bytes"
 }
 
 /// eip-712 hash struct of entire meta txn
@@ -383,19 +440,19 @@ pub fn prepare_meta_call_args(
     bytes.extend_from_slice(&u256_to_arr(&fee_amount));
     bytes.extend_from_slice(&encode_address(fee_address));
     bytes.extend_from_slice(&encode_address(contract_address));
-    let methods = Method::methods_from_method_name(method_name)?;
+    let methods = Method::parse_method_name(method_name)?;
     let method_sig = methods_signature(&methods);
     bytes.extend_from_slice(&keccak(method_sig.as_bytes()).as_bytes());
 
     let mut arg_bytes = Vec::new();
     arg_bytes.extend_from_slice(&keccak(arguments.as_bytes()).as_bytes());
-    let args_decoded: Vec<Value> = rlp_decode(args);
+    let args_decoded: Vec<Value> = rlp_decode(args)?;
     for i in 0..args_decoded.len() {
-        arg_bytes.extend_from_slice(&eip_712_hash(
+        arg_bytes.extend_from_slice(&eip_712_hash_argument(
             &methods[0].args[i].t,
             &args_decoded[i],
             &methods,
-        ));
+        ))?;
     }
 
     let arg_bytes_hash: RawU256 = keccak(&arg_bytes).into();
