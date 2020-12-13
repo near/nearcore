@@ -19,7 +19,6 @@ from rc import gcloud
 import traceback
 import uuid
 import network
-import logging
 from proxy import NodesProxy
 from bridge import GanacheNode, RainbowBridge, alice, bob, carol
 from key import Key
@@ -282,7 +281,7 @@ class LocalNode(BaseNode):
     def start(self, boot_key, boot_node_addr, skip_starting_proxy=False):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
-                logging.debug(f'Waiting for previous proxy instance to close')
+                print(f'Waiting for previous proxy instance to close')
                 time.sleep(1)
 
 

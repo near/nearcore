@@ -1,9 +1,11 @@
 import atexit
 import base58
 import base64
+from collections import defaultdict
 from enum import Enum
 import json
-import multiprocessing
+import logging
+from multiprocessing import Manager, Process, Value
 from pathlib import Path
 import random
 from retrying import retry
@@ -19,6 +21,15 @@ from key import Key
 from messages.bridge import *
 from serializer import BinarySerializer
 from transaction import sign_function_call_tx, sign_create_account_with_full_access_key_and_balance_tx
+
+logger = logging.getLogger('bridge')
+log_handler = logging.StreamHandler()
+log_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)-8s %(process)-6d %(funcName)-18s %(message)s', '%Y-%m-%d %H:%M:%S'))
+# do not propagate bridge messages to the root logger
+logger.propagate = False
+logger.addHandler(log_handler)
+logging.getLogger('bridge').setLevel(logging.INFO)
+logger.info('Bridge logger is started')
 
 MAX_ATTEMPTS = 5
 
@@ -46,29 +57,29 @@ class JSAdapter:
         self.bridge_dir = self.config['bridge_dir']
         self.cli_dir = os.path.join(self.bridge_dir, 'cli')
 
-    def call(self, args, timeout):
-        print('JS call:', ' '.join(args))
+    def js_call(self, args, timeout):
+        logger.info(' '.join(args))
         # TODO check for errors
         return subprocess.check_output(
             args, timeout=timeout, cwd=self.cli_dir).decode('ascii').strip()
 
-    def call_cli(self, args, timeout=3):
+    def js_call_cli(self, args, timeout=3):
         if not isinstance(args, list):
             args = [args]
         args = ['node', 'index.js'] + args
-        return self.call(args, timeout)
+        return self.js_call(args, timeout)
 
-    def call_testing(self, args, timeout=3):
+    def js_call_testing(self, args, timeout=3):
         if not isinstance(args, list):
             args = [args]
         args = ['node', 'index.js', 'TESTING'] + args
-        return self.call(args, timeout)
+        return self.js_call(args, timeout)
 
-    def call_service(self, args, stdout, stderr):
+    def js_call_service(self, args, stdout, stderr):
         if not isinstance(args, list):
             args = [args]
         args = ['node', 'index.js', 'start'] + args + ['--daemon', 'false']
-        print('JS process start:', ' '.join(args))
+        logger.info(' '.join(args))
         service = subprocess.Popen(args, stdout=stdout, stderr=stderr, cwd=self.cli_dir)
         # TODO ping and wait until service really starts
         time.sleep(5)
@@ -86,6 +97,8 @@ class BridgeUser(object):
         # Following fields will be initialized when Bridge starts
         self.eth_address = None
         self.near_signer_key = None
+        self.process_manager = None
+        self.tokens_expected = None
 
 
 # BridgeUser related fields
@@ -121,10 +134,6 @@ class BridgeTx(object):
         self.near_token_factory_id = near_token_factory_id
         self.near_client_account_id = near_client_account_id
         self.near_token_account_id = near_token_account_id
-        self.deposit_attempts = 0
-        self.get_proof_attempts = 0
-        self.wait_attempts = 0
-        self.withdraw_attempts = 0
 
 def atexit_cleanup(obj):
     print("Cleaning %s on script exit" % (obj.__class__.__name__))
@@ -140,7 +149,7 @@ class Cleanable(object):
 
     def __init__(self, config):
         self.cleaned = False
-        self.pid = multiprocessing.Value('i', 0)
+        self.pid = Value('i', 0)
         self.config = config
         self.bridge_dir = self.config['bridge_dir']
         self.config_dir = self.config['config_dir']
@@ -242,7 +251,7 @@ class Near2EthBlockRelay(Cleanable):
                 self.config_dir,
                 'logs/near2eth-relay/err.log'),
             'a')
-        self.pid.value = self.adapter.call_service(['near2eth-relay', '--eth-master-sk', eth_master_secret_key], self.stdout, self.stderr).pid
+        self.pid.value = self.adapter.js_call_service(['near2eth-relay', '--eth-master-sk', eth_master_secret_key], self.stdout, self.stderr).pid
         assert self.pid.value != 0
 
 
@@ -262,7 +271,7 @@ class Eth2NearBlockRelay(Cleanable):
                 self.config_dir,
                 'logs/eth2near-relay/err.log'),
             'a')
-        self.pid.value = self.adapter.call_service('eth2near-relay', self.stdout, self.stderr).pid
+        self.pid.value = self.adapter.js_call_service('eth2near-relay', self.stdout, self.stderr).pid
         assert self.pid.value != 0
 
 
@@ -285,7 +294,7 @@ class RainbowBridge:
         if not os.path.exists(self.bridge_dir):
             self.git_clone_install()
         if not os.path.exists(os.path.expanduser("~/go")):
-            print('Go must be installed')
+            logger.error('Go must be installed')
             assert False
         # TODO resolve
         # This hack is for NayDuck
@@ -317,14 +326,16 @@ class RainbowBridge:
                         service),
                     'out.log')).touch()
 
-        print('Running write_config.js...')
+        logger.info('Running write_config.js...')
         assert subprocess.check_output(
             ['node', 'write_config.js'], cwd=self.bridge_dir) == b''
-        print('Setting up users\' addresses...')
+        logger.info('Setting up users\' addresses...')
         for user in [bridge_master_account, alice, bob, carol]:
             user.eth_address = self.get_eth_address(user)
             user.near_signer_key = Key(user.near_account_name, user.near_pk, user.near_sk)
             self.create_account(user, node)
+            user.process_manager = Manager()
+            user.tokens_expected = user.process_manager.dict()
 
     @retry(stop_max_attempt_number=10, wait_random_min=100, wait_random_max=250)
     def create_account(self, user, node):
@@ -342,17 +353,11 @@ class RainbowBridge:
         assert res['result']['status']['SuccessValue'] == ''
 
     def git_clone_install(self):
-        print('No rainbow-bridge repo found, cloning...')
+        logger.info('No rainbow-bridge repo found, cloning...')
         args = ('git clone --recurse-submodules %s %s' %
                 (self.config['bridge_repo'], self.bridge_dir)).split()
         assert subprocess.check_output(args).decode('ascii').strip(
         ) == "Submodule path 'eth2near/ethashproof': checked out 'b7e7e22979a9b25043b649c22e41cb149267fbeb'"
-        print('cwd', self.bridge_dir)
-        exit_code = os.system('echo yarn --version; yarn --version')
-        print('yarn --version exit code', exit_code)
-        exit_code = os.system('echo node --version; node --version')
-        print('node --version exit code', exit_code)
-        os.system('echo which node; which node')
         assert subprocess.check_output(['yarn'], cwd=self.bridge_dir).decode(
             'ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done'
         ethash_dir = os.path.join(self.bridge_dir, 'eth2near/ethashproof')
@@ -362,22 +367,22 @@ class RainbowBridge:
         assert os.path.exists(os.path.join(ethash_dir, 'cmd/relayer/relayer'))
 
     def init_near_contracts(self):
-        assert_success(self.adapter.call_cli('init-near-contracts', timeout=60))
+        assert_success(self.adapter.js_call_cli('init-near-contracts', timeout=60))
 
     def init_eth_contracts(self):
-        assert_success(self.adapter.call_cli('init-eth-ed25519', timeout=60))
-        assert_success(self.adapter.call_cli([
+        assert_success(self.adapter.js_call_cli('init-eth-ed25519', timeout=60))
+        assert_success(self.adapter.js_call_cli([
             'init-eth-client',
             '--eth-client-lock-eth-amount',
             '1000000000000000000',
             '--eth-client-lock-duration',
             '30'], timeout=60))
-        assert_success(self.adapter.call_cli('init-eth-prover', timeout=60))
-        assert_success(self.adapter.call_cli('init-eth-erc20', timeout=60))
-        assert_success(self.adapter.call_cli('init-eth-locker', timeout=60))
+        assert_success(self.adapter.js_call_cli('init-eth-prover', timeout=60))
+        assert_success(self.adapter.js_call_cli('init-eth-erc20', timeout=60))
+        assert_success(self.adapter.js_call_cli('init-eth-locker', timeout=60))
 
     def init_near_token_factory(self):
-        assert_success(self.adapter.call_cli('init-near-token-factory', timeout=60))
+        assert_success(self.adapter.js_call_cli('init-near-token-factory', timeout=60))
 
     def start_eth2near_block_relay(self):
         self.eth2near_block_relay = Eth2NearBlockRelay(self.config)
@@ -413,7 +418,10 @@ class RainbowBridge:
             tx.near_client_account_id = near_client_account_id
         if near_token_account_id:
             tx.near_token_account_id = near_token_account_id
-        p = multiprocessing.Process(target=transfer_routine, args=(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, self.adapter))
+
+        sender_tokens_shared_dict = sender.tokens_expected
+        receiver_tokens_shared_dict = receiver.tokens_expected
+        p = Process(target=transfer_routine, args=(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, self.adapter, sender_tokens_shared_dict, receiver_tokens_shared_dict))
         p.start()
         return p
 
@@ -444,29 +452,35 @@ class RainbowBridge:
             tx.near_client_account_id = near_client_account_id
         if near_token_account_id:
             tx.near_token_account_id = near_token_account_id
-        p = multiprocessing.Process(target=transfer_routine, args=(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, self.adapter))
+
+        sender_tokens_shared_dict = sender.tokens_expected
+        receiver_tokens_shared_dict = receiver.tokens_expected
+        p = Process(target=transfer_routine, args=(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, self.adapter, sender_tokens_shared_dict, receiver_tokens_shared_dict))
         p.start()
         return p
 
     def mint_erc20_tokens(self, user, amount, token_name='erc20'):
         assert user.eth_address
         # js parses 0x as number, not as string
-        return self.adapter.call_testing(['mint-erc20-tokens', user.eth_address[2:], str(amount), token_name], timeout=15)
+        res = self.adapter.js_call_testing(['mint-erc20-tokens', user.eth_address[2:], str(amount), token_name], timeout=15)
+        res = res.strip().split('\n')
+        assert res[-1] == 'OK'
+        user.tokens_expected.setdefault(token_name, amount)
 
     @retry(stop_max_attempt_number=3, wait_random_min=100, wait_random_max=250)
     def get_eth_address(self, user):
         if not user.eth_address:
             # js parses 0x as number, not as string
-            user.eth_address = self.adapter.call_testing(['get-account-address', user.eth_secret_key[2:]])
+            user.eth_address = self.adapter.js_call_testing(['get-account-address', user.eth_secret_key[2:]])
         return user.eth_address
 
     @retry(stop_max_attempt_number=3, wait_random_min=100, wait_random_max=250)
     def get_eth_balance(self, user, token_name='erc20'):
         assert user.eth_address
         # js parses 0x as number, not as string
-        return int(self.adapter.call_testing(['get-erc20-balance', user.eth_address[2:], token_name]))
+        return int(self.adapter.js_call_testing(['get-erc20-balance', user.eth_address[2:], token_name]))
 
-    @retry(stop_max_attempt_number=10, wait_random_min=100, wait_random_max=250)
+    @retry(stop_max_attempt_number=10, wait_random_min=100, wait_random_max=1000)
     def get_near_balance(self, user, token_account_id=None, node=None):
         if not node:
             node = self.node
@@ -484,90 +498,87 @@ class RainbowBridge:
         res = int("".join(map(chr, res['result']['result']))[1:-1])
         return res
 
+    def check_balances(self, user):
+        res = True
+        for (token_name, amount) in user.tokens_expected.items():
+            logger.info('%s\'s amount of %s token is %d' % (user.name, token_name, amount))
+            if token_name.startswith('near-'):
+                # This is NEAR side token
+                # TODO use token_account_id
+                actual_amount = self.get_near_balance(user)
+            else:
+                # This is ETH side token
+                actual_amount = self.get_eth_balance(user, token_name)
+            if actual_amount != amount:
+                res = False
+                user.tokens_expected[token_name] = actual_amount
+        return res
 
-@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500)
+
+def retry_func(attempt, delay):
+    logger.setLevel(logging.INFO)
+    logging.getLogger('bridge').setLevel(logging.INFO)
+    logger.info('ATTEMPT %d FAILED, RETRYING' % (attempt))
+    if attempt + 1 == MAX_ATTEMPTS:
+        logger.warning('LAST ATTEMPT! SETTING DEBUG LOGGING LEVEL')
+        logging.getLogger('bridge').setLevel(logging.DEBUG)
+    return delay
+
+@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def eth2near_withdraw(tx, node, adapter):
-    tx.withdraw_attempts += 1
-    print(tx.id, 'WITHDRAW PHASE, ATTEMPT', tx.withdraw_attempts)
-    verbose = False
-    if tx.withdraw_attempts == MAX_ATTEMPTS:
-        print('LAST ATTEMPT! SETTING MAX VERBOSE')
-        verbose = True
+    logger.info('TX %s, WITHDRAW PHASE' % (tx.id))
 
-    approve = adapter.call_testing(['eth-to-near-approve', tx.sender.eth_address[2:], str(tx.amount), tx.token_name], timeout=15)
-    if verbose:
-        print('APPROVE:', approve)
-    assert approve == 'OK'
+    approve = adapter.js_call_testing(['eth-to-near-approve', tx.sender.eth_address[2:], str(tx.amount), tx.token_name], timeout=15)
+    logger.debug('APPROVE: %s' % (approve))
+    approve = approve.strip().split('\n')
+    assert approve[-1] == 'OK'
     # This tx is critical.
     # Executing it successfully without getting proper answer will lead any test to failing.
-    locker = adapter.call_testing(['eth-to-near-lock', tx.sender.eth_address[2:], tx.receiver.near_account_name, str(tx.amount), tx.token_name], timeout=45)
-    if verbose:
-        print('LOCKER:', locker)
-    locker = locker.split('\n')
-    assert locker[0] == 'OK'
-    return locker[1]
+    locker = adapter.js_call_testing(['eth-to-near-lock', tx.sender.eth_address[2:], tx.receiver.near_account_name, str(tx.amount), tx.token_name], timeout=45)
+    logger.debug('LOCKER: %s' % (locker))
+    locker = locker.strip().split('\n')
+    assert locker[-2] == 'OK'
+    return locker[-1]
 
-@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500)
+@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def eth2near_get_proof(tx, withdraw_ticket, node, adapter):
-    tx.get_proof_attempts += 1
-    print(tx.id, 'GETTING PROOF PHASE, ATTEMPT', tx.get_proof_attempts)
-    verbose = False
-    if tx.get_proof_attempts == MAX_ATTEMPTS:
-        print('LAST ATTEMPT! SETTING MAX VERBOSE')
-        verbose = True
+    logger.info('TX %s, GETTING PROOF PHASE' % (tx.id))
 
-    event = adapter.call_cli(['eth-to-near-find-proof', withdraw_ticket], timeout=15)
-    if verbose:
-        print('EVENT:', event)
-    event = event.split('\n')
-    assert event[0] != 'Failed'
-    event_parsed = json.loads(event[0])
-    if verbose:
-        print('EVENT PARSED:', event_parsed)
+    event = adapter.js_call_cli(['eth-to-near-find-proof', withdraw_ticket], timeout=15)
+    logger.debug('EVENT: %s' % (event))
+    event = event.strip().split('\n')
+    event_parsed = json.loads(event[-1])
+    logger.debug('EVENT PARSED: %s' % (event_parsed))
     return event_parsed
 
-@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500)
+@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def eth2near_wait(tx, proof_ticket, node, adapter):
-    tx.wait_attempts += 1
-    print(tx.id, 'WAITING PHASE, ATTEMPT', tx.wait_attempts)
-    verbose = False
-    if tx.wait_attempts == MAX_ATTEMPTS:
-        print('LAST ATTEMPT! SETTING MAX VERBOSE')
-        verbose = True
+    logger.info('TX %s, WAITING PHASE' % (tx.id))
 
     block_number = proof_ticket['block_number']
-    if verbose:
-        print('BLOCK NUMBER:', block_number)
+    logger.debug('BLOCK NUMBER: %s' % (str(block_number)))
     serializer = BinarySerializer(None)
     serializer.serialize_field(block_number, 'u64')
-    if verbose:
-        print('BLOCK NUMBER SERIALIZED:', base64.b64encode(bytes(serializer.array)).decode("ascii"))
+    logger.debug('BLOCK NUMBER SERIALIZED: %s' % (base64.b64encode(bytes(serializer.array)).decode("ascii")))
     while True: 
         res = node.call_function(
             tx.near_client_account_id,
             'block_hash_safe',
             base64.b64encode(bytes(serializer.array)).decode("ascii"),
             timeout=15)
-        if verbose:
-            print('BLOCK HASH SAFE CALL:', res)
+        logger.info('BLOCK HASH SAFE CALL: %s' % (res))
         if 'result' in res:
             if res['result']['result'] == [0]:
-                time.sleep(3)
+                time.sleep(15)
             else:
                 return proof_ticket
 
-@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500)
+@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def eth2near_deposit(tx, wait_ticket, node, adapter):
-    tx.deposit_attempts += 1
-    print(tx.id, 'DEPOSIT PHASE, ATTEMPT', tx.deposit_attempts)
-    verbose = False
-    if tx.deposit_attempts == MAX_ATTEMPTS:
-        print('LAST ATTEMPT! SETTING MAX VERBOSE')
-        verbose = True
+    logger.info('TX %s, DEPOSIT PHASE' % (tx.id))
 
     proof_parsed = wait_ticket['proof_locker']
-    if verbose:
-        print('PROOF PARSED:', proof_parsed)
+    logger.debug('PROOF PARSED: %s' % (proof_parsed))
     serializer = BinarySerializer(dict(bridge_schema))
     proof = Proof()
     proof.log_index = proof_parsed['log_index']
@@ -577,17 +588,13 @@ def eth2near_deposit(tx, wait_ticket, node, adapter):
     proof.header_data = proof_parsed['header_data']
     proof.proof = proof_parsed['proof']
     proof_ser = serializer.serialize(proof)
-    if verbose:
-        print('PROOF SERIALIZED:', base64.b64encode(bytes(proof_ser)).decode("ascii"))
+    logger.debug('PROOF SERIALIZED: %s' % (base64.b64encode(bytes(proof_ser)).decode("ascii")))
     status = node.get_status(check_storage=False)
-    if verbose:
-        print('STATUS:', status)
+    logger.debug('STATUS: %s' % (status))
     h = base58.b58decode(status['sync_info']['latest_block_hash'].encode('utf8'))
-    if verbose:
-        print('HASH:', status['sync_info']['latest_block_hash'], h)
+    logger.debug('HASH: %s %s' % (str(status['sync_info']['latest_block_hash']), str(h)))
     nonce = node.get_nonce_for_pk(tx.sender.near_account_name, tx.sender.near_signer_key.pk)
-    if verbose:
-        print('NONCE:', nonce)
+    logger.debug('NONCE: %s' % (nonce))
     deposit_tx = sign_function_call_tx(
         tx.sender.near_signer_key,
         tx.near_token_factory_id,
@@ -597,36 +604,25 @@ def eth2near_deposit(tx, wait_ticket, node, adapter):
         100000000000000000000*600,
         nonce + 1,
         h)
-    if verbose:
-        print('DEPOSIT_TX:', deposit_tx)
+    logger.debug('DEPOSIT_TX: %s' % (deposit_tx))
     res = node.send_tx_and_wait(deposit_tx, 45)
-    if verbose:
-        print('DEPOSIT_TX RES:', res)
+    logger.debug('DEPOSIT_TX RES: %s' % (res))
     assert res['result']['status']['SuccessValue'] == ''
 
-@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500)
+@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def near2eth_withdraw(tx, node, adapter):
-    tx.withdraw_attempts += 1
-    print(tx.id, 'WITHDRAW PHASE, ATTEMPT', tx.withdraw_attempts)
-    verbose = False
-    if tx.withdraw_attempts == MAX_ATTEMPTS:
-        print('LAST ATTEMPT! SETTING MAX VERBOSE')
-        verbose = True
+    logger.info('TX %s, WITHDRAW PHASE' % (tx.id))
 
     status = node.get_status(check_storage=False)
-    if verbose:
-        print('STATUS:', status)
+    logger.debug('STATUS: %s' % (status))
     h = base58.b58decode(status['sync_info']['latest_block_hash'].encode('utf8'))
-    if verbose:
-        print('HASH:', status['sync_info']['latest_block_hash'], h)
+    logger.debug('HASH: %s %s' % (str(status['sync_info']['latest_block_hash']), str(h)))
     nonce = node.get_nonce_for_pk(tx.sender.near_account_name, tx.sender.near_signer_key.pk)
-    if verbose:
-        print('NONCE:', nonce)
+    logger.debug('NONCE: %d' % (nonce))
     receiver_address = tx.receiver.eth_address
     if receiver_address.startswith('0x'):
         receiver_address = receiver_address[2:]
-    if verbose:
-        print('RECEIVER:', receiver_address)
+    logger.debug('RECEIVER: %s' % (receiver_address))
     withdraw_tx = sign_function_call_tx(
         tx.sender.near_signer_key,
         tx.near_token_account_id,
@@ -636,98 +632,91 @@ def near2eth_withdraw(tx, node, adapter):
         0,
         nonce + 1,
         h)
-    if verbose:
-        print('WITHDRAW_TX:', withdraw_tx)
+    logger.debug('WITHDRAW_TX: %s' % (withdraw_tx))
     # This tx is critical.
     # Executing it successfully without getting proper answer will lead any test to failing.
     withdraw = node.send_tx_and_wait(withdraw_tx, 45)
-    if verbose:
-        print('WITHDRAW_TX RES:', withdraw)
+    logger.debug('WITHDRAW_TX RES: %s' % (withdraw))
     return withdraw['result']
 
-@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500)
+@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def near2eth_get_proof(tx, withdraw_ticket, node, adapter):
-    tx.get_proof_attempts += 1
-    print(tx.id, 'GETTING PROOF PHASE, ATTEMPT', tx.get_proof_attempts)
-    verbose = False
-    if tx.get_proof_attempts == MAX_ATTEMPTS:
-        print('LAST ATTEMPT! SETTING MAX VERBOSE')
-        verbose = True
+    logger.info('TX %s, GETTING PROOF PHASE' % (tx.id))
 
     receipts = withdraw_ticket['transaction_outcome']['outcome']['receipt_ids']
-    if verbose:
-        print('RECEIPTS:', receipts)
+    logger.debug('RECEIPTS: %s' % (str(receipts)))
     assert len(receipts) == 1
     withdraw_receipt_id = receipts[0]
     outcomes = withdraw_ticket['receipts_outcome']
-    if verbose:
-        print('OUTCOMES:', outcomes)
+    logger.debug('OUTCOMES: %s' % (str(outcomes)))
     receipt_id = None
     for outcome in outcomes:
         if outcome['id'] == withdraw_receipt_id:
             receipt_id = outcome['outcome']['status']['SuccessReceiptId']
             block_hash = outcome['block_hash']
             return (receipt_id, block_hash)
-    if verbose:
-        print('NO PROOF FOUND')
+    logger.debug('NO PROOF FOUND')
     
-@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500)
+@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def near2eth_wait(tx, proof_ticket, node, adapter):
-    tx.wait_attempts += 1
-    print(tx.id, 'WAITING PHASE, ATTEMPT', tx.wait_attempts)
-    verbose = False
-    if tx.wait_attempts == MAX_ATTEMPTS:
-        print('LAST ATTEMPT! SETTING MAX VERBOSE')
-        verbose = True
+    logger.info('TX %s, WAITING PHASE' % (tx.id))
 
     (receipt_id, block_hash) = proof_ticket
     block = node.json_rpc('block', [block_hash], timeout=3)
-    if verbose:
-        print('BLOCK', block)
+    logger.debug('BLOCK: %s' % (str(block)))
     height = block['result']['header']['height']
-    if verbose:
-        print('REQUIRED HEIGHT', height)
+    logger.debug('REQUIRED HEIGHT: %d' % (height))
     while True:
         final_block = node.json_rpc('block', {'finality': 'final'}, timeout=3)
-        if verbose:
-            print('FINAL BLOCK', final_block)
+        logger.debug('FINAL BLOCK: %s' % (final_block))
         final_block_height = final_block['result']['header']['height']
-        if verbose:
-            print('CURRENT HEIGHT', final_block_height)
+        logger.debug('CURRENT HEIGHT: %d' % (final_block_height))
         if final_block_height > height:
             height = final_block_height
             break
         time.sleep(3)
     while True:
-        [eth_client_block_height, eth_client_block_hash] = adapter.call_testing(['get-client-block-height-hash']).strip().split()
+        [eth_client_block_height, eth_client_block_hash] = adapter.js_call_testing(['get-client-block-height-hash']).strip().split()
         eth_client_block_height = int(eth_client_block_height)
-        print('ETH BLOCK HEIGHT & HASH', eth_client_block_height, eth_client_block_hash)
+        logger.info('ETH BLOCK HEIGHT: %d, HASH: %s' % (eth_client_block_height, str(eth_client_block_hash)))
         if eth_client_block_height > height:
             return (receipt_id, eth_client_block_hash, eth_client_block_height)
-        time.sleep(3)
+        time.sleep(15)
 
-@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500)
+@retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def near2eth_deposit(tx, wait_ticket, node, adapter):
-    tx.deposit_attempts += 1
-    print(tx.id, 'DEPOSIT PHASE, ATTEMPT', tx.deposit_attempts)
-    verbose = False
-    if tx.deposit_attempts == MAX_ATTEMPTS:
-        print('LAST ATTEMPT! SETTING MAX VERBOSE')
-        verbose = True
+    logger.info('TX %s, DEPOSIT PHASE' % (tx.id))
 
     (receipt_id, eth_client_block_hash, eth_client_block_height) = wait_ticket
     proof = node.json_rpc('light_client_proof', {"type": "receipt", "receipt_id": receipt_id, "receiver_id": tx.sender.near_account_name, "light_client_head": eth_client_block_hash}, timeout=15)
-    if verbose:
-        print('PROOF', proof)
+    logger.debug('PROOF: %s' % (proof))
     light_client_proof = json.dumps(proof['result'], separators=(',', ':'))
-    unlock = adapter.call_testing(['near-to-eth-unlock', str(eth_client_block_height), light_client_proof], timeout=45)
-    if verbose:
-        print('UNLOCK', unlock)
+    logger.debug('PROOF TO SEND: %s' % (proof))
+    unlock = adapter.js_call_testing(['near-to-eth-unlock', str(eth_client_block_height), light_client_proof], timeout=45)
+    logger.debug('UNLOCK: %s' % (unlock))
+    unlock = unlock.strip().split('\n')
+    assert unlock[-1] == 'OK'
 
-def transfer_routine(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, adapter):
+def transfer_routine(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, adapter, sender_tokens_shared_dict, receiver_tokens_shared_dict):
     assert tx.sender.eth_address
+    logger.info('Tranferring tokens from %s to %s, amount %d, token name %s, direction %s' % (tx.sender.name, tx. receiver.name, tx.amount, tx.token_name, tx.direction))
 
     withdraw_ticket = withdraw_func(tx, node, adapter)
     proof_ticket = get_proof_func(tx, withdraw_ticket, node, adapter)
     wait_ticket = wait_func(tx, proof_ticket, node, adapter)
     deposit_func(tx, wait_ticket, node, adapter)
+
+    # As no function above has been failed, update token amount expectations
+    near_token_name = 'near-' + tx.token_name
+    if tx.direction == BridgeTxDirection.ETH2NEAR:
+        sender_tokens_shared_dict[tx.token_name] -= tx.amount
+        if near_token_name not in receiver_tokens_shared_dict:
+            receiver_tokens_shared_dict[near_token_name] = 0
+        receiver_tokens_shared_dict[near_token_name] += tx.amount
+    elif tx.direction == BridgeTxDirection.NEAR2ETH:
+        sender_tokens_shared_dict[near_token_name] -= tx.amount
+        if tx.token_name not in receiver_tokens_shared_dict:
+            receiver_tokens_shared_dict[tx.token_name] = 0
+        receiver_tokens_shared_dict[tx.token_name] += tx.amount
+    else:
+        logger.error('Unknown tx direction')

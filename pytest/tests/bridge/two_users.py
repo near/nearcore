@@ -31,21 +31,8 @@ from cluster import start_cluster, start_bridge
 from bridge import alice, bob, bridge_cluster_config_changes
 
 nodes = start_cluster(2, 0, 1, None, [], bridge_cluster_config_changes)
-
-time.sleep(2)
-
 (bridge, ganache) = start_bridge(nodes)
-print('=== BRIDGE IS STARTED')
 
-alice_eth_balance_before = bridge.get_eth_balance(alice)
-print('=== ALICE ETH BALANCE BEFORE', alice_eth_balance_before)
-alice_near_balance_before = bridge.get_near_balance(alice)
-print('=== ALICE NEAR BALANCE BEFORE', alice_near_balance_before)
-bob_eth_balance_before = bridge.get_eth_balance(bob)
-print('=== BOB ETH BALANCE BEFORE', bob_eth_balance_before)
-bob_near_balance_before = bridge.get_near_balance(bob)
-print('=== BOB NEAR BALANCE BEFORE', bob_near_balance_before)
-print('=== ALICE SENDS %d, BOB SENDS %d' % (alice_amount, bob_amount))
 txs = []
 txs.append(bridge.transfer_eth2near(alice, alice_amount))
 if no_txs_in_same_block:
@@ -53,32 +40,16 @@ if no_txs_in_same_block:
 if no_txs_in_parallel:
     [p.join() for p in txs]
 txs.append(bridge.transfer_eth2near(bob, bob_amount))
-exit_codes = [p.join() for p in txs]
+[p.join() for p in txs]
+exit_codes = [p.exitcode for p in txs]
 
-alice_eth_balance_after = bridge.get_eth_balance(alice)
-print('=== ALICE ETH BALANCE AFTER', alice_eth_balance_after)
-alice_near_balance_after = bridge.get_near_balance(alice)
-print('=== ALICE NEAR BALANCE AFTER', alice_near_balance_after)
-bob_eth_balance_after = bridge.get_eth_balance(bob)
-print('=== BOB ETH BALANCE AFTER', bob_eth_balance_after)
-bob_near_balance_after = bridge.get_near_balance(bob)
-print('=== BOB NEAR BALANCE AFTER', bob_near_balance_after)
-assert alice_eth_balance_after + alice_amount == alice_eth_balance_before
-assert alice_near_balance_before + alice_amount == alice_near_balance_after
-assert bob_eth_balance_after + bob_amount == bob_eth_balance_before
-assert bob_near_balance_before + bob_amount == bob_near_balance_after
+assert exit_codes == [0 for _ in txs]
+assert bridge.check_balances(alice)
+assert bridge.check_balances(bob)
 
 alice_amount = alice_amount // 2
 bob_amount = bob_amount // 2
-alice_eth_balance_before = bridge.get_eth_balance(alice)
-print('=== ALICE ETH BALANCE BEFORE', alice_eth_balance_before)
-alice_near_balance_before = bridge.get_near_balance(alice)
-print('=== ALICE NEAR BALANCE BEFORE', alice_near_balance_before)
-bob_eth_balance_before = bridge.get_eth_balance(bob)
-print('=== BOB ETH BALANCE BEFORE', bob_eth_balance_before)
-bob_near_balance_before = bridge.get_near_balance(bob)
-print('=== BOB NEAR BALANCE BEFORE', bob_near_balance_before)
-print('=== ALICE SENDS %d, BOB SENDS %d' % (alice_amount, bob_amount))
+
 txs = []
 txs.append(bridge.transfer_near2eth(alice, alice_amount))
 if no_txs_in_same_block:
@@ -86,19 +57,11 @@ if no_txs_in_same_block:
 if no_txs_in_parallel:
     [p.join() for p in txs]
 txs.append(bridge.transfer_near2eth(bob, bob_amount))
-exit_codes = [p.join() for p in txs]
+[p.join() for p in txs]
 
-alice_eth_balance_after = bridge.get_eth_balance(alice)
-print('=== ALICE ETH BALANCE AFTER', alice_eth_balance_after)
-alice_near_balance_after = bridge.get_near_balance(alice)
-print('=== ALICE NEAR BALANCE AFTER', alice_near_balance_after)
-bob_eth_balance_after = bridge.get_eth_balance(bob)
-print('=== BOB ETH BALANCE AFTER', bob_eth_balance_after)
-bob_near_balance_after = bridge.get_near_balance(bob)
-print('=== BOB NEAR BALANCE AFTER', bob_near_balance_after)
-assert alice_eth_balance_before + alice_amount == alice_eth_balance_after
-assert alice_near_balance_after + alice_amount == alice_near_balance_before
-assert bob_eth_balance_before + bob_amount == bob_eth_balance_after
-assert bob_near_balance_after + bob_amount == bob_near_balance_before
+assert exit_codes == [0 for _ in txs]
+assert bridge.check_balances(alice)
+assert bridge.check_balances(bob)
+
 
 print('EPIC')

@@ -16,11 +16,7 @@ from bridge import Eth2NearBlockRelay, Near2EthBlockRelay, alice, bridge_cluster
 from cluster import start_cluster, start_bridge
 
 nodes = start_cluster(2, 0, 1, None, [], bridge_cluster_config_changes)
-
-time.sleep(2)
-
 (bridge, ganache) = start_bridge(nodes, handle_relays=False)
-print('=== BRIDGE IS STARTED')
 
 e2n = []
 e2n.append(Eth2NearBlockRelay(bridge.config))
@@ -38,9 +34,6 @@ n2e[0].start()
 n2e[1].start()
 print('=== N2E RELAYS ARE STARTED')
 
-print('=== SENDING 1000 ETH TO NEAR')
-eth_balance_before = bridge.get_eth_balance(alice)
-near_balance_before = bridge.get_near_balance(alice)
 tx = bridge.transfer_eth2near(alice, 1000)
 
 if add_relay_while_tx:
@@ -50,19 +43,14 @@ if add_relay_while_tx:
     e2n[-1].start()
 tx.join()
 
-eth_balance_after = bridge.get_eth_balance(alice)
-near_balance_after = bridge.get_near_balance(alice)
-assert eth_balance_after + 1000 == eth_balance_before
-assert near_balance_before + 1000 == near_balance_after
+assert tx.exitcode == 0
+assert bridge.check_balances(alice)
+
 print('=== BALANCES ARE OK, SLEEPING FOR 60 SEC')
 time.sleep(60)
-assert eth_balance_after + 1000 == eth_balance_before
-assert near_balance_before + 1000 == near_balance_after
+assert bridge.check_balances(alice)
 print('=== BALANCES ARE OK AFTER SLEEPING')
 
-print('=== SENDING 1 NEAR TO ETH')
-eth_balance_before = bridge.get_eth_balance(alice)
-near_balance_before = bridge.get_near_balance(alice)
 tx = bridge.transfer_near2eth(alice, 1)
 if add_relay_while_tx:
     time.sleep(10)
@@ -71,12 +59,12 @@ if add_relay_while_tx:
     n2e[-1].start()
 tx.join()
 
-eth_balance_after = bridge.get_eth_balance(alice)
-near_balance_after = bridge.get_near_balance(alice)
-assert eth_balance_before + 1 == eth_balance_after
-assert near_balance_after + 1 == near_balance_before
+assert tx.exitcode == 0
+assert bridge.check_balances(alice)
 print('=== BALANCES ARE OK, SLEEPING FOR 60 SEC')
 time.sleep(60)
+assert bridge.check_balances(alice)
 print('=== BALANCES ARE OK AFTER SLEEPING')
+
 
 print('EPIC')
