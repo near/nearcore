@@ -44,11 +44,10 @@ if add_relay_while_tx:
 tx.join()
 
 assert tx.exitcode == 0
-assert bridge.check_balances(alice)
-
+bridge.check_balances(alice)
 print('=== BALANCES ARE OK, SLEEPING FOR 60 SEC')
 time.sleep(60)
-assert bridge.check_balances(alice)
+bridge.check_balances(alice)
 print('=== BALANCES ARE OK AFTER SLEEPING')
 
 tx = bridge.transfer_near2eth(alice, 1)
@@ -60,10 +59,10 @@ if add_relay_while_tx:
 tx.join()
 
 assert tx.exitcode == 0
-assert bridge.check_balances(alice)
+bridge.check_balances(alice)
 print('=== BALANCES ARE OK, SLEEPING FOR 60 SEC')
 time.sleep(60)
-assert bridge.check_balances(alice)
+bridge.check_balances(alice)
 print('=== BALANCES ARE OK AFTER SLEEPING')
 
 

@@ -5,7 +5,7 @@ from collections import defaultdict
 from enum import Enum
 import json
 import logging
-from multiprocessing import Manager, Process, Value
+from multiprocessing import Process, Value
 from pathlib import Path
 import random
 from retrying import retry
@@ -29,9 +29,8 @@ log_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)-8s %(proc
 logger.propagate = False
 logger.addHandler(log_handler)
 logging.getLogger('bridge').setLevel(logging.INFO)
-logger.info('Bridge logger is started')
 
-MAX_ATTEMPTS = 5
+MAX_ATTEMPTS = 10
 
 bridge_cluster_config_changes = {
     "consensus": {
@@ -59,9 +58,12 @@ class JSAdapter:
 
     def js_call(self, args, timeout):
         logger.info(' '.join(args))
-        # TODO check for errors
-        return subprocess.check_output(
-            args, timeout=timeout, cwd=self.cli_dir).decode('ascii').strip()
+        try:
+            res = subprocess.check_output(args, timeout=timeout, stderr=subprocess.STDOUT, cwd=self.cli_dir).decode('ascii').strip()
+            return res
+        except subprocess.CalledProcessError as e:
+            logger.error('js call failed, exit code %d, msg: %s' % (e.returncode, e.output))
+            assert False
 
     def js_call_cli(self, args, timeout=3):
         if not isinstance(args, list):
@@ -94,11 +96,10 @@ class BridgeUser(object):
         self.near_account_name = name + '.test0'
         self.near_sk = near_sk
         self.near_pk = near_pk
+        self.tokens_expected = dict()
         # Following fields will be initialized when Bridge starts
         self.eth_address = None
         self.near_signer_key = None
-        self.process_manager = None
-        self.tokens_expected = None
 
 
 # BridgeUser related fields
@@ -134,6 +135,8 @@ class BridgeTx(object):
         self.near_token_factory_id = near_token_factory_id
         self.near_client_account_id = near_client_account_id
         self.near_token_account_id = near_token_account_id
+        # for custom fields
+        self.custom = dict()
 
 def atexit_cleanup(obj):
     print("Cleaning %s on script exit" % (obj.__class__.__name__))
@@ -197,8 +200,7 @@ class GanacheNode(Cleanable):
 
     def build(self):
         ganache_dir = os.path.join(self.bridge_dir, self.config['ganache_dir'])
-        assert subprocess.check_output(['yarn'], cwd=ganache_dir).decode(
-            'ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done'
+        assert_success(subprocess.check_output(['yarn'], cwd=ganache_dir))
 
     def start(self):
         ganache_bin = os.path.join(self.bridge_dir, self.config['ganache_bin'])
@@ -230,7 +232,9 @@ class GanacheNode(Cleanable):
             ],
             stdout=self.stdout,
             stderr=self.stderr).pid
-        assert self.pid.value != 0
+        if self.pid.value == 0:
+            logger.error('Cannot start ganache')
+            assert False
 
 
 class Near2EthBlockRelay(Cleanable):
@@ -252,7 +256,9 @@ class Near2EthBlockRelay(Cleanable):
                 'logs/near2eth-relay/err.log'),
             'a')
         self.pid.value = self.adapter.js_call_service(['near2eth-relay', '--eth-master-sk', eth_master_secret_key], self.stdout, self.stderr).pid
-        assert self.pid.value != 0
+        if self.pid.value == 0:
+            logger.error('Cannot start Near2EthBlockRelay')
+            assert False
 
 
 class Eth2NearBlockRelay(Cleanable):
@@ -272,12 +278,24 @@ class Eth2NearBlockRelay(Cleanable):
                 'logs/eth2near-relay/err.log'),
             'a')
         self.pid.value = self.adapter.js_call_service('eth2near-relay', self.stdout, self.stderr).pid
-        assert self.pid.value != 0
+        if self.pid.value == 0:
+            logger.error('Cannot start Eth2NearBlockRelay')
+            assert False
 
 
 def assert_success(message):
+    try:
+        message = message.decode('ascii')
+    except:
+        # message is already str
+        pass
+    if message == '':
+        # empty message is considered valid
+        return
     message = message.strip().split('\n')[-1].strip().split(' ')
-    assert message[0] == 'Deployed' or message[-1] in ('deployed', 'initialized')
+    if not (message[0] in ('Deployed', 'Done') or message[-1] in ('deployed', 'initialized')):
+        logger.error(message)
+        assert False
 
 
 class RainbowBridge:
@@ -327,17 +345,15 @@ class RainbowBridge:
                     'out.log')).touch()
 
         logger.info('Running write_config.js...')
-        assert subprocess.check_output(
-            ['node', 'write_config.js'], cwd=self.bridge_dir) == b''
+        assert_success(subprocess.check_output(['node', 'write_config.js'], cwd=self.bridge_dir))
         logger.info('Setting up users\' addresses...')
         for user in [bridge_master_account, alice, bob, carol]:
             user.eth_address = self.get_eth_address(user)
             user.near_signer_key = Key(user.near_account_name, user.near_pk, user.near_sk)
             self.create_account(user, node)
-            user.process_manager = Manager()
-            user.tokens_expected = user.process_manager.dict()
+        logger.info('Bridge is started')
 
-    @retry(stop_max_attempt_number=10, wait_random_min=100, wait_random_max=250)
+    @retry(wait_exponential_multiplier=1.2, wait_exponential_max=10000)
     def create_account(self, user, node):
         status = node.get_status(check_storage=False)
         h = base58.b58decode(status['sync_info']['latest_block_hash'].encode('utf8'))
@@ -349,8 +365,8 @@ class RainbowBridge:
                 billion_tokens // 10,
                 nonce + 1,
                 h)
-        res = node.send_tx_and_wait(create_account_tx, 15)
-        assert res['result']['status']['SuccessValue'] == ''
+        res = node.send_tx_and_wait(create_account_tx, timeout=15)
+        assert_success(res['result']['status']['SuccessValue'])
 
     def git_clone_install(self):
         logger.info('No rainbow-bridge repo found, cloning...')
@@ -358,11 +374,9 @@ class RainbowBridge:
                 (self.config['bridge_repo'], self.bridge_dir)).split()
         assert subprocess.check_output(args).decode('ascii').strip(
         ) == "Submodule path 'eth2near/ethashproof': checked out 'b7e7e22979a9b25043b649c22e41cb149267fbeb'"
-        assert subprocess.check_output(['yarn'], cwd=self.bridge_dir).decode(
-            'ascii').strip().split('\n')[-1].strip().split(' ')[0] == 'Done'
+        assert_success(subprocess.check_output(['yarn'], cwd=self.bridge_dir))
         ethash_dir = os.path.join(self.bridge_dir, 'eth2near/ethashproof')
-        assert subprocess.check_output(
-            ['/bin/sh', 'build.sh'], cwd=ethash_dir) == b''
+        assert_success(subprocess.check_output(['/bin/sh', 'build.sh'], cwd=ethash_dir))
         # Make sure that ethash is assembled
         assert os.path.exists(os.path.join(ethash_dir, 'cmd/relayer/relayer'))
 
@@ -381,6 +395,7 @@ class RainbowBridge:
         assert_success(self.adapter.js_call_cli('init-eth-erc20', timeout=60))
         assert_success(self.adapter.js_call_cli('init-eth-locker', timeout=60))
 
+    @retry(stop_max_attempt_number=10, wait_fixed=1000)
     def init_near_token_factory(self):
         assert_success(self.adapter.js_call_cli('init-near-token-factory', timeout=60))
 
@@ -392,95 +407,97 @@ class RainbowBridge:
         self.near2eth_block_relay = Near2EthBlockRelay(self.config)
         self.near2eth_block_relay.start()
 
-    def transfer_eth2near(self, sender, amount, receiver=None, token_name=None, near_token_factory_id=None, near_client_account_id=None, near_token_account_id=None, withdraw_func=None, get_proof_func=None, wait_func=None, deposit_func=None, node=None):
+    def update_expected_balances(self, sender, receiver, send_token_name, receive_token_name, amount):
+        # The only known reason of not updating is insufficient balance of sender
+        if sender.tokens_expected[send_token_name] >= amount:
+            sender.tokens_expected[send_token_name] -= amount
+            if receive_token_name not in receiver.tokens_expected:
+                receiver.tokens_expected[receive_token_name] = 0
+            receiver.tokens_expected[receive_token_name] += amount
+
+    def transfer_tx(self, tx, withdraw_func=None, get_proof_func=None, wait_func=None, deposit_func=None, node=None):
         if not node:
             node = self.node
+
+        if tx.direction == BridgeTxDirection.ETH2NEAR:
+            if not withdraw_func:
+                withdraw_func = eth2near_withdraw
+            if not get_proof_func:
+                get_proof_func = eth2near_get_proof
+            if not wait_func:
+                wait_func = eth2near_wait
+            if not deposit_func:
+                deposit_func = eth2near_deposit
+            self.update_expected_balances(tx.sender, tx.receiver, tx.token_name, 'near-' + tx.token_name, tx.amount)
+        else:
+            assert tx.direction == BridgeTxDirection.NEAR2ETH
+            if not withdraw_func:
+                withdraw_func = near2eth_withdraw
+            if not get_proof_func:
+                get_proof_func = near2eth_get_proof
+            if not wait_func:
+                wait_func = near2eth_wait
+            if not deposit_func:
+                deposit_func = near2eth_deposit
+            self.update_expected_balances(tx.sender, tx.receiver, 'near-' + tx.token_name, tx.token_name, tx.amount)
+
+        p = Process(target=transfer_routine, args=(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, self.adapter))
+        p.start()
+
+        return p
+
+    def transfer_eth2near(self, sender, amount, receiver=None, token_name='erc20', near_token_factory_id='neartokenfactory', near_client_account_id='rainbow_bridge_eth_on_near_client', near_token_account_id='7cc4b1851c35959d34e635a470f6b5c43ba3c9c9.neartokenfactory', withdraw_func=None, get_proof_func=None, wait_func=None, deposit_func=None, node=None):
         if not receiver:
             receiver = sender
-        if not withdraw_func:
-            withdraw_func = eth2near_withdraw
-        if not get_proof_func:
-            get_proof_func = eth2near_get_proof
-        if not wait_func:
-            wait_func = eth2near_wait
-        if not deposit_func:
-            deposit_func = eth2near_deposit
         assert sender.eth_address
         tx = BridgeTx(BridgeTxDirection.ETH2NEAR,
                       sender,
                       receiver,
-                      amount)
-        if token_name:
-            tx.token_name = token_name
-        if near_token_factory_id:
-            tx.near_token_factory_id = near_token_factory_id
-        if near_client_account_id:
-            tx.near_client_account_id = near_client_account_id
-        if near_token_account_id:
-            tx.near_token_account_id = near_token_account_id
+                      amount,
+                      token_name,
+                      near_token_factory_id,
+                      near_client_account_id,
+                      near_token_account_id)
+        return self.transfer_tx(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node)
 
-        sender_tokens_shared_dict = sender.tokens_expected
-        receiver_tokens_shared_dict = receiver.tokens_expected
-        p = Process(target=transfer_routine, args=(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, self.adapter, sender_tokens_shared_dict, receiver_tokens_shared_dict))
-        p.start()
-        return p
-
-
-    def transfer_near2eth(self, sender, amount, receiver=None, token_name=None, near_token_factory_id=None, near_client_account_id=None, near_token_account_id=None, withdraw_func=None, get_proof_func=None, wait_func=None, deposit_func=None, node=None):
-        if not node:
-            node = self.node
+    def transfer_near2eth(self, sender, amount, receiver=None, token_name='erc20', near_token_factory_id='neartokenfactory', near_client_account_id='rainbow_bridge_eth_on_near_client', near_token_account_id='7cc4b1851c35959d34e635a470f6b5c43ba3c9c9.neartokenfactory', withdraw_func=None, get_proof_func=None, wait_func=None, deposit_func=None, node=None):
         if not receiver:
             receiver = sender
-        if not withdraw_func:
-            withdraw_func = near2eth_withdraw
-        if not get_proof_func:
-            get_proof_func = near2eth_get_proof
-        if not wait_func:
-            wait_func = near2eth_wait
-        if not deposit_func:
-            deposit_func = near2eth_deposit
         assert receiver.eth_address
         tx = BridgeTx(BridgeTxDirection.NEAR2ETH,
                       sender,
                       receiver,
-                      amount)
-        if token_name:
-            tx.token_name = token_name
-        if near_token_factory_id:
-            tx.near_token_factory_id = near_token_factory_id
-        if near_client_account_id:
-            tx.near_client_account_id = near_client_account_id
-        if near_token_account_id:
-            tx.near_token_account_id = near_token_account_id
-
-        sender_tokens_shared_dict = sender.tokens_expected
-        receiver_tokens_shared_dict = receiver.tokens_expected
-        p = Process(target=transfer_routine, args=(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, self.adapter, sender_tokens_shared_dict, receiver_tokens_shared_dict))
-        p.start()
-        return p
+                      amount,
+                      token_name,
+                      near_token_factory_id,
+                      near_client_account_id,
+                      near_token_account_id)
+        return self.transfer_tx(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node)
 
     def mint_erc20_tokens(self, user, amount, token_name='erc20'):
         assert user.eth_address
         # js parses 0x as number, not as string
         res = self.adapter.js_call_testing(['mint-erc20-tokens', user.eth_address[2:], str(amount), token_name], timeout=15)
         res = res.strip().split('\n')
-        assert res[-1] == 'OK'
+        if res[-1] != 'OK':
+            logger.error('Mint failed, %s' % (res))
+            assert False
         user.tokens_expected.setdefault(token_name, amount)
 
-    @retry(stop_max_attempt_number=3, wait_random_min=100, wait_random_max=250)
+    @retry(wait_exponential_multiplier=1.2, wait_exponential_max=10000)
     def get_eth_address(self, user):
         if not user.eth_address:
             # js parses 0x as number, not as string
             user.eth_address = self.adapter.js_call_testing(['get-account-address', user.eth_secret_key[2:]])
         return user.eth_address
 
-    @retry(stop_max_attempt_number=3, wait_random_min=100, wait_random_max=250)
+    @retry(wait_exponential_multiplier=1.2, wait_exponential_max=10000)
     def get_eth_balance(self, user, token_name='erc20'):
         assert user.eth_address
         # js parses 0x as number, not as string
         return int(self.adapter.js_call_testing(['get-erc20-balance', user.eth_address[2:], token_name]))
 
-    @retry(stop_max_attempt_number=10, wait_random_min=100, wait_random_max=1000)
+    @retry(wait_exponential_multiplier=1.2, wait_exponential_max=10000)
     def get_near_balance(self, user, token_account_id=None, node=None):
         if not node:
             node = self.node
@@ -494,14 +511,13 @@ class RainbowBridge:
                 bytes(
                     '{"owner_id": "' + user.near_account_name + '"}',
                     encoding='utf8')).decode("ascii"),
-            timeout=2)
+            timeout=10)
         res = int("".join(map(chr, res['result']['result']))[1:-1])
         return res
 
+    @retry(wait_fixed=10000)
     def check_balances(self, user):
-        res = True
         for (token_name, amount) in user.tokens_expected.items():
-            logger.info('%s\'s amount of %s token is %d' % (user.name, token_name, amount))
             if token_name.startswith('near-'):
                 # This is NEAR side token
                 # TODO use token_account_id
@@ -509,10 +525,8 @@ class RainbowBridge:
             else:
                 # This is ETH side token
                 actual_amount = self.get_eth_balance(user, token_name)
-            if actual_amount != amount:
-                res = False
-                user.tokens_expected[token_name] = actual_amount
-        return res
+            logger.info('%s\'s expected amount of %s token is %d, actual amount is %d' % (user.name, token_name, amount, actual_amount))
+            assert actual_amount == amount
 
 
 def retry_func(attempt, delay):
@@ -569,7 +583,7 @@ def eth2near_wait(tx, proof_ticket, node, adapter):
         logger.info('BLOCK HASH SAFE CALL: %s' % (res))
         if 'result' in res:
             if res['result']['result'] == [0]:
-                time.sleep(15)
+                time.sleep(15 + random.randrange(10))
             else:
                 return proof_ticket
 
@@ -605,9 +619,8 @@ def eth2near_deposit(tx, wait_ticket, node, adapter):
         nonce + 1,
         h)
     logger.debug('DEPOSIT_TX: %s' % (deposit_tx))
-    res = node.send_tx_and_wait(deposit_tx, 45)
+    res = node.send_tx(deposit_tx)
     logger.debug('DEPOSIT_TX RES: %s' % (res))
-    assert res['result']['status']['SuccessValue'] == ''
 
 @retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def near2eth_withdraw(tx, node, adapter):
@@ -623,31 +636,41 @@ def near2eth_withdraw(tx, node, adapter):
     if receiver_address.startswith('0x'):
         receiver_address = receiver_address[2:]
     logger.debug('RECEIVER: %s' % (receiver_address))
+
+    # This is important in case of having identical txs that are sent simultaneously.
+    # Setting different nonce helps to distinguish such txs.
+    nonce_increment = os.getpid() % 1000 + 1
+
     withdraw_tx = sign_function_call_tx(
         tx.sender.near_signer_key,
         tx.near_token_account_id,
         'withdraw',
-        bytes('{"amount": "' + str(tx.amount) + '", "recipient": "' +  receiver_address + '"}', encoding='utf8'),
+        bytes('{"amount": "' + str(tx.amount) + '", "recipient": "' + receiver_address + '"}', encoding='utf8'),
         300000000000000,
         0,
-        nonce + 1,
+        nonce + nonce_increment,
         h)
     logger.debug('WITHDRAW_TX: %s' % (withdraw_tx))
-    # This tx is critical.
-    # Executing it successfully without getting proper answer will lead any test to failing.
-    withdraw = node.send_tx_and_wait(withdraw_tx, 45)
-    logger.debug('WITHDRAW_TX RES: %s' % (withdraw))
+    withdraw = node.send_tx(withdraw_tx)
+    logger.debug('WITHDRAW_TX SEND: %s' % (withdraw))
     return withdraw['result']
 
 @retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def near2eth_get_proof(tx, withdraw_ticket, node, adapter):
     logger.info('TX %s, GETTING PROOF PHASE' % (tx.id))
 
-    receipts = withdraw_ticket['transaction_outcome']['outcome']['receipt_ids']
+    while True:
+        try:
+            withdraw_res = node.get_tx(withdraw_ticket, tx.near_token_account_id)['result']
+            logger.debug('WITHDRAW_TX RES: %s' % (str(withdraw_res)))
+            break
+        except:
+            time.sleep(10)
+    receipts = withdraw_res['transaction_outcome']['outcome']['receipt_ids']
     logger.debug('RECEIPTS: %s' % (str(receipts)))
     assert len(receipts) == 1
     withdraw_receipt_id = receipts[0]
-    outcomes = withdraw_ticket['receipts_outcome']
+    outcomes = withdraw_res['receipts_outcome']
     logger.debug('OUTCOMES: %s' % (str(outcomes)))
     receipt_id = None
     for outcome in outcomes:
@@ -681,13 +704,14 @@ def near2eth_wait(tx, proof_ticket, node, adapter):
         logger.info('ETH BLOCK HEIGHT: %d, HASH: %s' % (eth_client_block_height, str(eth_client_block_hash)))
         if eth_client_block_height > height:
             return (receipt_id, eth_client_block_hash, eth_client_block_height)
-        time.sleep(15)
+        time.sleep(15 + random.randrange(10))
 
 @retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def near2eth_deposit(tx, wait_ticket, node, adapter):
     logger.info('TX %s, DEPOSIT PHASE' % (tx.id))
 
     (receipt_id, eth_client_block_hash, eth_client_block_height) = wait_ticket
+    logger.debug('receipt_id: %s, eth_client_block_hash: %s, eth_client_block_height: %d' % (receipt_id, eth_client_block_hash, eth_client_block_height))
     proof = node.json_rpc('light_client_proof', {"type": "receipt", "receipt_id": receipt_id, "receiver_id": tx.sender.near_account_name, "light_client_head": eth_client_block_hash}, timeout=15)
     logger.debug('PROOF: %s' % (proof))
     light_client_proof = json.dumps(proof['result'], separators=(',', ':'))
@@ -697,7 +721,7 @@ def near2eth_deposit(tx, wait_ticket, node, adapter):
     unlock = unlock.strip().split('\n')
     assert unlock[-1] == 'OK'
 
-def transfer_routine(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, adapter, sender_tokens_shared_dict, receiver_tokens_shared_dict):
+def transfer_routine(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, adapter):
     assert tx.sender.eth_address
     logger.info('Tranferring tokens from %s to %s, amount %d, token name %s, direction %s' % (tx.sender.name, tx. receiver.name, tx.amount, tx.token_name, tx.direction))
 
@@ -705,18 +729,3 @@ def transfer_routine(tx, deposit_func, get_proof_func, wait_func, withdraw_func,
     proof_ticket = get_proof_func(tx, withdraw_ticket, node, adapter)
     wait_ticket = wait_func(tx, proof_ticket, node, adapter)
     deposit_func(tx, wait_ticket, node, adapter)
-
-    # As no function above has been failed, update token amount expectations
-    near_token_name = 'near-' + tx.token_name
-    if tx.direction == BridgeTxDirection.ETH2NEAR:
-        sender_tokens_shared_dict[tx.token_name] -= tx.amount
-        if near_token_name not in receiver_tokens_shared_dict:
-            receiver_tokens_shared_dict[near_token_name] = 0
-        receiver_tokens_shared_dict[near_token_name] += tx.amount
-    elif tx.direction == BridgeTxDirection.NEAR2ETH:
-        sender_tokens_shared_dict[near_token_name] -= tx.amount
-        if tx.token_name not in receiver_tokens_shared_dict:
-            receiver_tokens_shared_dict[tx.token_name] = 0
-        receiver_tokens_shared_dict[tx.token_name] += tx.amount
-    else:
-        logger.error('Unknown tx direction')

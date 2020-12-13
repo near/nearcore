@@ -12,8 +12,7 @@ import requests
 import time
 import base58
 import base64
-import retry
-import reattempt
+from retrying import retry
 import rc
 from rc import gcloud
 import traceback
@@ -52,6 +51,19 @@ def atexit_cleanup_remote():
             rc.pmap(atexit_cleanup, remote_nodes)
 
 
+# custom retry that is used in wait_for_rpc() and get_status()
+def nretry(fn, timeout):
+    started = time.time()
+    delay = 0.05
+    while True:
+        try:
+            return fn()
+        except:
+            if time.time() - started >= timeout:
+                raise
+            time.sleep(delay)
+            delay *= 1.2
+
 
 class BaseNode(object):
     def __init__(self):
@@ -84,7 +96,7 @@ class BaseNode(object):
             ]
 
     def wait_for_rpc(self, timeout=1):
-        reattempt.retry(lambda: self.get_status(), timeout=timeout)
+        nretry(lambda: self.get_status(), timeout=timeout)
 
     def json_rpc(self, method, params, timeout=2):
         j = {
@@ -420,7 +432,7 @@ class GCloudNode(BaseNode):
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
 
-    @retry.retry(delay=1, tries=3)
+    @retry(wait_fixed=1000, stop_max_attempt_number=3)
     def _download_binary(self, binary):
         p = self.machine.run('bash',
                              input=f'''
@@ -469,7 +481,7 @@ chmod +x near
         return super().json_rpc(method, params, timeout=timeout)
 
     def get_status(self):
-        r = reattempt.retry(lambda: requests.get(
+        r = nretry(lambda: requests.get(
             "http://%s:%s/status" % self.rpc_addr(), timeout=15),
                            timeout=45)
         r.raise_for_status()

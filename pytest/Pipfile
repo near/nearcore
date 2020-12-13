@@ -13,6 +13,7 @@ base58 = "*"
 python-rc = "==0.1.9"
 tqdm = "*"
 deepdiff = "*"
+retrying = "*"
 
 [dev-packages]
 

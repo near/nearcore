@@ -44,8 +44,8 @@ txs.append(bridge.transfer_eth2near(bob, bob_amount))
 exit_codes = [p.exitcode for p in txs]
 
 assert exit_codes == [0 for _ in txs]
-assert bridge.check_balances(alice)
-assert bridge.check_balances(bob)
+bridge.check_balances(alice)
+bridge.check_balances(bob)
 
 alice_amount = alice_amount // 2
 bob_amount = bob_amount // 2
@@ -53,15 +53,15 @@ bob_amount = bob_amount // 2
 txs = []
 txs.append(bridge.transfer_near2eth(alice, alice_amount))
 if no_txs_in_same_block:
-    time.sleep(bridge_cluster_config_changes['consensus']['min_block_production_delay'] + 2)
+    time.sleep(bridge_cluster_config_changes['consensus']['min_block_production_delay']['secs'] + 2)
 if no_txs_in_parallel:
     [p.join() for p in txs]
 txs.append(bridge.transfer_near2eth(bob, bob_amount))
 [p.join() for p in txs]
 
 assert exit_codes == [0 for _ in txs]
-assert bridge.check_balances(alice)
-assert bridge.check_balances(bob)
+bridge.check_balances(alice)
+bridge.check_balances(bob)
 
 
 print('EPIC')

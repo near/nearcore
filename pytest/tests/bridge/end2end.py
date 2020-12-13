@@ -43,20 +43,20 @@ for _ in range(eth2near_tx_number):
 exit_codes = [p.exitcode for p in txs]
 
 assert exit_codes == [0 for _ in txs]
-assert bridge.check_balances(alice)
+bridge.check_balances(alice)
 
 txs = []
 for _ in range(near2eth_tx_number):
     txs.append(bridge.transfer_near2eth(alice, 1))
     if no_txs_in_same_block:
-        time.sleep(bridge_cluster_config_changes['consensus']['min_block_production_delay'] + 2)
+        time.sleep(bridge_cluster_config_changes['consensus']['min_block_production_delay']['secs'] + 2)
     if no_txs_in_parallel:
         [p.join() for p in txs]
 [p.join() for p in txs]
 exit_codes = [p.exitcode for p in txs]
 
 assert exit_codes == [0 for _ in txs]
-assert bridge.check_balances(alice)
+bridge.check_balances(alice)
 
 
 print('EPIC')

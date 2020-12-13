@@ -34,7 +34,7 @@ if one_more_restart:
 tx.join()
 
 assert tx.exitcode == 0
-assert bridge.check_balances(alice)
+bridge.check_balances(alice)
 
 tx = bridge.transfer_near2eth(alice, 1)
 
@@ -45,7 +45,7 @@ if one_more_restart:
 tx.join()
 
 assert tx.exitcode == 0
-assert bridge.check_balances(alice)
+bridge.check_balances(alice)
 
 
 print('EPIC')

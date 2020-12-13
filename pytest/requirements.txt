@@ -3,7 +3,6 @@ colorama
 fabric
 tornado
 requests
-retry
 retrying
 ed25519
 base58
