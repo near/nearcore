@@ -2359,3 +2359,30 @@ fn test_not_broadcast_block_on_accept() {
     }
     assert!(network_adapter.requests.read().unwrap().is_empty());
 }
+
+#[test]
+#[should_panic(
+    expected = "The client protocol version is older than the protocol version of the network"
+)]
+fn test_node_shutdown_with_old_protocol_version() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    for i in 1..=5 {
+        let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+        block.mut_header().get_mut().inner_rest.latest_protocol_version = PROTOCOL_VERSION + 1;
+        block.mut_header().resign(&validator_signer);
+        env.process_block(0, block, Provenance::NONE);
+    }
+    for i in 6..=10 {
+        env.produce_block(0, i);
+    }
+    env.produce_block(0, 11);
+}
