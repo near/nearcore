@@ -273,7 +273,8 @@ fn test_meta_call_sig_and_recover() {
         Address::from_slice(&[0u8; 20]),
         test_addr.clone(),
         "adopt(uint256 petId)",
-        hex::decode("1c09").unwrap(),
+        // RLP encode of ["0x09"]
+        hex::decode("c109").unwrap(),
     );
 
     // meta_tx[0..65] is eth-sig-util format signature
@@ -291,7 +292,8 @@ fn test_meta_call_sig_and_recover() {
         test_addr.clone(),
         // must not have trailing space after comma
         "adopt(uint256 petId,string petName)",
-        vec![u256_to_arr(&U256::from(9)).to_vec(), encode_string("CapsLock")].concat(),
+        // RLP encode of ["0x09", "0x436170734C6F636B"] (9 and "CapsLock" in hex)
+        hex::decode("ca0988436170734c6f636b").unwrap(),
     );
     assert_eq!(hex::encode(&meta_tx2[0..65]), "8f5e467a71327b1f23330ff0918dd55ab61daf65b4726c1457c91982964a78ee47874a32b6e1b8479da60d3e17de891e3f8c4cbc9f269da06b232862f51b0ba51b");
     let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx2).unwrap();
@@ -305,22 +307,8 @@ fn test_meta_call_sig_and_recover() {
         Address::from_slice(&[0u8; 20]),
         test_addr,
         "adopt(uint256 petId,PetObj petObject)PetObj(string petName,address owner)",
-        vec![
-            u256_to_arr(&U256::from(9)).to_vec(),
-            keccak(
-                &vec![
-                    encode_string("PetObj(string petName,address owner)"),
-                    encode_string("CapsLock"),
-                    encode_address(Address::from_slice(
-                        &hex::decode("0123456789012345678901234567890123456789").unwrap(),
-                    )),
-                ]
-                .concat(),
-            )
-            .as_bytes()
-            .to_vec(),
-        ]
-        .concat(),
+        // RLP encode of ["0x09", ["0x436170734C6F636B", "0x0123456789012345678901234567890123456789"]]
+        hex::decode("e009de88436170734c6f636b940123456789012345678901234567890123456789").unwrap(),
     );
     assert_eq!(hex::encode(&meta_tx3[0..65]), "0a2af43c3efab7ce535a00125b2505823c3c3218bacab1546a3e569ec15ca4557352f16ebabeeaa066a239346d7870afd49bf6e0b7b5c0d398d5cf894f3bdc8f1c");
     let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx3).unwrap();

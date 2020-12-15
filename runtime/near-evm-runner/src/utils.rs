@@ -444,7 +444,12 @@ fn is_arg_char(c: char) -> bool {
 /// Return a signature of the method_name
 /// E.g. method_signature(Methods before parse: "adopt(uint256 petId)") -> "adopt(uint256)"
 fn methods_signature(method_and_type: &MethodAndTypes) -> String {
-    method_and_type
+    let method = format!(
+        "{}({})",
+        method_and_type.method.name,
+        itertools::join(method_and_type.method.args.iter().map(|arg| arg.type_raw.as_str()), ",")
+    );
+    let types: String = method_and_type
         .type_sequences
         .iter()
         .map(|m| {
@@ -463,7 +468,8 @@ fn methods_signature(method_and_type: &MethodAndTypes) -> String {
                 )
             )
         })
-        .collect()
+        .collect();
+    method + &types
 }
 
 #[derive(Debug, Clone)]
@@ -672,32 +678,26 @@ mod tests {
         let methods =
             MethodAndTypes::parse("Blah(Foo q,Bar w)Foo(uint256 x,Bar z)Bar(T ttt)T(string x)")
                 .unwrap();
+        assert!(methods.method.name == "Blah");
+        assert!(methods.type_sequences == ["Foo", "Bar", "T"]);
         assert!(
-            false //            methods
-                  //                == vec![
-                  //                    Method {
-                  //                        name: "Blah".into(),
-                  //                        args: vec![
-                  //                            Arg { name: "q".into(), t: "Foo".into() },
-                  //                            Arg { name: "w".into(), t: "Bar".into() }
-                  //                        ]
-                  //                    },
-                  //                    Method {
-                  //                        name: "Foo".into(),
-                  //                        args: vec![
-                  //                            Arg { name: "x".into(), t: "uint256".into() },
-                  //                            Arg { name: "z".into(), t: "Bar".into() }
-                  //                        ]
-                  //                    },
-                  //                    Method {
-                  //                        name: "Bar".into(),
-                  //                        args: vec![Arg { name: "ttt".into(), t: "T".into() }]
-                  //                    },
-                  //                    Method {
-                  //                        name: "T".into(),
-                  //                        args: vec![Arg { name: "x".into(), t: "string".into() }]
-                  //                    }
-                  //                ]
+            methods.method.args
+                == [
+                    Arg {
+                        name: "q".to_string(),
+                        type_raw: "Foo".to_string(),
+                        t: Type::Custom("Foo".to_string())
+                    },
+                    Arg {
+                        name: "w".to_string(),
+                        type_raw: "Bar".to_string(),
+                        t: Type::Custom("Bar".to_string())
+                    }
+                ]
         );
+        assert!(
+            methods.types.get("T").unwrap().args
+                == [Arg { name: "x".to_string(), type_raw: "string".to_string(), t: Type::String }]
+        )
     }
 }
