@@ -214,7 +214,7 @@ fn display_sync_status(
                     / ((highest_height - genesis_height) as f64)
             };
             format!(
-                "#{:>8} Downloading headers {:.3}% ({})",
+                "#{:>8} Downloading headers {:.2}% ({})",
                 head.height,
                 percent,
                 highest_height - current_height
@@ -228,7 +228,7 @@ fn display_sync_status(
                     / ((highest_height - genesis_height) as f64)
             };
             format!(
-                "#{:>8} Downloading blocks {:.3}% ({})",
+                "#{:>8} Downloading blocks {:.2}% ({})",
                 head.height,
                 percent,
                 highest_height - current_height
