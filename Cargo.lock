@@ -2568,12 +2568,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "logos"
+version = "0.7.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60ca690691528b32832c7e8aaae8ae1edcdee4e9ffde55b2d31a4795bc7a12d0"
+dependencies = [
+ "logos-derive",
+ "toolshed",
+]
+
+[[package]]
+name = "logos-derive"
+version = "0.7.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "917dccdd529d5681f3d28b26bcfdafd2ed67fe4f26d15b5ac679f67b55279f3d"
+dependencies = [
+ "proc-macro2 0.4.30",
+ "quote 0.6.13",
+ "regex-syntax",
+ "syn 0.15.44",
+ "utf8-ranges",
+]
+
+[[package]]
 name = "lru-cache"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31e24f1ad8321ca0e8a1e0ac13f23cb668e6f5466c2c57319f6a5cf1cc8e3b1c"
 dependencies = [
  "linked-hash-map",
+]
+
+[[package]]
+name = "lunarity-lexer"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28a5446c03ed5bd4ae2cca322c4c84d9bd9741b6788f75c404719474cb63d3b7"
+dependencies = [
+ "logos",
 ]
 
 [[package]]
@@ -2948,6 +2980,7 @@ dependencies = [
  "lazy-static-include",
  "lazy_static",
  "libsecp256k1",
+ "lunarity-lexer",
  "near-crypto",
  "near-runtime-fees",
  "near-runtime-utils",
@@ -2960,7 +2993,7 @@ dependencies = [
  "rlp",
  "serde",
  "serde_json",
- "sha2 0.8.1",
+ "sha2 0.9.1",
  "sha3",
  "vm",
 ]
@@ -3272,7 +3305,7 @@ dependencies = [
  "near-vm-errors",
  "serde",
  "serde_json",
- "sha2 0.8.1",
+ "sha2 0.9.1",
  "sha3",
 ]
 
@@ -5323,6 +5356,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "toolshed"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54a272adbf14cfbb486774d09ee3e00c38d488cd390084a528f70e10e3a184a8"
+dependencies = [
+ "fxhash",
+]
+
+[[package]]
 name = "tower-service"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5577,6 +5619,12 @@ dependencies = [
  "matches",
  "percent-encoding 2.1.0",
 ]
+
+[[package]]
+name = "utf8-ranges"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ae116fef2b7fea257ed6440d3cfcff7f190865f170cdad00bb6465bf18ecba"
 
 [[package]]
 name = "uuid"

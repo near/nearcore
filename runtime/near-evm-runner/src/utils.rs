@@ -5,6 +5,7 @@ use borsh::BorshSerialize;
 use byteorder::WriteBytesExt;
 use ethereum_types::{Address, H160, H256, U256};
 use keccak_hash::keccak;
+use lunarity_lexer::{Lexer, Token};
 use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vm::CreateContractAddress;
@@ -14,6 +15,7 @@ use crate::types::{
 };
 use near_vm_errors::{EvmError, VMLogicError};
 use near_vm_logic::types::AccountId;
+use validator::HasLen;
 
 pub fn saturating_next_address(addr: &RawAddress) -> RawAddress {
     let mut expanded_addr = [255u8; 32];
@@ -185,6 +187,85 @@ pub fn format_log(topics: Vec<H256>, data: &[u8]) -> std::result::Result<Vec<u8>
     Ok(result)
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    Address,
+    Uint,
+    Int,
+    String,
+    Bool,
+    Bytes,
+    Byte(u8),
+    Custom(String),
+    Array { length: Option<u64>, inner: Box<Type> },
+}
+
+/// the type string is being validated before it's parsed.
+pub fn parse_type(field_type: &str) -> Result<Type> {
+    #[derive(PartialEq)]
+    enum State {
+        Open,
+        Close,
+    }
+
+    let mut lexer = Lexer::new(field_type);
+    let mut token = None;
+    let mut state = State::Close;
+    let mut array_depth = 0;
+    let mut current_array_length: Option<u64> = None;
+
+    while lexer.token != Token::EndOfProgram {
+        let type_ = match lexer.token {
+            Token::Identifier => Type::Custom(lexer.slice().to_owned()),
+            Token::TypeByte => Type::Byte(lexer.extras.0),
+            Token::TypeBytes => Type::Bytes,
+            Token::TypeBool => Type::Bool,
+            Token::TypeUint => Type::Uint,
+            Token::TypeInt => Type::Int,
+            Token::TypeString => Type::String,
+            Token::TypeAddress => Type::Address,
+            Token::LiteralInteger => {
+                let length = lexer.slice();
+                current_array_length =
+                    Some(length.parse().map_err(|_| ErrorKind::InvalidArraySize(length.into()))?);
+                lexer.advance();
+                continue;
+            }
+            Token::BracketOpen if token.is_some() && state == State::Close => {
+                state = State::Open;
+                lexer.advance();
+                continue;
+            }
+            Token::BracketClose if array_depth < 10 => {
+                if state == State::Open && token.is_some() {
+                    let length = current_array_length.take();
+                    state = State::Close;
+                    token = Some(Type::Array {
+                        inner: Box::new(token.expect("if statement checks for some; qed")),
+                        length,
+                    });
+                    lexer.advance();
+                    array_depth += 1;
+                    continue;
+                } else {
+                    return Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName));
+                }
+            }
+            Token::BracketClose if array_depth == 10 => {
+                return Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName));
+            }
+            _ => {
+                return Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName));
+            }
+        };
+
+        token = Some(type_);
+        lexer.advance();
+    }
+
+    Ok(token.ok_or(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName))?)
+}
+
 pub fn near_erc721_domain(chain_id: U256) -> RawU256 {
     let mut bytes = Vec::with_capacity(70);
     bytes.extend_from_slice(
@@ -200,7 +281,7 @@ pub fn near_erc721_domain(chain_id: U256) -> RawU256 {
     keccak(&bytes).into()
 }
 
-pub fn method_name_hash(method_name: String) -> [u8; 4] {
+pub fn method_name_to_abi(method_name: String) -> [u8; 4] {
     let mut result = [0u8; 4];
     result.copy_from_slice(&keccak(method_name)[..4]);
     result
@@ -238,27 +319,30 @@ impl Decodable for Value {
 pub struct Arg {
     #[allow(dead_code)]
     pub name: String,
-    pub t: String,
+    pub type_raw: String,
+    pub t: Type,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Method {
     pub name: String,
+    pub raw: String,
     pub args: Vec<Arg>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct MethodAndTypes {
     pub method: Method,
-    pub types: HashMap<String, Vec<Arg>>,
+    pub types: HashMap<String, Method>,
 }
 
 impl Arg {
     fn parse(text: &str) -> Result<(Arg, &str)> {
-        let (t, remains) = parse_ident(text)?;
+        let (type_raw, remains) = parse_type_raw(text)?;
+        let t = parse_type(&type_raw)?;
         let remains = consume(remains, ' ')?;
         let (name, remains) = parse_ident(remains)?;
-        Ok((Arg { t, name }, remains))
+        Ok((Arg { type_raw, t, name }, remains))
     }
 
     fn parse_args(text: &str) -> Result<(Vec<Arg>, &str)> {
@@ -290,7 +374,14 @@ impl Method {
     fn parse(method_name: &str) -> Result<(Method, &str)> {
         let (name, remains) = parse_ident(method_name)?;
         let (args, remains) = Arg::parse_args(remains)?;
-        Ok((Method { name, args }, remains))
+        Ok((
+            Method {
+                name,
+                args,
+                raw: method_name[..method_name.len() - remains.len()].to_string(),
+            },
+            remains,
+        ))
     }
 }
 
@@ -325,6 +416,12 @@ fn parse_ident(text: &str) -> Result<(String, &str)> {
     Ok((text[..i].to_string(), &text[i..]))
 }
 
+fn parse_type_raw(text: &str) -> Result<(String, &str)> {
+    let i =
+        text.find(' ').ok_or(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName))?;
+    Ok((text[..i].to_string(), &text[i..]))
+}
+
 fn consume(text: &str, c: char) -> Result<&str> {
     let first = text.chars().next();
     if first.is_none() || first.unwrap() != c {
@@ -351,7 +448,7 @@ fn methods_signature(methods: &[Method]) -> String {
             format!(
                 "{}({})",
                 &m.name,
-                itertools::join(m.args.iter().map(|arg| arg.t.as_str()), ",")
+                itertools::join(m.args.iter().map(|arg| arg.type_raw.as_str()), ",")
             )
         })
         .collect()
@@ -370,93 +467,53 @@ fn rlp_decode(args: &[u8]) -> Result<Vec<Value>> {
 /// eip-712 hash a single argument, whose type is ty, and value is value. Definition of all types
 /// is in types
 fn eip_712_hash_argument(
-    ty: &str,
+    ty: &Type,
     value: &Value,
-    types: &HashMap<String, Vec<Arg>>,
+    types: &HashMap<String, Method>,
 ) -> Result<Vec<u8>> {
-    if is_eip_712_primitive_type(ty) {
-        eip_712_hash_primitive_type(ty, value)
-    } else if is_eip_712_dynamic_type(ty) {
-        eip_712_hash_dynamic_type(ty, value)
-    } else if is_eip_712_array_type(ty) {
-        // TODO: array type is not parsed (!), use https://github.com/openethereum/openethereum/blob/main/util/EIP-712/src/parser.rs#L68 to parse type
-        eip_712_hash_array_type(ty, value)
-    } else if types.contains_key(&ty) {
-        eip_712_hash_struct(ty, value, types)
-    } else {
-        Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName))
-    }
-}
-
-fn eip_712_hash_primitive_type(ty: &str, value: &Value) -> Result<Vec<u8>> {
-    match value {
-        Value::List(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
-        Value::Bytes(bytes) => match ty {
-            "uint256" => {
-                if bytes.len() > 32 {
-                    return Err(VMLogicError::EvmError(
-                        EvmError::InvalidMetaTransactionFunctionArg,
-                    ));
-                }
-                let mut ret = vec![0u8; 32];
-                ret[(32 - bytes.len())..32].copy_from_slice(bytes);
-                Ok(ret)
+    match ty {
+        Type::String | Type::Bytes => {
+            eip_712_rlp_value(value, |b| Ok(keccak(&b).as_bytes().to_vec()))
+        }
+        Type::Byte(byte) => eip_712_rlp_value(value, |b| Ok(b.clone())),
+        // TODO: ensure rlp int is encoded as sign extended uint256, otherwise this is wrong
+        Type::Uint | Type::Int | Type::Bool => {
+            eip_712_rlp_value(value, |b| Ok(u256_to_arr(U256::from_big_endian(&b)).to_vec()))
+        }
+        Type::Address => eip_712_rlp_value(value, |b| Ok(encode_address(address_from_arr(b)))),
+        Type::Array { inner, .. } => eip_712_rlp_list(value, |l| {
+            let mut r = vec![];
+            for element in l {
+                r.extend_from_slice(&eip_712_hash_argument(inner, element, types)?);
             }
-            _ => unimplemented!(),
-        },
+            Ok(keccak(r).as_bytes().to_vec())
+        }),
+        Type::Custom(type_name) => eip_712_rlp_list(value, |l| {
+            let struct_type = types
+                .get(type_name)
+                .ok_or(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))?;
+            let mut r = keccak(struct_type.raw).as_bytes().to_vec();
+            for element in l {
+                r.extend_from_slice(&eip_712_hash_argument(inner, element, types)?);
+            }
+            Ok(keccak(r).as_bytes().to_vec())
+        }),
     }
 }
 
-fn eip_712_hash_dynamic_type(ty: &str, value: &Value) -> Result<Vec<u8>> {
+fn eip_712_rlp_list(value: &Value, f: fn(l: &Vec<Value>) -> Result<Vec<u8>>) -> Result<Vec<u8>> {
+    match value {
+        Value::Bytes(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
+        Value::List(l) => f(l),
+    }
+}
+
+fn eip_712_rlp_value(value: &Value, f: fn(b: &Vec<u8>) -> Result<Vec<u8>>) -> Result<Vec<u8>> {
     match value {
         Value::List(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
-        Value::Bytes(bytes) => Ok(keccak(bytes).into()),
+        Value::Bytes(b) => f(b),
     }
 }
-
-fn is_eip_712_array_type(ty: &str) -> bool {
-    false
-}
-
-fn eip_712_hash_array_type(ty: &str, value: &Value) -> Result<Vec<u8>> {
-    unimplemented!()
-}
-
-fn eip_712_hash_struct(
-    ty: &str,
-    value: &Value,
-    types: &HashMap<String, Vec<Arg>>,
-) -> Result<Vec<u8>> {
-    unimplemented!()
-}
-
-/// return true if ty is a eip_712 primitive type.
-/// From https://eips.ethereum.org/EIPS/eip-712#definition-of-typed-structured-data-%F0%9D%95%8A
-/// Definition: The atomic types are bytes1 to bytes32, uint8 to uint256, int8 to int256,
-/// bool and address. These correspond to their definition in Solidity. Note that there are
-/// no aliases uint and int. Note that contract addresses are always plain address. Fixed point
-/// numbers are not supported by the standard. Future versions of this standard may add new
-/// atomic types.
-fn is_eip_712_primitive_type(ty: &str) -> bool {
-    const PRIMITIVE_TYPES: Vec<&'static str> = vec![
-        // TODO: parse more thoroughly, pass type into enum of primitive type, array and reference type instead of strs
-        (1..33).map(|i| &format!("bytes{}", i)).collect(),
-        vec!["uint8", "uint16", "uint32", "uint64", "uint128", "uint256"],
-        vec!["int8", "int16", "int32", "int64", "int128", "int256"],
-        vec!["bool"],
-        vec!["address"],
-    ]
-    .concat();
-    PRIMITIVE_TYPES.contains(&ty)
-}
-
-/// return true if ty is a dynamic type
-/// Definition: The dynamic types are bytes and string. These are like the atomic types for the
-/// purposed of type declaration, but their treatment in encoding is different.
-fn is_eip_712_dynamic_type(ty: &str) -> bool {
-    ty == "bytes" || ty == "bytes"
-}
-
 /// eip-712 hash struct of entire meta txn
 pub fn prepare_meta_call_args(
     domain_separator: &RawU256,
@@ -551,7 +608,7 @@ pub fn parse_meta_call(
     if sender == Address::zero() {
         return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
     }
-    let method_name_selector = method_name_hash(method_name);
+    let method_name_selector = method_name_to_abi(method_name);
     // TODO: args is rlp encoded, however, it must be eth-abi encoded and placed in input then evm runner can execute it
     let input = [method_name_selector.to_vec(), args.to_vec()].concat();
     Ok(MetaCallArgs { sender, nonce, fee_amount, fee_address, contract_address, input })

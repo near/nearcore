@@ -27,6 +27,7 @@ libsecp256k1 = "0.3.5"
 
 evm = { git = "https://github.com/openethereum/openethereum", rev = "v2.7.2" }
 vm = { git = "https://github.com/openethereum/openethereum", rev = "v2.7.2" }
+lunarity-lexer = "0.2"
 bn = { git = "https://github.com/near/bn", rev = "43953916ed1a314b78320771734f36af77993dd9" }
 parity-bytes = "0.1.0"
 ethereum-types = "0.8.0"
