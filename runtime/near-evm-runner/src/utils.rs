@@ -6,7 +6,7 @@ use byteorder::WriteBytesExt;
 use ethereum_types::{Address, H160, H256, U256};
 use keccak_hash::keccak;
 use lunarity_lexer::{Lexer, Token};
-use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
+use rlp::{Decodable, DecoderError, Rlp};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vm::CreateContractAddress;
 
@@ -15,7 +15,6 @@ use crate::types::{
 };
 use near_vm_errors::{EvmError, VMLogicError};
 use near_vm_logic::types::AccountId;
-use validator::HasLen;
 
 pub fn saturating_next_address(addr: &RawAddress) -> RawAddress {
     let mut expanded_addr = [255u8; 32];
@@ -187,7 +186,7 @@ pub fn format_log(topics: Vec<H256>, data: &[u8]) -> std::result::Result<Vec<u8>
     Ok(result)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Address,
     Uint,
@@ -226,8 +225,9 @@ pub fn parse_type(field_type: &str) -> Result<Type> {
             Token::TypeAddress => Type::Address,
             Token::LiteralInteger => {
                 let length = lexer.slice();
-                current_array_length =
-                    Some(length.parse().map_err(|_| ErrorKind::InvalidArraySize(length.into()))?);
+                current_array_length = Some(length.parse().map_err(|_| {
+                    VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName)
+                })?);
                 lexer.advance();
                 continue;
             }
@@ -333,6 +333,7 @@ pub struct Method {
 #[derive(Debug, Eq, PartialEq)]
 pub struct MethodAndTypes {
     pub method: Method,
+    pub type_sequences: Vec<String>,
     pub types: HashMap<String, Method>,
 }
 
@@ -389,14 +390,15 @@ impl MethodAndTypes {
     pub fn parse(method_name: &str) -> Result<Self> {
         let mut method_name = method_name;
         let mut parsed_types = HashMap::new();
+        let mut type_sequences = vec![];
         let (method, mut types) = Method::parse(method_name)?;
         while types.len() > 0 {
-            let (name, remains) = parse_ident(method_name)?;
-            let (args, remains) = Arg::parse_args(remains)?;
-            parsed_types.insert(name, args);
+            let (ty, remains) = Method::parse(types)?;
+            type_sequences.push(ty.name.clone());
+            parsed_types.insert(ty.name.clone(), ty);
             types = remains;
         }
-        Ok(MethodAndTypes { method, types: parsed_types })
+        Ok(MethodAndTypes { method, types: parsed_types, type_sequences })
     }
 }
 
@@ -441,14 +443,24 @@ fn is_arg_char(c: char) -> bool {
 
 /// Return a signature of the method_name
 /// E.g. method_signature(Methods before parse: "adopt(uint256 petId)") -> "adopt(uint256)"
-fn methods_signature(methods: &[Method]) -> String {
-    methods
+fn methods_signature(method_and_type: &MethodAndTypes) -> String {
+    method_and_type
+        .type_sequences
         .iter()
         .map(|m| {
             format!(
                 "{}({})",
-                &m.name,
-                itertools::join(m.args.iter().map(|arg| arg.type_raw.as_str()), ",")
+                &m,
+                itertools::join(
+                    method_and_type
+                        .types
+                        .get(m)
+                        .unwrap()
+                        .args
+                        .iter()
+                        .map(|arg| arg.type_raw.as_str()),
+                    ","
+                )
             )
         })
         .collect()
@@ -478,7 +490,7 @@ fn eip_712_hash_argument(
         Type::Byte(byte) => eip_712_rlp_value(value, |b| Ok(b.clone())),
         // TODO: ensure rlp int is encoded as sign extended uint256, otherwise this is wrong
         Type::Uint | Type::Int | Type::Bool => {
-            eip_712_rlp_value(value, |b| Ok(u256_to_arr(U256::from_big_endian(&b)).to_vec()))
+            eip_712_rlp_value(value, |b| Ok(u256_to_arr(&U256::from_big_endian(&b)).to_vec()))
         }
         Type::Address => eip_712_rlp_value(value, |b| Ok(encode_address(address_from_arr(b)))),
         Type::Array { inner, .. } => eip_712_rlp_list(value, |l| {
@@ -492,23 +504,33 @@ fn eip_712_hash_argument(
             let struct_type = types
                 .get(type_name)
                 .ok_or(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))?;
-            let mut r = keccak(struct_type.raw).as_bytes().to_vec();
-            for element in l {
-                r.extend_from_slice(&eip_712_hash_argument(inner, element, types)?);
+            let mut r = keccak(&struct_type.raw).as_bytes().to_vec();
+            for (i, element) in l.iter().enumerate() {
+                r.extend_from_slice(&eip_712_hash_argument(
+                    &struct_type.args[i].t,
+                    element,
+                    types,
+                )?);
             }
             Ok(keccak(r).as_bytes().to_vec())
         }),
     }
 }
 
-fn eip_712_rlp_list(value: &Value, f: fn(l: &Vec<Value>) -> Result<Vec<u8>>) -> Result<Vec<u8>> {
+fn eip_712_rlp_list<F>(value: &Value, f: F) -> Result<Vec<u8>>
+where
+    F: Fn(&Vec<Value>) -> Result<Vec<u8>>,
+{
     match value {
         Value::Bytes(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
         Value::List(l) => f(l),
     }
 }
 
-fn eip_712_rlp_value(value: &Value, f: fn(b: &Vec<u8>) -> Result<Vec<u8>>) -> Result<Vec<u8>> {
+fn eip_712_rlp_value<F>(value: &Value, f: F) -> Result<Vec<u8>>
+where
+    F: Fn(&Vec<u8>) -> Result<Vec<u8>>,
+{
     match value {
         Value::List(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
         Value::Bytes(b) => f(b),
@@ -535,7 +557,7 @@ pub fn prepare_meta_call_args(
     bytes.extend_from_slice(&u256_to_arr(&fee_amount));
     bytes.extend_from_slice(&encode_address(fee_address));
     bytes.extend_from_slice(&encode_address(contract_address));
-    let methods = Method::parse_method_name(method_name)?;
+    let methods = MethodAndTypes::parse(method_name)?;
     let method_sig = methods_signature(&methods);
     bytes.extend_from_slice(&keccak(method_sig.as_bytes()).as_bytes());
 
@@ -544,11 +566,12 @@ pub fn prepare_meta_call_args(
     let args_decoded: Vec<Value> = rlp_decode(args)?;
     for i in 0..args_decoded.len() {
         arg_bytes.extend_from_slice(&eip_712_hash_argument(
-            &methods[0].args[i].t,
+            &methods.method.args[i].t,
             &args_decoded[i],
-            &methods,
+            &methods.types,
         )?);
     }
+    println!("arg_bytes {:?}", &arg_bytes);
 
     let arg_bytes_hash: RawU256 = keccak(&arg_bytes).into();
     bytes.extend_from_slice(&arg_bytes_hash);

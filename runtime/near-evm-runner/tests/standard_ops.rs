@@ -273,7 +273,7 @@ fn test_meta_call_sig_and_recover() {
         Address::from_slice(&[0u8; 20]),
         test_addr.clone(),
         "adopt(uint256 petId)",
-        u256_to_arr(&U256::from(9)).to_vec(),
+        hex::decode("1c09").unwrap(),
     );
 
     // meta_tx[0..65] is eth-sig-util format signature
