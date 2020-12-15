@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
 use chrono;
-use log::{trace, warn};
+use log::{debug, warn};
 
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
@@ -689,7 +689,7 @@ impl RoutingTable {
         let _routing_table_recalculation =
             near_metrics::start_timer(&metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM);
 
-        trace!(target: "network", "Update routing table.");
+        debug!(target: "network", "Update routing table.");
         self.recalculation_scheduled = None;
 
         self.peer_forwarding = self.raw_graph.calculate_distance();

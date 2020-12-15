@@ -561,8 +561,13 @@ impl PeerManagerActor {
 
     /// Add an edge update to the routing table and return if it is a new edge update.
     fn process_edges(&mut self, ctx: &mut Context<Self>, edges: Vec<Edge>) -> bool {
+        debug!(target: "network", "process edges: {:?}", edges);
         let ProcessEdgeResult { new_edge, schedule_computation } =
             self.routing_table.process_edges(edges);
+
+        if new_edge {
+            debug!(target: "network", "processed new edges");
+        }
 
         if let Some(duration) = schedule_computation {
             ctx.run_later(duration, |act, _ctx| {
