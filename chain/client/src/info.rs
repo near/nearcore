@@ -213,15 +213,26 @@ fn display_sync_status(
                 (((min(current_height, highest_height) - genesis_height) * 100) as f64)
                     / ((highest_height - genesis_height) as f64)
             };
-            format!("#{:>8} Downloading headers {:.5}% ({})", head.height, percent, highest_height - current_height)
+            format!(
+                "#{:>8} Downloading headers {:.3}% ({})",
+                head.height,
+                percent,
+                highest_height - current_height
+            )
         }
         SyncStatus::BodySync { current_height, highest_height } => {
             let percent = if *highest_height <= genesis_height {
                 0.0
             } else {
-                ((current_height - genesis_height) * 100) as f64 / ((highest_height - genesis_height) as f64)
+                ((current_height - genesis_height) * 100) as f64
+                    / ((highest_height - genesis_height) as f64)
             };
-            format!("#{:>8} Downloading blocks {:.5}% ({})", head.height, percent, highest_height - current_height)
+            format!(
+                "#{:>8} Downloading blocks {:.3}% ({})",
+                head.height,
+                percent,
+                highest_height - current_height
+            )
         }
         SyncStatus::StateSync(_sync_hash, shard_statuses) => {
             let mut res = String::from("State ");
