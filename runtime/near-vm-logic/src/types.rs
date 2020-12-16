@@ -199,6 +199,9 @@ impl fmt::Debug for ProfileData {
     }
 }
 
+unsafe impl<T: Send> Send for FixedArray<T> {}
+unsafe impl<T: Sync> Sync for FixedArray<T> {}
+
 /// Create empty profile
 pub fn create_profile_data() -> ProfileData {
     ProfileData {

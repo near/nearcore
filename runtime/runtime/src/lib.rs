@@ -1462,7 +1462,7 @@ mod tests {
     use near_store::StoreCompiledContractCache;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
-    use near_vm_logic::create_profile_data;
+    use near_vm_logic::types::create_profile_data;
 
     const GAS_PRICE: Balance = 5000;
 
