@@ -18,9 +18,11 @@ ED_PREFIX = "ed25519:"
 class Connection:
 
     def __init__(self, reader: asyncio.StreamReader,
-                 writer: asyncio.StreamWriter):
+                 writer: asyncio.StreamWriter,
+                 verbose=True):
         self.reader = reader
         self.writer = writer
+        self.verbose = verbose
         self.is_closed = False
 
     async def send(self, message):
@@ -61,7 +63,7 @@ class Connection:
 
             while len(response) < length:
                 response += await self.reader.read(length - len(response))
-                if len(response) < length:
+                if self.verbose and len(response) < length:
                     print(f"Downloading message {len(response)}/{length}")
 
             return response
@@ -80,9 +82,9 @@ class Connection:
         loop.create_task(self.send_raw(raw_message))
 
 
-async def connect(addr) -> Connection:
+async def connect(addr, verbose=True) -> Connection:
     reader, writer = await asyncio.open_connection(*addr)
-    conn = Connection(reader, writer)
+    conn = Connection(reader, writer, verbose)
     return conn
 
 
@@ -175,6 +177,12 @@ async def run_handshake(conn: Connection,
         gm = response.HandshakeFailure[1].GenesisMismatch
         handshake.Handshake.chain_info.genesis_id.chain_id = gm.chain_id
         handshake.Handshake.chain_info.genesis_id.hash = gm.hash
+        sign_handshake(key_pair, handshake.Handshake)
+        await conn.send(handshake)
+        response = await conn.recv()
+
+    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'InvalidTarget':
+        handshake.Handshake.target_peer_id.data = response.HandshakeFailure[0].id.data
         sign_handshake(key_pair, handshake.Handshake)
         await conn.send(handshake)
         response = await conn.recv()
