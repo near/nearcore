@@ -6,9 +6,9 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use actix;
 use futures;
 use futures::task::Context;
 use once_cell::sync::Lazy;
@@ -153,32 +153,6 @@ where
     }
 
     STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
-    result
-}
-
-pub fn measure_performance2<F, Result>(
-    class_name: &'static str,
-    msg_name: &'static str,
-    f: F,
-) -> Result
-where
-    F: FnOnce() -> Result,
-{
-    let now = Instant::now();
-    let result = f();
-
-    let took = now.elapsed();
-    if took > SLOW_CALL_THRESHOLD {
-        info!(
-            "Function exceeded time limit {}:{} {:?} took: {}ms",
-            class_name,
-            TID.with(|x| *x.borrow()),
-            msg_name,
-            took.as_millis(),
-        );
-    }
-
-    STATS.lock().unwrap().log(class_name, msg_name, 0, took);
     result
 }
 

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::time::Duration;
 
-use actix::{Actor, ActorContext, AsyncContext, Context, Handler, MailboxError, Message};
+use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::{future, FutureExt};
 use log::debug;
 use rand::{thread_rng, RngCore};

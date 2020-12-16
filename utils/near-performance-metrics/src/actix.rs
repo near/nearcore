@@ -1,6 +1,11 @@
+#[cfg(feature = "performance_stats")]
 use log::info;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+#[cfg(feature = "performance_stats")]
+use std::time::Instant;
+
+#[cfg(feature = "performance_stats")]
 use crate::stats::{MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD, STATS, TID};
 
 #[allow(unused_variables)]
