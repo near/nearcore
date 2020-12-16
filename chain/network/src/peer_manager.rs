@@ -561,12 +561,14 @@ impl PeerManagerActor {
 
     /// Add an edge update to the routing table and return if it is a new edge update.
     fn process_edges(&mut self, ctx: &mut Context<Self>, edges: Vec<Edge>) -> bool {
-        debug!(target: "network", "process edges: {:?}", edges);
+        if !edges.is_empty() {
+            debug!(target: "network", "process edges: {:?}", edges);
+        }
         let ProcessEdgeResult { new_edge, schedule_computation } =
             self.routing_table.process_edges(edges);
 
         if new_edge {
-            debug!(target: "network", "processed new edges");
+            debug!(target: "network", "processed new edges, scheduled computation in {:?}", schedule_computation);
         }
 
         if let Some(duration) = schedule_computation {
@@ -1474,7 +1476,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             Ok(true) => {
                                 let new_edges = Arc::try_unwrap(new_edges)
                                     .expect("should not have more than one reference");
-                                act.process_edges(ctx, new_edges.clone());
+                                if !new_edges.is_empty() {
+                                    act.process_edges(ctx, new_edges.clone());
+                                }
 
                                 let new_data =
                                     SyncData { edges: new_edges, accounts: new_accounts };
