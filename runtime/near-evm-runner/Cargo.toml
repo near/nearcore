@@ -31,7 +31,7 @@ lunarity-lexer = "0.2"
 bn = { git = "https://github.com/near/bn", rev = "43953916ed1a314b78320771734f36af77993dd9" }
 parity-bytes = "0.1.0"
 ethereum-types = "0.8.0"
-ethabi = "12.0.0"
+ethabi = "11.0.0"
 
 near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }
@@ -42,7 +42,7 @@ derivative = "2.1.1"
 
 [dev-dependencies]
 ethabi-contract = "11.0.0"
-ethabi-derive = "12.0.0"
+ethabi-derive = "11.0.0"
 lazy_static = "1.4"
 lazy-static-include = "2.2.2"
 
