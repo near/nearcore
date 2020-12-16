@@ -11,15 +11,16 @@ pub fn perf(_attr: TokenStream, item: TokenStream) -> TokenStream {
     if let syn::Item::Fn(mut func) = item.clone() {
         let block = func.clone().block;
 
-        let function_body = quote! { #block }.to_string();
+        let function_body = quote! { #block };
 
-        let new_body = format!(
-            "{} {} {}",
-            "fn xxx() { \
-            use near_performance_metrics::stats::measure_performance;\
-            near_performance_metrics::stats::measure_performance(std::any::type_name::<Self>(), msg, move |msg| { ",
-            function_body,
-            "}) }").parse().unwrap();
+        let new_body: TokenStream = quote! {
+            fn xxx() {
+                use near_performance_metrics::stats::measure_performance;
+                near_performance_metrics::stats::measure_performance(std::any::type_name::<Self>(), msg, move |msg| {
+                    #function_body
+                })
+            }
+        }.into();
 
         if let syn::Item::Fn(func2) = syn::parse(new_body).expect("failed to parse input") {
             func.block = func2.block;
