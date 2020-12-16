@@ -1443,12 +1443,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "965126c64662832991f5a748893577630b558e47fa94e7f35aefcd20d737cef7"
 dependencies = [
  "error-chain",
- "ethereum-types",
+ "ethereum-types 0.8.0",
  "rustc-hex 2.1.0",
  "serde",
  "serde_derive",
  "serde_json",
- "tiny-keccak",
+ "tiny-keccak 1.5.0",
+]
+
+[[package]]
+name = "ethabi"
+version = "12.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "052a565e3de82944527d6d10a465697e6bb92476b772ca7141080c901f6a63c6"
+dependencies = [
+ "ethereum-types 0.9.2",
+ "rustc-hex 2.1.0",
+ "serde",
+ "serde_json",
+ "tiny-keccak 1.5.0",
+ "uint",
 ]
 
 [[package]]
@@ -1458,16 +1472,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf407dce0290374bfbb1528493bc14320e663f75856b73a5b76262d8e2cec3c9"
 
 [[package]]
+name = "ethabi-contract"
+version = "11.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88d4002f1f77d8233685dafd8589efe1c9dfa63e21ca6c11134372acc7f68032"
+
+[[package]]
 name = "ethabi-derive"
 version = "9.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd0753d4f9e1dba99450da5f2400b20527702ae8ce0309a5f7c239d305539884"
 dependencies = [
- "ethabi",
+ "ethabi 9.0.1",
  "heck",
  "proc-macro2 0.4.30",
  "quote 0.6.13",
  "syn 0.15.44",
+]
+
+[[package]]
+name = "ethabi-derive"
+version = "12.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7c0fe66618e0cfcf111afc863e7940413f2a88240cf63b38cc61206fe7be025"
+dependencies = [
+ "ethabi 12.0.0",
+ "heck",
+ "proc-macro2 1.0.19",
+ "quote 1.0.3",
+ "syn 1.0.38",
 ]
 
 [[package]]
@@ -1480,7 +1513,20 @@ dependencies = [
  "fixed-hash 0.5.2",
  "impl-rlp",
  "impl-serde 0.2.3",
- "tiny-keccak",
+ "tiny-keccak 1.5.0",
+]
+
+[[package]]
+name = "ethbloom"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71a6567e6fd35589fea0c63b94b4cf2e55573e413901bdbe60ab15cf0e25e5df"
+dependencies = [
+ "crunchy",
+ "fixed-hash 0.6.0",
+ "impl-rlp",
+ "impl-serde 0.3.1",
+ "tiny-keccak 2.0.2",
 ]
 
 [[package]]
@@ -1489,7 +1535,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba744248e3553a393143d5ebb68939fc3a4ec0c22a269682535f5ffe7fed728c"
 dependencies = [
- "ethbloom",
+ "ethbloom 0.8.1",
  "fixed-hash 0.5.2",
  "impl-rlp",
  "impl-serde 0.2.3",
@@ -1498,11 +1544,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ethereum-types"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "473aecff686bd8e7b9db0165cbbb53562376b39bf35b427f0c60446a9e1634b0"
+dependencies = [
+ "ethbloom 0.9.2",
+ "fixed-hash 0.6.0",
+ "impl-rlp",
+ "impl-serde 0.3.1",
+ "primitive-types 0.7.2",
+ "uint",
+]
+
+[[package]]
 name = "ethjson"
 version = "0.1.0"
 source = "git+https://github.com/openethereum/openethereum?rev=v2.7.2#2662d1925ec794f3ad7c5759b2412ff5128d259b"
 dependencies = [
- "ethereum-types",
+ "ethereum-types 0.8.0",
  "rustc-hex 1.0.0",
  "serde",
  "serde_json",
@@ -1514,7 +1574,7 @@ version = "0.1.0"
 source = "git+https://github.com/openethereum/openethereum?rev=v2.7.2#2662d1925ec794f3ad7c5759b2412ff5128d259b"
 dependencies = [
  "bit-set",
- "ethereum-types",
+ "ethereum-types 0.8.0",
  "keccak-hash",
  "lazy_static",
  "log",
@@ -2373,7 +2433,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f0e55d8f242fdc281c21c4cd70960a25db6dd17cc6232d8b38b564b5b18c784"
 dependencies = [
  "primitive-types 0.6.2",
- "tiny-keccak",
+ "tiny-keccak 1.5.0",
 ]
 
 [[package]]
@@ -2381,10 +2441,10 @@ name = "keccak-hasher"
 version = "0.1.1"
 source = "git+https://github.com/openethereum/openethereum?rev=v2.7.2#2662d1925ec794f3ad7c5759b2412ff5128d259b"
 dependencies = [
- "ethereum-types",
+ "ethereum-types 0.8.0",
  "hash-db",
  "plain_hasher",
- "tiny-keccak",
+ "tiny-keccak 1.5.0",
 ]
 
 [[package]]
@@ -2969,10 +3029,10 @@ dependencies = [
  "byteorder",
  "derivative",
  "enum-primitive-derive",
- "ethabi",
- "ethabi-contract",
- "ethabi-derive",
- "ethereum-types",
+ "ethabi 12.0.0",
+ "ethabi-contract 11.0.0",
+ "ethabi-derive 12.0.0",
+ "ethereum-types 0.8.0",
  "evm",
  "hex",
  "itertools 0.9.0",
@@ -3286,7 +3346,7 @@ name = "near-vm-errors"
 version = "2.3.0"
 dependencies = [
  "borsh",
- "ethereum-types",
+ "ethereum-types 0.8.0",
  "hex",
  "near-rpc-error-macro",
  "serde",
@@ -3452,7 +3512,7 @@ dependencies = [
  "base64 0.11.0",
  "borsh",
  "byteorder",
- "ethereum-types",
+ "ethereum-types 0.8.0",
  "hex",
  "indicatif 0.13.0",
  "lazy_static",
@@ -3778,7 +3838,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8174d85e62c4d615fddd1ef67966bdc5757528891d0742f15b131ad04667b3f9"
 dependencies = [
  "cfg-if",
- "ethereum-types",
+ "ethereum-types 0.8.0",
  "malloc_size_of_derive",
  "parking_lot 0.9.0",
  "smallvec 1.4.0",
@@ -3873,7 +3933,7 @@ version = "0.1.0"
 source = "git+https://github.com/openethereum/openethereum?rev=v2.7.2#2662d1925ec794f3ad7c5759b2412ff5128d259b"
 dependencies = [
  "elastic-array 0.10.3",
- "ethereum-types",
+ "ethereum-types 0.8.0",
  "hash-db",
  "keccak-hasher",
  "parity-bytes",
@@ -3979,6 +4039,8 @@ checksum = "c55c21c64d0eaa4d7ed885d959ef2d62d9e488c27c0e02d9aa5ce6c877b7d5f8"
 dependencies = [
  "fixed-hash 0.6.0",
  "impl-codec",
+ "impl-rlp",
+ "impl-serde 0.3.1",
  "uint",
 ]
 
@@ -4523,10 +4585,10 @@ dependencies = [
  "borsh",
  "clap 2.33.0",
  "csv",
- "ethabi",
- "ethabi-contract",
- "ethabi-derive",
- "ethereum-types",
+ "ethabi 9.0.1",
+ "ethabi-contract 9.0.0",
+ "ethabi-derive 9.0.1",
+ "ethereum-types 0.8.0",
  "glob 0.3.0",
  "gnuplot",
  "hex",
@@ -5156,10 +5218,10 @@ dependencies = [
  "borsh",
  "byteorder",
  "clap 2.33.0",
- "ethabi",
- "ethabi-contract",
- "ethabi-derive",
- "ethereum-types",
+ "ethabi 9.0.1",
+ "ethabi-contract 9.0.0",
+ "ethabi-derive 9.0.1",
+ "ethereum-types 0.8.0",
  "futures",
  "hex",
  "lazy_static",
@@ -5247,6 +5309,15 @@ name = "tiny-keccak"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d8a021c69bb74a44ccedb824a046447e2c84a01df9e5c20779750acb38e11b2"
+dependencies = [
+ "crunchy",
+]
+
+[[package]]
+name = "tiny-keccak"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c9d3793400a45f954c52e73d068316d76b6f4e36977e3fcebb13a2721e80237"
 dependencies = [
  "crunchy",
 ]
@@ -5688,7 +5759,7 @@ name = "vm"
 version = "0.1.0"
 source = "git+https://github.com/openethereum/openethereum?rev=v2.7.2#2662d1925ec794f3ad7c5759b2412ff5128d259b"
 dependencies = [
- "ethereum-types",
+ "ethereum-types 0.8.0",
  "ethjson",
  "keccak-hash",
  "parity-bytes",

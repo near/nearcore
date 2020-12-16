@@ -80,7 +80,7 @@ pub fn encode_meta_call_function_args(
     args: Vec<u8>,
 ) -> Vec<u8> {
     let domain_separator = near_erc721_domain(U256::from(chain_id));
-    let msg = prepare_meta_call_args(
+    let (msg, _) = prepare_meta_call_args(
         &domain_separator,
         &"evm".to_string(),
         nonce,

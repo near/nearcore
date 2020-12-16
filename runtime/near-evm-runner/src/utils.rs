@@ -3,6 +3,7 @@ use std::io::Write;
 
 use borsh::BorshSerialize;
 use byteorder::WriteBytesExt;
+use ethabi::{encode, Token as ABIToken};
 use ethereum_types::{Address, H160, H256, U256};
 use keccak_hash::keccak;
 use lunarity_lexer::{Lexer, Token};
@@ -281,7 +282,7 @@ pub fn near_erc721_domain(chain_id: U256) -> RawU256 {
     keccak(&bytes).into()
 }
 
-pub fn method_name_to_abi(method_name: String) -> [u8; 4] {
+pub fn method_name_to_abi(method_name: &str) -> [u8; 4] {
     let mut result = [0u8; 4];
     result.copy_from_slice(&keccak(method_name)[..4]);
     result
@@ -542,7 +543,72 @@ where
         Value::Bytes(b) => f(b),
     }
 }
-/// eip-712 hash struct of entire meta txn
+
+fn eth_abi_encode_args(args_decoded: &Vec<Value>, methods: &MethodAndTypes) -> Result<Vec<u8>> {
+    let mut tokens = vec![];
+    for (i, arg) in args_decoded.iter().enumerate() {
+        tokens.push(arg_to_abi_token(&methods.method.args[i].t, arg, methods)?);
+    }
+    Ok(encode(&tokens))
+}
+
+fn arg_to_abi_token(ty: &Type, arg: &Value, methods: &MethodAndTypes) -> Result<ABIToken> {
+    match ty {
+        Type::String | Type::Bytes => value_to_abi_token(arg, |b| Ok(ABIToken::Bytes(b.clone()))),
+        Type::Byte(_) => value_to_abi_token(arg, |b| Ok(ABIToken::FixedBytes(b.clone()))),
+        Type::Uint | Type::Int | Type::Bool => {
+            value_to_abi_token(arg, |b| Ok(ABIToken::Uint(U256::from_big_endian(&b))))
+        }
+        Type::Address => value_to_abi_token(arg, |b| Ok(ABIToken::Address(address_from_arr(b)))),
+        Type::Array { inner, length: None } => list_to_abi_token(arg, |l| {
+            let mut tokens = vec![];
+            for (i, arg) in l.iter().enumerate() {
+                tokens.push(arg_to_abi_token(inner, arg, methods)?);
+            }
+            Ok(ABIToken::Array(tokens))
+        }),
+        Type::Array { inner, length: Some(length) } => list_to_abi_token(arg, |l| {
+            let mut tokens = vec![];
+            for (i, arg) in l.iter().enumerate() {
+                tokens.push(arg_to_abi_token(inner, arg, methods)?);
+            }
+            Ok(ABIToken::FixedArray(tokens))
+        }),
+        Type::Custom(type_name) => list_to_abi_token(arg, |l| {
+            let struct_type = methods
+                .types
+                .get(type_name)
+                .ok_or(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))?;
+            let mut tokens = vec![];
+            for (i, element) in l.iter().enumerate() {
+                tokens.push(arg_to_abi_token(&struct_type.args[i].t, element, methods)?);
+            }
+            Ok(ABIToken::Tuple(tokens))
+        }),
+    }
+}
+
+fn value_to_abi_token<F>(value: &Value, f: F) -> Result<ABIToken>
+where
+    F: Fn(&Vec<u8>) -> Result<ABIToken>,
+{
+    match value {
+        Value::List(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
+        Value::Bytes(b) => f(b),
+    }
+}
+
+fn list_to_abi_token<F>(value: &Value, f: F) -> Result<ABIToken>
+where
+    F: Fn(&Vec<Value>) -> Result<ABIToken>,
+{
+    match value {
+        Value::Bytes(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
+        Value::List(l) => f(l),
+    }
+}
+
+/// eip-712 hash struct of entire meta txn and abi-encode function args to evm input
 pub fn prepare_meta_call_args(
     domain_separator: &RawU256,
     account_id: &AccountId,
@@ -552,7 +618,7 @@ pub fn prepare_meta_call_args(
     contract_address: Address,
     method_name: &str,
     args: &[u8],
-) -> Result<RawU256> {
+) -> Result<(RawU256, Vec<u8>)> {
     let mut bytes = Vec::new();
     let method_arg_start = method_name.find('(').unwrap();
     let arguments = "Arguments".to_string() + &method_name[method_arg_start..];
@@ -577,7 +643,10 @@ pub fn prepare_meta_call_args(
             &methods.types,
         )?);
     }
-    println!("arg_bytes {:?}", &arg_bytes);
+
+    let method_name_selector = method_name_to_abi(method_name);
+    let args_eth_abi = eth_abi_encode_args(&args_decoded, &methods)?;
+    let input = [method_name_selector.to_vec(), args_eth_abi.to_vec()].concat();
 
     let arg_bytes_hash: RawU256 = keccak(&arg_bytes).into();
     bytes.extend_from_slice(&arg_bytes_hash);
@@ -587,7 +656,7 @@ pub fn prepare_meta_call_args(
     bytes.extend_from_slice(&[0x19, 0x01]);
     bytes.extend_from_slice(domain_separator);
     bytes.extend_from_slice(&message);
-    Ok(keccak(&bytes).into())
+    Ok((keccak(&bytes).into(), input))
 }
 
 /// Format
@@ -623,7 +692,7 @@ pub fn parse_meta_call(
         .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
     let args = &args[170 + method_name_len..];
 
-    let msg = prepare_meta_call_args(
+    let (msg, input) = prepare_meta_call_args(
         domain_separator,
         account_id,
         nonce,
@@ -637,9 +706,7 @@ pub fn parse_meta_call(
     if sender == Address::zero() {
         return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
     }
-    let method_name_selector = method_name_to_abi(method_name);
-    // TODO: args is rlp encoded, however, it must be eth-abi encoded and placed in input then evm runner can execute it
-    let input = [method_name_selector.to_vec(), args.to_vec()].concat();
+
     Ok(MetaCallArgs { sender, nonce, fee_amount, fee_address, contract_address, input })
 }
 
