@@ -329,6 +329,8 @@ pub struct ChainStore {
     latest_known: Option<LatestKnown>,
     /// Current head of the chain
     head: Option<Tip>,
+    /// Tail height of the chain,
+    tail: Option<BlockHeight>,
     /// Cache with headers.
     headers: SizedCache<Vec<u8>, BlockHeader>,
     /// Cache with blocks.
@@ -397,6 +399,7 @@ impl ChainStore {
             genesis_height,
             latest_known: None,
             head: None,
+            tail: None,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
             chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
@@ -555,10 +558,14 @@ impl ChainStoreAccess for ChainStore {
 
     /// The chain Blocks Tail height, used by GC.
     fn tail(&self) -> Result<BlockHeight, Error> {
-        self.store
-            .get_ser(ColBlockMisc, TAIL_KEY)
-            .map(|option| option.unwrap_or_else(|| self.genesis_height))
-            .map_err(|e| e.into())
+        if let Some(tail) = self.tail.as_ref() {
+            Ok(*tail)
+        } else {
+            self.store
+                .get_ser(ColBlockMisc, TAIL_KEY)
+                .map(|option| option.unwrap_or_else(|| self.genesis_height))
+                .map_err(|e| e.into())
+        }
     }
 
     /// The chain Chunks Tail height, used by GC.
@@ -2879,6 +2886,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store.processed_block_heights.cache_set(index_to_bytes(block_height), ());
         }
         self.chain_store.head = self.head;
+        self.chain_store.tail = self.tail;
 
         Ok(())
     }

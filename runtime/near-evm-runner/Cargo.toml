@@ -45,6 +45,7 @@ ethabi-contract = "11.0.0"
 ethabi-derive = "11.0.0"
 lazy_static = "1.4"
 lazy-static-include = "2.2.2"
+criterion = "0.3.0"
 
 near-crypto = { path = "../../core/crypto" }
 
@@ -61,3 +62,8 @@ required-features = ["protocol_feature_evm"]
 name = "standard_ops"
 path = "tests/standard_ops.rs"
 required-features = ["protocol_feature_evm"]
+
+[[bench]]
+name = "bench"
+required-features = ["protocol_feature_evm"]
+harness = false

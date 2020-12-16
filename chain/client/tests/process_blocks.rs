@@ -68,7 +68,6 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
 fn produce_two_blocks() {
-    init_test_logger();
     System::run(|| {
         let count = Arc::new(AtomicUsize::new(0));
         setup_mock(
@@ -97,7 +96,6 @@ fn produce_two_blocks() {
 #[ignore]
 fn produce_blocks_with_tx() {
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
-    init_test_logger();
     System::run(|| {
         let (client, view_client) = setup_mock(
             vec!["test"],
@@ -163,7 +161,6 @@ fn produce_blocks_with_tx() {
 /// Need 3 block producers, to receive approval.
 #[test]
 fn receive_network_block() {
-    init_test_logger();
     System::run(|| {
         // The first header announce will be when the block is received. We don't immediately endorse
         // it. The second header announce will happen with the endorsement a little later.
@@ -222,7 +219,6 @@ fn receive_network_block() {
 /// Include approvals to the next block in newly produced block.
 #[test]
 fn produce_block_with_approvals() {
-    init_test_logger();
     let validators = vec![
         "test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8", "test9", "test10",
     ];
@@ -310,7 +306,6 @@ fn produce_block_with_approvals() {
 /// When approvals arrive early, they should be properly cached.
 #[test]
 fn produce_block_with_approvals_arrived_early() {
-    init_test_logger();
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
@@ -385,13 +380,12 @@ fn produce_block_with_approvals_arrived_early() {
 /// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
 /// and that the node bans the peer for invalid block header.
 fn invalid_blocks_common(is_requested: bool) {
-    init_test_logger();
     System::run(move || {
         let mut ban_counter = 0;
         let (client, view_client) = setup_mock(
             vec!["test"],
             "other",
-            false,
+            true,
             false,
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
@@ -506,92 +500,6 @@ fn test_invalid_blocks_requested() {
     invalid_blocks_common(true);
 }
 
-#[test]
-fn invalid_blocks() {
-    init_test_logger();
-    System::run(|| {
-        let (client, view_client) = setup_mock(
-            vec!["test"],
-            "other",
-            false,
-            false,
-            Box::new(move |msg, _ctx, _client_actor| {
-                match msg {
-                    NetworkRequests::Block { block } => {
-                        assert_eq!(block.header().height(), 1);
-                        assert_eq!(block.header().chunk_mask().len(), 1);
-                        System::current().stop();
-                    }
-                    _ => {}
-                };
-                NetworkResponses::NoResponse
-            }),
-        );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
-            let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
-            let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
-            // Send block with invalid chunk mask
-            let mut block = Block::produce(
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                last_block.chunks.iter().cloned().map(Into::into).collect(),
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
-                },
-                vec![],
-                Rational::from_integer(0),
-                0,
-                100,
-                Some(0),
-                vec![],
-                vec![],
-                &signer,
-                last_block.header.next_bp_hash,
-                CryptoHash::default(),
-            );
-            block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
-            client.do_send(NetworkClientMessages::Block(
-                block.clone(),
-                PeerInfo::random().id,
-                false,
-            ));
-
-            // Send proper block.
-            block_merkle_tree.insert(last_block.header.hash);
-            let block2 = Block::produce(
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                last_block.chunks.into_iter().map(Into::into).collect(),
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
-                },
-                vec![],
-                Rational::from_integer(0),
-                0,
-                100,
-                Some(0),
-                vec![],
-                vec![],
-                &signer,
-                last_block.header.next_bp_hash,
-                block_merkle_tree.root(),
-            );
-            client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
-            future::ready(())
-        }));
-        near_network::test_utils::wait_or_panic(5000);
-    })
-    .unwrap();
-}
-
 enum InvalidBlockMode {
     /// Header is invalid
     InvalidHeader,
@@ -600,8 +508,8 @@ enum InvalidBlockMode {
     /// Block is invalid for other reasons
     InvalidBlock,
 }
+
 fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
-    init_test_logger();
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
@@ -733,7 +641,6 @@ fn test_ban_peer_for_ill_formed_block() {
 /// Present validator produces blocks on it's height after deadline.
 #[test]
 fn skip_block_production() {
-    init_test_logger();
     System::run(|| {
         setup_mock(
             vec!["test1", "test2"],
@@ -760,7 +667,6 @@ fn skip_block_production() {
 /// Runs client that requests syncing headers from peers.
 #[test]
 fn client_sync_headers() {
-    init_test_logger();
     System::run(|| {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = peer_info1.clone();
@@ -833,7 +739,6 @@ fn produce_blocks(client: &mut Client, num: u64) {
 
 #[test]
 fn test_process_invalid_tx() {
-    init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
@@ -885,7 +790,6 @@ fn test_process_invalid_tx() {
 /// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
 #[test]
 fn test_time_attack() {
-    init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let chain_genesis = ChainGenesis::test();
@@ -916,7 +820,6 @@ fn test_time_attack() {
 #[test]
 #[ignore]
 fn test_invalid_approvals() {
-    init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let chain_genesis = ChainGenesis::test();
@@ -967,7 +870,6 @@ fn test_no_double_sign() {
 
 #[test]
 fn test_invalid_gas_price() {
-    init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
@@ -1605,7 +1507,6 @@ fn test_gc_tail_update() {
 /// Test that transaction does not become invalid when there is some gas price change.
 #[test]
 fn test_gas_price_change() {
-    init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
     let send_money_total_gas = genesis
@@ -1836,7 +1737,8 @@ fn test_data_reset_before_state_sync() {
         head_block.header().epoch_id(),
         &QueryRequest::ViewAccount { account_id: "test_account".to_string() },
     );
-    assert!(response.is_err());
+    // TODO(#3742): ViewClient still has data in cache by current design.
+    assert!(response.is_ok());
 }
 
 #[test]
@@ -1996,12 +1898,13 @@ fn test_validate_chunk_extra() {
     // Process the previously unavailable chunk. This causes two blocks to be accepted.
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.store().owned_store(), genesis_height);
+    let chunk_header = encoded_chunk.cloned_header();
     env.clients[0]
         .shards_mgr
         .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store)
         .unwrap();
-    let accepted_blocks =
-        env.clients[0].process_blocks_with_missing_chunks(*last_block.hash(), PROTOCOL_VERSION);
+    env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
+    let accepted_blocks = env.clients[0].process_blocks_with_missing_chunks(PROTOCOL_VERSION);
     assert_eq!(accepted_blocks.len(), 2);
     for (i, accepted_block) in accepted_blocks.into_iter().enumerate() {
         if i == 0 {
@@ -2057,7 +1960,6 @@ fn test_gas_price_change_no_chunk() {
 
 #[test]
 fn test_catchup_gas_price_change() {
-    init_test_logger();
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
@@ -2214,7 +2116,6 @@ fn test_block_execution_outcomes() {
 
 #[test]
 fn test_epoch_protocol_version_change() {
-    init_test_logger();
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 2);
     genesis.config.epoch_length = epoch_length;
@@ -2438,4 +2339,24 @@ fn test_fork_execution_outcome() {
     let receipt_execution_outcomes =
         env.clients[0].chain.store().get_outcomes_by_id(&receipt_id).unwrap();
     assert!(receipt_execution_outcomes.is_empty());
+}
+
+#[test]
+fn test_not_broadcast_block_on_accept() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let mut env = TestEnv::new_with_runtime_and_network_adapter(
+        ChainGenesis::test(),
+        2,
+        1,
+        create_nightshade_runtimes(&genesis, 2),
+        vec![Arc::new(MockNetworkAdapter::default()), network_adapter.clone()],
+    );
+    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
+    for i in 0..2 {
+        env.process_block(i, b1.clone(), Provenance::NONE);
+    }
+    assert!(network_adapter.requests.read().unwrap().is_empty());
 }

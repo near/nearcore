@@ -36,7 +36,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
-use near_primitives::utils::from_timestamp;
+use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
@@ -479,9 +479,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
-                if let Ok(accepted_blocks) =
-                    self.client.process_partial_encoded_chunk(partial_encoded_chunk)
-                {
+                if let Ok(accepted_blocks) = self.client.process_partial_encoded_chunk(
+                    MaybeValidated::NotValidated(partial_encoded_chunk),
+                ) {
                     self.process_accepted_blocks(accepted_blocks);
                 }
                 NetworkClientResponses::NoResponse
@@ -954,6 +954,11 @@ impl ClientActor {
         let is_syncing = self.client.sync_status.is_syncing();
         if block.header().height() >= head.height + BLOCK_HORIZON && is_syncing && !was_requested {
             debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
+            return;
+        }
+        let tail = unwrap_or_return!(self.client.chain.tail());
+        if block.header().height() < tail {
+            debug!(target: "client", "dropping block {} that is too far behind. Block height {} current tail height {}", block.hash(), block.header().height(), tail);
             return;
         }
         let prev_hash = *block.header().prev_hash();
