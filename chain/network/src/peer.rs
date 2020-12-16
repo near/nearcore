@@ -613,12 +613,19 @@ impl Actor for Peer {
 
         debug!(target: "network", "{:?}: Peer {:?} {:?} started", self.node_info.id, self.peer_addr, self.peer_type);
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
-        ctx.run_later(self.handshake_timeout, move |act, ctx| {
-            if act.peer_status != PeerStatus::Ready {
-                info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
-                ctx.stop();
-            }
-        });
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.handshake_timeout,
+            move |act, ctx| {
+                if act.peer_status != PeerStatus::Ready {
+                    info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
+                    ctx.stop();
+                }
+            },
+        );
 
         // If outbound peer, initiate handshake.
         if self.peer_type == PeerType::Outbound {

@@ -853,7 +853,7 @@ impl StateSync {
                 new_shard_sync_download.downloads[0].state_requests_count += 1;
                 new_shard_sync_download.downloads[0].last_target = Some(target.clone());
                 let run_me = new_shard_sync_download.downloads[0].run_me.clone();
-                near_performance_metrics::stats::spawn(
+                near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
                     file!(),
                     line!(),
@@ -889,7 +889,7 @@ impl StateSync {
                     download.last_target = Some(target.clone());
                     let run_me = download.run_me.clone();
 
-                    near_performance_metrics::stats::spawn(
+                    near_performance_metrics::actix::spawn(
                         std::any::type_name::<Self>(),
                         file!(),
                         line!(),

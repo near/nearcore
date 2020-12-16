@@ -154,14 +154,21 @@ impl WaitOrTimeout {
 
     fn wait_or_timeout(&mut self, ctx: &mut Context<Self>) {
         (self.f)(ctx);
-        ctx.run_later(Duration::from_millis(self.check_interval_ms), move |act, ctx| {
-            act.ms_slept += act.check_interval_ms;
-            if act.ms_slept > act.max_wait_ms {
-                println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
-                panic!("Timed out waiting for the condition");
-            }
-            act.wait_or_timeout(ctx);
-        });
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            Duration::from_millis(self.check_interval_ms),
+            move |act, ctx| {
+                act.ms_slept += act.check_interval_ms;
+                if act.ms_slept > act.max_wait_ms {
+                    println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
+                    panic!("Timed out waiting for the condition");
+                }
+                act.wait_or_timeout(ctx);
+            },
+        );
     }
 }
 

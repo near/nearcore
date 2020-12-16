@@ -15,17 +15,17 @@ use once_cell::sync::Lazy;
 use std::pin::Pin;
 
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
-const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
+pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
 const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.00;
 #[cfg(feature = "performance_stats")]
 const MESSAGE_LIMIT: usize = 250;
 
-static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::new(Stats::new())));
-static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
+pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::new(Stats::new())));
+pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 thread_local! {
-    static TID: RefCell<usize> = RefCell::new(0);
+    pub(crate) static TID: RefCell<usize> = RefCell::new(0);
 }
 
 #[derive(Default)]
@@ -92,7 +92,7 @@ impl ThreadStats {
     }
 }
 
-struct Stats {
+pub(crate) struct Stats {
     stats: HashMap<usize, ThreadStats>,
 }
 
@@ -101,7 +101,13 @@ impl Stats {
         Self { stats: HashMap::new() }
     }
 
-    fn log(&mut self, class_name: &'static str, msg: &'static str, line: u32, took: Duration) {
+    pub(crate) fn log(
+        &mut self,
+        class_name: &'static str,
+        msg: &'static str,
+        line: u32,
+        took: Duration,
+    ) {
         let tid = TID.with(|x| {
             if *x.borrow_mut() == 0 {
                 *x.borrow_mut() = NTHREADS.fetch_add(1, Ordering::SeqCst);
@@ -224,10 +230,10 @@ pub struct MyFuture<F>
 where
     F: futures::Future<Output = ()> + 'static,
 {
-    f: F,
-    class_name: &'static str,
-    file: &'static str,
-    line: u32,
+    pub f: F,
+    pub class_name: &'static str,
+    pub file: &'static str,
+    pub line: u32,
 }
 
 impl<F> futures::Future for MyFuture<F>
@@ -262,66 +268,6 @@ where
             }
             Poll::Pending => Poll::Pending,
         }
-    }
-}
-
-#[allow(unused_variables)]
-pub fn spawn<F>(class_name: &'static str, file: &'static str, line: u32, f: F)
-where
-    F: futures::Future<Output = ()> + 'static,
-{
-    #[cfg(not(feature = "performance_stats"))]
-    {
-        actix_rt::spawn(f);
-    }
-
-    #[cfg(feature = "performance_stats")]
-    {
-        *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
-        actix_rt::spawn(MyFuture { f, class_name, file, line });
-    }
-}
-
-#[allow(unused_variables)]
-pub fn run_later<F, A, B>(
-    ctx: &mut B,
-    file: &'static str,
-    line: u32,
-    dur: Duration,
-    f: F,
-) -> actix::SpawnHandle
-where
-    B: actix::AsyncContext<A>,
-    A: actix::Actor<Context = B>,
-    F: FnOnce(&mut A, &mut A::Context) + 'static,
-{
-    #[cfg(not(feature = "performance_stats"))]
-    {
-        ctx.run_later(dur, f)
-    }
-
-    #[cfg(feature = "performance_stats")]
-    {
-        *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
-        let f2 = move |a: &mut A, b: &mut A::Context| {
-            let now = Instant::now();
-            f(a, b);
-
-            let took = now.elapsed();
-            STATS.lock().unwrap().log("run_later", file, line, took);
-            if took > SLOW_CALL_THRESHOLD {
-                info!(
-                    "Slow function call {}:{} {}:{} took: {}ms",
-                    "run_later",
-                    TID.with(|x| *x.borrow()),
-                    file,
-                    line,
-                    took.as_millis()
-                );
-            }
-            *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) -= 1;
-        };
-        ctx.run_later(dur, f2)
     }
 }
 

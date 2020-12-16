@@ -32,6 +32,7 @@ use near_network::types::{NetworkInfo, ReasonForBan};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
+use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -733,7 +734,7 @@ impl ClientActor {
     fn schedule_triggers(&mut self, ctx: &mut Context<Self>) {
         let wait = self.check_triggers(ctx);
 
-        ctx.run_later(wait, move |act, ctx| {
+        near_performance_metrics::actix::run_later(ctx, file!(), line!(), wait, move |act, ctx| {
             act.schedule_triggers(ctx);
         });
     }
@@ -1113,9 +1114,15 @@ impl ClientActor {
         if self.network_info.num_active_peers < self.client.config.min_num_peers
             && !self.client.config.skip_sync_wait
         {
-            ctx.run_later(self.client.config.sync_step_period, move |act, ctx| {
-                act.start_sync(ctx);
-            });
+            near_performance_metrics::actix::run_later(
+                ctx,
+                file!(),
+                line!(),
+                self.client.config.sync_step_period,
+                move |act, ctx| {
+                    act.start_sync(ctx);
+                },
+            );
             return;
         }
         self.sync_started = true;
@@ -1169,9 +1176,15 @@ impl ClientActor {
             }
         }
 
-        ctx.run_later(self.client.config.catchup_step_period, move |act, ctx| {
-            act.catchup(ctx);
-        });
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.client.config.catchup_step_period,
+            move |act, ctx| {
+                act.catchup(ctx);
+            },
+        );
     }
 
     fn run_timer<F>(
@@ -1203,7 +1216,12 @@ impl ClientActor {
             Ok(v) => v,
             Err(err) => {
                 error!(target: "sync", "Sync: Unexpected error: {}", err);
-                ctx.run_later(self.client.config.sync_step_period, move |act, ctx| {
+
+            near_performance_metrics::actix::run_later(
+                ctx,
+                file!(),
+                line!(),
+                self.client.config.sync_step_period, move |act, ctx| {
                     act.sync(ctx);
                 });
                 return;
@@ -1359,55 +1377,68 @@ impl ClientActor {
             }
         }
 
-        ctx.run_later(wait_period, move |act, ctx| {
-            act.sync(ctx);
-        });
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            wait_period,
+            move |act, ctx| {
+                act.sync(ctx);
+            },
+        );
     }
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
-        ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
-            #[cfg(feature = "delay_detector")]
-            let _d = DelayDetector::new("client log summary".into());
-            let is_syncing = act.client.sync_status.is_syncing();
-            let head = unwrap_or_return!(act.client.chain.head(), act.log_summary(ctx));
-            let validator_info = if !is_syncing {
-                let validators = unwrap_or_return!(
-                    act.client
-                        .runtime_adapter
-                        .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash),
-                    act.log_summary(ctx)
-                );
-                let num_validators = validators.len();
-                let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
-                let is_validator = if let Some(ref account_id) = account_id {
-                    match act.client.runtime_adapter.get_validator_by_account_id(
-                        &head.epoch_id,
-                        &head.last_block_hash,
-                        account_id,
-                    ) {
-                        Ok((_, is_slashed)) => !is_slashed,
-                        Err(_) => false,
-                    }
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.client.config.log_summary_period,
+            move |act, ctx| {
+                #[cfg(feature = "delay_detector")]
+                let _d = DelayDetector::new("client log summary".into());
+                let is_syncing = act.client.sync_status.is_syncing();
+                let head = unwrap_or_return!(act.client.chain.head(), act.log_summary(ctx));
+                let validator_info = if !is_syncing {
+                    let validators = unwrap_or_return!(
+                        act.client.runtime_adapter.get_epoch_block_producers_ordered(
+                            &head.epoch_id,
+                            &head.last_block_hash
+                        ),
+                        act.log_summary(ctx)
+                    );
+                    let num_validators = validators.len();
+                    let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
+                    let is_validator = if let Some(ref account_id) = account_id {
+                        match act.client.runtime_adapter.get_validator_by_account_id(
+                            &head.epoch_id,
+                            &head.last_block_hash,
+                            account_id,
+                        ) {
+                            Ok((_, is_slashed)) => !is_slashed,
+                            Err(_) => false,
+                        }
+                    } else {
+                        false
+                    };
+                    Some(ValidatorInfoHelper { is_validator, num_validators })
                 } else {
-                    false
+                    None
                 };
-                Some(ValidatorInfoHelper { is_validator, num_validators })
-            } else {
-                None
-            };
 
-            act.info_helper.info(
-                act.client.chain.store().get_genesis_height(),
-                &head,
-                &act.client.sync_status,
-                &act.node_id,
-                &act.network_info,
-                validator_info,
-            );
+                act.info_helper.info(
+                    act.client.chain.store().get_genesis_height(),
+                    &head,
+                    &act.client.sync_status,
+                    &act.node_id,
+                    &act.network_info,
+                    validator_info,
+                );
 
-            act.log_summary(ctx);
-        });
+                act.log_summary(ctx);
+            },
+        );
     }
 }
 
