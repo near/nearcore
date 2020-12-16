@@ -903,6 +903,20 @@ impl RuntimeAdapter for KeyValueRuntime {
         })
     }
 
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        if epoch_id.0 == other_epoch_id.0 {
+            return Ok(Ordering::Equal);
+        }
+        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
+            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
+            _ => Err(ErrorKind::EpochOutOfBounds.into()),
+        }
+    }
+
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         _chunk_prev_block_hash: &CryptoHash,
