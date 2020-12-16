@@ -644,7 +644,7 @@ pub fn prepare_meta_call_args(
         )?);
     }
 
-    let method_name_selector = method_name_to_abi(method_name);
+    let method_name_selector = method_name_to_abi(&method_sig);
     let args_eth_abi = eth_abi_encode_args(&args_decoded, &methods)?;
     let input = [method_name_selector.to_vec(), args_eth_abi.to_vec()].concat();
 
