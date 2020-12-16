@@ -8,6 +8,7 @@
 
 /runtime/ @evgenykuzyakov
 /runtime/runtime-params-estimator/ @olonho @willemneal
+/runtime/near-evm-runner/ @ailisp @artob @frankbraun
 /runtime/near-vm-runner/ @olonho @ailisp
 
 /genesis-tools/ @evgenykuzyakov @ailisp
