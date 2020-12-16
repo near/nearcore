@@ -4,14 +4,14 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::RwLock;
+use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use actix;
 use futures;
 use futures::task::Context;
-use std::mem;
+use once_cell::sync::Lazy;
 use std::pin::Pin;
 
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
@@ -20,11 +20,9 @@ const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.00;
 #[cfg(feature = "performance_stats")]
 const MESSAGE_LIMIT: usize = 250;
 
-lazy_static! {
-    static ref STATS: RwLock<Stats> = RwLock::new(Stats::new());
-    static ref REF_COUNTER: RwLock<HashMap<(&'static str, u32), u128>> =
-        RwLock::new(HashMap::new());
-}
+static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::new(Stats::new())));
+static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 thread_local! {
     static TID: RefCell<usize> = RefCell::new(0);
@@ -67,17 +65,19 @@ impl ThreadStats {
     fn print_stats(&self, tid: usize, sleep_time: Duration) {
         let ratio = (self.time.as_nanos() as f64) / (sleep_time.as_nanos() as f64);
 
-        let class_name = format!("{:?}", self.classes);
-
         if ratio > MIN_OCCUPANCY_RATIO_THRESHOLD {
+            let class_name = format!("{:?}", self.classes);
             info!(
-                "    Thread:{} {}:{} ratio: {:.4}",
+                "    Thread:{} ratio: {:.4} {}:{} ",
                 tid,
+                ratio,
                 class_name,
                 TID.with(|x| *x.borrow()),
-                ratio
             );
-            for entry in self.stat.iter() {
+            let mut s: Vec<_> = self.stat.iter().collect();
+            s.sort_by(|x, y| (*x).0.cmp(&(*y).0));
+
+            for entry in s {
                 info!(
                     "        func {} {}:{} cnt: {} total: {}ms max: {}ms",
                     TID.with(|x| *x.borrow()),
@@ -105,20 +105,22 @@ impl Stats {
         let tid = TID.with(|x| {
             if *x.borrow_mut() == 0 {
                 *x.borrow_mut() = NTHREADS.fetch_add(1, Ordering::SeqCst);
-                self.stats.insert(*x.borrow_mut(), ThreadStats::new());
             }
             *x.borrow_mut()
         });
-        if let Some(val) = self.stats.get_mut(&tid) {
-            val.log(class_name, msg, line, took)
-        }
+        let entry = self.stats.entry(tid).or_insert_with(|| ThreadStats::new());
+        entry.log(class_name, msg, line, took)
     }
 
-    fn print_stats(&self, sleep_time: Duration) {
+    fn print_stats(&mut self, sleep_time: Duration) {
         info!("Performance stats {} threads", self.stats.len());
-        for entry in self.stats.iter() {
+        let mut s: Vec<_> = self.stats.iter().collect();
+        s.sort_by(|x, y| (*x).0.cmp(&(*y).0));
+
+        for entry in s {
             entry.1.print_stats(*entry.0, sleep_time);
         }
+        self.stats.clear();
     }
 }
 
@@ -136,7 +138,7 @@ where
     let took = now.elapsed();
     if took > SLOW_CALL_THRESHOLD {
         info!(
-            "SLOW {}:{} {:?} took: {}ms",
+            "Function exceeded time limit {}:{} {:?} took: {}ms",
             class_name,
             TID.with(|x| *x.borrow()),
             std::any::type_name::<Message>(),
@@ -144,7 +146,7 @@ where
         );
     }
 
-    STATS.write().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
+    STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
     result
 }
 
@@ -162,7 +164,7 @@ where
     let took = now.elapsed();
     if took > SLOW_CALL_THRESHOLD {
         info!(
-            "SLOW {}:{} {:?} took: {}ms",
+            "Function exceeded time limit {}:{} {:?} took: {}ms",
             class_name,
             TID.with(|x| *x.borrow()),
             msg_name,
@@ -170,7 +172,7 @@ where
         );
     }
 
-    STATS.write().unwrap().log(class_name, msg_name, 0, took);
+    STATS.lock().unwrap().log(class_name, msg_name, 0, took);
     result
 }
 
@@ -203,7 +205,7 @@ where
                 msg_test = msg_test.as_str()[..MESSAGE_LIMIT].to_string();
             }
             info!(
-                "SLOW {}:{} {:?} took: {}ms len: {} {}",
+                "Function exceeded time limit {}:{} {:?} took: {}ms len: {} {}",
                 class_name,
                 TID.with(|x| *x.borrow()),
                 std::any::type_name::<Message>(),
@@ -213,7 +215,7 @@ where
             );
         }
 
-        STATS.write().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
+        STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
         result
     }
 }
@@ -240,11 +242,11 @@ where
         let now = Instant::now();
         let res = unsafe { Pin::new_unchecked(&mut this.f) }.poll(cx);
         let took = now.elapsed();
-        STATS.write().unwrap().log(this.class_name, this.file, this.line, took);
+        STATS.lock().unwrap().log(this.class_name, this.file, this.line, took);
 
         if took > SLOW_CALL_THRESHOLD {
             info!(
-                "SLOW {}:{} {}:{} took: {}ms",
+                "Function exceeded time limit {}:{} {}:{} took: {}ms",
                 this.class_name,
                 TID.with(|x| *x.borrow()),
                 this.file,
@@ -254,7 +256,7 @@ where
         }
         match res {
             Poll::Ready(x) => {
-                *REF_COUNTER.write().unwrap().entry((this.file, this.line)).or_insert_with(|| 0) -=
+                *REF_COUNTER.lock().unwrap().entry((this.file, this.line)).or_insert_with(|| 0) -=
                     1;
                 Poll::Ready(x)
             }
@@ -275,7 +277,7 @@ where
 
     #[cfg(feature = "performance_stats")]
     {
-        *REF_COUNTER.write().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
+        *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
         actix_rt::spawn(MyFuture { f, class_name, file, line });
     }
 }
@@ -300,13 +302,13 @@ where
 
     #[cfg(feature = "performance_stats")]
     {
-        *REF_COUNTER.write().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
+        *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
         let f2 = move |a: &mut A, b: &mut A::Context| {
             let now = Instant::now();
             f(a, b);
 
             let took = now.elapsed();
-            STATS.write().unwrap().log("run_later", file, line, took);
+            STATS.lock().unwrap().log("run_later", file, line, took);
             if took > SLOW_CALL_THRESHOLD {
                 info!(
                     "Slow function call {}:{} {}:{} took: {}ms",
@@ -317,23 +319,16 @@ where
                     took.as_millis()
                 );
             }
-            *REF_COUNTER.write().unwrap().entry((file, line)).or_insert_with(|| 0) -= 1;
+            *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) -= 1;
         };
         ctx.run_later(dur, f2)
     }
 }
 
 pub fn print_performance_stats(sleep_time: Duration) {
-    let stats: Stats = {
-        let mut old_stats = STATS.write().unwrap();
-        let mut new_stats = Stats::new();
-        mem::swap(&mut *old_stats, &mut new_stats);
-        new_stats
-    };
-
-    stats.print_stats(sleep_time);
-    info!("NUM_REFERENCES_TYPES {}", REF_COUNTER.write().unwrap().len());
-    for entry in REF_COUNTER.write().unwrap().iter() {
+    STATS.lock().unwrap().print_stats(sleep_time);
+    info!("NUM_REFERENCES_TYPES {}", REF_COUNTER.lock().unwrap().len());
+    for entry in REF_COUNTER.lock().unwrap().iter() {
         if *entry.1 > 0 {
             info!("    NUM_REFS {}:{} {}", (entry.0).0, (entry.0).1, entry.1);
         }
