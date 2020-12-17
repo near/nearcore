@@ -3001,6 +3001,8 @@ dependencies = [
  "near-logger-utils",
  "near-metrics",
  "near-network",
+ "near-performance-metrics",
+ "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -3133,6 +3135,7 @@ dependencies = [
  "near-logger-utils",
  "near-metrics",
  "near-network",
+ "near-performance-metrics",
  "near-primitives",
  "near-rpc-error-macro",
  "near-runtime-utils",
@@ -3206,6 +3209,8 @@ dependencies = [
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
+ "near-performance-metrics",
+ "near-performance-metrics-macros",
  "near-primitives",
  "near-store",
  "near-telemetry",
@@ -3217,6 +3222,25 @@ dependencies = [
  "tokio",
  "tokio-util 0.2.0",
  "tracing",
+]
+
+[[package]]
+name = "near-performance-metrics"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "actix-rt",
+ "futures",
+ "log",
+ "once_cell",
+]
+
+[[package]]
+name = "near-performance-metrics-macros"
+version = "0.1.0"
+dependencies = [
+ "quote 1.0.7",
+ "syn 1.0.54",
 ]
 
 [[package]]
@@ -3377,6 +3401,8 @@ dependencies = [
  "actix",
  "actix-web",
  "futures",
+ "near-performance-metrics",
+ "near-performance-metrics-macros",
  "openssl",
  "serde",
  "serde_json",
@@ -3502,6 +3528,7 @@ dependencies = [
  "near-jsonrpc",
  "near-logger-utils",
  "near-network",
+ "near-performance-metrics",
  "near-pool",
  "near-primitives",
  "near-rosetta-rpc",
