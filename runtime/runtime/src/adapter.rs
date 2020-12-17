@@ -1,5 +1,6 @@
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash, ShardId,
@@ -15,6 +16,13 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, Box<dyn std::error::Error>>;
+
+    fn view_contract_code(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<ContractCode, Box<dyn std::error::Error>>;
 
     fn call_function(
         &self,

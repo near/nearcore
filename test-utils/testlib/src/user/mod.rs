@@ -14,8 +14,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId};
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ExecutionOutcomeView,
-    FinalExecutionOutcomeView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
+    ExecutionOutcomeView, FinalExecutionOutcomeView, ViewStateResult,
 };
 
 pub use crate::user::runtime_user::RuntimeUser;
@@ -31,6 +31,8 @@ pub trait User {
     fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
         Ok(self.view_account(account_id)?.amount)
     }
+
+    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String>;
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String>;
 
