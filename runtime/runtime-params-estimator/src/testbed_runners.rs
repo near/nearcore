@@ -9,6 +9,7 @@ use near_vm_logic::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -108,19 +109,17 @@ pub fn measure_actions(
     measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
-// TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
-#[cfg(any(target_arch = "x86_64"))]
-#[inline(always)]
-pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
-    llvm_asm!("syscall"
-         : "+{rax}"(n)
-         : "{rdi}"(a1) "{rsi}"(a2) "{rdx}"(a3)
-         : "rcx", "r11", "memory"
-         : "volatile");
-    n
-}
+const CATCH_BASE: u32 = 0xcafebabe;
+const HYPERCALL_START_COUNTING: u32 = 0;
+const HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED: u32 = 1;
 
-const CATCH_BASE: usize = 0xcafebabe;
+fn hypercall(index: u32) -> u64 {
+    let mut result: u64 = 0;
+    unsafe {
+        libc::read((CATCH_BASE + index) as i32, &mut result as *mut _ as *mut c_void, 8);
+    }
+    result
+}
 
 pub enum Consumed {
     Instant(Instant),
@@ -128,29 +127,12 @@ pub enum Consumed {
 }
 
 fn start_count_instructions() -> Consumed {
-    let mut buf: i8 = 0;
-    unsafe {
-        syscall3(
-            0, /* sys_read */
-            CATCH_BASE,
-            std::mem::transmute::<*mut i8, usize>(&mut buf),
-            1,
-        );
-    }
+    hypercall(HYPERCALL_START_COUNTING);
     Consumed::None
 }
 
 fn end_count_instructions() -> u64 {
-    let mut result: u64 = 0;
-    unsafe {
-        syscall3(
-            0, /* sys_read */
-            CATCH_BASE + 1,
-            std::mem::transmute::<*mut u64, usize>(&mut result),
-            8,
-        );
-    }
-    result
+    hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)
 }
 
 fn start_count_time() -> Consumed {
