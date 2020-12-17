@@ -16,7 +16,7 @@ use std::pin::Pin;
 
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
-const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.00;
+const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.02;
 #[cfg(feature = "performance_stats")]
 const MESSAGE_LIMIT: usize = 250;
 
