@@ -222,6 +222,7 @@ impl ViewClientActor {
             QueryRequest::ViewAccessKey { account_id, .. } => account_id,
             QueryRequest::ViewAccessKeyList { account_id, .. } => account_id,
             QueryRequest::CallFunction { account_id, .. } => account_id,
+            QueryRequest::ViewCode { account_id, .. } => account_id,
         };
         let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
 

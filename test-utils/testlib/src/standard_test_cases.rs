@@ -255,6 +255,9 @@ pub fn test_upload_contract(node: impl Node) {
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
+    node_user.view_contract_code(&eve_dot_alice_account()).expect_err(
+        "RpcError { code: -32000, message: \"Server error\", data: Some(String(\"contract code of account eve.alice.near does not exist while viewing\")) }");
+
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let wasm_binary = b"test_binary";
@@ -266,6 +269,9 @@ pub fn test_upload_contract(node: impl Node) {
     assert_ne!(root, new_root);
     let account = node_user.view_account(&eve_dot_alice_account()).unwrap();
     assert_eq!(account.code_hash, hash(wasm_binary).into());
+
+    let code = node_user.view_contract_code(&eve_dot_alice_account()).unwrap();
+    assert_eq!(code.code, wasm_binary.to_vec());
 }
 
 pub fn test_redeploy_contract(node: impl Node) {
