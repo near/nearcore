@@ -63,7 +63,7 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
         &promise_results,
         PROTOCOL_VERSION,
         None,
-        &None
+        &None,
     )
 }
 

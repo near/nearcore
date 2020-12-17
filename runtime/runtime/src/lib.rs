@@ -1460,9 +1460,9 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
+    use near_vm_logic::types::ProfileData;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
-    use near_vm_logic::types::create_profile_data;
 
     const GAS_PRICE: Balance = 5000;
 
@@ -1546,7 +1546,7 @@ mod tests {
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
-            profile: Some(create_profile_data())
+            profile: Some(ProfileData::new()),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

@@ -136,9 +136,7 @@ impl GasCounter {
     #[inline]
     fn update_profile_action(&mut self, action: ActionCosts, value: u64) {
         match &self.profile {
-            Some(profile) => {
-                profile.add_action_cost(action, value)
-            }
+            Some(profile) => profile.add_action_cost(action, value),
             None => {}
         };
     }

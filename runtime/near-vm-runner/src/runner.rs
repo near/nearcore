@@ -1,7 +1,7 @@
 use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::VMError;
-use near_vm_logic::types::{PromiseResult, ProtocolVersion, ProfileData};
+use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
 
 /// `run` does the following:
@@ -56,7 +56,7 @@ pub fn run<'a>(
             VMKind::default(),
             current_protocol_version,
             cache,
-        )
+        ),
     }
 }
 pub fn run_vm<'a>(
@@ -161,13 +161,10 @@ pub fn run_vm_profiled<'a>(
         }
     };
     match &outcome {
-        Some(VMOutcome {
-                 burnt_gas,
-            ..
-             }) => {
-            *profile.data.borrow_mut().get_mut(0 as usize).unwrap() = *burnt_gas;
-        },
-        _ => ()
+        Some(VMOutcome { burnt_gas, .. }) => {
+            profile.set_burnt_gas(*burnt_gas)
+        }
+        _ => (),
     };
     (outcome, error)
 }

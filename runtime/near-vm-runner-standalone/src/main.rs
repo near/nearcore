@@ -9,7 +9,7 @@
 use clap::{App, Arg};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
-use near_vm_logic::types::{create_profile_data, PromiseResult, ProtocolVersion};
+use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, run_vm_profiled, VMError};
 use serde::de::{MapAccess, Visitor};
@@ -25,10 +25,7 @@ impl Serialize for State {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
         for (k, v) in &self.0 {
-            map.serialize_entry(
-                &base64::encode(&k).to_string(),
-                &base64::encode(&v).to_string(),
-            )?;
+            map.serialize_entry(&base64::encode(&k).to_string(), &base64::encode(&v).to_string())?;
         }
         map.end()
     }
@@ -50,10 +47,7 @@ impl<'de> Visitor<'de> for Base64HashMapVisitor {
         let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
 
         while let Some((key, value)) = access.next_entry::<String, String>()? {
-            map.insert(
-                base64::decode(&key).unwrap(),
-                base64::decode(&value).unwrap(),
-            );
+            map.insert(base64::decode(&key).unwrap(), base64::decode(&value).unwrap());
         }
 
         Ok(State(map))
@@ -245,15 +239,11 @@ fn main() {
         .map(|s| s.parse().unwrap())
         .unwrap_or(ProtocolVersion::MAX);
 
-    let code = fs::read(
-        matches
-            .value_of("wasm-file")
-            .expect("Wasm file needs to be specified"),
-    )
-    .unwrap();
+    let code =
+        fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
 
     let fees = RuntimeFeesConfig::default();
-    let profile_data = create_profile_data();
+    let profile_data = ProfileData::new();
     let do_profile = matches.is_present("profile-gas");
     let (outcome, err) = if do_profile {
         run_vm_profiled(
