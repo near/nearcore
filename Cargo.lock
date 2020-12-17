@@ -484,10 +484,14 @@ dependencies = [
  "libc",
  "miniz_oxide",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "object 0.22.0",
 =======
  "object",
 >>>>>>> 14938c75... hotfix
+=======
+ "object 0.22.0",
+>>>>>>> 4533cf9e... run Cargo.lock
  "rustc-demangle",
 ]
 
@@ -976,6 +980,9 @@ dependencies = [
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "console_error_panic_hook"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -986,16 +993,23 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "const_fn"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c478836e029dcef17fb47c89023448c64f781a046e0300e257ad8225ae59afab"
 =======
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "const_fn"
-version = "0.4.4"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+<<<<<<< HEAD
 checksum = "cd51eab21ab4fd6a3bf889e2d0958c0a6e3a61ad04260325e919e652a2a62826"
 >>>>>>> 14938c75... hotfix
+=======
+checksum = "c478836e029dcef17fb47c89023448c64f781a046e0300e257ad8225ae59afab"
+>>>>>>> 4533cf9e... run Cargo.lock
 
 [[package]]
 name = "constant_time_eq"
@@ -1034,6 +1048,7 @@ checksum = "8aebca1129a03dc6dc2b127edd729435bbc4a37e1d5f4d7513165089ceb02634"
 [[package]]
 name = "cranelift-bforest"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.67.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f065f6889758f817f61a230220d1811ba99a9762af2fb69ae23048314f75ff2"
@@ -1042,12 +1057,18 @@ version = "0.64.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a9e870ce52c4b39ba80fb0b04a4843223a2a33cd491473f67c7bf7a66512c5a7"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.67.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f065f6889758f817f61a230220d1811ba99a9762af2fb69ae23048314f75ff2"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "cranelift-entity",
 ]
 
 [[package]]
 name = "cranelift-codegen"
+<<<<<<< HEAD
 <<<<<<< HEAD
 version = "0.67.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1057,6 +1078,11 @@ version = "0.64.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9007dac19ec2395d23f3966166a7777b24ac214b0e0766e15c0f33b98e781b4"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.67.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "510aa2ab4307644100682b94e449940a0ea15c5887f1d4b9678b8dd5ef31e736"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "byteorder",
  "cranelift-bforest",
@@ -1064,24 +1090,33 @@ dependencies = [
  "cranelift-codegen-shared",
  "cranelift-entity",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "gimli 0.21.0",
 =======
  "gimli 0.20.0",
 >>>>>>> 14938c75... hotfix
+=======
+ "gimli 0.21.0",
+>>>>>>> 4533cf9e... run Cargo.lock
  "log",
  "regalloc",
  "serde",
  "smallvec 1.5.1",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "target-lexicon 0.11.1",
 =======
  "target-lexicon",
 >>>>>>> 14938c75... hotfix
+=======
+ "target-lexicon 0.11.1",
+>>>>>>> 4533cf9e... run Cargo.lock
  "thiserror",
 ]
 
 [[package]]
 name = "cranelift-codegen-meta"
+<<<<<<< HEAD
 <<<<<<< HEAD
 version = "0.67.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1091,6 +1126,11 @@ version = "0.64.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70e7ff7c9ee40573b55f63d9bc973d1da54464b7686923981f0aafbde8ef78c7"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.67.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4cb0c7e87c60d63b35f9670c15479ee4a5e557dd127efab88b2f9b2ca83c9a0"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "cranelift-codegen-shared",
  "cranelift-entity",
@@ -1098,6 +1138,7 @@ dependencies = [
 
 [[package]]
 name = "cranelift-codegen-shared"
+<<<<<<< HEAD
 <<<<<<< HEAD
 version = "0.67.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1110,21 +1151,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6156db73e0c9f65f80c512988d63ec736be0dee3dd66bf951e3e28aed9dc02d3"
 =======
 version = "0.64.0"
+=======
+version = "0.67.0"
+>>>>>>> 4533cf9e... run Cargo.lock
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75d5765a961b8d1c6468f230c634ea6dc35b76c6ab9069c04a84ac1b67149168"
+checksum = "60636227098693e06de8d6d88beea2a7d32ecf8a8030dacdb57c68e06f381826"
 
 [[package]]
 name = "cranelift-entity"
-version = "0.64.0"
+version = "0.67.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+<<<<<<< HEAD
 checksum = "dfa6ac15138da9983259dd257c8573d3ccf75c7fb9ed06708b38b43a3c090326"
 >>>>>>> 14938c75... hotfix
+=======
+checksum = "6156db73e0c9f65f80c512988d63ec736be0dee3dd66bf951e3e28aed9dc02d3"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "cranelift-frontend"
+<<<<<<< HEAD
 <<<<<<< HEAD
 version = "0.67.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1134,19 +1183,29 @@ version = "0.64.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3062a6fce384623ac2d19e98e7c774c944584bb5a8e42910e93dcebed7c44d87"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.67.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e09cd158c9a820a4cc14a34076811da225cce1d31dc6d03c5ef85b91aef560b9"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "cranelift-codegen",
  "log",
  "smallvec 1.5.1",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "target-lexicon 0.11.1",
 =======
  "target-lexicon",
 >>>>>>> 14938c75... hotfix
+=======
+ "target-lexicon 0.11.1",
+>>>>>>> 4533cf9e... run Cargo.lock
 ]
 
 [[package]]
 name = "cranelift-native"
+<<<<<<< HEAD
 <<<<<<< HEAD
 version = "0.67.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1157,17 +1216,25 @@ dependencies = [
  "target-lexicon 0.11.1",
 =======
 version = "0.64.0"
+=======
+version = "0.67.0"
+>>>>>>> 4533cf9e... run Cargo.lock
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aecc239b00b0ac7655dc91419c537ce5a69535c82854b55fcc357a1e2c3d0d91"
+checksum = "7054533ae1fc2048c1a6110bdf8f4314b77c60329ec6a7df79d2cfb84e3dcc1c"
 dependencies = [
  "cranelift-codegen",
  "raw-cpuid",
+<<<<<<< HEAD
  "target-lexicon",
 >>>>>>> 14938c75... hotfix
+=======
+ "target-lexicon 0.11.1",
+>>>>>>> 4533cf9e... run Cargo.lock
 ]
 
 [[package]]
 name = "cranelift-wasm"
+<<<<<<< HEAD
 <<<<<<< HEAD
 version = "0.67.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1177,6 +1244,11 @@ version = "0.64.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b31a4cd32099bc8c7b340a4a9f9bbb2925e29cc45509a0088330558244c5f04a"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.67.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7aee0e0b68eba99f99a4923212d97aca9e44655ca8246f07fffe11236109b0d0"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "cranelift-codegen",
  "cranelift-entity",
@@ -1185,10 +1257,14 @@ dependencies = [
  "serde",
  "thiserror",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "wasmparser 0.59.0",
 =======
  "wasmparser 0.57.0",
 >>>>>>> 14938c75... hotfix
+=======
+ "wasmparser 0.59.0",
+>>>>>>> 4533cf9e... run Cargo.lock
 ]
 
 [[package]]
@@ -1394,6 +1470,7 @@ dependencies = [
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 name = "directories"
 version = "2.0.2"
@@ -1406,6 +1483,8 @@ dependencies = [
 
 [[package]]
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "dirs"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1455,6 +1534,9 @@ dependencies = [
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "dynasm"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1470,8 +1552,11 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 =======
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "dynasmrt"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1483,6 +1568,9 @@ dependencies = [
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "dynasmrt"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1494,8 +1582,11 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 =======
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "easy-ext"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1724,6 +1815,7 @@ dependencies = [
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 name = "faerie"
 version = "0.15.0"
@@ -1741,6 +1833,8 @@ dependencies = [
 
 [[package]]
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "failure"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1776,6 +1870,7 @@ checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 name = "file-per-thread-logger"
 version = "0.1.4"
@@ -1788,6 +1883,8 @@ dependencies = [
 
 [[package]]
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "fixed-hash"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2080,6 +2177,7 @@ dependencies = [
 [[package]]
 name = "gimli"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bcc8e0c9bce37868955864dbecd2b1ab2bdf967e6f28066d65aaac620444b65c"
@@ -2088,15 +2186,19 @@ dependencies = [
  "indexmap",
 =======
 version = "0.20.0"
+=======
+version = "0.21.0"
+>>>>>>> 4533cf9e... run Cargo.lock
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81dd6190aad0f05ddbbf3245c54ed14ca4aa6dd32f22312b70d8f168c3e3e633"
+checksum = "bcc8e0c9bce37868955864dbecd2b1ab2bdf967e6f28066d65aaac620444b65c"
 dependencies = [
- "arrayvec",
- "byteorder",
  "fallible-iterator",
  "indexmap",
+<<<<<<< HEAD
  "smallvec 1.5.1",
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
  "stable_deref_trait",
 ]
 
@@ -2151,6 +2253,7 @@ dependencies = [
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 name = "goblin"
 version = "0.1.3"
@@ -2164,6 +2267,8 @@ dependencies = [
 
 [[package]]
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "h2"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2291,6 +2396,7 @@ dependencies = [
 [[package]]
 name = "http"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d569972648b2c512421b5f2a405ad6ac9666547189d0c5477a3f200f3e02f9"
@@ -2299,6 +2405,11 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84129d298a6d57d246960ff8eb831ca4af3f96d29e2e28848dae275408658e26"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28d569972648b2c512421b5f2a405ad6ac9666547189d0c5477a3f200f3e02f9"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "bytes",
  "fnv",
@@ -2476,6 +2587,7 @@ dependencies = [
 [[package]]
 name = "indexmap"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55e2e4c765aa53a0424761bf9f41aa7a6ac1efa87238f59560640e27fca028f2"
@@ -2484,6 +2596,11 @@ version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fb1fa934250de4de8aef298d81c729a7d33d8c239daa3a7575e6b92bfc7313b"
 >>>>>>> 14938c75... hotfix
+=======
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55e2e4c765aa53a0424761bf9f41aa7a6ac1efa87238f59560640e27fca028f2"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "autocfg 1.0.1",
  "hashbrown 0.9.1",
@@ -2769,6 +2886,7 @@ dependencies = [
 [[package]]
 name = "lightbeam"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b3ef22989d6e83232ef628dc739c0a3f39a556c4b53d1943e6731bc35b7eea9"
@@ -2777,10 +2895,16 @@ version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3832100fd55208b36bcedaadb59c8bf9e737c57f18121c64bf6d9419054ca369"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b3ef22989d6e83232ef628dc739c0a3f39a556c4b53d1943e6731bc35b7eea9"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "capstone",
  "cranelift-codegen",
  "derive_more",
+<<<<<<< HEAD
 <<<<<<< HEAD
  "dynasm 0.5.2",
  "dynasmrt 0.5.2",
@@ -2788,6 +2912,10 @@ dependencies = [
  "dynasm",
  "dynasmrt",
 >>>>>>> 14938c75... hotfix
+=======
+ "dynasm 0.5.2",
+ "dynasmrt 0.5.2",
+>>>>>>> 4533cf9e... run Cargo.lock
  "iter-enum",
  "itertools 0.8.2",
  "memoffset 0.5.6",
@@ -2797,10 +2925,14 @@ dependencies = [
  "thiserror",
  "typemap",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "wasmparser 0.59.0",
 =======
  "wasmparser 0.57.0",
 >>>>>>> 14938c75... hotfix
+=======
+ "wasmparser 0.59.0",
+>>>>>>> 4533cf9e... run Cargo.lock
 ]
 
 [[package]]
@@ -3184,10 +3316,13 @@ dependencies = [
  "near-metrics",
  "near-network",
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
  "near-performance-metrics",
  "near-performance-metrics-macros",
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
  "near-pool",
  "near-primitives",
  "near-store",
@@ -3321,9 +3456,12 @@ dependencies = [
  "near-metrics",
  "near-network",
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
  "near-performance-metrics",
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
  "near-primitives",
  "near-rpc-error-macro",
  "near-runtime-utils",
@@ -3398,10 +3536,13 @@ dependencies = [
  "near-logger-utils",
  "near-metrics",
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
  "near-performance-metrics",
  "near-performance-metrics-macros",
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
  "near-primitives",
  "near-store",
  "near-telemetry",
@@ -3416,6 +3557,7 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
 name = "near-performance-metrics"
@@ -3438,6 +3580,8 @@ dependencies = [
 
 [[package]]
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "near-pool"
 version = "0.1.0"
 dependencies = [
@@ -3596,10 +3740,13 @@ dependencies = [
  "actix-web",
  "futures",
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
  "near-performance-metrics",
  "near-performance-metrics-macros",
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
  "openssl",
  "serde",
  "serde_json",
@@ -3652,12 +3799,17 @@ dependencies = [
  "pwasm-utils",
  "wabt",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "wasmer-runtime-core-near",
  "wasmer-runtime-near",
 =======
  "wasmer-runtime",
  "wasmer-runtime-core",
 >>>>>>> 14938c75... hotfix
+=======
+ "wasmer-runtime-core-near",
+ "wasmer-runtime-near",
+>>>>>>> 4533cf9e... run Cargo.lock
  "wasmtime",
 ]
 
@@ -3731,9 +3883,12 @@ dependencies = [
  "near-logger-utils",
  "near-network",
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
  "near-performance-metrics",
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
  "near-pool",
  "near-primitives",
  "near-rosetta-rpc",
@@ -3757,6 +3912,7 @@ dependencies = [
 [[package]]
 name = "net2"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.2.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7cf75f38f16cb05ea017784dc6dbfd354f76c223dba37701734c4f5a9337d02"
@@ -3765,6 +3921,11 @@ version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "391630d12b68002ae1e25e8f974306474966550ad82dac6886fb8910c19568ae"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.2.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7cf75f38f16cb05ea017784dc6dbfd354f76c223dba37701734c4f5a9337d02"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "cfg-if 0.1.10",
  "libc",
@@ -3925,6 +4086,9 @@ checksum = "17b02fc0ff9a9e4b35b3342880f48e896ebf69f2967921fe8646bf5b7125956a"
 [[package]]
 name = "object"
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37fd5004feb2ce328a52b0b3d01dbf4ffff72583493900ed15f22d4111c51693"
@@ -3936,8 +4100,11 @@ dependencies = [
 
 [[package]]
 name = "object"
+<<<<<<< HEAD
 =======
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d3b63360ec3cb337817c2dbd47ab4a0f170d285d8e5a2064600f3def1402397"
@@ -3963,6 +4130,7 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 [[package]]
 name = "openssl"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.10.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d575eff3665419f9b83678ff2815858ad9d11567e082f5ac1814baba4e2bcb4"
@@ -3971,12 +4139,19 @@ dependencies = [
  "cfg-if 0.1.10",
 =======
 version = "0.10.31"
+=======
+version = "0.10.30"
+>>>>>>> 4533cf9e... run Cargo.lock
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d008f51b1acffa0d3450a68606e6a51c123012edaacb0f4e1426bd978869187"
+checksum = "8d575eff3665419f9b83678ff2815858ad9d11567e082f5ac1814baba4e2bcb4"
 dependencies = [
  "bitflags",
+<<<<<<< HEAD
  "cfg-if 1.0.0",
 >>>>>>> 14938c75... hotfix
+=======
+ "cfg-if 0.1.10",
+>>>>>>> 4533cf9e... run Cargo.lock
  "foreign-types",
  "lazy_static",
  "libc",
@@ -3992,6 +4167,7 @@ checksum = "77af24da69f9d9341038eba93a073b1fdaaa1b788221b00a69bce9e762cb32de"
 [[package]]
 name = "openssl-src"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "111.12.0+1.1.1h"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "858a4132194f8570a7ee9eb8629e85b23cbc4565f2d4a162e87556e5956abf61"
@@ -4000,12 +4176,18 @@ version = "111.13.0+1.1.1i"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "045e4dc48af57aad93d665885789b43222ae26f4886494da12d1ed58d309dcb6"
 >>>>>>> 14938c75... hotfix
+=======
+version = "111.12.0+1.1.1h"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "858a4132194f8570a7ee9eb8629e85b23cbc4565f2d4a162e87556e5956abf61"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "openssl-sys"
+<<<<<<< HEAD
 <<<<<<< HEAD
 version = "0.9.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4015,6 +4197,11 @@ version = "0.9.59"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de52d8eabd217311538a39bba130d7dea1f1e118010fee7a033d966845e7d5fe"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.9.58"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a842db4709b604f0fe5d1170ae3565899be2ad3d9cbc72dedc789ac0511f78de"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "autocfg 1.0.1",
  "cc",
@@ -4345,6 +4532,7 @@ checksum = "3831453b3449ceb48b6d9c7ad7c96d5ea673e9b470a1dc578c2ce6521230884c"
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 name = "plain"
 version = "0.2.3"
@@ -4353,6 +4541,8 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "plain_hasher"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4736,6 +4926,7 @@ dependencies = [
 [[package]]
 name = "regalloc"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.0.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2041c2d34f6ff346d6f428974f03d8bf12679b0c816bb640dc5eb1d48848d8d1"
@@ -4744,6 +4935,11 @@ version = "0.0.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cca5b48c9db66c5ba084e4660b4c0cfe8b551a96074bc04b7c11de86ad0bf1f9"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.0.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2041c2d34f6ff346d6f428974f03d8bf12679b0c816bb640dc5eb1d48848d8d1"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "log",
  "rustc-hash",
@@ -4802,6 +4998,7 @@ dependencies = [
 [[package]]
 name = "reqwest"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb15d6255c792356a0f578d8a645c677904dc02e862bebe2ecc18e0c01b9a0ce"
@@ -4810,6 +5007,11 @@ version = "0.10.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0718f81a8e14c4dbb3b34cf23dc6aaf9ab8a0dfec160c534b3dbca1aaa21f47c"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb15d6255c792356a0f578d8a645c677904dc02e862bebe2ecc18e0c01b9a0ce"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "base64 0.13.0",
  "bytes",
@@ -4841,9 +5043,13 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "wasm-bindgen-test",
 =======
 >>>>>>> 14938c75... hotfix
+=======
+ "wasm-bindgen-test",
+>>>>>>> 4533cf9e... run Cargo.lock
  "web-sys",
  "webpki-roots",
  "winreg 0.7.0",
@@ -4934,9 +5140,13 @@ dependencies = [
  "indicatif 0.15.0",
  "lazy-static-include",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "libc",
 =======
 >>>>>>> 14938c75... hotfix
+=======
+ "libc",
+>>>>>>> 4533cf9e... run Cargo.lock
  "near-chain-configs",
  "near-crypto",
  "near-evm-runner",
@@ -5053,6 +5263,7 @@ checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 name = "scroll"
 version = "0.10.2"
@@ -5075,6 +5286,8 @@ dependencies = [
 
 [[package]]
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "sct"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5327,6 +5540,7 @@ dependencies = [
 [[package]]
 name = "socket2"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c29947abdee2a218277abeca306f25789c938e500ea5a9d4b12a5a504466902"
@@ -5336,12 +5550,19 @@ dependencies = [
  "redox_syscall",
 =======
 version = "0.3.18"
+=======
+version = "0.3.17"
+>>>>>>> 4533cf9e... run Cargo.lock
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97e0e9fd577458a4f61fb91fcb559ea2afecc54c934119421f9f5d3d5b1a1057"
+checksum = "2c29947abdee2a218277abeca306f25789c938e500ea5a9d4b12a5a504466902"
 dependencies = [
  "cfg-if 1.0.0",
  "libc",
+<<<<<<< HEAD
 >>>>>>> 14938c75... hotfix
+=======
+ "redox_syscall",
+>>>>>>> 4533cf9e... run Cargo.lock
  "winapi 0.3.9",
 ]
 
@@ -5392,6 +5613,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "staticvec"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c87f4be0fd89694157f3814ca88715ad8ba6010c453b1e89ca264aee04d70b9"
@@ -5400,6 +5622,11 @@ version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f64ce848230697e25aeacc324f6adb2bba66e5b6cabf8fa7439f3e80c26d1455"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c87f4be0fd89694157f3814ca88715ad8ba6010c453b1e89ca264aee04d70b9"
+>>>>>>> 4533cf9e... run Cargo.lock
 
 [[package]]
 name = "store-validator"
@@ -5429,6 +5656,7 @@ dependencies = [
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 name = "string-interner"
 version = "0.7.1"
@@ -5440,6 +5668,8 @@ dependencies = [
 
 [[package]]
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "strsim"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5540,14 +5770,20 @@ checksum = "ab0e7238dcc7b40a7be719a25365910f6807bd864f4cce6b2e6b873658e2b19d"
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "target-lexicon"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee5a98e506fb7231a304c3a1bd7c132a55016cf65001e0282480665870dfcb9"
 
 [[package]]
+<<<<<<< HEAD
 =======
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "tempfile"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5721,6 +5957,7 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 [[package]]
 name = "tokio"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6d7ad61edd59bfcc7e80dababf0f4aed2e6d5e0ba1659356ae889752dfc12ff"
@@ -5729,6 +5966,11 @@ version = "0.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "099837d3464c16a808060bb3f02263b412f6fafcb5d01c533d309985fbeebe48"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.2.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6d7ad61edd59bfcc7e80dababf0f4aed2e6d5e0ba1659356ae889752dfc12ff"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "bytes",
  "fnv",
@@ -5821,6 +6063,7 @@ dependencies = [
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 name = "toml"
 version = "0.5.7"
@@ -5832,6 +6075,8 @@ dependencies = [
 
 [[package]]
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "tower-service"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6145,6 +6390,7 @@ dependencies = [
 [[package]]
 name = "vcpkg"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6454029bf181f092ad1b853286f23e2c507d8e8194d01d92da4a55c274a5508c"
@@ -6153,6 +6399,11 @@ version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b00bca6106a5e23f3eee943593759b7fcddb00554332e856d990c893966879fb"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.2.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6454029bf181f092ad1b853286f23e2c507d8e8194d01d92da4a55c274a5508c"
+>>>>>>> 4533cf9e... run Cargo.lock
 
 [[package]]
 name = "vec_map"
@@ -6326,6 +6577,7 @@ checksum = "7e7811dd7f9398f14cc76efd356f98f03aa30419dea46aa810d71e819fc97158"
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
 name = "wasm-bindgen-test"
 version = "0.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6357,23 +6609,41 @@ checksum = "2390b0b8cf58615c2f8b454d9535e1aed1d14c510cc1ce1af806a1992ad53300"
 =======
 name = "wasmer-runtime"
 version = "0.17.1"
+=======
+name = "wasm-bindgen-test"
+version = "0.3.19"
+>>>>>>> 4533cf9e... run Cargo.lock
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c92a9ae96b193c35c47fc829265198322cf980edc353a9de32bc87a1545d44f3"
+checksum = "0355fa0c1f9b792a09b6dcb6a8be24d51e71e6d74972f9eb4a44c4c004d24a25"
 dependencies = [
- "lazy_static",
- "memmap",
- "serde",
- "serde_derive",
- "wasmer-runtime-core",
- "wasmer-singlepass-backend",
+ "console_error_panic_hook",
+ "js-sys",
+ "scoped-tls",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test-macro",
 ]
 
 [[package]]
-name = "wasmer-runtime-core"
+name = "wasm-bindgen-test-macro"
+version = "0.3.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27e07b46b98024c2ba2f9e83a10c2ef0515f057f2da299c1762a2017de80438b"
+dependencies = [
+ "proc-macro2 1.0.24",
+ "quote 1.0.7",
+]
+
+[[package]]
+name = "wasmer-runtime-core-near"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+<<<<<<< HEAD
 checksum = "740161245998752cf1a567e860fd6355df0336fedca6be1940ec7aaa59643220"
 >>>>>>> 14938c75... hotfix
+=======
+checksum = "2390b0b8cf58615c2f8b454d9535e1aed1d14c510cc1ce1af806a1992ad53300"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "bincode",
  "blake3",
@@ -6394,16 +6664,23 @@ dependencies = [
  "serde_derive",
  "smallvec 1.5.1",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "target-lexicon 0.10.0",
 =======
  "target-lexicon",
 >>>>>>> 14938c75... hotfix
+=======
+ "target-lexicon 0.10.0",
+>>>>>>> 4533cf9e... run Cargo.lock
  "wasmparser 0.51.4",
  "winapi 0.3.9",
 ]
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "wasmer-runtime-near"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6419,6 +6696,7 @@ dependencies = [
 
 [[package]]
 name = "wasmer-singlepass-backend-near"
+<<<<<<< HEAD
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3f23543ef8f59667be4945c22eb4b1a50a79ff340555f6f23354223d2695541"
@@ -6429,15 +6707,22 @@ dependencies = [
  "dynasmrt 1.0.0",
 =======
 name = "wasmer-singlepass-backend"
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41a434ebf512ae1c76de46d41935a9ae10775fd937071334bdf5878cc41d9140"
+checksum = "d3f23543ef8f59667be4945c22eb4b1a50a79ff340555f6f23354223d2695541"
 dependencies = [
  "bincode",
  "byteorder",
+<<<<<<< HEAD
  "dynasm",
  "dynasmrt",
 >>>>>>> 14938c75... hotfix
+=======
+ "dynasm 1.0.0",
+ "dynasmrt 1.0.0",
+>>>>>>> 4533cf9e... run Cargo.lock
  "lazy_static",
  "libc",
  "nix",
@@ -6445,10 +6730,14 @@ dependencies = [
  "serde_derive",
  "smallvec 1.5.1",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "wasmer-runtime-core-near",
 =======
  "wasmer-runtime-core",
 >>>>>>> 14938c75... hotfix
+=======
+ "wasmer-runtime-core-near",
+>>>>>>> 4533cf9e... run Cargo.lock
 ]
 
 [[package]]
@@ -6472,6 +6761,7 @@ checksum = "a950e6a618f62147fd514ff445b2a0b53120d382751960797f85f058c7eda9b9"
 [[package]]
 name = "wasmtime"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "373b87ebd6721f4121e28eeaaa41943548c48bcca04ac9bb063004207e5e7d70"
@@ -6481,12 +6771,19 @@ dependencies = [
  "bincode",
 =======
 version = "0.17.0"
+=======
+version = "0.20.0"
+>>>>>>> 4533cf9e... run Cargo.lock
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7907161766b4de8c1970d6a4849018d1ab004f65fefacee1dfb8a86f1b20fcd"
+checksum = "373b87ebd6721f4121e28eeaaa41943548c48bcca04ac9bb063004207e5e7d70"
 dependencies = [
  "anyhow",
  "backtrace",
+<<<<<<< HEAD
 >>>>>>> 14938c75... hotfix
+=======
+ "bincode",
+>>>>>>> 4533cf9e... run Cargo.lock
  "cfg-if 0.1.10",
  "lazy_static",
  "libc",
@@ -6494,14 +6791,20 @@ dependencies = [
  "region",
  "rustc-demangle",
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
  "serde",
  "smallvec 1.5.1",
  "target-lexicon 0.11.1",
  "wasmparser 0.59.0",
+<<<<<<< HEAD
 =======
  "target-lexicon",
  "wasmparser 0.57.0",
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
  "wasmtime-environ",
  "wasmtime-jit",
  "wasmtime-profiling",
@@ -6511,6 +6814,9 @@ dependencies = [
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "wasmtime-cranelift"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6524,6 +6830,7 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "wasmtime-debug"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6537,24 +6844,31 @@ dependencies = [
  "thiserror",
  "wasmparser 0.59.0",
 =======
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "wasmtime-debug"
-version = "0.17.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7aad5fdc88752c633bfe23c1089e29d7178e0d58ba94f07848a83df88a89b03"
+checksum = "28962772f96fadb79dc7be5ade135ca55d2b0017a012f4869e2476a03abbe733"
 dependencies = [
  "anyhow",
- "faerie",
- "gimli 0.20.0",
+ "gimli 0.21.0",
  "more-asserts",
- "target-lexicon",
+ "object 0.21.1",
+ "target-lexicon 0.11.1",
  "thiserror",
+<<<<<<< HEAD
  "wasmparser 0.57.0",
 >>>>>>> 14938c75... hotfix
+=======
+ "wasmparser 0.59.0",
+>>>>>>> 4533cf9e... run Cargo.lock
  "wasmtime-environ",
 ]
 
 [[package]]
 name = "wasmtime-environ"
+<<<<<<< HEAD
 <<<<<<< HEAD
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6574,36 +6888,37 @@ dependencies = [
  "wasmparser 0.59.0",
 =======
 version = "0.17.0"
+=======
+version = "0.20.0"
+>>>>>>> 4533cf9e... run Cargo.lock
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cb6609a337b680a95c9b39f2a0225faab4bf34f47dc9bb2eed34bd7a9d5904c"
+checksum = "9c0d7401bf253b7b1f426afd70d285bb23ea9a1c7605d6af788c95db5084edf5"
 dependencies = [
  "anyhow",
- "base64 0.12.3",
- "bincode",
+ "cfg-if 0.1.10",
  "cranelift-codegen",
  "cranelift-entity",
  "cranelift-wasm",
- "directories",
- "errno",
- "file-per-thread-logger",
+ "gimli 0.21.0",
  "indexmap",
- "libc",
- "lightbeam",
  "log",
  "more-asserts",
- "rayon",
  "serde",
- "sha2 0.8.2",
  "thiserror",
+<<<<<<< HEAD
  "toml",
  "wasmparser 0.57.0",
  "winapi 0.3.9",
  "zstd",
 >>>>>>> 14938c75... hotfix
+=======
+ "wasmparser 0.59.0",
+>>>>>>> 4533cf9e... run Cargo.lock
 ]
 
 [[package]]
 name = "wasmtime-jit"
+<<<<<<< HEAD
 <<<<<<< HEAD
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6613,6 +6928,11 @@ version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8959505970c254707e9e765940ef23b58d23211b80d40593a6a96870f57bdd42"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c838a108318e7c5a2201addb3d3b27a6ef3d142f0eb0addc815b9c2541e5db5"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "anyhow",
  "cfg-if 0.1.10",
@@ -6621,6 +6941,7 @@ dependencies = [
  "cranelift-frontend",
  "cranelift-native",
  "cranelift-wasm",
+<<<<<<< HEAD
 <<<<<<< HEAD
  "gimli 0.21.0",
  "log",
@@ -6638,15 +6959,26 @@ dependencies = [
  "wasmtime-obj",
 =======
  "gimli 0.20.0",
+=======
+ "gimli 0.21.0",
+>>>>>>> 4533cf9e... run Cargo.lock
  "log",
  "more-asserts",
+ "object 0.21.1",
  "region",
- "target-lexicon",
+ "serde",
+ "target-lexicon 0.11.1",
  "thiserror",
- "wasmparser 0.57.0",
+ "wasmparser 0.59.0",
+ "wasmtime-cranelift",
  "wasmtime-debug",
  "wasmtime-environ",
+<<<<<<< HEAD
 >>>>>>> 14938c75... hotfix
+=======
+ "wasmtime-lightbeam",
+ "wasmtime-obj",
+>>>>>>> 4533cf9e... run Cargo.lock
  "wasmtime-profiling",
  "wasmtime-runtime",
  "winapi 0.3.9",
@@ -6654,6 +6986,9 @@ dependencies = [
 
 [[package]]
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "wasmtime-lightbeam"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6680,16 +7015,23 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "wasmtime-profiling"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33f2689bf523f843555e57e24d59abf0c5013007366b866081d73a15e510b4b2"
 =======
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
 name = "wasmtime-profiling"
-version = "0.17.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+<<<<<<< HEAD
 checksum = "7f621d2c66e0bc74e6569c41aeb84a6e92a9620fecedad08c34c0bec4f5d2b1e"
 >>>>>>> 14938c75... hotfix
+=======
+checksum = "33f2689bf523f843555e57e24d59abf0c5013007366b866081d73a15e510b4b2"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "anyhow",
  "cfg-if 0.1.10",
@@ -6697,16 +7039,21 @@ dependencies = [
  "libc",
  "serde",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "target-lexicon 0.11.1",
 =======
  "target-lexicon",
 >>>>>>> 14938c75... hotfix
+=======
+ "target-lexicon 0.11.1",
+>>>>>>> 4533cf9e... run Cargo.lock
  "wasmtime-environ",
  "wasmtime-runtime",
 ]
 
 [[package]]
 name = "wasmtime-runtime"
+<<<<<<< HEAD
 <<<<<<< HEAD
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6716,6 +7063,11 @@ version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "304b3f8ef4d2132f7366d008b614650165b766640b4351c6dafb9882b86f41f3"
 >>>>>>> 14938c75... hotfix
+=======
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7353f5e79390048128e44b5ceda7255723b2066de4026df9a168b0b2593df71"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "backtrace",
  "cc",
@@ -6724,9 +7076,13 @@ dependencies = [
  "lazy_static",
  "libc",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "log",
 =======
 >>>>>>> 14938c75... hotfix
+=======
+ "log",
+>>>>>>> 4533cf9e... run Cargo.lock
  "memoffset 0.5.6",
  "more-asserts",
  "region",
@@ -6862,6 +7218,7 @@ dependencies = [
 [[package]]
 name = "zeroize"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f33972566adbd2d3588b0491eb94b98b43695c4ef897903470ede4f3f5a28a"
@@ -6870,6 +7227,11 @@ version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81a974bcdd357f0dca4d41677db03436324d45a4c9ed2d0b873a5a360ce41c36"
 >>>>>>> 14938c75... hotfix
+=======
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05f33972566adbd2d3588b0491eb94b98b43695c4ef897903470ede4f3f5a28a"
+>>>>>>> 4533cf9e... run Cargo.lock
 dependencies = [
  "zeroize_derive",
 ]
@@ -6885,6 +7247,7 @@ dependencies = [
  "syn 1.0.54",
  "synstructure",
 ]
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
 
@@ -6919,3 +7282,5 @@ dependencies = [
  "libc",
 ]
 >>>>>>> 14938c75... hotfix
+=======
+>>>>>>> 4533cf9e... run Cargo.lock
