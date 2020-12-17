@@ -539,6 +539,7 @@ impl JsonRpcHandler {
 
             let request = match query_command {
                 "account" => QueryRequest::ViewAccount { account_id },
+                "code" => QueryRequest::ViewCode { account_id },
                 "access_key" => match maybe_extra_arg {
                     None => QueryRequest::ViewAccessKeyList { account_id },
                     Some(pk) => QueryRequest::ViewAccessKey {

@@ -5,6 +5,7 @@ use log::debug;
 
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ActionReceipt;
 use near_primitives::serialize::to_base64;
@@ -14,7 +15,7 @@ use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives::views::{StateItem, ViewApplyState, ViewStateResult};
 use near_runtime_configs::RuntimeConfig;
 use near_runtime_utils::is_valid_account_id;
-use near_store::{get_access_key, get_account, TrieUpdate};
+use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_logic::ReturnData;
 
 use crate::actions::execute_function_call;
@@ -40,6 +41,17 @@ impl TrieViewer {
 
         get_account(state_update, &account_id)?
             .ok_or_else(|| format!("account {} does not exist while viewing", account_id).into())
+    }
+
+    pub fn view_contract_code(
+        &self,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+    ) -> Result<ContractCode, Box<dyn std::error::Error>> {
+        let account = self.view_account(state_update, account_id)?;
+        get_code(state_update, account_id, Some(account.code_hash))?.ok_or_else(|| {
+            format!("contract code of account {} does not exist while viewing", account_id).into()
+        })
     }
 
     pub fn view_access_key(

@@ -12,9 +12,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ExecutionOutcomeView,
-    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
-    FinalExecutionStatus, ViewApplyState, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
+    ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    FinalExecutionOutcomeView, FinalExecutionStatus, ViewApplyState, ViewStateResult,
 };
 use near_store::{ShardTries, TrieUpdate};
 use neard::config::MIN_GAS_PRICE;
@@ -209,6 +209,14 @@ impl User for RuntimeUser {
         self.trie_viewer
             .view_account(&state_update, account_id)
             .map(|account| account.into())
+            .map_err(|err| err.to_string())
+    }
+
+    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
+        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        self.trie_viewer
+            .view_contract_code(&state_update, account_id)
+            .map(|contract_code| contract_code.into())
             .map_err(|err| err.to_string())
     }
 
