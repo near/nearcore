@@ -15,6 +15,7 @@ use actix::{
 use tracing::{debug, error, info, trace, warn};
 
 use near_metrics;
+use near_performance_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -43,6 +44,7 @@ use crate::{metrics, NetworkResponses};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
+use near_performance_metrics_macros::perf;
 use near_primitives::sharding::PartialEncodedChunk;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -611,12 +613,19 @@ impl Actor for Peer {
 
         debug!(target: "network", "{:?}: Peer {:?} {:?} started", self.node_info.id, self.peer_addr, self.peer_type);
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
-        ctx.run_later(self.handshake_timeout, move |act, ctx| {
-            if act.peer_status != PeerStatus::Ready {
-                info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
-                ctx.stop();
-            }
-        });
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.handshake_timeout,
+            move |act, ctx| {
+                if act.peer_status != PeerStatus::Ready {
+                    info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
+                    ctx.stop();
+                }
+            },
+        );
 
         // If outbound peer, initiate handshake.
         if self.peer_type == PeerType::Outbound {
@@ -656,6 +665,7 @@ impl Actor for Peer {
 impl WriteHandler<io::Error> for Peer {}
 
 impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
+    #[perf]
     fn handle(&mut self, msg: Result<Vec<u8>, ReasonForBan>, ctx: &mut Self::Context) {
         let msg = match msg {
             Ok(msg) => msg,
@@ -1008,6 +1018,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
 impl Handler<SendMessage> for Peer {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("send message".into());
@@ -1018,6 +1029,7 @@ impl Handler<SendMessage> for Peer {
 impl Handler<Arc<SendMessage>> for Peer {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: Arc<SendMessage>, _: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("send message".into());
@@ -1028,7 +1040,8 @@ impl Handler<Arc<SendMessage>> for Peer {
 impl Handler<QueryPeerStats> for Peer {
     type Result = PeerStatsResult;
 
-    fn handle(&mut self, _: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
+    #[perf]
+    fn handle(&mut self, msg: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("query peer stats".into());
         PeerStatsResult {
@@ -1047,10 +1060,11 @@ impl Handler<QueryPeerStats> for Peer {
 impl Handler<PeerManagerRequest> for Peer {
     type Result = ();
 
-    fn handle(&mut self, pm_request: PeerManagerRequest, ctx: &mut Self::Context) -> Self::Result {
+    #[perf]
+    fn handle(&mut self, msg: PeerManagerRequest, ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new(format!("peer manager request {:?}", pm_request).into());
-        match pm_request {
+        let _d = DelayDetector::new(format!("peer manager request {:?}", msg).into());
+        match msg {
             PeerManagerRequest::BanPeer(ban_reason) => {
                 self.ban_peer(ctx, ban_reason);
             }

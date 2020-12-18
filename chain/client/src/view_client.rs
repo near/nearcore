@@ -50,6 +50,7 @@ use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
+use near_performance_metrics_macros::perf;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -421,10 +422,10 @@ impl Actor for ViewClientActor {
     type Context = SyncContext<Self>;
 }
 
-/// Handles runtime query.
 impl Handler<Query> for ViewClientActor {
     type Result = Result<Option<QueryResponse>, String>;
 
+    #[perf]
     fn handle(&mut self, msg: Query, _: &mut Self::Context) -> Self::Result {
         self.handle_query(msg)
     }
@@ -434,6 +435,7 @@ impl Handler<Query> for ViewClientActor {
 impl Handler<GetBlock> for ViewClientActor {
     type Result = Result<BlockView, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetBlock, _: &mut Self::Context) -> Self::Result {
         match msg.0 {
             BlockReference::Finality(finality) => {
@@ -470,6 +472,7 @@ impl Handler<GetBlock> for ViewClientActor {
 impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
     type Result = Result<(BlockView, PartialMerkleTree), String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Self::Context) -> Self::Result {
         let block_view = self.handle(GetBlock(msg.0), ctx)?;
         self.chain
@@ -483,6 +486,7 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
 impl Handler<GetChunk> for ViewClientActor {
     type Result = Result<ChunkView, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
         let get_chunk_from_block = |block: Result<Block, near_chain::Error>,
                                     shard_id: ShardId,
@@ -530,6 +534,7 @@ impl Handler<GetChunk> for ViewClientActor {
 impl Handler<TxStatus> for ViewClientActor {
     type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
 
+    #[perf]
     fn handle(&mut self, msg: TxStatus, _: &mut Self::Context) -> Self::Result {
         self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
     }
@@ -538,6 +543,7 @@ impl Handler<TxStatus> for ViewClientActor {
 impl Handler<GetValidatorInfo> for ViewClientActor {
     type Result = Result<EpochValidatorInfo, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Self::Context) -> Self::Result {
         self.maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.runtime_adapter.get_validator_info(&block_hash))
@@ -548,6 +554,7 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
 impl Handler<GetValidatorOrdered> for ViewClientActor {
     type Result = Result<Vec<ValidatorStakeView>, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetValidatorOrdered, _: &mut Self::Context) -> Self::Result {
         self.maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.chain.get_block_header(&block_hash).map(|h| h.clone()))
@@ -565,6 +572,7 @@ impl Handler<GetValidatorOrdered> for ViewClientActor {
 impl Handler<GetStateChangesInBlock> for ViewClientActor {
     type Result = Result<StateChangesKindsView, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetStateChangesInBlock, _: &mut Self::Context) -> Self::Result {
         self.chain
             .store()
@@ -578,6 +586,7 @@ impl Handler<GetStateChangesInBlock> for ViewClientActor {
 impl Handler<GetStateChanges> for ViewClientActor {
     type Result = Result<StateChangesView, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetStateChanges, _: &mut Self::Context) -> Self::Result {
         self.chain
             .store()
@@ -591,6 +600,7 @@ impl Handler<GetStateChanges> for ViewClientActor {
 impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
     type Result = Result<StateChangesView, String>;
 
+    #[perf]
     fn handle(
         &mut self,
         msg: GetStateChangesWithCauseInBlock,
@@ -615,9 +625,10 @@ impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
 impl Handler<GetNextLightClientBlock> for ViewClientActor {
     type Result = Result<Option<LightClientBlockView>, String>;
 
-    fn handle(&mut self, request: GetNextLightClientBlock, _: &mut Self::Context) -> Self::Result {
+    #[perf]
+    fn handle(&mut self, msg: GetNextLightClientBlock, _: &mut Self::Context) -> Self::Result {
         let last_block_header =
-            self.chain.get_block_header(&request.last_block_hash).map_err(|err| err.to_string())?;
+            self.chain.get_block_header(&msg.last_block_hash).map_err(|err| err.to_string())?;
         let last_epoch_id = last_block_header.epoch_id().clone();
         let last_next_epoch_id = last_block_header.next_epoch_id().clone();
         let last_height = last_block_header.height();
@@ -658,6 +669,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
 impl Handler<GetExecutionOutcome> for ViewClientActor {
     type Result = Result<GetExecutionOutcomeResponse, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Self::Context) -> Self::Result {
         let (id, target_shard_id) = match msg.id {
             TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
@@ -726,6 +738,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
     type Result = Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetExecutionOutcomesForBlock, _: &mut Self::Context) -> Self::Result {
         Ok(self
             .chain
@@ -740,6 +753,7 @@ impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
 impl Handler<GetReceipt> for ViewClientActor {
     type Result = Result<Option<ReceiptView>, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetReceipt, _: &mut Self::Context) -> Self::Result {
         Ok(self
             .chain
@@ -753,6 +767,7 @@ impl Handler<GetReceipt> for ViewClientActor {
 impl Handler<GetBlockProof> for ViewClientActor {
     type Result = Result<GetBlockProofResponse, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
         self.chain.check_block_final_and_canonical(&msg.block_hash).map_err(|e| e.to_string())?;
         self.chain
@@ -771,6 +786,7 @@ impl Handler<GetBlockProof> for ViewClientActor {
 impl Handler<NetworkViewClientMessages> for ViewClientActor {
     type Result = NetworkViewClientResponses;
 
+    #[perf]
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
         match msg {
             #[cfg(feature = "adversarial")]
@@ -1054,6 +1070,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 impl Handler<GetGasPrice> for ViewClientActor {
     type Result = Result<GasPriceView, String>;
 
+    #[perf]
     fn handle(&mut self, msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
         let header = self
             .maybe_block_id_to_block_hash(msg.block_id)
