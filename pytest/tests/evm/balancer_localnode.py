@@ -1,7 +1,7 @@
 print('test')
 
 from rc import bash
-bash('''
+p = bash('''
 set -x
 pwd
 ls -al
@@ -10,3 +10,5 @@ ls -al
 cat ~/.bashrc
 echo $PATH
 ''')
+print(p.stdout)
+print(p.stderr)
