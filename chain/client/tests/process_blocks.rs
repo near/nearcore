@@ -1932,13 +1932,16 @@ fn test_validate_chunk_extra() {
 }
 
 /// Change protocol version back and forth and make sure that we do not produce invalid blocks
+/// TODO (#3759): re-enable the test when we have the ability to mutate `PROTOCOL_VERSION`
 #[test]
+#[ignore]
 fn test_gas_price_change_no_chunk() {
     let epoch_length = 5;
     let min_gas_price = 5000;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    let genesis_protocol_version = PROTOCOL_VERSION - 1;
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = 30;
+    genesis.config.protocol_version = genesis_protocol_version;
     genesis.config.min_gas_price = min_gas_price;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
@@ -1947,7 +1950,8 @@ fn test_gas_price_change_no_chunk() {
     for i in 1..=20 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         if i <= 5 || (i > 10 && i <= 15) {
-            block.mut_header().get_mut().inner_rest.latest_protocol_version += 1;
+            block.mut_header().get_mut().inner_rest.latest_protocol_version =
+                genesis_protocol_version;
             block.mut_header().resign(&validator_signer);
         }
         env.process_block(0, block, Provenance::NONE);
@@ -2359,4 +2363,31 @@ fn test_not_broadcast_block_on_accept() {
         env.process_block(i, b1.clone(), Provenance::NONE);
     }
     assert!(network_adapter.requests.read().unwrap().is_empty());
+}
+
+#[test]
+#[should_panic(
+    expected = "The client protocol version is older than the protocol version of the network"
+)]
+fn test_node_shutdown_with_old_protocol_version() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    for i in 1..=5 {
+        let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+        block.mut_header().get_mut().inner_rest.latest_protocol_version = PROTOCOL_VERSION + 1;
+        block.mut_header().resign(&validator_signer);
+        env.process_block(0, block, Provenance::NONE);
+    }
+    for i in 6..=10 {
+        env.produce_block(0, i);
+    }
+    env.produce_block(0, 11);
 }
