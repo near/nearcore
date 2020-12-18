@@ -76,7 +76,7 @@ pub fn encode_meta_call_function_args(
     fee_amount: U256,
     fee_token: Address,
     address: Address,
-    method_name: &str,
+    method_def: &str,
     args: Vec<u8>,
 ) -> Vec<u8> {
     let domain_separator = near_erc721_domain(U256::from(chain_id));
@@ -87,7 +87,7 @@ pub fn encode_meta_call_function_args(
         fee_amount,
         fee_token,
         address,
-        method_name,
+        method_def,
         &args,
     )
     .unwrap();
@@ -103,8 +103,8 @@ pub fn encode_meta_call_function_args(
                 u256_to_arr(&fee_amount).to_vec(),
                 fee_token.0.to_vec(),
                 address.0.to_vec(),
-                vec![method_name.len() as u8],
-                method_name.as_bytes().to_vec(),
+                vec![method_def.len() as u8],
+                method_def.as_bytes().to_vec(),
                 args,
             ]
             .concat()

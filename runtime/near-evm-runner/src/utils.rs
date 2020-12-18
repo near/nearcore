@@ -507,6 +507,8 @@ fn eip_712_hash_argument(
             let struct_type = types
                 .get(type_name)
                 .ok_or(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))?;
+            // struct_type.raw is with struct type with argument names (a "method_def"), so it follows
+            // EIP-712 typeHash.
             let mut r = keccak(&struct_type.raw).as_bytes().to_vec();
             for (i, element) in l.iter().enumerate() {
                 r.extend_from_slice(&eip_712_hash_argument(
@@ -621,7 +623,7 @@ pub fn prepare_meta_call_args(
     // Note: method_def is like "adopt(uint256 petId,PetObj petObj)PetObj(string name,address owner)",
     // MUST have no space after `,`. EIP-712 requires hashStruct start by packing the typeHash,
     // See "Rationale for typeHash" in https://eips.ethereum.org/EIPS/eip-712#definition-of-hashstruct
-    // method_def is only used here for typeHash
+    // method_def is used here for typeHash
     let types = "NearTx(string evmId,uint256 nonce,uint256 feeAmount,address feeAddress,address contractAddress,string contractMethod,Arguments arguments)".to_string() + &arguments;
     bytes.extend_from_slice(&keccak(types.as_bytes()).as_bytes());
     bytes.extend_from_slice(&keccak(account_id.as_bytes()).as_bytes());
