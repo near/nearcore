@@ -1474,6 +1474,13 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         match response {
                             Ok(false) => act.try_ban_peer(ctx, &peer_id, ReasonForBan::InvalidEdge),
                             Ok(true) => {
+                                for (edge, other) in edges_need_update_nonce {
+                                    act.try_update_nonce(ctx, edge, other);
+                                }
+                                for edge in edges_need_removal {
+                                    act.wait_peer_or_remove(ctx, edge);
+                                }
+
                                 let new_edges = Arc::try_unwrap(new_edges)
                                     .expect("should not have more than one reference");
                                 if !new_edges.is_empty() {
@@ -1491,12 +1498,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                         },
                                     )
                                 };
-                                for (edge, other) in edges_need_update_nonce {
-                                    act.try_update_nonce(ctx, edge, other);
-                                }
-                                for edge in edges_need_removal {
-                                    act.wait_peer_or_remove(ctx, edge);
-                                }
                             }
                             Err(err) => warn!(target: "network", "error validating edges: {}", err),
                         }
