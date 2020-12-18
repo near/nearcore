@@ -45,7 +45,6 @@ skip = [
     { name = "autocfg", version = "=0.1.7" },
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
     { name = "base64", version = "=0.11.0" },
-    { name = "gimli", version = "=0.20" },
     { name = "wasmparser", version = "=0.51.4" },
     { name = "itertools", version = "=0.8.2" },
     { name = "rand_core", version = "=0.4.2" },
@@ -89,4 +88,47 @@ skip = [
     { name = "num-rational", version = "=0.3.0" },
     { name = "rand_xorshift", version = "=0.2.0" },
     { name = "wasmparser", version = "=0.59.0" },
+
+    # wasmtime and actix-http
+    { name = "gimli", version = "=0.23.0" },
+
+    # actix-http's deps backtrace and flate2 use different versions
+    { name = "miniz_oxide", version = "=0.4.3" },
+
+   # Wasmtime and actix-http
+    { name = "object", version = "=0.22.0" },
+
+   # wasmer and wasmtime
+    { name = "target-lexicon", version = "=0.11.1" },
+
+    # Tokio and tracing
+    { name = "pin-project-lite", version = "=0.1.11"},
+
+    # actix and pin project
+     { name = "pin-project-internal", version = "=1.0.2"},
+
+     # actix-http and actix
+    { name = "pin-project", version = "=0.4.27" },
+
+    # chain and param estimator
+    { name = "num-rational", version = "=0.3.2" },
+
+    # tokia via actix and actix-server
+    { name = "miow", version = "=0.3.6" },
+
+    # crossbeam-epoch and wasmtime-runtime
+    { name = "memoffset", version = "=0.6.1" },
+
+    # rayon-core and actix
+    { name = "crossbeam-utils",  version = "=0.8.1"},
+    { name = "crossbeam-channel", version = "=0.4.4"},
+
+    # tracing-subscriber via near-logger-utils and clap via bindgen
+    { name = "ansi_term", version = "=0.12.1" },
+
+    # actix-connect and actix-server
+    { name = "actix-codec", version = "=0.3.0"},
+
+    # actix-connect via actix-http  and actix-server
+    { name = "actix-utils", version = "=1.0.6" }
 ]

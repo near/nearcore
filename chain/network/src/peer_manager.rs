@@ -50,6 +50,7 @@ use crate::types::{
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
+use near_performance_metrics_macros::perf;
 use rand::thread_rng;
 
 /// How often to request peers from active peers.
@@ -114,6 +115,7 @@ impl Actor for EdgeVerifier {
 impl Handler<EdgeList> for EdgeVerifier {
     type Result = bool;
 
+    #[perf]
     fn handle(&mut self, msg: EdgeList, _ctx: &mut Self::Context) -> Self::Result {
         msg.0.iter().all(|edge| edge.verify())
     }
@@ -273,31 +275,38 @@ impl PeerManagerActor {
 
         // Start syncing network point of view. Wait until both parties are connected before start
         // sending messages.
-        ctx.run_later(Duration::from_secs(wait_for_sync), move |act, ctx| {
-            let _ = addr.do_send(SendMessage {
-                message: PeerMessage::RoutingTableSync(SyncData {
-                    edges: known_edges,
-                    accounts: known_accounts,
-                }),
-            });
 
-            // Ask for peers list on connection.
-            let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
-            if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
-                active_peer.last_time_peer_requested = Instant::now();
-            }
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            Duration::from_secs(wait_for_sync),
+            move |act, ctx| {
+                let _ = addr.do_send(SendMessage {
+                    message: PeerMessage::RoutingTableSync(SyncData {
+                        edges: known_edges,
+                        accounts: known_accounts,
+                    }),
+                });
 
-            if peer_type == PeerType::Outbound {
-                // Only broadcast new message from the outbound endpoint.
-                // Wait a time out before broadcasting this new edge to let the other party finish handshake.
-                act.broadcast_message(
-                    ctx,
-                    SendMessage {
-                        message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
-                    },
-                );
-            }
-        });
+                // Ask for peers list on connection.
+                let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
+                if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
+                    active_peer.last_time_peer_requested = Instant::now();
+                }
+
+                if peer_type == PeerType::Outbound {
+                    // Only broadcast new message from the outbound endpoint.
+                    // Wait a time out before broadcasting this new edge to let the other party finish handshake.
+                    act.broadcast_message(
+                        ctx,
+                        SendMessage {
+                            message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+                        },
+                    );
+                }
+            },
+        );
     }
 
     /// Remove peer from active set.
@@ -565,11 +574,17 @@ impl PeerManagerActor {
             self.routing_table.process_edges(edges);
 
         if let Some(duration) = schedule_computation {
-            ctx.run_later(duration, |act, _ctx| {
-                act.routing_table.update();
-                #[cfg(feature = "metric_recorder")]
-                act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
-            });
+            near_performance_metrics::actix::run_later(
+                ctx,
+                file!(),
+                line!(),
+                duration,
+                |act, _ctx| {
+                    act.routing_table.update();
+                    #[cfg(feature = "metric_recorder")]
+                    act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
+                },
+            );
         }
 
         new_edge
@@ -579,19 +594,25 @@ impl PeerManagerActor {
         // This edge says this is an active peer, which is currently not in the set of active peers.
         // Wait for some time to let the connection begin or broadcast edge removal instead.
 
-        ctx.run_later(Duration::from_millis(WAIT_PEER_BEFORE_REMOVE), move |act, ctx| {
-            let other = edge.other(&act.peer_id).unwrap();
-            if !act.active_peers.contains_key(&other) {
-                // Peer is still not active after waiting a timeout.
-                let new_edge = edge.remove_edge(act.peer_id.clone(), &act.config.secret_key);
-                act.broadcast_message(
-                    ctx,
-                    SendMessage {
-                        message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
-                    },
-                );
-            }
-        });
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            Duration::from_millis(WAIT_PEER_BEFORE_REMOVE),
+            move |act, ctx| {
+                let other = edge.other(&act.peer_id).unwrap();
+                if !act.active_peers.contains_key(&other) {
+                    // Peer is still not active after waiting a timeout.
+                    let new_edge = edge.remove_edge(act.peer_id.clone(), &act.config.secret_key);
+                    act.broadcast_message(
+                        ctx,
+                        SendMessage {
+                            message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+                        },
+                    );
+                }
+            },
+        );
     }
 
     fn try_update_nonce(&mut self, ctx: &mut Context<Self>, edge: Edge, other: PeerId) {
@@ -617,17 +638,23 @@ impl PeerManagerActor {
 
         self.pending_update_nonce_request.insert(other.clone(), nonce);
 
-        ctx.run_later(Duration::from_millis(WAIT_ON_TRY_UPDATE_NONCE), move |act, _ctx| {
-            if let Some(cur_nonce) = act.pending_update_nonce_request.get(&other) {
-                if *cur_nonce == nonce {
-                    if let Some(peer) = act.active_peers.get(&other) {
-                        // Send disconnect signal to this peer if we haven't edge update.
-                        peer.addr.do_send(PeerManagerRequest::UnregisterPeer);
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            Duration::from_millis(WAIT_ON_TRY_UPDATE_NONCE),
+            move |act, _ctx| {
+                if let Some(cur_nonce) = act.pending_update_nonce_request.get(&other) {
+                    if *cur_nonce == nonce {
+                        if let Some(peer) = act.active_peers.get(&other) {
+                            // Send disconnect signal to this peer if we haven't edge update.
+                            peer.addr.do_send(PeerManagerRequest::UnregisterPeer);
+                        }
+                        act.pending_update_nonce_request.remove(&other);
                     }
-                    act.pending_update_nonce_request.remove(&other);
                 }
-            }
-        });
+            },
+        );
     }
 
     #[cfg(feature = "metric_recorder")]
@@ -637,9 +664,15 @@ impl PeerManagerActor {
             self.send_ping(ctx, nonce, peer_id);
         }
 
-        ctx.run_later(Duration::from_millis(WAIT_BEFORE_PING), move |act, ctx| {
-            act.ping_all_peers(ctx);
-        });
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            Duration::from_millis(WAIT_BEFORE_PING),
+            move |act, ctx| {
+                act.ping_all_peers(ctx);
+            },
+        );
     }
 
     /// Periodically query peer actors for latest weight and traffic info.
@@ -671,9 +704,15 @@ impl PeerManagerActor {
                 .spawn(ctx);
         }
 
-        ctx.run_later(self.config.peer_stats_period, move |act, ctx| {
-            act.monitor_peer_stats(ctx);
-        });
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.config.peer_stats_period,
+            move |act, ctx| {
+                act.monitor_peer_stats(ctx);
+            },
+        );
     }
 
     /// Select one peer and send signal to stop connection to it gracefully.
@@ -827,9 +866,16 @@ impl PeerManagerActor {
 
         self.monitor_peers_attempts =
             cmp::min(EXPONENTIAL_BACKOFF_LIMIT, self.monitor_peers_attempts + 1);
-        ctx.run_later(Duration::from_millis(wait), move |act, ctx| {
-            act.monitor_peers(ctx);
-        });
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            Duration::from_millis(wait),
+            move |act, ctx| {
+                act.monitor_peers(ctx);
+            },
+        );
     }
 
     /// Broadcast message to all active peers.
@@ -1091,9 +1137,16 @@ impl PeerManagerActor {
         let network_info = self.get_network_info();
 
         let _ = self.client_addr.do_send(NetworkClientMessages::NetworkInfo(network_info));
-        ctx.run_later(self.config.push_info_period, move |act, ctx| {
-            act.push_network_info(ctx);
-        });
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.config.push_info_period,
+            move |act, ctx| {
+                act.push_network_info(ctx);
+            },
+        );
     }
 }
 
@@ -1179,6 +1232,7 @@ impl Actor for PeerManagerActor {
 impl Handler<NetworkRequests> for PeerManagerActor {
     type Result = NetworkResponses;
 
+    #[perf]
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(format!("network request {}", msg.as_ref()).into());
@@ -1561,6 +1615,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 impl Handler<InboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("inbound tcp connect".into());
@@ -1577,6 +1632,7 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
 impl Handler<OutboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: OutboundTcpConnect, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("outbound tcp connect".into());
@@ -1622,6 +1678,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
 impl Handler<Consolidate> for PeerManagerActor {
     type Result = ConsolidateResponse;
 
+    #[perf]
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("consolidate".into());
@@ -1706,6 +1763,7 @@ impl Handler<Consolidate> for PeerManagerActor {
 impl Handler<Unregister> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("unregister".into());
@@ -1716,6 +1774,7 @@ impl Handler<Unregister> for PeerManagerActor {
 impl Handler<Ban> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: Ban, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("ban".into());
@@ -1726,7 +1785,8 @@ impl Handler<Ban> for PeerManagerActor {
 impl Handler<PeersRequest> for PeerManagerActor {
     type Result = PeerList;
 
-    fn handle(&mut self, _msg: PeersRequest, _ctx: &mut Self::Context) -> Self::Result {
+    #[perf]
+    fn handle(&mut self, msg: PeersRequest, _ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peers request".into());
         PeerList { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
@@ -1736,6 +1796,7 @@ impl Handler<PeersRequest> for PeerManagerActor {
 impl Handler<PeersResponse> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: PeersResponse, _ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peers response".into());
@@ -1753,6 +1814,7 @@ impl Handler<PeersResponse> for PeerManagerActor {
 impl Handler<RoutedMessageFrom> for PeerManagerActor {
     type Result = bool;
 
+    #[perf]
     fn handle(&mut self, msg: RoutedMessageFrom, ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(
@@ -1789,6 +1851,7 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
 impl Handler<RawRoutedMessage> for PeerManagerActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: RawRoutedMessage, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(
@@ -1805,6 +1868,7 @@ impl Handler<RawRoutedMessage> for PeerManagerActor {
 impl Handler<PeerRequest> for PeerManagerActor {
     type Result = PeerResponse;
 
+    #[perf]
     fn handle(&mut self, msg: PeerRequest, ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
@@ -1839,6 +1903,7 @@ impl Handler<PeerRequest> for PeerManagerActor {
 #[cfg(feature = "metric_recorder")]
 impl Handler<PeerMessageMetadata> for PeerManagerActor {
     type Result = ();
+    #[perf]
     fn handle(&mut self, msg: PeerMessageMetadata, _ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peer message metadata".into());

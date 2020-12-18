@@ -29,8 +29,8 @@ use near_primitives::types::{
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
-    AccessKeyInfoView, AccessKeyList, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewStateResult,
+    AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
+    QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
@@ -721,6 +721,14 @@ impl RuntimeAdapter for KeyValueRuntime {
                     }
                     .into(),
                 ),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewCode { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewCode(ContractCodeView {
+                    code: vec![],
+                    hash: CryptoHash::default(),
+                }),
                 block_height,
                 block_hash: *block_hash,
             }),

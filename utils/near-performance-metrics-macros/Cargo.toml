@@ -1,0 +1,14 @@
+[package]
+name = "near-performance-metrics-macros"
+version = "0.1.0"
+authors = ["Piotr Mikulski <piotr@near.org>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+syn = "1.0.54"
+quote = "1.0"
+
+[lib]
+proc-macro = true
