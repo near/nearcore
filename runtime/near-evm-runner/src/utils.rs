@@ -282,9 +282,9 @@ pub fn near_erc721_domain(chain_id: U256) -> RawU256 {
     keccak(&bytes).into()
 }
 
-pub fn method_name_to_abi(method_name: &str) -> [u8; 4] {
+pub fn method_sig_to_abi(method_sig: &str) -> [u8; 4] {
     let mut result = [0u8; 4];
-    result.copy_from_slice(&keccak(method_name)[..4]);
+    result.copy_from_slice(&keccak(method_sig)[..4]);
     result
 }
 
@@ -373,26 +373,22 @@ impl Arg {
 }
 
 impl Method {
-    fn parse(method_name: &str) -> Result<(Method, &str)> {
-        let (name, remains) = parse_ident(method_name)?;
+    fn parse(method_def: &str) -> Result<(Method, &str)> {
+        let (name, remains) = parse_ident(method_def)?;
         let (args, remains) = Arg::parse_args(remains)?;
         Ok((
-            Method {
-                name,
-                args,
-                raw: method_name[..method_name.len() - remains.len()].to_string(),
-            },
+            Method { name, args, raw: method_def[..method_def.len() - remains.len()].to_string() },
             remains,
         ))
     }
 }
 
 impl MethodAndTypes {
-    pub fn parse(method_name: &str) -> Result<Self> {
-        let mut method_name = method_name;
+    pub fn parse(method_def: &str) -> Result<Self> {
+        let mut method_def = method_def;
         let mut parsed_types = HashMap::new();
         let mut type_sequences = vec![];
-        let (method, mut types) = Method::parse(method_name)?;
+        let (method, mut types) = Method::parse(method_def)?;
         while types.len() > 0 {
             let (ty, remains) = Method::parse(types)?;
             type_sequences.push(ty.name.clone());
@@ -442,7 +438,7 @@ fn is_arg_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
 }
 
-/// Return a signature of the method_name
+/// Return a signature of the method_def
 /// E.g. method_signature(Methods before parse: "adopt(uint256 petId)") -> "adopt(uint256)"
 fn methods_signature(method_and_type: &MethodAndTypes) -> String {
     let method = format!(
@@ -616,12 +612,16 @@ pub fn prepare_meta_call_args(
     fee_amount: U256,
     fee_address: Address,
     contract_address: Address,
-    method_name: &str,
+    method_def: &str,
     args: &[u8],
 ) -> Result<(RawU256, Vec<u8>)> {
     let mut bytes = Vec::new();
-    let method_arg_start = method_name.find('(').unwrap();
-    let arguments = "Arguments".to_string() + &method_name[method_arg_start..];
+    let method_arg_start = method_def.find('(').unwrap();
+    let arguments = "Arguments".to_string() + &method_def[method_arg_start..];
+    // Note: method_def is like "adopt(uint256 petId,PetObj petObj)PetObj(string name,address owner)",
+    // MUST have no space after `,`. EIP-712 requires hashStruct start by packing the typeHash,
+    // See "Rationale for typeHash" in https://eips.ethereum.org/EIPS/eip-712#definition-of-hashstruct
+    // method_def is only used here for typeHash
     let types = "NearTx(string evmId,uint256 nonce,uint256 feeAmount,address feeAddress,address contractAddress,string contractMethod,Arguments arguments)".to_string() + &arguments;
     bytes.extend_from_slice(&keccak(types.as_bytes()).as_bytes());
     bytes.extend_from_slice(&keccak(account_id.as_bytes()).as_bytes());
@@ -629,7 +629,10 @@ pub fn prepare_meta_call_args(
     bytes.extend_from_slice(&u256_to_arr(&fee_amount));
     bytes.extend_from_slice(&encode_address(fee_address));
     bytes.extend_from_slice(&encode_address(contract_address));
-    let methods = MethodAndTypes::parse(method_name)?;
+
+    let methods = MethodAndTypes::parse(method_def)?;
+    // method_sig is "adopt(uint256,PetObj)PetObj(string,address)".
+    // It's just a string field of the message struct, not part of process of typeHash
     let method_sig = methods_signature(&methods);
     bytes.extend_from_slice(&keccak(method_sig.as_bytes()).as_bytes());
 
@@ -644,9 +647,14 @@ pub fn prepare_meta_call_args(
         )?);
     }
 
-    let method_name_selector = method_name_to_abi(&method_sig);
+    // ETH-ABI require function selector to use method_sig, instead of method_name,
+    // See https://docs.soliditylang.org/en/v0.7.5/abi-spec.html#function-selector
+    // Above spec is not completely clear, this implementation shows signature is the one without
+    // argument name:
+    // https://github.com/rust-ethereum/ethabi/blob/69285cf6b6202d9faa19c7d0239df6a2bd79d55f/ethabi/src/signature.rs#L28
+    let method_selector = method_sig_to_abi(&method_sig);
     let args_eth_abi = eth_abi_encode_args(&args_decoded, &methods)?;
-    let input = [method_name_selector.to_vec(), args_eth_abi.to_vec()].concat();
+    let input = [method_selector.to_vec(), args_eth_abi.to_vec()].concat();
 
     let arg_bytes_hash: RawU256 = keccak(&arg_bytes).into();
     bytes.extend_from_slice(&arg_bytes_hash);
@@ -665,9 +673,9 @@ pub fn prepare_meta_call_args(
 /// [97, 129): fee_amount
 /// [129, 149): fee_address
 /// [149..169): contract_id: address for contract to call
-/// [169]: method_name_length
-/// [170, 170+method_name_length): method_name
-/// [170+method_name_length, ..]: RLP encoded rest of arguments.
+/// [169]: method_def_length
+/// [170, 170+method_def_length): method_def
+/// [170+method_def_length, ..]: RLP encoded rest of arguments.
 pub fn parse_meta_call(
     domain_separator: &RawU256,
     account_id: &AccountId,
@@ -684,13 +692,13 @@ pub fn parse_meta_call(
     let fee_amount = U256::from_big_endian(&args[97..129]);
     let fee_address = Address::from_slice(&args[129..149]);
     let contract_address = Address::from_slice(&args[149..169]);
-    let method_name_len = args[169] as usize;
-    if args.len() < method_name_len + 170 {
+    let method_def_len = args[169] as usize;
+    if args.len() < method_def_len + 170 {
         return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
     }
-    let method_name = String::from_utf8(args[170..170 + method_name_len].to_vec())
+    let method_def = String::from_utf8(args[170..170 + method_def_len].to_vec())
         .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
-    let args = &args[170 + method_name_len..];
+    let args = &args[170 + method_def_len..];
 
     let (msg, input) = prepare_meta_call_args(
         domain_separator,
@@ -699,7 +707,7 @@ pub fn parse_meta_call(
         fee_amount,
         fee_address,
         contract_address,
-        &method_name,
+        &method_def,
         args,
     )?;
     let sender = ecrecover_address(&msg, &signature);
