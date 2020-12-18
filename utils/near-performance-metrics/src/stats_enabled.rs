@@ -2,12 +2,12 @@ use log::info;
 use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
 use std::time::Instant;
+use std::fmt::Debug;
 
 use futures;
 use futures::task::Context;
@@ -17,7 +17,6 @@ use std::pin::Pin;
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
 const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.02;
-#[cfg(feature = "performance_stats")]
 const MESSAGE_LIMIT: usize = 250;
 
 pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::new(Stats::new())));
@@ -25,7 +24,7 @@ pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 thread_local! {
-    pub(crate) static TID: RefCell<usize> = RefCell::new(0);
+pub(crate) static TID: RefCell<usize> = RefCell::new(0);
 }
 
 #[derive(Default)]
@@ -135,8 +134,8 @@ pub fn measure_performance<F, Message, Result>(
     msg: Message,
     f: F,
 ) -> Result
-where
-    F: FnOnce(Message) -> Result,
+    where
+        F: FnOnce(Message) -> Result,
 {
     let now = Instant::now();
     let result = f(msg);
@@ -156,53 +155,46 @@ where
     result
 }
 
+
 #[allow(unused_variables)]
 pub fn performance_with_debug<F, Message, Result>(
     class_name: &'static str,
     msg: Message,
     f: F,
 ) -> Result
-where
-    F: FnOnce(Message) -> Result,
-    Message: Debug,
+    where
+        F: FnOnce(Message) -> Result,
+        Message: Debug,
 {
-    #[cfg(not(feature = "performance_stats"))]
-    {
-        f(msg)
-    }
+    let now = Instant::now();
+    let msg_test = format!("{:?}", msg);
+    let result = f(msg);
 
-    #[cfg(feature = "performance_stats")]
-    {
-        let now = Instant::now();
-        let msg_test = format!("{:?}", msg);
-        let result = f(msg);
-
-        let took = now.elapsed();
-        if took > SLOW_CALL_THRESHOLD {
-            let msg_length = msg_test.len();
-            let mut msg_test = msg_test;
-            if msg_length >= MESSAGE_LIMIT {
-                msg_test = msg_test.as_str()[..MESSAGE_LIMIT].to_string();
-            }
-            info!(
-                "Function exceeded time limit {}:{} {:?} took: {}ms len: {} {}",
-                class_name,
-                TID.with(|x| *x.borrow()),
-                std::any::type_name::<Message>(),
-                took.as_millis(),
-                msg_length,
-                msg_test
-            );
+    let took = now.elapsed();
+    if took > SLOW_CALL_THRESHOLD {
+        let msg_length = msg_test.len();
+        let mut msg_test = msg_test;
+        if msg_length >= MESSAGE_LIMIT {
+            msg_test = msg_test.as_str()[..MESSAGE_LIMIT].to_string();
         }
-
-        STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
-        result
+        info!(
+            "Function exceeded time limit {}:{} {:?} took: {}ms len: {} {}",
+            class_name,
+            TID.with(|x| *x.borrow()),
+            std::any::type_name::<Message>(),
+            took.as_millis(),
+            msg_length,
+            msg_test
+        );
     }
+
+    STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
+    result
 }
 
 pub struct MyFuture<F>
-where
-    F: futures::Future<Output = ()> + 'static,
+    where
+        F: futures::Future<Output=()> + 'static,
 {
     pub f: F,
     pub class_name: &'static str,
@@ -211,8 +203,8 @@ where
 }
 
 impl<F> futures::Future for MyFuture<F>
-where
-    F: futures::Future<Output = ()> + 'static,
+    where
+        F: futures::Future<Output=()> + 'static,
 {
     type Output = ();
 
