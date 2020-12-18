@@ -131,7 +131,6 @@ fn test_precompiles() {
 
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     let (input, _) = soltest::functions::precompile_test::call();
-    println!("input: {:?}", hex::encode(&input));
     let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
     assert_eq!(raw.len(), 0);
 }
