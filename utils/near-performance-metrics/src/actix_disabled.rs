@@ -14,10 +14,10 @@ pub fn run_later<F, A, B>(
     dur: Duration,
     f: F,
 ) -> actix::SpawnHandle
-    where
-        B: actix::AsyncContext<A>,
-        A: actix::Actor<Context = B>,
-        F: FnOnce(&mut A, &mut A::Context) + 'static,
+where
+    B: actix::AsyncContext<A>,
+    A: actix::Actor<Context = B>,
+    F: FnOnce(&mut A, &mut A::Context) + 'static,
 {
     ctx.run_later(dur, f)
 }

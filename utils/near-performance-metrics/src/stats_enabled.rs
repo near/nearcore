@@ -24,7 +24,7 @@ pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 thread_local! {
-pub(crate) static TID: RefCell<usize> = RefCell::new(0);
+    pub(crate) static TID: RefCell<usize> = RefCell::new(0);
 }
 
 #[derive(Default)]
@@ -134,8 +134,8 @@ pub fn measure_performance<F, Message, Result>(
     msg: Message,
     f: F,
 ) -> Result
-    where
-        F: FnOnce(Message) -> Result,
+where
+    F: FnOnce(Message) -> Result,
 {
     let now = Instant::now();
     let result = f(msg);
@@ -155,16 +155,15 @@ pub fn measure_performance<F, Message, Result>(
     result
 }
 
-
 #[allow(unused_variables)]
 pub fn performance_with_debug<F, Message, Result>(
     class_name: &'static str,
     msg: Message,
     f: F,
 ) -> Result
-    where
-        F: FnOnce(Message) -> Result,
-        Message: Debug,
+where
+    F: FnOnce(Message) -> Result,
+    Message: Debug,
 {
     let now = Instant::now();
     let msg_test = format!("{:?}", msg);
@@ -193,8 +192,8 @@ pub fn performance_with_debug<F, Message, Result>(
 }
 
 pub struct MyFuture<F>
-    where
-        F: futures::Future<Output=()> + 'static,
+where
+    F: futures::Future<Output = ()> + 'static,
 {
     pub f: F,
     pub class_name: &'static str,
@@ -203,8 +202,8 @@ pub struct MyFuture<F>
 }
 
 impl<F> futures::Future for MyFuture<F>
-    where
-        F: futures::Future<Output=()> + 'static,
+where
+    F: futures::Future<Output = ()> + 'static,
 {
     type Output = ();
 

@@ -6,8 +6,8 @@ pub fn measure_performance<F, Message, Result>(
     msg: Message,
     f: F,
 ) -> Result
-    where
-        F: FnOnce(Message) -> Result,
+where
+    F: FnOnce(Message) -> Result,
 {
     f(msg)
 }
@@ -17,9 +17,9 @@ pub fn performance_with_debug<F, Message, Result>(
     msg: Message,
     f: F,
 ) -> Result
-    where
-        F: FnOnce(Message) -> Result,
-        Message: Debug,
+where
+    F: FnOnce(Message) -> Result,
+    Message: Debug,
 {
             f(msg)
 }

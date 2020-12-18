@@ -5,8 +5,8 @@ use std::time::Instant;
 use crate::stats_enabled::{MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD, STATS, TID};
 
 pub fn spawn<F>(class_name: &'static str, file: &'static str, line: u32, f: F)
-    where
-        F: futures::Future<Output = ()> + 'static,
+where
+    F: futures::Future<Output = ()> + 'static,
 {
     *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
     actix_rt::spawn(MyFuture { f, class_name, file, line });
