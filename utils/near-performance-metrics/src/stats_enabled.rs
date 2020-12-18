@@ -17,7 +17,6 @@ use std::pin::Pin;
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
 const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.02;
-#[cfg(feature = "performance_stats")]
 const MESSAGE_LIMIT: usize = 250;
 
 pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::new(Stats::new())));
@@ -166,38 +165,30 @@ where
     F: FnOnce(Message) -> Result,
     Message: Debug,
 {
-    #[cfg(not(feature = "performance_stats"))]
-    {
-        f(msg)
-    }
+    let now = Instant::now();
+    let msg_test = format!("{:?}", msg);
+    let result = f(msg);
 
-    #[cfg(feature = "performance_stats")]
-    {
-        let now = Instant::now();
-        let msg_test = format!("{:?}", msg);
-        let result = f(msg);
-
-        let took = now.elapsed();
-        if took > SLOW_CALL_THRESHOLD {
-            let msg_length = msg_test.len();
-            let mut msg_test = msg_test;
-            if msg_length >= MESSAGE_LIMIT {
-                msg_test = msg_test.as_str()[..MESSAGE_LIMIT].to_string();
-            }
-            info!(
-                "Function exceeded time limit {}:{} {:?} took: {}ms len: {} {}",
-                class_name,
-                TID.with(|x| *x.borrow()),
-                std::any::type_name::<Message>(),
-                took.as_millis(),
-                msg_length,
-                msg_test
-            );
+    let took = now.elapsed();
+    if took > SLOW_CALL_THRESHOLD {
+        let msg_length = msg_test.len();
+        let mut msg_test = msg_test;
+        if msg_length >= MESSAGE_LIMIT {
+            msg_test = msg_test.as_str()[..MESSAGE_LIMIT].to_string();
         }
-
-        STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
-        result
+        info!(
+            "Function exceeded time limit {}:{} {:?} took: {}ms len: {} {}",
+            class_name,
+            TID.with(|x| *x.borrow()),
+            std::any::type_name::<Message>(),
+            took.as_millis(),
+            msg_length,
+            msg_test
+        );
     }
+
+    STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
+    result
 }
 
 pub struct MyFuture<F>
