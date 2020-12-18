@@ -21,7 +21,7 @@ where
     F: FnOnce(Message) -> Result,
     Message: Debug,
 {
-            f(msg)
+    f(msg)
 }
 
 pub fn print_performance_stats(_sleep_time: Duration) {}

@@ -2,12 +2,12 @@ use log::info;
 use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
 use std::time::Instant;
-use std::fmt::Debug;
 
 use futures;
 use futures::task::Context;
