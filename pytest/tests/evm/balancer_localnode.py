@@ -1,17 +1,28 @@
-from rc import bash
+from rc import bash, ok
 import sys
 
-p = bash('''
+sys.path.append('lib')
+from cluster import start_cluster
+
+ok(bash('''
+cd ..
+cargo build -p neard --features protocol_feature_evm,nightly_protocol_features
+''', stdout=sys.stdout, stderr=sys.stderr))
+
+nodes = start_cluster(1, 0, 1, None, [], {})
+
+ok(bash('''
+rm -rf balancer-core
 git clone https://github.com/near/balancer-core.git
 cd balancer-core
 npm i
 npm i -g near-cli
 
-# env NEAR_ENV=localnet near evm-dev-init balancer-core-test.near 10
+mkdir -p ~/.near-credentials/local
+cp ~/.near/test0/validator_key.json ~/.near-credentials/local/test0.json
 
-# env NEAR_MASTER_ACCOUNT=balancer-core-test.near truffle migrate --network near_localnet --reset
-# env NEAR_MASTER_ACCOUNT=balancer-core-test.near truffle test --network near_localnet
-''')
+env NEAR_ENV=local near evm-dev-init test0 10
 
-print(p.stdout)
-print(p.stderr, file=sys.stderr)
+env NEAR_MASTER_ACCOUNT=test0 truffle migrate --network near_localnet --reset
+env NEAR_MASTER_ACCOUNT=test0 truffle test --network near_localnet
+''', stdout=sys.stdout, stderr=sys.stderr))
