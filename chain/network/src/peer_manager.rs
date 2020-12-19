@@ -1484,7 +1484,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 let new_edges = Arc::try_unwrap(new_edges)
                                     .expect("should not have more than one reference");
                                 if !new_edges.is_empty() {
-                                    act.process_edges(ctx, new_edges.clone());
+                                    for edge in new_edges.iter() {
+                                        act.process_edges(ctx, vec![edge.clone()]);
+                                    }
                                 }
 
                                 let new_data =
