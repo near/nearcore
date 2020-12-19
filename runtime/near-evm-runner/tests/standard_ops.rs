@@ -163,6 +163,34 @@ fn test_deploy_and_transfer() {
 }
 
 #[test]
+fn test_meta_call() {
+    let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
+    let signer = InMemorySigner::from_seed(&accounts(1), KeyType::SECP256K1, "a");
+    let signer_addr = public_key_to_address(signer.public_key.clone());
+    let domain_separator = near_erc721_domain(U256::from(CHAIN_ID));
+
+    let meta_tx = encode_meta_call_function_args(
+        &signer,
+        CHAIN_ID,
+        U256::from(0),
+        U256::from(6),
+        Address::from_slice(&[0u8; 20]),
+        test_addr.clone(),
+        "deployNewGuy(uint256 _aNumber)",
+        // RLP encode of ["0x08"]
+        hex::decode("c108").unwrap(),
+    );
+    let mut context =
+        create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
+    let raw = context.meta_call_function(meta_tx).unwrap();
+
+    // The sub_addr should have been transferred 100 yoctoN.
+    let sub_addr = raw[12..32].to_vec();
+    assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(100));
+    assert_eq!(context.get_balance(sub_addr).unwrap(), U256::from(100));
+}
+
+#[test]
 fn test_deploy_with_value() {
     let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
 
