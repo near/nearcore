@@ -1,7 +1,7 @@
-from rc import bash
+from rc import bash, ok
 import sys
 
-p = bash('''
+ok(bash('''
 git clone https://github.com/near/balancer-core.git
 cd balancer-core
 npm i
@@ -15,7 +15,4 @@ cp ../tests/evm/keys/*.json ~/.near-credentials/betanet/
 
 env NEAR_MASTER_ACCOUNT=balancer-core-test.betanet truffle migrate --network near_betanet --reset
 env NEAR_MASTER_ACCOUNT=balancer-core-test.betanet truffle test --network near_betanet
-''')
-
-print(p.stdout)
-print(p.stderr, file=sys.stderr)
+''', stdout=sys.stdout, stderr=sys.stderr))
