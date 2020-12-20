@@ -77,7 +77,7 @@ class JSAdapter:
         args = ['node', 'index.js', 'TESTING'] + args
         return self.js_call(args, timeout)
 
-    def js_call_service(self, args, stdout, stderr):
+    def js_start_service(self, args, stdout, stderr):
         if not isinstance(args, list):
             args = [args]
         args = ['node', 'index.js', 'start'] + args + ['--daemon', 'false']
@@ -94,12 +94,10 @@ class BridgeUser(object):
         self.name = name
         self.eth_secret_key = eth_secret_key
         self.near_account_name = name + '.test0'
-        self.near_sk = near_sk
-        self.near_pk = near_pk
         self.tokens_expected = dict()
+        self.near_signer_key = Key(self.near_account_name, near_pk, near_sk)
         # Following fields will be initialized when Bridge starts
         self.eth_address = None
-        self.near_signer_key = None
 
 
 # BridgeUser related fields
@@ -214,7 +212,6 @@ class GanacheNode(Cleanable):
                 self.config_dir,
                 'logs/ganache/err.log'),
             'w')
-        # TODO use blockTime
         # TODO set params
         self.pid.value = subprocess.Popen(
             [
@@ -255,7 +252,7 @@ class Near2EthBlockRelay(Cleanable):
                 self.config_dir,
                 'logs/near2eth-relay/err.log'),
             'a')
-        self.pid.value = self.adapter.js_call_service(['near2eth-relay', '--eth-master-sk', eth_master_secret_key], self.stdout, self.stderr).pid
+        self.pid.value = self.adapter.js_start_service(['near2eth-relay', '--eth-master-sk', eth_master_secret_key], self.stdout, self.stderr).pid
         if self.pid.value == 0:
             logger.error('Cannot start Near2EthBlockRelay')
             assert False
@@ -277,12 +274,13 @@ class Eth2NearBlockRelay(Cleanable):
                 self.config_dir,
                 'logs/eth2near-relay/err.log'),
             'a')
-        self.pid.value = self.adapter.js_call_service('eth2near-relay', self.stdout, self.stderr).pid
+        self.pid.value = self.adapter.js_start_service('eth2near-relay', self.stdout, self.stderr).pid
         if self.pid.value == 0:
             logger.error('Cannot start Eth2NearBlockRelay')
             assert False
 
 
+# this function hides complex parsing of output of different services that are executed
 def assert_success(message):
     try:
         message = message.decode('ascii')
@@ -331,25 +329,14 @@ class RainbowBridge:
             'eth2near-relay',
                 'watchdog']:
             os.mkdir(os.path.join(logs_dir, service))
-            Path(
-                os.path.join(
-                    os.path.join(
-                        logs_dir,
-                        service),
-                    'err.log')).touch()
-            Path(
-                os.path.join(
-                    os.path.join(
-                        logs_dir,
-                        service),
-                    'out.log')).touch()
+            (Path(logs_dir) / service / 'err.log').touch()
+            (Path(logs_dir) / service / 'out.log').touch()
 
         logger.info('Running write_config.js...')
         assert_success(subprocess.check_output(['node', 'write_config.js'], cwd=self.bridge_dir))
         logger.info('Setting up users\' addresses...')
         for user in [bridge_master_account, alice, bob, carol]:
             user.eth_address = self.get_eth_address(user)
-            user.near_signer_key = Key(user.near_account_name, user.near_pk, user.near_sk)
             self.create_account(user, node)
         logger.info('Bridge is started')
 
@@ -365,8 +352,14 @@ class RainbowBridge:
                 billion_tokens // 10,
                 nonce + 1,
                 h)
-        res = node.send_tx_and_wait(create_account_tx, timeout=15)
-        assert_success(res['result']['status']['SuccessValue'])
+        res = node.send_tx(create_account_tx)['result']
+        while True:
+            try:
+                created = node.get_tx(res, user.near_account_name)
+                assert_success(created['result']['status']['SuccessValue'])
+                break
+            except:
+                time.sleep(1)
 
     def git_clone_install(self):
         logger.info('No rainbow-bridge repo found, cloning...')
