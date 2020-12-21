@@ -6079,7 +6079,7 @@ dependencies = [
 [[package]]
 name = "wasmer-runtime"
 version = "0.17.1"
-source = "git+https://github.com/near/wasmer.git?rev=eed46967cedc87c3b59ba34d91de1c7fbe0d46ca#eed46967cedc87c3b59ba34d91de1c7fbe0d46ca"
+source = "git+https://github.com/near/wasmer.git?rev=bcd96a35b380795831414cb5faf61cbbab132553#bcd96a35b380795831414cb5faf61cbbab132553"
 dependencies = [
  "lazy_static",
  "memmap",
@@ -6092,7 +6092,7 @@ dependencies = [
 [[package]]
 name = "wasmer-runtime-core"
 version = "0.17.1"
-source = "git+https://github.com/near/wasmer.git?rev=eed46967cedc87c3b59ba34d91de1c7fbe0d46ca#eed46967cedc87c3b59ba34d91de1c7fbe0d46ca"
+source = "git+https://github.com/near/wasmer.git?rev=bcd96a35b380795831414cb5faf61cbbab132553#bcd96a35b380795831414cb5faf61cbbab132553"
 dependencies = [
  "bincode",
  "blake3",
@@ -6121,7 +6121,7 @@ dependencies = [
 [[package]]
 name = "wasmer-singlepass-backend"
 version = "0.17.1"
-source = "git+https://github.com/near/wasmer.git?rev=eed46967cedc87c3b59ba34d91de1c7fbe0d46ca#eed46967cedc87c3b59ba34d91de1c7fbe0d46ca"
+source = "git+https://github.com/near/wasmer.git?rev=bcd96a35b380795831414cb5faf61cbbab132553#bcd96a35b380795831414cb5faf61cbbab132553"
 dependencies = [
  "bincode",
  "byteorder",
