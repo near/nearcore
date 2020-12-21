@@ -356,10 +356,13 @@ class RainbowBridge:
         while True:
             try:
                 created = node.get_tx(res, user.near_account_name)
-                assert_success(created['result']['status']['SuccessValue'])
-                break
+                if 'status' in created['result']:
+                    # tx is accepted by network
+                    break
             except:
                 time.sleep(1)
+        # check the result of tx execution
+        assert_success(created['result']['status']['SuccessValue'])
 
     def git_clone_install(self):
         logger.info('No rainbow-bridge repo found, cloning...')
@@ -614,6 +617,19 @@ def eth2near_deposit(tx, wait_ticket, node, adapter):
     logger.debug('DEPOSIT_TX: %s' % (deposit_tx))
     res = node.send_tx(deposit_tx)
     logger.debug('DEPOSIT_TX RES: %s' % (res))
+    res = res['result']
+    deposited = None
+    for _ in range(5):
+        try:
+            deposited = node.get_tx(res, tx.receiver.near_account_name)
+            logger.info('DEPOSIT_TX GET_TX RES: %s' % (deposited))
+            assert_success(deposited['result']['status']['SuccessValue'])
+            logger.info('TX %s, TRANSFER SUCCESSFUL' % (tx.id))
+            return
+        except:
+            time.sleep(10)
+    logger.info('CANNOT GET DEPOSIT TX %s' % (deposited))
+    assert False
 
 @retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def near2eth_withdraw(tx, node, adapter):
@@ -713,6 +729,7 @@ def near2eth_deposit(tx, wait_ticket, node, adapter):
     logger.debug('UNLOCK: %s' % (unlock))
     unlock = unlock.strip().split('\n')
     assert unlock[-1] == 'OK'
+    logger.info('TX %s, TRANSFER SUCCESSFUL' % (tx.id))
 
 def transfer_routine(tx, deposit_func, get_proof_func, wait_func, withdraw_func, node, adapter):
     assert tx.sender.eth_address

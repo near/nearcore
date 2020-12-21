@@ -86,6 +86,8 @@ txs = []
 for (w, tx) in withdraws:
     tx.custom['withdraw_ticket'] = w
     txs.append(bridge.transfer_tx(tx, withdraw_func=near2eth_custom_withdraw))
+    # sleep to avoid peak load
+    time.sleep(3)
 [p.join() for p in txs]
 exit_codes = [p.exitcode for p in txs]
 
