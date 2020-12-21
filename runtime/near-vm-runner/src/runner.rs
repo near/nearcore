@@ -161,9 +161,7 @@ pub fn run_vm_profiled<'a>(
         }
     };
     match &outcome {
-        Some(VMOutcome { burnt_gas, .. }) => {
-            profile.set_burnt_gas(*burnt_gas)
-        }
+        Some(VMOutcome { burnt_gas, .. }) => profile.set_burnt_gas(*burnt_gas),
         _ => (),
     };
     (outcome, error)
