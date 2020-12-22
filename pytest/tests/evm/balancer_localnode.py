@@ -1,7 +1,7 @@
-from cluster import start_cluster
 from rc import bash, ok
 import sys
 
+from cluster import start_cluster
 sys.path.append('lib')
 
 ok(bash('''
