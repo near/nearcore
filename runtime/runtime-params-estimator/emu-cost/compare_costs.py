@@ -25,11 +25,30 @@ def flatten_dict(d, result, prefix=''):
 
     return result
 
+def parse_debug_print(path):
+    result = {}
+    with open(path) as f:
+        pattern1 = re.compile("\\s*\"*([\\w]+)\"*: ([\\d]+).*")
+        pattern2 = re.compile("\\s*\"*([\\w]+)\"*:.*")
+        prefix = ""
+        for line in f:
+            m = pattern1.search(line)
+            if m != None:
+                result[prefix + m.group(1)] = m.group(2)
+            else:
+                m = pattern2.search(line)
+                if m != None:
+                    prefix = m.group(1) + ": "
+    return result
 
 def read_costs(path):
     result = OrderedDict()
-    with open(path) as f:
-        genesis_or_runtime_config = json.load(f, object_pairs_hook=OrderedDict)
+    try:
+        with open(path) as f:
+            genesis_or_runtime_config = json.load(f, object_pairs_hook=OrderedDict)
+    except (json.decoder.JSONDecodeError):
+        # try to load Rust debug pretty print.
+        genesis_or_runtime_config = parse_debug_print(path)
     if 'runtime_config' in genesis_or_runtime_config:
         runtime_config = genesis_or_runtime_config['runtime_config']
     else:
