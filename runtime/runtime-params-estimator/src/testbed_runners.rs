@@ -137,11 +137,16 @@ fn start_count_instructions() -> Consumed {
 }
 
 fn end_count_instructions() -> u64 {
-    let result_insn = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED);
-    let result_read = hypercall(HYPERCALL_GET_BYTES_READ);
-    let result_written = hypercall(HYPERCALL_GET_BYTES_WRITTEN);
-    // See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
-    result_insn + result_read * 27 + result_written * 47
+    const use_io_costs: bool = true;
+    if use_io_costs {
+        let result_insn = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED);
+        let result_read = hypercall(HYPERCALL_GET_BYTES_READ);
+        let result_written = hypercall(HYPERCALL_GET_BYTES_WRITTEN);
+        // See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
+        result_insn + result_read * 27 + result_written * 47
+    } else {
+        hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)
+    }
 }
 
 fn start_count_time() -> Consumed {
