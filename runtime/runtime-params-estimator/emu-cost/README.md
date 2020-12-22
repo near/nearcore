@@ -46,7 +46,7 @@ Note that it may take some time, as we execute instrumented code under the binar
 
 We need to calibrate IO operations cost to instruction counts. Technically instruction count and IO costs are orthogonal,
 however, as we measure our gas in instructions, we have to compute abstract scaling coefficients binding
-number of bytes read/written in IO to instructions executed.
+the number of bytes read/written in IO to instructions executed.
 We do that by computing following operation:
 
     ./emu-cost/counter_plugin/qemu-x86_64  -d plugin -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so \
