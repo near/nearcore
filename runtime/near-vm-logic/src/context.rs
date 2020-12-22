@@ -1,4 +1,5 @@
-use crate::types::{AccountId, Balance, BlockHeight, EpochHeight, Gas, PublicKey, StorageUsage};
+use crate::types::PublicKey;
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]

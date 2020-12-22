@@ -1,5 +1,5 @@
-use crate::types::{AccountId, Balance, Gas, PublicKey};
 use crate::{External, ValuePtr};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -47,6 +47,7 @@ impl MockedExternal {
 }
 
 use crate::dependencies::Result;
+use crate::types::PublicKey;
 
 impl External for MockedExternal {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {

@@ -1,9 +1,13 @@
-use crate::config::{ActionCosts, ExtCosts, ExtCostsConfig};
-use crate::types::{Gas, ProfileData};
 use crate::{HostError, VMLogicError};
+use near_primitives::{
+    config::{ActionCosts, ExtCosts, ExtCostsConfig},
+    profile::ProfileData,
+    types::Gas,
+};
 #[cfg(feature = "protocol_feature_evm")]
 use near_runtime_fees::EvmGas;
 use near_runtime_fees::Fee;
+use std::fmt;
 
 #[cfg(feature = "costs_counting")]
 thread_local! {
@@ -41,7 +45,6 @@ pub struct GasCounter {
     profile: Option<ProfileData>,
 }
 
-use std::fmt;
 impl fmt::Debug for GasCounter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("").finish()
@@ -244,6 +247,8 @@ impl GasCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_primitives::config::ExtCostsConfig;
+
     #[test]
     fn test_deduct_gas() {
         let mut counter = GasCounter::new(ExtCostsConfig::default(), 10, 10, false, None);

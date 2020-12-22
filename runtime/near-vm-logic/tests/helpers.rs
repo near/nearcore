@@ -1,3 +1,4 @@
+use near_primitives::config::ExtCosts;
 use near_vm_errors::VMLogicError;
 use near_vm_logic::types::Gas;
 use near_vm_logic::{ExtCosts, VMLogic, EXT_COSTS_COUNTER};

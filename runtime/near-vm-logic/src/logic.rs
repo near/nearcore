@@ -1,16 +1,17 @@
-use crate::config::ActionCosts;
-use crate::config::ExtCosts::*;
-use crate::config::VMConfig;
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
-use crate::types::{
-    AccountId, Balance, EpochHeight, Gas, ProfileData, PromiseIndex, PromiseResult,
-    ProtocolVersion, ReceiptIndex, ReturnData, StorageUsage,
-};
+use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
-use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
+use crate::{HostError, VMLogicError, ValuePtr};
 use byteorder::ByteOrder;
+use near_primitives::config::ExtCosts::*;
+use near_primitives::{
+    config::{ActionCosts, ExtCosts, VMConfig},
+    profile::ProfileData,
+    types::{AccountId, Balance, EpochHeight, Gas, StorageUsage},
+    version::ProtocolVersion,
+};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::InconsistentStateError;

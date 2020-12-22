@@ -6,7 +6,7 @@ use near_primitives::serialize::u128_dec_format;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::ProtocolVersion;
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::VMConfig;
+use near_primitives::config::VMConfig;
 use std::sync::Arc;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
