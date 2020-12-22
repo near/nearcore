@@ -21,8 +21,8 @@ npm i -g near-cli truffle
 
 mkdir -p ~/.near-credentials/local
 cp ~/.near/test0/validator_key.json ~/.near-credentials/local/test0.json
-
-env NEAR_ENV=local near evm-dev-init test0 10
+export NEAR_PYTEST=1
+env NEAR_ENV=local near --nodeUrl http://localhost:3040 --masterAccount test0 evm-dev-init test0 10
 
 env NEAR_MASTER_ACCOUNT=test0 truffle migrate --network near_localnet --reset
 env NEAR_MASTER_ACCOUNT=test0 truffle test --network near_localnet
