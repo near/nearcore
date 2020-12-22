@@ -1,2 +1,2 @@
-pytest --timeout=1000 evm/balancer_localnode.py
+pytest --timeout=3600 evm/balancer_localnode.py
 pytest --timeout=1800 evm/balancer_betanet.py
