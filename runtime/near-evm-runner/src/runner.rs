@@ -264,7 +264,6 @@ impl<'a> EvmContext<'a> {
             &self.fees_config.evm_config,
             self.chain_id,
         )?;
-        println!("{:?}", result);
         self.process_call_result(result)
     }
 
