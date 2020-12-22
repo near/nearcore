@@ -578,7 +578,6 @@ pub fn run_evm(
             context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();
             r
         }
-        // TODO: MetaCalls are currently disabled
         Method::MetaCall => {
             let r = context.meta_call_function(args);
             context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();

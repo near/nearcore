@@ -76,32 +76,38 @@ pub fn encode_meta_call_function_args(
     fee_amount: U256,
     fee_token: Address,
     address: Address,
-    method_name: &str,
+    method_def: &str,
     args: Vec<u8>,
 ) -> Vec<u8> {
     let domain_separator = near_erc721_domain(U256::from(chain_id));
-    let msg = prepare_meta_call_args(
+    let (msg, _) = prepare_meta_call_args(
         &domain_separator,
         &"evm".to_string(),
         nonce,
         fee_amount,
         fee_token,
         address,
-        method_name,
+        method_def,
         &args,
-    );
+    )
+    .unwrap();
     match signer.sign(&msg) {
         Signature::ED25519(_) => panic!("Wrong Signer"),
-        Signature::SECP256K1(sig) => [
-            Into::<[u8; 65]>::into(sig).to_vec(),
-            u256_to_arr(&nonce).to_vec(),
-            u256_to_arr(&fee_amount).to_vec(),
-            fee_token.0.to_vec(),
-            address.0.to_vec(),
-            vec![method_name.len() as u8],
-            method_name.as_bytes().to_vec(),
-            args,
-        ]
-        .concat(),
+        Signature::SECP256K1(sig) => {
+            let mut signature = Into::<[u8; 65]>::into(sig.clone()).to_vec();
+            // Add 27 to align eth-sig-util signature format
+            signature[64] += 27;
+            [
+                signature,
+                u256_to_arr(&nonce).to_vec(),
+                u256_to_arr(&fee_amount).to_vec(),
+                fee_token.0.to_vec(),
+                address.0.to_vec(),
+                vec![method_def.len() as u8],
+                method_def.as_bytes().to_vec(),
+                args,
+            ]
+            .concat()
+        }
     }
 }

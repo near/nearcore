@@ -4,12 +4,14 @@ extern crate lazy_static_include;
 use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
 use ethereum_types::{Address, H256, U256};
+use keccak_hash::keccak;
 
 use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::types::{TransferArgs, WithdrawArgs};
 use near_evm_runner::utils::{
-    address_from_arr, address_to_vec, encode_call_function_args, encode_view_call_function_args,
-    near_account_id_to_evm_address, near_erc721_domain, parse_meta_call, u256_to_arr,
+    address_from_arr, address_to_vec, ecrecover_address, encode_address, encode_call_function_args,
+    encode_string, encode_view_call_function_args, near_account_id_to_evm_address,
+    near_erc721_domain, parse_meta_call, u256_to_arr,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{EvmError, VMLogicError};
@@ -21,8 +23,6 @@ use crate::utils::{
     CHAIN_ID,
 };
 mod utils;
-
-use parity_bytes::ToPretty;
 
 use_contract!(soltest, "tests/build/SolTests.abi");
 use_contract!(subcontract, "tests/build/SubContract.abi");
@@ -163,6 +163,34 @@ fn test_deploy_and_transfer() {
 }
 
 #[test]
+fn test_meta_call() {
+    let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
+    let signer = InMemorySigner::from_seed(&accounts(1), KeyType::SECP256K1, "a");
+    let signer_addr = public_key_to_address(signer.public_key.clone());
+    let domain_separator = near_erc721_domain(U256::from(CHAIN_ID));
+
+    let meta_tx = encode_meta_call_function_args(
+        &signer,
+        CHAIN_ID,
+        U256::from(0),
+        U256::from(6),
+        Address::from_slice(&[0u8; 20]),
+        test_addr.clone(),
+        "deployNewGuy(uint256 _aNumber)",
+        // RLP encode of ["0x08"]
+        hex::decode("c108").unwrap(),
+    );
+    let mut context =
+        create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
+    let raw = context.meta_call_function(meta_tx).unwrap();
+
+    // The sub_addr should have been transferred 100 yoctoN.
+    let sub_addr = raw[12..32].to_vec();
+    assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(100));
+    assert_eq!(context.get_balance(sub_addr).unwrap(), U256::from(100));
+}
+
+#[test]
 fn test_deploy_with_value() {
     let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
 
@@ -258,52 +286,77 @@ fn test_solidity_accurate_storage_on_selfdestruct() {
 }
 
 #[test]
-fn test_meta_call() {
-    let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
-    let signer = InMemorySigner::from_random("doesnt".to_string(), KeyType::SECP256K1);
-    let mut context =
-        create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
+fn test_meta_call_sig_and_recover() {
+    let (mut _fake_external, test_addr, _vm_config, _fees_config) = setup_and_deploy_test();
+    let signer = InMemorySigner::from_seed("doesnt", KeyType::SECP256K1, "a");
+    let signer_addr = public_key_to_address(signer.public_key.clone());
+    let domain_separator = near_erc721_domain(U256::from(CHAIN_ID));
+
     let meta_tx = encode_meta_call_function_args(
         &signer,
         CHAIN_ID,
-        U256::from(0),
-        U256::from(0),
+        U256::from(14),
+        U256::from(6),
+        Address::from_slice(&[0u8; 20]),
+        test_addr.clone(),
+        "adopt(uint256 petId)",
+        // RLP encode of ["0x09"]
+        hex::decode("c109").unwrap(),
+    );
+
+    // meta_tx[0..65] is eth-sig-util format signature
+    // assert signature same as eth-sig-util, which also implies msg before sign (constructed by prepare_meta_call_args, follow eip-712) same
+    assert_eq!(hex::encode(&meta_tx[0..65]), "29b88cd2fab58cfd0d05eacdabaab081257d62bdafe9153922025c8e8723352d61922acbb290bd1dba8f17f174d47cd5cc41480d19a82a0bff4d0b9b9441399b1c");
+    let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx).unwrap();
+    assert_eq!(result.sender, signer_addr);
+
+    let meta_tx2 = encode_meta_call_function_args(
+        &signer,
+        CHAIN_ID,
+        U256::from(14),
+        U256::from(6),
+        Address::from_slice(&[0u8; 20]),
+        test_addr.clone(),
+        // must not have trailing space after comma
+        "adopt(uint256 petId,string petName)",
+        // RLP encode of ["0x09", "0x436170734C6F636B"] (9 and "CapsLock" in hex)
+        hex::decode("ca0988436170734c6f636b").unwrap(),
+    );
+    assert_eq!(hex::encode(&meta_tx2[0..65]), "8f5e467a71327b1f23330ff0918dd55ab61daf65b4726c1457c91982964a78ee47874a32b6e1b8479da60d3e17de891e3f8c4cbc9f269da06b232862f51b0ba51b");
+    let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx2).unwrap();
+    assert_eq!(result.sender, signer_addr);
+
+    let meta_tx3 = encode_meta_call_function_args(
+        &signer,
+        CHAIN_ID,
+        U256::from(14),
+        U256::from(6),
         Address::from_slice(&[0u8; 20]),
         test_addr,
-        "returnSomeFunds()",
-        vec![],
+        "adopt(uint256 petId,PetObj petObject)PetObj(string petName,address owner)",
+        // RLP encode of ["0x09", ["0x436170734C6F636B", "0x0123456789012345678901234567890123456789"]]
+        hex::decode("e009de88436170734c6f636b940123456789012345678901234567890123456789").unwrap(),
     );
-    let _ = context.meta_call_function(meta_tx.clone()).unwrap();
-    let signer_addr = public_key_to_address(signer.public_key);
-    assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(150));
-    assert_eq!(context.get_balance(signer_addr.0.to_vec()).unwrap(), U256::from(50));
-    assert_eq!(
-        context.meta_call_function(meta_tx).unwrap_err().to_string(),
-        "EvmError(InvalidNonce)"
-    );
+    assert_eq!(hex::encode(&meta_tx3[0..65]), "0a2af43c3efab7ce535a00125b2505823c3c3218bacab1546a3e569ec15ca4557352f16ebabeeaa066a239346d7870afd49bf6e0b7b5c0d398d5cf894f3bdc8f1c");
+    let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx3).unwrap();
+    assert_eq!(result.sender, signer_addr);
 }
 
 #[test]
-#[ignore]
-fn test_meta_call_sig_recover() {
-    let meta_tx = [
-            // signature: 65 bytes
-            hex::decode("1cb6f28f29524cf3ae5ce49f364b5ad798af5dd8ec3563744dc62792735ce5e222285df1e91c416e430d0a38ea3b51d6677e337e1b0684d7618f5a00a26a2ee21c").unwrap(),
-            // nonce: 14
-            u256_to_arr(&U256::from(14)).to_vec(),
-            // fee amount: 6
-            u256_to_arr(&U256::from(6)).to_vec(),
-            // fee token: 0x0
-            vec![0; 20],
-            // contract: address,
-            hex::decode("Ed2a1b3Fa739DAbBf8c07a059dE1333D20e8b482").unwrap(),
-            // contract method: length 1 byte + bytes for the name.
-            vec![14],
-            b"adopt(uint256)".to_vec(),
-            // arguments
-            u256_to_arr(&U256::from(9)).to_vec(),
-        ].concat();
-    let domain_separator = near_erc721_domain(U256::from(CHAIN_ID));
-    let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx).unwrap();
-    assert_eq!(result.sender.to_hex(), "2941022347348828A24a5ff33c775D67691681e9");
+fn test_ecrecover() {
+    let msg2 =
+        hex::decode("c1719db355fee5122b0625b9274ee6d385ced2f2a530d0de2edb77b541d52c3e").unwrap();
+    let mut msg = [0u8; 32];
+    msg.copy_from_slice(&msg2[..32]);
+
+    let signature2 = hex::decode("c710c068462547d3d3c452a4abc14fd91f152357c21e667ad6ac67130e76e9a1501491aa4e9d35846bff49d9c77e913217031fdc44f1dc36271a4b7d637763d01b").unwrap();
+    let mut signature: [u8; 65] = [0; 65];
+    // This is a sig from eth-sig-util, last one byte already added 27
+    signature[0] = signature2[64];
+    signature[1..].copy_from_slice(&signature2[..64]);
+
+    assert_eq!(
+        ecrecover_address(&msg, &signature).0.to_vec(),
+        hex::decode("3b748cf099f8068951f87331d1970bcafda8a4db").unwrap()
+    );
 }
