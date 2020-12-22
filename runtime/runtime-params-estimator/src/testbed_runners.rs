@@ -137,8 +137,8 @@ fn start_count_instructions() -> Consumed {
 }
 
 fn end_count_instructions() -> u64 {
-    const use_io_costs: bool = true;
-    if use_io_costs {
+    const USE_IO_COSTS: bool = true;
+    if USE_IO_COSTS {
         let result_insn = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED);
         let result_read = hypercall(HYPERCALL_GET_BYTES_READ);
         let result_written = hypercall(HYPERCALL_GET_BYTES_WRITTEN);
