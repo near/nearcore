@@ -1,5 +1,6 @@
 use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, evm_account};
+use crate::user::User;
 use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
 use ethereum_types::{Address, U256};
@@ -108,12 +109,7 @@ pub fn test_evm_deploy_call(node: impl Node) {
     assert_eq!(result.len(), 0);
 }
 
-/// Tests ownership functionality of the "CryptoZombies" contract.
-pub fn test_evm_crypto_zombies_contract_ownership(node: impl Node) {
-    let node_user = node.user();
-    let contract_id = deploy_zombie_attack_contract(node);
-
-    // Alice should be the owner of the contract now, let's verify that
+fn alice_is_owner(node_user: &Box<dyn User>, contract_id: Address) {
     let (input, _decoder) = cryptozombies::functions::owner::call();
     let alice_address = near_evm_runner::utils::near_account_id_to_evm_address(&alice_account());
     let args = encode_view_call_function_args(alice_address, contract_id, U256::zero(), input);
@@ -125,6 +121,15 @@ pub fn test_evm_crypto_zombies_contract_ownership(node: impl Node) {
         .unwrap();
     let res = cryptozombies::functions::owner::decode_output(&bytes).unwrap();
     assert_eq!(res, alice_address);
+}
+
+/// Test ownership transfer functionality of the "CryptoZombies" contract.
+pub fn test_evm_crypto_zombies_contract_ownership_transfer(node: impl Node) {
+    let node_user = node.user();
+    let contract_id = deploy_zombie_attack_contract(node);
+
+    // Alice should be the owner of the contract now, let's verify that
+    alice_is_owner(&node_user, contract_id);
 
     // transfer the contract ownership from Alice to Bob
     let bob_address = near_evm_runner::utils::near_account_id_to_evm_address(&bob_account());
@@ -142,6 +147,7 @@ pub fn test_evm_crypto_zombies_contract_ownership(node: impl Node) {
 
     // verify Bob is the new contract owner now
     let (input, _decoder) = cryptozombies::functions::owner::call();
+    let alice_address = near_evm_runner::utils::near_account_id_to_evm_address(&alice_account());
     let args = encode_view_call_function_args(alice_address, contract_id, U256::zero(), input);
     let bytes = node_user
         .function_call(alice_account(), evm_account(), "view", args.clone(), 10u64.pow(14), 0)
@@ -150,8 +156,60 @@ pub fn test_evm_crypto_zombies_contract_ownership(node: impl Node) {
         .as_success_decoded()
         .unwrap();
     let res = cryptozombies::functions::owner::decode_output(&bytes).unwrap();
-    let bob_address = near_evm_runner::utils::near_account_id_to_evm_address(&bob_account());
     assert_eq!(res, bob_address);
+}
+
+/// Test the level up functionality of the "CryptoZombies" contract.
+pub fn test_evm_crypto_zombies_contract_level_up(node: impl Node) {
+    let node_user = node.user();
+    let contract_id = deploy_zombie_attack_contract(node);
+
+    // create a zombie
+    let (input, _decoder) = cryptozombies::functions::create_random_zombie::call("test");
+    let args = encode_call_function_args(contract_id, input);
+    assert_eq!(
+        node_user
+            .function_call(alice_account(), evm_account(), "call", args, 10u64.pow(14), 0)
+            .unwrap()
+            .status
+            .as_success_decoded()
+            .unwrap(),
+        Vec::<u8>::new()
+    );
+
+    // level up the zombie
+    let (input, _decoder) = cryptozombies::functions::level_up::call(U256::zero());
+    let level_up_fee = 10u128.pow(15); // 0.001 Ether
+    let args = encode_call_function_args(contract_id, input);
+    assert_eq!(
+        node_user
+            .function_call(
+                alice_account(),
+                evm_account(),
+                "call",
+                args,
+                10u64.pow(14),
+                level_up_fee
+            )
+            .unwrap()
+            .status
+            .as_success_decoded()
+            .unwrap(),
+        Vec::<u8>::new()
+    );
+
+    // Alice withdraws payment(s) from contract
+    let (input, _decoder) = cryptozombies::functions::withdraw::call();
+    let args = encode_call_function_args(contract_id, input);
+    assert_eq!(
+        node_user
+            .function_call(alice_account(), evm_account(), "call", args, 10u64.pow(14), 0)
+            .unwrap()
+            .status
+            .as_success_decoded()
+            .unwrap(),
+        Vec::<u8>::new()
+    );
 }
 
 pub fn test_evm_call_standard_precompiles(node: impl Node) {
