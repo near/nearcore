@@ -78,6 +78,11 @@ neard = { path = "./neard"}
 
 testlib = { path = "./test-utils/testlib" }
 
+[dev-dependencies.cargo-husky]
+version = "1"
+default-features = false # Disable features which are enabled by default
+features = ["precommit-hook", "run-cargo-fmt"]
+
 [profile.release]
 lto = true        # Enable full link-time optimization.
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
