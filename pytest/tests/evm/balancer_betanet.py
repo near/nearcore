@@ -1,10 +1,11 @@
 from rc import bash, ok
 import sys
 
-ok(bash('''
+ok(bash(f'''
 rm -rf balancer-core
 git clone https://github.com/near/balancer-core.git
 cd balancer-core
+git merge origin/hotfix/skip-flawed-test --no-ff --no-edit
 npm i
 npm i -g near-cli truffle
 
