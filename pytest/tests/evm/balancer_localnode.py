@@ -1,8 +1,8 @@
+from cluster import start_cluster
 from rc import bash, ok
 import sys
 
 sys.path.append('lib')
-from cluster import start_cluster
 
 ok(bash('''
 cd ..
@@ -16,7 +16,7 @@ rm -rf balancer-core
 git clone https://github.com/near/balancer-core.git
 cd balancer-core
 npm i
-npm i -g near-cli
+npm i -g near-cli truffle
 
 mkdir -p ~/.near-credentials/local
 cp ~/.near/test0/validator_key.json ~/.near-credentials/local/test0.json
