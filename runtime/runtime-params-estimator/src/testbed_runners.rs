@@ -109,9 +109,14 @@ pub fn measure_actions(
     measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
+// We use several "magical" file descriptors to interact with the plugin in QEMU
+// intercepting read syscall. Plugin counts instructions executed and amount of data transferred
+// by IO operations. We "normalize" all those costs into instruction count.
 const CATCH_BASE: u32 = 0xcafebabe;
 const HYPERCALL_START_COUNTING: u32 = 0;
 const HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED: u32 = 1;
+const HYPERCALL_GET_BYTES_READ: u32 = 2;
+const HYPERCALL_GET_BYTES_WRITTEN: u32 = 3;
 
 fn hypercall(index: u32) -> u64 {
     let mut result: u64 = 0;
@@ -132,7 +137,11 @@ fn start_count_instructions() -> Consumed {
 }
 
 fn end_count_instructions() -> u64 {
-    hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)
+    let result_insn = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED);
+    let result_read = hypercall(HYPERCALL_GET_BYTES_READ);
+    let result_written = hypercall(HYPERCALL_GET_BYTES_WRITTEN);
+    // See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
+    result_insn + result_read * 27 + result_written * 47
 }
 
 fn start_count_time() -> Consumed {
