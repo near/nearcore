@@ -2,6 +2,7 @@ from rc import bash, ok
 import sys
 
 ok(bash('''
+rm -rf balancer-core
 git clone https://github.com/near/balancer-core.git
 cd balancer-core
 npm i

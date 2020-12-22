@@ -1,8 +1,8 @@
-from cluster import start_cluster
 from rc import bash, ok
 import sys
 
 sys.path.append('lib')
+from cluster import start_cluster
 
 ok(bash('''
 cd ..
@@ -14,6 +14,7 @@ nodes = start_cluster(1, 0, 1, None, [], {})
 ok(bash('''
 rm -rf balancer-core
 git clone https://github.com/near/balancer-core.git
+git checkout near-evm-nightly
 cd balancer-core
 npm i
 npm i -g near-cli truffle
