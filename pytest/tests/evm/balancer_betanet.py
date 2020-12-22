@@ -6,6 +6,7 @@ git clone https://github.com/near/balancer-core.git
 cd balancer-core
 npm i
 npm i -g near-cli
+near
 
 # test account exists, so do not create them again
 # env NEAR_ENV=betanet near evm-dev-init balancer-core-test.betanet 10
