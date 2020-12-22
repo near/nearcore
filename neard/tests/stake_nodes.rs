@@ -21,6 +21,9 @@ use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
 use testlib::{genesis_hash, test_helpers::heavy_test};
 
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+use {near_primitives::types::BlockId, primitive_types::U256};
+
 #[derive(Clone)]
 struct TestNode {
     account_id: AccountId,
@@ -472,6 +475,7 @@ fn test_inflation() {
         );
         let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;
         let max_inflation_rate = test_nodes[0].config.genesis.config.max_inflation_rate;
+        #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
         let num_blocks_per_year = test_nodes[0].config.genesis.config.num_blocks_per_year;
 
         let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
@@ -488,23 +492,51 @@ fn test_inflation() {
                     }
                     future::ready(())
                 }));
-                actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(move |res| {
-                    let header_view = res.unwrap().unwrap().header;
-                    // It's expected that validator will miss first chunk, hence will only be 95% online, getting 50% of their reward.
-                    // +10% of protocol reward = 60% of max inflation are allocated.
-                    let base_reward = initial_total_supply
-                        * epoch_length as u128
-                        * *max_inflation_rate.numer() as u128
-                        / (num_blocks_per_year as u128 * *max_inflation_rate.denom() as u128);
-                    // To match rounding, split into protocol reward and validator reward.
-                    let inflation = base_reward * 1 / 10 + base_reward * 5 / 10;
+                let view_client = test_nodes[0].view_client.clone();
+                actix::spawn(async move {
+                    let header_view =
+                        view_client.send(GetBlock::latest()).await.unwrap().unwrap().header;
                     if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
+                        // It's expected that validator will miss first chunk, hence will only be 95% online, getting 5/9 of their reward.
+                        // +10% of protocol reward = 60% of max inflation are allocated.
+                        #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
+                        let base_reward = initial_total_supply
+                            * epoch_length as u128
+                            * *max_inflation_rate.numer() as u128
+                            / (num_blocks_per_year as u128 * *max_inflation_rate.denom() as u128);
+                        #[cfg(feature = "protocol_feature_rectify_inflation")]
+                        let base_reward = {
+                            let genesis_block_view = view_client
+                                .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))))
+                                .await
+                                .unwrap()
+                                .unwrap();
+                            let epoch_end_block_view = view_client
+                                .send(GetBlock(BlockReference::BlockId(BlockId::Height(
+                                    epoch_length,
+                                ))))
+                                .await
+                                .unwrap()
+                                .unwrap();
+                            (U256::from(initial_total_supply)
+                                * U256::from(
+                                    epoch_end_block_view.header.timestamp_nanosec
+                                        - genesis_block_view.header.timestamp_nanosec,
+                                )
+                                * U256::from(*max_inflation_rate.numer() as u64)
+                                / (U256::from(10u64.pow(9) * 365 * 24 * 60 * 60)
+                                    * U256::from(*max_inflation_rate.denom() as u64)))
+                            .as_u128()
+                        };
+                        // To match rounding, split into protocol reward and validator reward.
+                        let protocol_reward = base_reward * 1 / 10;
+                        let inflation =
+                            base_reward * 1 / 10 + (base_reward - protocol_reward) * 5 / 9;
                         if header_view.total_supply == initial_total_supply + inflation {
                             done2_copy2.store(true, Ordering::SeqCst);
                         }
                     }
-                    future::ready(())
-                }));
+                });
                 if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
                     System::current().stop();
                 }

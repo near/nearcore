@@ -9,9 +9,9 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
     SignedTransaction, StakeAction,
 };
-use near_primitives::utils::is_valid_account_id;
 use near_primitives::version::ProtocolVersion;
 use near_runtime_configs::get_insufficient_storage_stake;
+use near_runtime_utils::is_valid_account_id;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };

@@ -1,11 +1,17 @@
+use std::cmp::Ordering;
+use std::collections::HashMap;
+
+use num_rational::Rational;
+
 use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::block_header::{BlockHeader, BlockHeaderV2};
-use crate::errors::EpochError;
+use crate::errors::{EpochError, TxExecutionError};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
+use crate::serialize::from_base64;
 use crate::sharding::ShardChunkHeader;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -15,8 +21,7 @@ use crate::transaction::{
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
-use num_rational::Rational;
-use std::collections::HashMap;
+use crate::views::FinalExecutionStatus;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
@@ -428,5 +433,47 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         Ok(0)
+    }
+
+    fn verify_validator_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _account_id: &String,
+        _data: &[u8],
+        _signature: &Signature,
+    ) -> Result<bool, EpochError> {
+        Ok(true)
+    }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, EpochError> {
+        if epoch_id == other_epoch_id {
+            Ok(Ordering::Equal)
+        } else {
+            Ok(Ordering::Greater)
+        }
+    }
+}
+
+impl FinalExecutionStatus {
+    pub fn as_success(self) -> Option<String> {
+        match self {
+            FinalExecutionStatus::SuccessValue(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_failure(self) -> Option<TxExecutionError> {
+        match self {
+            FinalExecutionStatus::Failure(failure) => Some(failure),
+            _ => None,
+        }
+    }
+
+    pub fn as_success_decoded(self) -> Option<Vec<u8>> {
+        self.as_success().and_then(|value| from_base64(&value).ok())
     }
 }

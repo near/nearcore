@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -14,13 +13,16 @@ use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::{Genesis, GenesisConfig};
+#[cfg(feature = "protocol_feature_evm")]
+use near_chain_configs::{MAINNET_EVM_CHAIN_ID, TEST_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::{EpochManager, RewardCalculator};
+use near_epoch_manager::EpochManager;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
+use near_primitives::contract::ContractCode;
+use near_primitives::epoch_manager::BlockInfo;
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -57,6 +59,7 @@ const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 /// Wrapper type for epoch manager to get avoid implementing trait for foreign types.
+#[derive(Clone)]
 pub struct SafeEpochManager(pub Arc<RwLock<EpochManager>>);
 
 impl AsRef<RwLock<EpochManager>> for SafeEpochManager {
@@ -110,6 +113,35 @@ impl EpochInfoProvider for SafeEpochManager {
         let mut epoch_manager = self.0.write().expect(POISONED_LOCK_ERR);
         epoch_manager.minimum_stake(prev_block_hash)
     }
+
+    fn verify_validator_signature(
+        &self,
+        epoch_id: &EpochId,
+        account_id: &String,
+        data: &[u8],
+        signature: &Signature,
+    ) -> Result<bool, EpochError> {
+        let mut epoch_manager = self.as_ref().write().expect(POISONED_LOCK_ERR);
+        let validator = match epoch_manager.get_validator_by_account_id(epoch_id, account_id)? {
+            Some(v) => v,
+            None => return Ok(false),
+        };
+
+        Ok(signature.verify(data, &validator.public_key))
+    }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, EpochError> {
+        // if the epoch ids are the same, don't need to take the lock.
+        if epoch_id == other_epoch_id {
+            return Ok(Ordering::Equal);
+        }
+        let mut epoch_manager = self.as_ref().write().expect(POISONED_LOCK_ERR);
+        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id)
+    }
 }
 
 /// Defines Nightshade state transition and validator rotation.
@@ -135,74 +167,45 @@ impl NightshadeRuntime {
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
     ) -> Self {
+        let epoch_manager = SafeEpochManager(Arc::new(RwLock::new(EpochManager::from_genesis(
+            genesis,
+            store.clone(),
+        ))));
+        Self::new_with_epoch_manager(
+            home_dir,
+            store,
+            genesis,
+            initial_tracking_accounts,
+            initial_tracking_shards,
+            epoch_manager,
+        )
+    }
+
+    pub fn new_with_epoch_manager(
+        home_dir: &Path,
+        store: Arc<Store>,
+        genesis: &Genesis,
+        initial_tracking_accounts: Vec<AccountId>,
+        initial_tracking_shards: Vec<ShardId>,
+        epoch_manager: SafeEpochManager,
+    ) -> Self {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new();
         let genesis_config = genesis.config.clone();
         let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
-        let initial_epoch_config = EpochConfig {
-            epoch_length: genesis.config.epoch_length,
-            num_shards,
-            num_block_producer_seats: genesis.config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: genesis
-                .config
-                .num_block_producer_seats_per_shard
-                .clone(),
-            avg_hidden_validator_seats_per_shard: genesis
-                .config
-                .avg_hidden_validator_seats_per_shard
-                .clone(),
-            block_producer_kickout_threshold: genesis.config.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: genesis.config.chunk_producer_kickout_threshold,
-            fishermen_threshold: genesis.config.fishermen_threshold,
-            online_min_threshold: genesis.config.online_min_threshold,
-            online_max_threshold: genesis.config.online_max_threshold,
-            protocol_upgrade_num_epochs: genesis.config.protocol_upgrade_num_epochs,
-            protocol_upgrade_stake_threshold: genesis.config.protocol_upgrade_stake_threshold,
-            minimum_stake_divisor: genesis.config.minimum_stake_divisor,
-        };
-        let reward_calculator = RewardCalculator {
-            max_inflation_rate: genesis.config.max_inflation_rate,
-            num_blocks_per_year: genesis.config.num_blocks_per_year,
-            epoch_length: genesis.config.epoch_length,
-            protocol_reward_rate: genesis.config.protocol_reward_rate,
-            protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
-            online_max_threshold: genesis.config.online_max_threshold,
-            online_min_threshold: genesis.config.online_min_threshold,
-        };
+
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let tries = ShardTries::new(
             store.clone(),
             genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
         );
-        let epoch_manager = Arc::new(RwLock::new(
-            EpochManager::new(
-                store.clone(),
-                initial_epoch_config,
-                genesis_config.protocol_version,
-                reward_calculator,
-                genesis_config
-                    .validators
-                    .iter()
-                    .map(|account_info| ValidatorStake {
-                        account_id: account_info.account_id.clone(),
-                        public_key: account_info
-                            .public_key
-                            .clone()
-                            .try_into()
-                            .expect("Failed to deserialize validator public key"),
-                        stake: account_info.amount,
-                    })
-                    .collect(),
-            )
-            .expect("Failed to start Epoch Manager"),
-        ));
         let shard_tracker = ShardTracker::new(
             initial_tracking_accounts,
             initial_tracking_shards,
             EpochId::default(),
-            epoch_manager.clone(),
+            epoch_manager.0.clone(),
             num_shards,
         );
         NightshadeRuntime {
@@ -212,7 +215,7 @@ impl NightshadeRuntime {
             tries,
             runtime,
             trie_viewer,
-            epoch_manager: SafeEpochManager(epoch_manager),
+            epoch_manager,
             shard_tracker,
             genesis_state_roots: state_roots,
         }
@@ -447,6 +450,8 @@ impl NightshadeRuntime {
                 current_protocol_version,
             ),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: self.evm_chain_id(),
         };
 
         let apply_result = self
@@ -805,9 +810,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .get_all_block_producers_ordered(epoch_id, last_known_block_hash)
-            .map_err(Error::from)
+        Ok(epoch_manager.get_all_block_producers_ordered(epoch_id, last_known_block_hash)?.to_vec())
     }
 
     fn get_epoch_block_approvers_ordered(
@@ -1016,6 +1019,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_header_info.slashed_validators,
             block_header_info.total_supply,
             block_header_info.latest_protocol_version,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            block_header_info.timestamp_nanosec,
         );
         let rng_seed = (block_header_info.random_value.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
@@ -1127,6 +1132,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Err(e) => Err(e),
                 }
             }
+            QueryRequest::ViewCode { account_id } => {
+                match self.view_contract_code(shard_id, *state_root, account_id) {
+                    Ok(r) => Ok(QueryResponse {
+                        kind: QueryResponseKind::ViewCode(r.into()),
+                        block_height,
+                        block_hash: *block_hash,
+                    }),
+                    Err(e) => Err(e),
+                }
+            }
             QueryRequest::CallFunction { account_id, method_name, args } => {
                 let mut logs = vec![];
                 let (epoch_height, current_protocol_version) = {
@@ -1150,6 +1165,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &mut logs,
                     &self.epoch_manager,
                     current_protocol_version,
+                    #[cfg(feature = "protocol_feature_evm")]
+                    self.evm_chain_id(),
                 ) {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::CallResult(CallResult { result, logs }),
@@ -1245,8 +1262,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
-                    "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                    state_root, part_id, num_parts, e
+                       "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
+                       state_root, part_id, num_parts, e
                 );
                 return Err(e.to_string().into());
             }
@@ -1336,15 +1353,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
-    }
-
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         chunk_prev_block_hash: &CryptoHash,
@@ -1367,6 +1375,15 @@ impl RuntimeAdapter for NightshadeRuntime {
             && chunk_next_epoch_id != head_epoch_id
             && chunk_epoch_id != head_next_epoch_id)
     }
+
+    #[cfg(feature = "protocol_feature_evm")]
+    /// ID of the EVM chain: https://github.com/ethereum-lists/chains
+    fn evm_chain_id(&self) -> u128 {
+        match self.genesis_config.chain_id.as_str() {
+            "mainnet" => MAINNET_EVM_CHAIN_ID,
+            _ => TEST_EVM_CHAIN_ID,
+        }
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1378,6 +1395,16 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<Account, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
+    }
+
+    fn view_contract_code(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<ContractCode, Box<dyn std::error::Error>> {
+        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        self.trie_viewer.view_contract_code(&state_update, account_id)
     }
 
     fn call_function(
@@ -1395,6 +1422,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u128,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let view_state = ViewApplyState {
@@ -1405,10 +1433,12 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             block_timestamp,
             current_protocol_version,
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id,
         };
         self.trie_viewer.call_function(
             state_update,
-            &view_state,
+            view_state,
             contract_id,
             method_name,
             args,
@@ -1492,6 +1522,10 @@ mod test {
     use crate::get_store_path;
 
     use super::*;
+    use std::convert::TryInto;
+
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    use primitive_types::U256;
 
     fn stake(
         nonce: Nonce,
@@ -1558,6 +1592,8 @@ mod test {
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
         pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
         pub last_proposals: Vec<ValidatorStake>,
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        time: u64,
     }
 
     impl TestEnv {
@@ -1612,6 +1648,8 @@ mod test {
                     chunk_mask: vec![],
                     total_supply: genesis_total_supply,
                     latest_protocol_version: genesis_protocol_version,
+                    #[cfg(feature = "protocol_feature_rectify_inflation")]
+                    timestamp_nanosec: 0,
                 })
                 .unwrap();
             Self {
@@ -1627,6 +1665,8 @@ mod test {
                 last_receipts: HashMap::default(),
                 last_proposals: vec![],
                 last_shard_proposals: HashMap::default(),
+                #[cfg(feature = "protocol_feature_rectify_inflation")]
+                time: 0,
             }
         }
 
@@ -1680,10 +1720,17 @@ mod test {
                     chunk_mask,
                     total_supply: self.runtime.genesis_config.total_supply,
                     latest_protocol_version: self.runtime.genesis_config.protocol_version,
+                    #[cfg(feature = "protocol_feature_rectify_inflation")]
+                    timestamp_nanosec: self.time + 10u64.pow(9),
                 })
                 .unwrap();
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                self.time += 10u64.pow(9);
+            }
+
             self.head = Tip {
                 last_block_hash: new_hash,
                 prev_block_hash: self.head.last_block_hash,
@@ -1711,19 +1758,47 @@ mod test {
         }
 
         /// Compute per epoch per validator reward and per epoch protocol treasury reward
-        pub fn compute_reward(&self, num_validators: usize) -> (Balance, Balance) {
-            let per_epoch_total_reward = *self.runtime.genesis_config.max_inflation_rate.numer()
-                as u128
-                * self.runtime.genesis_config.total_supply
-                * self.runtime.genesis_config.epoch_length as u128
-                / (self.runtime.genesis_config.num_blocks_per_year as u128
-                    * *self.runtime.genesis_config.max_inflation_rate.denom() as u128);
-            let per_epoch_protocol_treasury = per_epoch_total_reward
-                * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
-                / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
-            let per_epoch_per_validator_reward =
-                (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
-            (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
+        pub fn compute_reward(
+            &self,
+            num_validators: usize,
+            #[cfg(feature = "protocol_feature_rectify_inflation")] epoch_duration: u64,
+        ) -> (Balance, Balance) {
+            #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
+            {
+                let per_epoch_total_reward = *self.runtime.genesis_config.max_inflation_rate.numer()
+                    as u128
+                    * self.runtime.genesis_config.total_supply
+                    * self.runtime.genesis_config.epoch_length as u128
+                    / (self.runtime.genesis_config.num_blocks_per_year as u128
+                        * *self.runtime.genesis_config.max_inflation_rate.denom() as u128);
+                let per_epoch_protocol_treasury = per_epoch_total_reward
+                    * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
+                    / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
+                let per_epoch_per_validator_reward =
+                    (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
+                (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
+            }
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                let num_seconds_per_year = 60 * 60 * 24 * 365;
+                let num_ns_in_second = 1_000_000_000;
+                let per_epoch_total_reward =
+                    (U256::from(*self.runtime.genesis_config.max_inflation_rate.numer() as u64)
+                        * U256::from(self.runtime.genesis_config.total_supply)
+                        * U256::from(epoch_duration)
+                        / (U256::from(num_seconds_per_year)
+                            * U256::from(
+                                *self.runtime.genesis_config.max_inflation_rate.denom() as u128
+                            )
+                            * U256::from(num_ns_in_second)))
+                    .as_u128();
+                let per_epoch_protocol_treasury = per_epoch_total_reward
+                    * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
+                    / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
+                let per_epoch_per_validator_reward =
+                    (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
+                (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
+            }
         }
     }
 
@@ -2055,12 +2130,11 @@ mod test {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
-        let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
@@ -2068,7 +2142,7 @@ mod test {
         let state_part = env.runtime.obtain_state_part(0, &env.state_roots[0], 0, 1).unwrap();
         let root_node = env.runtime.get_state_root_node(0, &env.state_roots[0]).unwrap();
         let mut new_env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], false);
         for i in 1..=2 {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
@@ -2095,12 +2169,18 @@ mod test {
                     chunk_mask: vec![true],
                     total_supply: new_env.runtime.genesis_config.total_supply,
                     latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
+                    #[cfg(feature = "protocol_feature_rectify_inflation")]
+                    timestamp_nanosec: new_env.time,
                 })
                 .unwrap();
             new_env.head.height = i;
             new_env.head.last_block_hash = cur_hash;
             new_env.head.prev_block_hash = prev_hash;
             new_env.last_proposals = proposals;
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                new_env.time += 10u64.pow(9);
+            }
         }
         assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]));
         let mut root_node_wrong = root_node.clone();
@@ -2118,11 +2198,11 @@ mod test {
 
         let account = new_env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
-        assert_eq!(account.locked, TESTING_INIT_STAKE + 1 + 2 * per_epoch_per_validator_reward);
+        assert_eq!(account.locked, TESTING_INIT_STAKE + 1);
 
         let account = new_env.view_account(&block_producers[1].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-        assert_eq!(account.locked, TESTING_INIT_STAKE + 2 * per_epoch_per_validator_reward);
+        assert_eq!(account.locked, TESTING_INIT_STAKE);
     }
 
     /// Test two shards: the first shard has 2 validators (test1, test4) and the second shard
@@ -2187,13 +2267,12 @@ mod test {
             2,
             vec![],
             vec![],
-            true,
+            false,
         );
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
-        let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
         env.step_default(vec![staking_transaction]);
@@ -2261,7 +2340,7 @@ mod test {
             vec![NextEpochValidatorInfo {
                 account_id: "test2".to_string(),
                 public_key: block_producers[1].public_key(),
-                stake: TESTING_INIT_STAKE + per_epoch_per_validator_reward,
+                stake: TESTING_INIT_STAKE,
                 shards: vec![0],
             }
             .into()]
@@ -2675,11 +2754,12 @@ mod test {
     fn test_validator_reward() {
         init_test_logger();
         let num_nodes = 4;
+        let epoch_length = 4;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new(
             "test_validator_reward",
             vec![validators.clone()],
-            4,
+            epoch_length,
             vec![],
             vec![],
             true,
@@ -2693,7 +2773,11 @@ mod test {
             env.step_default(vec![]);
         }
 
+        #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
         let (validator_reward, protocol_treasury_reward) = env.compute_reward(num_nodes);
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        let (validator_reward, protocol_treasury_reward) =
+            env.compute_reward(num_nodes, epoch_length * 10u64.pow(9));
         for i in 0..4 {
             let account = env.view_account(&block_producers[i].validator_id());
             assert_eq!(account.locked, TESTING_INIT_STAKE + validator_reward);

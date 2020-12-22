@@ -34,6 +34,8 @@ near-network = { path = "../network" }
 near-pool = { path = "../pool" }
 near-chunks = { path = "../chunks" }
 near-telemetry = { path = "../telemetry" }
+near-performance-metrics = { path = "../../utils/near-performance-metrics" }
+near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
 
@@ -51,4 +53,4 @@ metric_recorder = []
 delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "delay-detector"]
 protocol_feature_forward_chunk_parts = ["near-primitives/protocol_feature_forward_chunk_parts", "near-network/protocol_feature_forward_chunk_parts", "near-chunks/protocol_feature_forward_chunk_parts"]
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts"]
+nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_forward_chunk_parts"]

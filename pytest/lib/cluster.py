@@ -13,7 +13,7 @@ import time
 import base58
 import base64
 import retry
-import retrying
+import reattempt
 import rc
 from rc import gcloud
 import traceback
@@ -116,7 +116,7 @@ class BaseNode(object):
             ]
 
     def wait_for_rpc(self, timeout=1):
-        retrying.retry(lambda: self.get_status(), timeout=timeout)
+        reattempt.retry(lambda: self.get_status(), timeout=timeout)
 
     def json_rpc(self, method, params, timeout=2):
         j = {
@@ -501,7 +501,7 @@ chmod +x near
         return super().json_rpc(method, params, timeout=timeout)
 
     def get_status(self):
-        r = retrying.retry(lambda: requests.get(
+        r = reattempt.retry(lambda: requests.get(
             "http://%s:%s/status" % self.rpc_addr(), timeout=15),
                            timeout=45)
         r.raise_for_status()

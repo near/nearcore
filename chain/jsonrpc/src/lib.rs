@@ -38,10 +38,11 @@ use near_primitives::rpc::{
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId};
-use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest,
 };
+use near_runtime_utils::is_valid_account_id;
+
 mod metrics;
 
 /// Max size of the query path (soft-deprecated)
@@ -538,6 +539,7 @@ impl JsonRpcHandler {
 
             let request = match query_command {
                 "account" => QueryRequest::ViewAccount { account_id },
+                "code" => QueryRequest::ViewCode { account_id },
                 "access_key" => match maybe_extra_arg {
                     None => QueryRequest::ViewAccessKeyList { account_id },
                     Some(pk) => QueryRequest::ViewAccessKey {

@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/tmp/target \
     cargo build -p neard --release --features nightly_protocol --features nightly_protocol_features && \
     mkdir /tmp/build && \
     cd /tmp/target/release && \
-    mv ./near /tmp/build
+    mv ./neard /tmp/build
 
 COPY scripts/run_docker.sh /tmp/build/run.sh
 

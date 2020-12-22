@@ -1,6 +1,6 @@
 [package]
 name = "near-runtime-fees"
-version = "2.2.0"
+version = "2.3.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -16,3 +16,7 @@ Fees applied to near runtime encapsulated in a separate crate. Might merge it la
 serde = { version = "1", features = ["derive"] }
 
 num-rational = { version = "0.2.4", features = ["serde"]}
+
+[features]
+default = []
+protocol_feature_evm = []

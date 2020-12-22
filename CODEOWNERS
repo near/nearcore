@@ -1,7 +1,8 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
 /chain/ @SkidanovAlex @bowenwang1996
-/chain/jsonrpc/ @frol @evgenykuzyakov
+/chain/network/ @mfornet @bowenwang1996
+/chain/jsonrpc/ @frol @bowenwang1996
 /chain/indexer/ @khorolets @frol
 /chain/rosetta-rpc/ @frol
 
