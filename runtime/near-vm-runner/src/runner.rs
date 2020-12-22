@@ -161,11 +161,7 @@ pub fn precompile<'a>(
     match vm_kind {
         VMKind::Wasmer => {
             let result = compile_and_serialize_wasmer(code, wasm_config, code_hash, cache);
-            if result.is_err() {
-                result.err()
-            } else {
-                None
-            }
+            result.err()
         }
         VMKind::Wasmtime => Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
             CompilationError::UnsupportedCompiler {
