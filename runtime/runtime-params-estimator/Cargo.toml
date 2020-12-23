@@ -39,6 +39,7 @@ ethabi-derive = "9.0.1"
 ethereum-types = "0.8.0"
 lazy-static-include = "2.2.2"
 num-traits = "0.2.12"
+libc = "0.2.81"
 
 [features]
 default = []

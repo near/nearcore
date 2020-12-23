@@ -1,16 +1,21 @@
 use std::collections::HashMap;
+use std::convert::TryFrom;
+use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ansi_term::Color::Red;
 use clap::{App, Arg, SubCommand};
 
+use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_logger_utils::init_integration_logger;
 use near_network::peer_store::PeerStore;
 use near_primitives::block::BlockHeader;
+use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
@@ -18,6 +23,7 @@ use near_primitives::types::{BlockHeight, ChunkExtra, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
 use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
+use node_runtime::adapter::ViewRuntimeAdapter;
 use state_dump::state_dump;
 
 mod state_dump;
@@ -355,6 +361,12 @@ fn check_block_chunk_existence(store: Arc<Store>, near_config: &NearConfig) {
     println!("Block check succeed");
 }
 
+fn dump_code(account: &str, contract_code: ContractCode, output: &str) {
+    let mut file = File::create(output).unwrap();
+    file.write_all(&contract_code.code).unwrap();
+    println!("Dump contract of account {} into file {}", account, output);
+}
+
 fn main() {
     init_integration_logger();
 
@@ -456,6 +468,23 @@ fn main() {
             SubCommand::with_name("check_block")
                 .help("Check whether the node has all the blocks up to its head"),
         )
+        .subcommand(
+            SubCommand::with_name("dump_code")
+                .arg(
+                    Arg::with_name("account")
+                        .long("account")
+                        .help("account name")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("output")
+                        .long("output")
+                        .help("output wasm file")
+                        .takes_value(true)
+                        .default_value("output.wasm"),
+                )
+                .help("dump deployed contract code of given account to wasm file"),
+        )
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
@@ -533,6 +562,26 @@ fn main() {
         }
         ("check_block", Some(_)) => {
             check_block_chunk_existence(store, &near_config);
+        }
+        ("dump_code", Some(args)) => {
+            let account_id = args.value_of("account").expect("account is required");
+            let (runtime, state_roots, _header) = load_trie(store, &home_dir, &near_config);
+
+            for (shard_id, state_root) in state_roots.iter().enumerate() {
+                let state_root_vec: Vec<u8> = state_root.try_to_vec().unwrap();
+                if let Ok(contract_code) = runtime.view_contract_code(
+                    shard_id as u64,
+                    CryptoHash::try_from(state_root_vec).unwrap(),
+                    &account_id.to_string().into(),
+                ) {
+                    dump_code(account_id, contract_code, args.value_of("output").unwrap());
+                    std::process::exit(0);
+                }
+            }
+            println!(
+                "Account {} does not exist or do not have contract deployed in all shards",
+                account_id
+            );
         }
         (_, _) => unreachable!(),
     }
