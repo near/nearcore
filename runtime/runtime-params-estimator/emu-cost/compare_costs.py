@@ -61,16 +61,22 @@ def rate(c2, c1):
         return "n/a"
     return '{:.2f}'.format(float(c2) / float(c1))
 
+EPSILON=0.2
+def significant(c1, c2):
+    if c1 == 0 or c2 == 0:
+        return c1 != c2
+    return abs((c1 / c2) - 1.0) > EPSILON or abs((c2 / c1) - 1.0) > EPSILON
 
-def process_props(file1, file2, safety1, safety2):
+def process_props(file1, file2, safety1, safety2, diff):
     costs1 = read_costs(file1)
     costs2 = read_costs(file2)
 
     for key in costs1:
         c1 = int(costs1[key]) * safety1
         c2 = int(costs2.get(key, "0")) * safety2
-        print("{}: first={} second={} second/first={}".format(
-            key, c1, c2, rate(c2, c1)))
+        if not diff or significant(c1, c2):
+            print("{}: first={} second={} second/first={}".format(
+                key, c1, c2, rate(c2, c1)))
 
 
 def process_json(file1, file2):
@@ -92,7 +98,9 @@ if __name__ == "__main__":
     parser.add_argument('--safety_second',
                         default=1,
                         help='Safety multiplier applied to second')
+    parser.add_argument('--diff', dest='diff', action='store_true')
+    parser.set_defaults(diff=False)
     args = parser.parse_args()
 
     process_props(args.files[0], args.files[1], int(args.safety_first),
-                  int(args.safety_second))
+                  int(args.safety_second), args.diff)
