@@ -14,8 +14,6 @@ if [ "$1" == "lightbeam" ]; then
   features="$features,lightbeam"
 fi
 
-
-
 rm -rf /tmp/data
 
 set -ex
