@@ -13,7 +13,7 @@ import string
 import time
 
 sys.path.append('lib')
-from cluster import Key
+from key import Key
 from mocknet import NUM_NODES, TX_OUT_FILE
 from account import Account
 
