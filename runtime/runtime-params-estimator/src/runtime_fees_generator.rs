@@ -91,7 +91,8 @@ impl RuntimeFeesGenerator {
         res.insert(
             ReceiptFees::ActionFunctionCallBase,
             Ratio::new(
-                self.aggregated[&Metric::noop].upper_with_base(&self.aggregated[&Metric::Receipt]),
+                self.aggregated[&Metric::noop]
+                    .upper_with_base(&self.aggregated[&Metric::SirReceipt]),
                 1,
             ),
         );
