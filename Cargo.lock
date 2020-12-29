@@ -3233,6 +3233,7 @@ dependencies = [
  "futures",
  "log",
  "once_cell",
+ "strum",
 ]
 
 [[package]]

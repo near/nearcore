@@ -14,6 +14,7 @@ use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tracing::{error, warn};
+use strum::AsStaticStr;
 
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
@@ -1390,7 +1391,7 @@ pub enum NetworkAdversarialMessage {
     AdvSetSyncInfo(u64),
 }
 
-#[derive(Debug, strum::AsRefStr)]
+#[derive(Debug, strum::AsRefStr, AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
@@ -1469,6 +1470,7 @@ impl Message for NetworkClientMessages {
     type Result = NetworkClientResponses;
 }
 
+#[derive(AsStaticStr)]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),
