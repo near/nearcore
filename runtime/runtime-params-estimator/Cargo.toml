@@ -44,7 +44,7 @@ libc = "0.2.81"
 [features]
 default = []
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
-required = ["near-vm-runner/no_cpu_compatibility_checks", "no_cache"]
+required = ["near-vm-runner/no_cpu_compatibility_checks", "no_cache", "near-store/single_thread_rocksdb"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
