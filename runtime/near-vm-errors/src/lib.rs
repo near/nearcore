@@ -262,6 +262,8 @@ pub enum EvmError {
     InvalidMetaTransactionMethodName,
     /// Invalid function args in meta txn
     InvalidMetaTransactionFunctionArg,
+    /// No receiver (to field) provided in transaction data
+    InvalidRawTransactionMissingTo,
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]

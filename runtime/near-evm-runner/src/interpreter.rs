@@ -26,7 +26,7 @@ pub fn deploy_code<T: EvmState>(
     code: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<ContractCreateResult> {
     let mut nonce = U256::zero();
     if address_type == CreateContractAddress::FromSenderAndNonce {
@@ -84,7 +84,7 @@ pub fn _create<T: EvmState>(
     code: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
@@ -138,7 +138,7 @@ pub fn call<T: EvmState>(
     should_commit: bool,
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -168,7 +168,7 @@ pub fn delegate_call<T: EvmState>(
     input: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -197,7 +197,7 @@ pub fn static_call<T: EvmState>(
     input: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -232,7 +232,7 @@ fn run_and_commit_if_success<T: EvmState>(
     should_commit: bool,
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<MessageCallResult> {
     // run the interpreter and
     let (result, state_updates) = run_against_state(
@@ -292,7 +292,7 @@ fn run_against_state<T: EvmState>(
     is_static: bool,
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let code = state.code_at(code_address)?.unwrap_or_else(Vec::new);
 

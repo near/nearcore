@@ -130,7 +130,7 @@ pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
 
 #[cfg(feature = "protocol_feature_evm")]
-pub const TEST_EVM_CHAIN_ID: u128 = 0x99;
+pub const TEST_EVM_CHAIN_ID: u64 = 0x99;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";

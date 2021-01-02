@@ -28,7 +28,7 @@ const DEFAULT_EPOCH_LENGTH: u64 = 3;
 
 #[cfg(feature = "protocol_feature_evm")]
 /// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
-const CHAIN_ID: u128 = 1313161555;
+const CHAIN_ID: u64 = 1313161555;
 
 pub fn init_runtime_and_signer(root_account_id: &AccountId) -> (RuntimeStandalone, InMemorySigner) {
     let mut genesis = GenesisConfig::default();

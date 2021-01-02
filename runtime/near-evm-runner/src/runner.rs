@@ -1,10 +1,12 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
+use rlp::{Decodable, Rlp};
 use vm::{ContractCreateResult, MessageCallResult};
 
 use near_runtime_fees::{EvmCostConfig, RuntimeFeesConfig};
 use near_runtime_utils::is_account_id_64_len_hex;
+use near_vm_errors::InconsistentStateError::StorageError;
 use near_vm_errors::{EvmError, FunctionCallError, VMError};
 use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
@@ -14,11 +16,10 @@ use crate::evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore};
 use crate::interpreter;
 use crate::meta_parsing::{near_erc712_domain, parse_meta_call};
 use crate::types::{
-    AddressArg, DataKey, FunctionCallArgs, GetStorageAtArgs, Method, RawU256, Result, TransferArgs,
-    ViewCallArgs, WithdrawArgs,
+    AddressArg, DataKey, EthSignedTransaction, FunctionCallArgs, GetStorageAtArgs, Method, RawU256,
+    Result, TransferArgs, ViewCallArgs, WithdrawArgs,
 };
 use crate::utils::{self, combine_data_key};
-use near_vm_errors::InconsistentStateError::StorageError;
 
 pub struct EvmContext<'a> {
     ext: &'a mut dyn External,
@@ -32,7 +33,7 @@ pub struct EvmContext<'a> {
     gas_counter: GasCounter,
     pub evm_gas_counter: EvmGasCounter,
     fees_config: &'a RuntimeFeesConfig,
-    chain_id: u128,
+    chain_id: u64,
     domain_separator: RawU256,
 }
 
@@ -137,7 +138,7 @@ impl<'a> EvmState for EvmContext<'a> {
 impl<'a> EvmContext<'a> {
     pub fn new(
         ext: &'a mut dyn External,
-        chain_id: u128,
+        chain_id: u64,
         config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         current_amount: Balance,
@@ -184,14 +185,17 @@ impl<'a> EvmContext<'a> {
         self.ext.storage_remove_subtree(&other.0)
     }
 
-    pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
-        let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
-        self.add_balance(&sender, U256::from(self.attached_deposit))?;
+    fn internal_deploy_code(
+        &mut self,
+        sender: Address,
+        value: U256,
+        bytecode: Vec<u8>,
+    ) -> Result<Address> {
         match interpreter::deploy_code(
             self,
             &sender,
             &sender,
-            U256::from(self.attached_deposit),
+            value,
             0,
             CreateContractAddress::FromSenderAndNonce,
             false,
@@ -210,6 +214,12 @@ impl<'a> EvmContext<'a> {
             }
             _ => unreachable!(),
         }
+    }
+
+    pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
+        let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
+        self.add_balance(&sender, U256::from(self.attached_deposit))?;
+        self.internal_deploy_code(sender, U256::from(self.attached_deposit), bytecode)
     }
 
     /// Make an EVM transaction. Calls `contract_address` with RLP encoded `input`. Execution
@@ -241,6 +251,51 @@ impl<'a> EvmContext<'a> {
         self.process_call_result(result)
     }
 
+    /// Raw EVM transaction call. This is combination of call_function and meta_call_function.
+    /// Arguments contain raw Ethereum signed transaction and also fee information for the relayer.
+    pub fn raw_call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
+        let signed_transaction = EthSignedTransaction::decode(&Rlp::new(&args))
+            .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
+        let sender = signed_transaction.sender();
+        if signed_transaction.transaction.data.is_empty() {
+            // If data is empty, this is a simple transfer.
+            if let Some(receiver) = signed_transaction.transaction.to {
+                self.transfer_balance(&sender, &receiver, signed_transaction.transaction.value)
+                    .map(|_| vec![])
+            } else {
+                Err(VMLogicError::EvmError(EvmError::InvalidRawTransactionMissingTo))
+            }
+        } else {
+            if let Some(receiver) = signed_transaction.transaction.to {
+                let result = interpreter::call(
+                    self,
+                    &sender,
+                    &sender,
+                    if signed_transaction.transaction.value > U256::zero() {
+                        Some(signed_transaction.transaction.value)
+                    } else {
+                        None
+                    },
+                    0,
+                    &receiver,
+                    &signed_transaction.transaction.data,
+                    true,
+                    &self.evm_gas_counter.gas_left(),
+                    &self.fees_config.evm_config,
+                    self.chain_id,
+                )?;
+                self.process_call_result(result)
+            } else {
+                self.internal_deploy_code(
+                    sender,
+                    signed_transaction.transaction.value,
+                    signed_transaction.transaction.data,
+                )
+                .map(|address| address.0.to_vec())
+            }
+        }
+    }
+
     /// Make an EVM call via a meta transaction pattern.
     /// Specifically, providing signature and NEAREvm message that determines which contract and arguments to be called.
     /// See `parse_meta_call` for arguments format.
@@ -250,6 +305,7 @@ impl<'a> EvmContext<'a> {
             return Err(VMLogicError::EvmError(EvmError::InvalidNonce));
         }
         self.add_balance(&meta_call_args.sender, U256::from(self.attached_deposit))?;
+        // TODO: this is wrong?!
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
         let result = interpreter::call(
@@ -507,7 +563,7 @@ fn max_evm_gas_from_near_gas(
 
 pub fn run_evm(
     ext: &mut dyn External,
-    chain_id: u128,
+    chain_id: u64,
     config: &VMConfig,
     fees_config: &RuntimeFeesConfig,
     account_id: &AccountId,
@@ -579,6 +635,11 @@ pub fn run_evm(
             context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();
             r
         }
+        Method::RawCall => {
+            let r = context.raw_call_function(args);
+            context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();
+            r
+        }
         Method::MetaCall => {
             let r = context.meta_call_function(args);
             context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();
@@ -638,7 +699,7 @@ mod tests {
 
     use super::*;
 
-    const CHAIN_ID: u128 = 0x99;
+    const CHAIN_ID: u64 = 0x99;
 
     fn setup() -> (MockedExternal, VMConfig, RuntimeFeesConfig) {
         let vm_config = VMConfig::default();
