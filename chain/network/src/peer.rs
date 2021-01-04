@@ -60,6 +60,11 @@ const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
 /// dispatching transactions when we should be focusing on consensus-related messages.
 const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
 
+/// The time we wait for the response to a light speed sync request before retrying
+pub const LIGHT_SPEED_SYNC_REQUEST_TIMEOUT_MS: u64 = 30_000;
+/// How frequently a light speed sync response can be sent to a particular peer
+pub const LIGHT_SPEED_SYNC_PEER_TIMEOUT_MS: u64 = 60_000;
+
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
     v: Vec<CryptoHash>,
@@ -182,6 +187,8 @@ pub struct Peer {
     txns_since_last_block: Arc<AtomicUsize>,
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
+    /// The last time a light speed sync request was received from this peer
+    last_time_received_light_speed_sync_request: Instant,
 }
 
 impl Peer {
@@ -220,6 +227,8 @@ impl Peer {
             network_metrics,
             txns_since_last_block,
             peer_counter,
+            last_time_received_light_speed_sync_request: Instant::now()
+                - Duration::from_millis(LIGHT_SPEED_SYNC_PEER_TIMEOUT_MS),
         }
     }
 
@@ -399,6 +408,16 @@ impl Peer {
             PeerMessage::BlockHeadersRequest(hashes) => {
                 NetworkViewClientMessages::BlockHeadersRequest(hashes)
             }
+            PeerMessage::LightSpeedSyncRequest(epoch_id) => {
+                // The 2/3 coefficient to have a buffer to account for network delays
+                if Instant::now() - self.last_time_received_light_speed_sync_request
+                    < Duration::from_millis(LIGHT_SPEED_SYNC_PEER_TIMEOUT_MS * 2 / 3)
+                {
+                    return;
+                }
+                self.last_time_received_light_speed_sync_request = Instant::now();
+                NetworkViewClientMessages::LightSpeedSyncRequest { epoch_id }
+            }
             peer_message => {
                 error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", peer_message);
                 return;
@@ -445,6 +464,9 @@ impl Peer {
                     }
                     Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
                         act.send_message(&PeerMessage::BlockHeaders(headers))
+                    }
+                    Ok(NetworkViewClientResponses::LightSpeedSyncResponse(response)) => {
+                        act.send_message(PeerMessage::LightSpeedSyncResponse(response))
                     }
                     Err(err) => {
                         error!(
@@ -542,6 +564,9 @@ impl Peer {
                 }
             }
             PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
+            PeerMessage::LightSpeedSyncResponse(response) => {
+                NetworkClientMessages::LightSpeedSyncResponse(peer_id, response)
+            }
             PeerMessage::Handshake(_)
             | PeerMessage::HandshakeV2(_)
             | PeerMessage::HandshakeFailure(_, _)
@@ -553,7 +578,8 @@ impl Peer {
             | PeerMessage::RequestUpdateNonce(_)
             | PeerMessage::ResponseUpdateNonce(_)
             | PeerMessage::BlockRequest(_)
-            | PeerMessage::BlockHeadersRequest(_) => {
+            | PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::LightSpeedSyncRequest(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }

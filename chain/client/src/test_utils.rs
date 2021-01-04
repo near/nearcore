@@ -591,6 +591,36 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
+                        NetworkRequests::LightSpeedSyncRequest { epoch_id, peer_id } => {
+                            for (i, peer_info) in key_pairs.iter().enumerate() {
+                                let peer_id = peer_id.clone();
+                                if peer_info.id == peer_id {
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.read().unwrap()[i]
+                                            .1
+                                            .send(NetworkViewClientMessages::LightSpeedSyncRequest{
+                                                epoch_id: epoch_id.clone(),
+                                            })
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkViewClientResponses::LightSpeedSyncResponse(response) => {
+                                                        connectors2.read().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(NetworkClientMessages::LightSpeedSyncResponse(
+                                                                peer_id, response
+                                                            ));
+                                                    }
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::ready(())
+                                            }),
+                                    );
+                                }
+                            }
+                        }
                         NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();

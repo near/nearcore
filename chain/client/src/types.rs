@@ -122,6 +122,8 @@ pub enum SyncStatus {
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
+    /// Syncing using light-client headers to a recent epoch
+    LightSpeedSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
     HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
     /// State sync, with different states of state sync for different shards.

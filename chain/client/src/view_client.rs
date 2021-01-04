@@ -27,8 +27,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::syncing::{
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
-    ShardStateSyncResponseV2,
+    LightSpeedSyncResponse, ShardStateSyncResponse, ShardStateSyncResponseHeader,
+    ShardStateSyncResponseV1, ShardStateSyncResponseV2,
 };
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, ShardId,
@@ -1062,6 +1062,28 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     state_response,
                 });
                 NetworkViewClientResponses::StateResponse(Box::new(info))
+            }
+            NetworkViewClientMessages::LightSpeedSyncRequest { epoch_id } => {
+                match self.chain.mut_store().get_epoch_light_client_block(&epoch_id.0) {
+                    Ok(light_client_block_view) => {
+                        NetworkViewClientResponses::LightSpeedSyncResponse(
+                            LightSpeedSyncResponse::Advance {
+                                light_client_block_view: light_client_block_view.clone(),
+                            },
+                        )
+                    }
+                    Err(e) => match e.kind() {
+                        ErrorKind::DBNotFoundErr(_) => {
+                            NetworkViewClientResponses::LightSpeedSyncResponse(
+                                LightSpeedSyncResponse::UpToDate,
+                            )
+                        }
+                        _ => {
+                            warn!(target: "client", "Getting light speed sync response failed: {}", e.to_string());
+                            NetworkViewClientResponses::NoResponse
+                        }
+                    },
+                }
             }
         }
     }

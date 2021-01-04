@@ -1,6 +1,6 @@
 use near_chain::{ChainStoreAccess, Error};
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::{ops::Add, time::Duration as TimeDuration};
@@ -17,12 +17,15 @@ use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan}
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::syncing::{get_num_state_parts, LightSpeedSyncResponse};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, ValidatorStake,
+};
 use near_primitives::utils::to_timestamp;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
 use cached::{Cached, SizedCache};
+use near_primitives::network::PeerId;
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -51,6 +54,199 @@ pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<F
     match highest_height_peers.iter().choose(&mut thread_rng()) {
         None => highest_height_peers.choose(&mut thread_rng()).cloned(),
         Some(peer) => Some(peer.clone()),
+    }
+}
+
+/// Helper to keep track of the light speed sync
+pub struct LightSpeedSync {
+    network_adapter: Arc<dyn NetworkAdapter>,
+    /// Datastructure to keep track of when the last request to each peer was made.
+    /// Peers do not respond to light speed requests more frequently than once per a certain time
+    /// interval, thus there's no point in requesting more frequently.
+    peer_to_last_request_time: HashMap<PeerId, DateTime<Utc>>,
+    /// Tracks all the peers who have reported that we are already up to date
+    peers_reporting_up_to_date: HashSet<PeerId>,
+    /// The last epoch we are synced to
+    current_epoch_id: EpochId,
+    /// The next epoch id we need to sync
+    next_epoch_id: EpochId,
+    /// The block producers set to validate the light client block view for the next epoch
+    next_block_producers: Vec<ValidatorStake>,
+    /// The last epoch id that we have requested
+    requested_epoch_id: EpochId,
+    /// When and to whom was the last request made
+    last_request_time: DateTime<Utc>,
+    last_request_peer_id: Option<PeerId>,
+
+    /// How long to wait for a response before re-requesting the same light client block view
+    request_timeout: Duration,
+    /// How frequently to send request to the same peer
+    peer_timeout: Duration,
+
+    /// Whether the light speed sync was performed to completion previously.
+    /// Current state machine allows for only one light speed sync.
+    done: bool,
+}
+
+impl LightSpeedSync {
+    pub fn new(
+        network_adapter: Arc<dyn NetworkAdapter>,
+        genesis_epoch_id: EpochId,
+        genesis_next_epoch_id: EpochId,
+        first_epoch_block_producers: Vec<ValidatorStake>,
+        request_timeout: TimeDuration,
+        peer_timeout: TimeDuration,
+    ) -> Self {
+        Self {
+            network_adapter,
+            peer_to_last_request_time: HashMap::new(),
+            peers_reporting_up_to_date: HashSet::new(),
+            current_epoch_id: genesis_epoch_id.clone(),
+            next_epoch_id: genesis_next_epoch_id.clone(),
+            next_block_producers: first_epoch_block_producers,
+            requested_epoch_id: genesis_epoch_id,
+            last_request_time: Utc::now(),
+            last_request_peer_id: None,
+            request_timeout: Duration::from_std(request_timeout).unwrap(),
+            peer_timeout: Duration::from_std(peer_timeout).unwrap(),
+            done: false,
+        }
+    }
+
+    // Returns whether the light speed sync is done
+    pub fn run(
+        &mut self,
+        sync_status: &mut SyncStatus,
+        all_peers: &Vec<FullPeerInfo>,
+        cur_time: DateTime<Utc>,
+    ) -> bool {
+        if self.done {
+            return true;
+        }
+
+        let is_light_speed_sync = matches!(sync_status, SyncStatus::LightSpeedSync { .. });
+        let received_requested_epoch = self.requested_epoch_id == self.current_epoch_id;
+        let request_timed_out =
+            !received_requested_epoch && cur_time > self.last_request_time + self.request_timeout;
+
+        let need_to_request = !is_light_speed_sync
+            || received_requested_epoch
+            || request_timed_out
+            || self.last_request_peer_id.is_none()
+            || self
+                .peers_reporting_up_to_date
+                .contains(self.last_request_peer_id.as_ref().unwrap());
+
+        if !need_to_request {
+            return false;
+        }
+
+        // MOO make this more resilient to lost messages
+        if request_timed_out && self.last_request_peer_id.is_some() {
+            self.network_adapter.do_send(NetworkRequests::BanPeer {
+                peer_id: self.last_request_peer_id.take().unwrap(),
+                ban_reason: ReasonForBan::LightSpeedSyncNoResponse,
+            });
+        }
+
+        let mut request_from = None;
+        self.done = true; // will be overwritten if at least one peer hasn't reported we're done
+
+        for peer in all_peers {
+            let peer_id = peer.peer_info.id.clone();
+            match self.peer_to_last_request_time.get(&peer_id) {
+                None => {
+                    self.done = false;
+                    request_from = Some(peer_id);
+                    break;
+                }
+                Some(last_request_time) => {
+                    if self.peers_reporting_up_to_date.contains(&peer_id) {
+                        continue;
+                    }
+
+                    self.done = false;
+                    let better_than_best_known = match &request_from {
+                        None => true,
+                        // Unwrap here is safe. If the entry for the current best peer didn't exist,
+                        // the loop would break above
+                        Some(cur_best_peer_id) => {
+                            last_request_time
+                                < self.peer_to_last_request_time.get(&cur_best_peer_id).unwrap()
+                        }
+                    };
+                    if cur_time > last_request_time.add(self.peer_timeout) && better_than_best_known
+                    {
+                        request_from = Some(peer_id);
+                    }
+
+                    // MOO logic here to check if it's done, and it's been a while since we requested
+                }
+            }
+        }
+
+        if self.done {
+            return true;
+        }
+
+        if let Some(request_from) = request_from {
+            self.peer_to_last_request_time.insert(request_from.clone(), cur_time);
+            self.last_request_time = cur_time;
+            self.requested_epoch_id = self.next_epoch_id.clone();
+            self.last_request_peer_id = Some(request_from.clone());
+            self.network_adapter.do_send(NetworkRequests::LightSpeedSyncRequest {
+                epoch_id: self.next_epoch_id.clone(),
+                peer_id: request_from,
+            });
+        }
+
+        if !is_light_speed_sync {
+            *sync_status = SyncStatus::LightSpeedSync { epoch_ord: 0 }
+        }
+
+        return false;
+    }
+
+    pub fn on_response(&mut self, from_whom: PeerId, response: LightSpeedSyncResponse) {
+        match response {
+            LightSpeedSyncResponse::UpToDate => {
+                self.peers_reporting_up_to_date.insert(from_whom);
+            }
+            LightSpeedSyncResponse::Advance { light_client_block_view } => {
+                if light_client_block_view.inner_lite.epoch_id != self.requested_epoch_id.0 {
+                    // This is not a response to the request we are making
+                    return;
+                }
+                if light_client_block_view.next_bps.is_none() {
+                    // A light client response must contain the bps. We might consider here to
+                    // ban the peer.
+                    return;
+                }
+
+                if !Chain::validate_light_block_no_height_or_epoch_check(
+                    &light_client_block_view,
+                    &self.next_block_producers,
+                ) {
+                    self.network_adapter.do_send(NetworkRequests::BanPeer {
+                        peer_id: from_whom,
+                        ban_reason: ReasonForBan::LightSpeedSyncInvalidResponse,
+                    });
+
+                    return;
+                }
+
+                self.next_block_producers = light_client_block_view
+                    .next_bps
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.clone().into())
+                    .collect();
+                self.next_epoch_id =
+                    EpochId(light_client_block_view.inner_lite.next_epoch_id.clone());
+                self.current_epoch_id =
+                    EpochId(light_client_block_view.inner_lite.epoch_id.clone());
+            }
+        };
     }
 }
 
@@ -106,7 +302,7 @@ impl HeaderSync {
             SyncStatus::HeaderSync { .. }
             | SyncStatus::BodySync { .. }
             | SyncStatus::StateSyncDone => true,
-            SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
+            SyncStatus::NoSync | SyncStatus::AwaitingPeers | SyncStatus::LightSpeedSync { .. } => {
                 debug!(target: "sync", "Sync: initial transition to Header sync. Header head {} at {}",
                     header_head.last_block_hash, header_head.height,
                 );

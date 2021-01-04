@@ -8,6 +8,7 @@ use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
 use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
+use crate::views::LightClientBlockView;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -186,6 +187,12 @@ impl ShardStateSyncResponseV1 {
     pub fn part_id(&self) -> Option<u64> {
         self.part.as_ref().map(|(part_id, _)| *part_id)
     }
+}
+
+#[derive(Serialize, BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
+pub enum LightSpeedSyncResponse {
+    UpToDate,
+    Advance { light_client_block_view: LightClientBlockView },
 }
 
 pub fn get_num_state_parts(memory_usage: u64) -> u64 {

@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+pub use peer::{LIGHT_SPEED_SYNC_PEER_TIMEOUT_MS, LIGHT_SPEED_SYNC_REQUEST_TIMEOUT_MS};
 pub use peer_manager::PeerManagerActor;
 pub use types::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig,

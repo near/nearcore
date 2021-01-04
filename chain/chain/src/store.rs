@@ -7,7 +7,6 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
-use tracing::debug;
 
 use near_primitives::block::{Approval, Tip};
 use near_primitives::errors::InvalidTxError;
@@ -2199,7 +2198,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             GCMode::Canonical(_) => {
                 // 6. Canonical Chain only clearing
-                // Delete chunks and chunk-indexed data
+                // Delete chunks and chunk-indexed data, and block headers
                 let mut min_chunk_height = self.tail()?;
                 for chunk_header in block.chunks().iter() {
                     if min_chunk_height > chunk_header.height_created() {
@@ -2462,7 +2461,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColEpochStart
             | DBCol::ColBlockOrdinal
             | DBCol::_ColTransactionRefCount
-            | DBCol::ColCachedContractCode
+            | DBCol::ColCachedContractCode => {
                 unreachable!();
             }
         }

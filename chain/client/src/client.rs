@@ -20,7 +20,10 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::types::PartialEncodedChunkResponseMsg;
-use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
+use near_network::{
+    FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests,
+    LIGHT_SPEED_SYNC_PEER_TIMEOUT_MS, LIGHT_SPEED_SYNC_REQUEST_TIMEOUT_MS,
+};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -38,7 +41,7 @@ use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::metrics;
-use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
+use crate::sync::{BlockSync, HeaderSync, LightSpeedSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
 use near_primitives::block_header::ApprovalType;
@@ -71,6 +74,8 @@ pub struct Client {
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
+    /// Keeps track of information needed to perform the initial light speed sync
+    pub light_speed_sync: LightSpeedSync,
     /// Keeps track of syncing headers.
     pub header_sync: HeaderSync,
     /// Keeps track of syncing block.
@@ -109,6 +114,22 @@ impl Client {
             network_adapter.clone(),
         );
         let sync_status = SyncStatus::AwaitingPeers;
+        let genesis_block = chain.genesis_block();
+        let light_speed_sync = LightSpeedSync::new(
+            network_adapter.clone(),
+            genesis_block.header().epoch_id().clone(),
+            genesis_block.header().next_epoch_id().clone(),
+            runtime_adapter
+                .get_epoch_block_producers_ordered(
+                    &genesis_block.header().epoch_id(),
+                    &genesis_block.hash(),
+                )?
+                .iter()
+                .map(|x| x.0.clone().into())
+                .collect(),
+            Duration::from_millis(LIGHT_SPEED_SYNC_REQUEST_TIMEOUT_MS),
+            Duration::from_millis(LIGHT_SPEED_SYNC_PEER_TIMEOUT_MS),
+        );
         let header_sync = HeaderSync::new(
             network_adapter.clone(),
             config.header_sync_initial_timeout,
@@ -148,6 +169,7 @@ impl Client {
             validator_signer,
             pending_approvals: SizedCache::with_size(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
+            light_speed_sync,
             header_sync,
             block_sync,
             state_sync,

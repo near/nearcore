@@ -465,6 +465,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
                 NetworkClientResponses::NoResponse
             }
+            NetworkClientMessages::LightSpeedSyncResponse(peer_id, response) => {
+                self.client.light_speed_sync.on_response(peer_id, response);
+                NetworkClientResponses::NoResponse
+            }
             NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
                 let _ = self.client.shards_mgr.process_partial_encoded_chunk_request(
                     part_request_msg,

@@ -26,7 +26,9 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
     PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
+use near_primitives::syncing::{
+    LightSpeedSyncResponse, ShardStateSyncResponse, ShardStateSyncResponseV1,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -763,6 +765,9 @@ pub enum PeerMessage {
     Disconnect,
     Challenge(Challenge),
     HandshakeV2(HandshakeV2),
+
+    LightSpeedSyncRequest(EpochId),
+    LightSpeedSyncResponse(LightSpeedSyncResponse),
 }
 
 impl fmt::Display for PeerMessage {
@@ -1137,6 +1142,8 @@ pub enum ReasonForBan {
     InvalidPeerId = 8,
     InvalidHash = 9,
     InvalidEdge = 10,
+    LightSpeedSyncNoResponse = 11,
+    LightSpeedSyncInvalidResponse = 12,
 }
 
 /// Banning signal sent from Peer instance to PeerManager
@@ -1187,6 +1194,10 @@ pub enum NetworkRequests {
     StateResponse {
         route_back: CryptoHash,
         response: StateResponseInfo,
+    },
+    LightSpeedSyncRequest {
+        peer_id: PeerId,
+        epoch_id: EpochId,
     },
     /// Ban given peer.
     BanPeer {
@@ -1413,6 +1424,8 @@ pub enum NetworkClientMessages {
     BlockApproval(Approval, PeerId),
     /// State response.
     StateResponse(StateResponseInfo),
+    /// Light Speed sync response
+    LightSpeedSyncResponse(PeerId, LightSpeedSyncResponse),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
@@ -1493,6 +1506,8 @@ pub enum NetworkViewClientMessages {
     StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
     /// State request part.
     StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
+    /// A request for a light client info during light speed sync
+    LightSpeedSyncRequest { epoch_id: EpochId },
     /// Get Chain information from Client.
     GetChainInfo,
 }
@@ -1517,6 +1532,8 @@ pub enum NetworkViewClientResponses {
     },
     /// Response to state request.
     StateResponse(Box<StateResponseInfo>),
+    /// A response to a request for a light client block during light speed sync
+    LightSpeedSyncResponse(LightSpeedSyncResponse),
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed
