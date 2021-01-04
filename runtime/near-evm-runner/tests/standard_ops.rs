@@ -11,7 +11,7 @@ use near_evm_runner::types::{TransferArgs, WithdrawArgs};
 use near_evm_runner::utils::{
     address_from_arr, address_to_vec, ecrecover_address, encode_address, encode_call_function_args,
     encode_string, encode_view_call_function_args, near_account_id_to_evm_address,
-    near_erc721_domain, parse_meta_call, u256_to_arr,
+    near_erc712_domain, parse_meta_call, u256_to_arr,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{EvmError, VMLogicError};
@@ -167,7 +167,7 @@ fn test_meta_call() {
     let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
     let signer = InMemorySigner::from_seed(&accounts(1), KeyType::SECP256K1, "a");
     let signer_addr = public_key_to_address(signer.public_key.clone());
-    let domain_separator = near_erc721_domain(U256::from(CHAIN_ID));
+    let domain_separator = near_erc712_domain(U256::from(CHAIN_ID));
 
     let meta_tx = encode_meta_call_function_args(
         &signer,
@@ -290,7 +290,7 @@ fn test_meta_call_sig_and_recover() {
     let (mut _fake_external, test_addr, _vm_config, _fees_config) = setup_and_deploy_test();
     let signer = InMemorySigner::from_seed("doesnt", KeyType::SECP256K1, "a");
     let signer_addr = public_key_to_address(signer.public_key.clone());
-    let domain_separator = near_erc721_domain(U256::from(CHAIN_ID));
+    let domain_separator = near_erc712_domain(U256::from(CHAIN_ID));
 
     let meta_tx = encode_meta_call_function_args(
         &signer,
@@ -337,7 +337,7 @@ fn test_meta_call_sig_and_recover() {
         // RLP encode of ["0x09", ["0x436170734C6F636B", "0x0123456789012345678901234567890123456789"]]
         hex::decode("e009de88436170734c6f636b940123456789012345678901234567890123456789").unwrap(),
     );
-    assert_eq!(hex::encode(&meta_tx3[0..65]), "0a2af43c3efab7ce535a00125b2505823c3c3218bacab1546a3e569ec15ca4557352f16ebabeeaa066a239346d7870afd49bf6e0b7b5c0d398d5cf894f3bdc8f1c");
+    assert_eq!(hex::encode(&meta_tx3[0..65]), "f4852afcf9b11e0c6bac70f0c468ed29fa5b2f1d5a786fc9b383729f591d4dd32a4e5bdec0e12881b9f469e14fb7eed1911613a8ea636f14df81e39568324f791b");
     let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx3).unwrap();
     assert_eq!(result.sender, signer_addr);
 }

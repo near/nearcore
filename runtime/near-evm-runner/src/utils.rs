@@ -188,7 +188,7 @@ pub fn format_log(topics: Vec<H256>, data: &[u8]) -> std::result::Result<Vec<u8>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Type {
+pub enum ArgType {
     Address,
     Uint,
     Int,
@@ -197,11 +197,13 @@ pub enum Type {
     Bytes,
     Byte(u8),
     Custom(String),
-    Array { length: Option<u64>, inner: Box<Type> },
+    Array { length: Option<u64>, inner: Box<ArgType> },
 }
 
 /// the type string is being validated before it's parsed.
-pub fn parse_type(field_type: &str) -> Result<Type> {
+/// field_type: A single evm function arg type in string, without the argument name
+/// e.g. "bytes" "uint256[][3]" "CustomStructName"
+pub fn parse_type(field_type: &str) -> Result<ArgType> {
     #[derive(PartialEq)]
     enum State {
         Open,
@@ -216,14 +218,14 @@ pub fn parse_type(field_type: &str) -> Result<Type> {
 
     while lexer.token != Token::EndOfProgram {
         let type_ = match lexer.token {
-            Token::Identifier => Type::Custom(lexer.slice().to_owned()),
-            Token::TypeByte => Type::Byte(lexer.extras.0),
-            Token::TypeBytes => Type::Bytes,
-            Token::TypeBool => Type::Bool,
-            Token::TypeUint => Type::Uint,
-            Token::TypeInt => Type::Int,
-            Token::TypeString => Type::String,
-            Token::TypeAddress => Type::Address,
+            Token::Identifier => ArgType::Custom(lexer.slice().to_owned()),
+            Token::TypeByte => ArgType::Byte(lexer.extras.0),
+            Token::TypeBytes => ArgType::Bytes,
+            Token::TypeBool => ArgType::Bool,
+            Token::TypeUint => ArgType::Uint,
+            Token::TypeInt => ArgType::Int,
+            Token::TypeString => ArgType::String,
+            Token::TypeAddress => ArgType::Address,
             Token::LiteralInteger => {
                 let length = lexer.slice();
                 current_array_length = Some(length.parse().map_err(|_| {
@@ -241,7 +243,7 @@ pub fn parse_type(field_type: &str) -> Result<Type> {
                 if state == State::Open && token.is_some() {
                     let length = current_array_length.take();
                     state = State::Close;
-                    token = Some(Type::Array {
+                    token = Some(ArgType::Array {
                         inner: Box::new(token.expect("if statement checks for some; qed")),
                         length,
                     });
@@ -267,7 +269,11 @@ pub fn parse_type(field_type: &str) -> Result<Type> {
     Ok(token.ok_or(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName))?)
 }
 
-pub fn near_erc721_domain(chain_id: U256) -> RawU256 {
+/// NEAR's domainSeparator
+/// See https://eips.ethereum.org/EIPS/eip-712#definition-of-domainseparator
+/// and https://eips.ethereum.org/EIPS/eip-712#rationale-for-domainseparator
+/// for definition and rationale for domainSeparator.
+pub fn near_erc712_domain(chain_id: U256) -> RawU256 {
     let mut bytes = Vec::with_capacity(70);
     bytes.extend_from_slice(
         &keccak("EIP712Domain(string name,string version,uint256 chainId)".as_bytes()).as_bytes(),
@@ -282,6 +288,7 @@ pub fn near_erc721_domain(chain_id: U256) -> RawU256 {
     keccak(&bytes).into()
 }
 
+/// method_sig: format like "adopt(uint256,PetObj)" (no additional PetObj definition)
 pub fn method_sig_to_abi(method_sig: &str) -> [u8; 4] {
     let mut result = [0u8; 4];
     result.copy_from_slice(&keccak(method_sig)[..4]);
@@ -301,30 +308,32 @@ pub fn encode_string(s: &str) -> Vec<u8> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum Value {
+pub enum RlpValue {
     Bytes(Vec<u8>),
-    List(Vec<Value>),
+    List(Vec<RlpValue>),
 }
 
-impl Decodable for Value {
+impl Decodable for RlpValue {
     fn decode(rlp: &Rlp<'_>) -> std::result::Result<Self, DecoderError> {
         if rlp.is_list() {
-            Ok(Value::List(rlp.as_list()?))
+            Ok(RlpValue::List(rlp.as_list()?))
         } else {
-            Ok(Value::Bytes(rlp.decoder().decode_value(|bytes| Ok(bytes.to_vec()))?))
+            Ok(RlpValue::Bytes(rlp.decoder().decode_value(|bytes| Ok(bytes.to_vec()))?))
         }
     }
 }
 
 #[derive(Debug, Eq, PartialEq)]
+/// An argument specified in a evm method definition
 pub struct Arg {
     #[allow(dead_code)]
     pub name: String,
     pub type_raw: String,
-    pub t: Type,
+    pub t: ArgType,
 }
 
 #[derive(Debug, Eq, PartialEq)]
+/// A parsed evm method definition
 pub struct Method {
     pub name: String,
     pub raw: String,
@@ -415,12 +424,18 @@ fn parse_ident(text: &str) -> Result<(String, &str)> {
     Ok((text[..i].to_string(), &text[i..]))
 }
 
+/// Tokenizer a type specifier from a method definition
+/// E.g. text: "uint256[] petIds,..."
+/// returns: "uint256[]", " petIds,..."
+/// "uint256[]" is not parsed further to "an array of uint256" in this fn
 fn parse_type_raw(text: &str) -> Result<(String, &str)> {
     let i =
         text.find(' ').ok_or(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName))?;
     Ok((text[..i].to_string(), &text[i..]))
 }
 
+/// Consume next char in text, it must be c or return parse error
+/// return text without the first char
 fn consume(text: &str, c: char) -> Result<&str> {
     let first = text.chars().next();
     if first.is_none() || first.unwrap() != c {
@@ -430,80 +445,59 @@ fn consume(text: &str, c: char) -> Result<&str> {
     Ok(&text[1..])
 }
 
+/// Return true if c can be used as first char of a evm method arg
 fn is_arg_start(c: char) -> bool {
     c.is_ascii_alphabetic() || c == '_'
 }
 
+/// Return true if c can be used as consequent char of a evm method arg
 fn is_arg_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
 }
 
-/// Return a signature of the method_def
-/// E.g. method_signature(Methods before parse: "adopt(uint256 petId)") -> "adopt(uint256)"
-fn methods_signature(method_and_type: &MethodAndTypes) -> String {
-    let method = format!(
+/// Return a signature of the method_def with additional args
+/// E.g. methods_signature(Methods before parse: "adopt(uint256 petId,PetObj petobj)PetObj(string name)")
+/// -> "adopt(uint256,PetObj)"
+fn method_signature(method_and_type: &MethodAndTypes) -> String {
+    format!(
         "{}({})",
         method_and_type.method.name,
         itertools::join(method_and_type.method.args.iter().map(|arg| arg.type_raw.as_str()), ",")
-    );
-    let types: String = method_and_type
-        .type_sequences
-        .iter()
-        .map(|m| {
-            format!(
-                "{}({})",
-                &m,
-                itertools::join(
-                    method_and_type
-                        .types
-                        .get(m)
-                        .unwrap()
-                        .args
-                        .iter()
-                        .map(|arg| arg.type_raw.as_str()),
-                    ","
-                )
-            )
-        })
-        .collect();
-    method + &types
+    )
 }
 
-#[derive(Debug, Clone)]
-pub struct ParseMethodNameError;
-
 /// decode rlp-encoded args into vector of Values
-fn rlp_decode(args: &[u8]) -> Result<Vec<Value>> {
+fn rlp_decode(args: &[u8]) -> Result<Vec<RlpValue>> {
     let rlp = Rlp::new(args);
-    let res: std::result::Result<Vec<Value>, DecoderError> = rlp.as_list();
+    let res: std::result::Result<Vec<RlpValue>, DecoderError> = rlp.as_list();
     res.map_err(|_| VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))
 }
 
 /// eip-712 hash a single argument, whose type is ty, and value is value. Definition of all types
 /// is in types
 fn eip_712_hash_argument(
-    ty: &Type,
-    value: &Value,
+    ty: &ArgType,
+    value: &RlpValue,
     types: &HashMap<String, Method>,
 ) -> Result<Vec<u8>> {
     match ty {
-        Type::String | Type::Bytes => {
+        ArgType::String | ArgType::Bytes => {
             eip_712_rlp_value(value, |b| Ok(keccak(&b).as_bytes().to_vec()))
         }
-        Type::Byte(byte) => eip_712_rlp_value(value, |b| Ok(b.clone())),
+        ArgType::Byte(byte) => eip_712_rlp_value(value, |b| Ok(b.clone())),
         // TODO: ensure rlp int is encoded as sign extended uint256, otherwise this is wrong
-        Type::Uint | Type::Int | Type::Bool => {
+        ArgType::Uint | ArgType::Int | ArgType::Bool => {
             eip_712_rlp_value(value, |b| Ok(u256_to_arr(&U256::from_big_endian(&b)).to_vec()))
         }
-        Type::Address => eip_712_rlp_value(value, |b| Ok(encode_address(address_from_arr(b)))),
-        Type::Array { inner, .. } => eip_712_rlp_list(value, |l| {
+        ArgType::Address => eip_712_rlp_value(value, |b| Ok(encode_address(address_from_arr(b)))),
+        ArgType::Array { inner, .. } => eip_712_rlp_list(value, |l| {
             let mut r = vec![];
             for element in l {
                 r.extend_from_slice(&eip_712_hash_argument(inner, element, types)?);
             }
             Ok(keccak(r).as_bytes().to_vec())
         }),
-        Type::Custom(type_name) => eip_712_rlp_list(value, |l| {
+        ArgType::Custom(type_name) => eip_712_rlp_list(value, |l| {
             let struct_type = types
                 .get(type_name)
                 .ok_or(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))?;
@@ -522,27 +516,35 @@ fn eip_712_hash_argument(
     }
 }
 
-fn eip_712_rlp_list<F>(value: &Value, f: F) -> Result<Vec<u8>>
+/// EIP-712 hash a RLP list. f must contain actual logic of EIP-712 encoding
+/// This function serves as a guard to assert value is a List instead of Value
+fn eip_712_rlp_list<F>(value: &RlpValue, f: F) -> Result<Vec<u8>>
 where
-    F: Fn(&Vec<Value>) -> Result<Vec<u8>>,
+    F: Fn(&Vec<RlpValue>) -> Result<Vec<u8>>,
 {
     match value {
-        Value::Bytes(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
-        Value::List(l) => f(l),
+        RlpValue::Bytes(_) => {
+            Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))
+        }
+        RlpValue::List(l) => f(l),
     }
 }
 
-fn eip_712_rlp_value<F>(value: &Value, f: F) -> Result<Vec<u8>>
+/// EIP-712 hash a RLP value. f must contain actual logic of EIP-712 encoding
+/// This function serves as a guard to assert value is a Value instead of List
+fn eip_712_rlp_value<F>(value: &RlpValue, f: F) -> Result<Vec<u8>>
 where
     F: Fn(&Vec<u8>) -> Result<Vec<u8>>,
 {
     match value {
-        Value::List(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
-        Value::Bytes(b) => f(b),
+        RlpValue::List(_) => {
+            Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))
+        }
+        RlpValue::Bytes(b) => f(b),
     }
 }
 
-fn eth_abi_encode_args(args_decoded: &Vec<Value>, methods: &MethodAndTypes) -> Result<Vec<u8>> {
+fn eth_abi_encode_args(args_decoded: &Vec<RlpValue>, methods: &MethodAndTypes) -> Result<Vec<u8>> {
     let mut tokens = vec![];
     for (i, arg) in args_decoded.iter().enumerate() {
         tokens.push(arg_to_abi_token(&methods.method.args[i].t, arg, methods)?);
@@ -550,29 +552,31 @@ fn eth_abi_encode_args(args_decoded: &Vec<Value>, methods: &MethodAndTypes) -> R
     Ok(encode(&tokens))
 }
 
-fn arg_to_abi_token(ty: &Type, arg: &Value, methods: &MethodAndTypes) -> Result<ABIToken> {
+fn arg_to_abi_token(ty: &ArgType, arg: &RlpValue, methods: &MethodAndTypes) -> Result<ABIToken> {
     match ty {
-        Type::String | Type::Bytes => value_to_abi_token(arg, |b| Ok(ABIToken::Bytes(b.clone()))),
-        Type::Byte(_) => value_to_abi_token(arg, |b| Ok(ABIToken::FixedBytes(b.clone()))),
-        Type::Uint | Type::Int | Type::Bool => {
+        ArgType::String | ArgType::Bytes => {
+            value_to_abi_token(arg, |b| Ok(ABIToken::Bytes(b.clone())))
+        }
+        ArgType::Byte(_) => value_to_abi_token(arg, |b| Ok(ABIToken::FixedBytes(b.clone()))),
+        ArgType::Uint | ArgType::Int | ArgType::Bool => {
             value_to_abi_token(arg, |b| Ok(ABIToken::Uint(U256::from_big_endian(&b))))
         }
-        Type::Address => value_to_abi_token(arg, |b| Ok(ABIToken::Address(address_from_arr(b)))),
-        Type::Array { inner, length: None } => list_to_abi_token(arg, |l| {
+        ArgType::Address => value_to_abi_token(arg, |b| Ok(ABIToken::Address(address_from_arr(b)))),
+        ArgType::Array { inner, length: None } => list_to_abi_token(arg, |l| {
             let mut tokens = vec![];
             for (i, arg) in l.iter().enumerate() {
                 tokens.push(arg_to_abi_token(inner, arg, methods)?);
             }
             Ok(ABIToken::Array(tokens))
         }),
-        Type::Array { inner, length: Some(length) } => list_to_abi_token(arg, |l| {
+        ArgType::Array { inner, length: Some(length) } => list_to_abi_token(arg, |l| {
             let mut tokens = vec![];
             for (i, arg) in l.iter().enumerate() {
                 tokens.push(arg_to_abi_token(inner, arg, methods)?);
             }
             Ok(ABIToken::FixedArray(tokens))
         }),
-        Type::Custom(type_name) => list_to_abi_token(arg, |l| {
+        ArgType::Custom(type_name) => list_to_abi_token(arg, |l| {
             let struct_type = methods
                 .types
                 .get(type_name)
@@ -586,23 +590,27 @@ fn arg_to_abi_token(ty: &Type, arg: &Value, methods: &MethodAndTypes) -> Result<
     }
 }
 
-fn value_to_abi_token<F>(value: &Value, f: F) -> Result<ABIToken>
+fn value_to_abi_token<F>(value: &RlpValue, f: F) -> Result<ABIToken>
 where
     F: Fn(&Vec<u8>) -> Result<ABIToken>,
 {
     match value {
-        Value::List(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
-        Value::Bytes(b) => f(b),
+        RlpValue::List(_) => {
+            Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))
+        }
+        RlpValue::Bytes(b) => f(b),
     }
 }
 
-fn list_to_abi_token<F>(value: &Value, f: F) -> Result<ABIToken>
+fn list_to_abi_token<F>(value: &RlpValue, f: F) -> Result<ABIToken>
 where
-    F: Fn(&Vec<Value>) -> Result<ABIToken>,
+    F: Fn(&Vec<RlpValue>) -> Result<ABIToken>,
 {
     match value {
-        Value::Bytes(_) => Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg)),
-        Value::List(l) => f(l),
+        RlpValue::Bytes(_) => {
+            Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionFunctionArg))
+        }
+        RlpValue::List(l) => f(l),
     }
 }
 
@@ -633,14 +641,12 @@ pub fn prepare_meta_call_args(
     bytes.extend_from_slice(&encode_address(contract_address));
 
     let methods = MethodAndTypes::parse(method_def)?;
-    // method_sig is "adopt(uint256,PetObj)PetObj(string,address)".
-    // It's just a string field of the message struct, not part of process of typeHash
-    let method_sig = methods_signature(&methods);
+    let method_sig = method_signature(&methods);
     bytes.extend_from_slice(&keccak(method_sig.as_bytes()).as_bytes());
 
     let mut arg_bytes = Vec::new();
     arg_bytes.extend_from_slice(&keccak(arguments.as_bytes()).as_bytes());
-    let args_decoded: Vec<Value> = rlp_decode(args)?;
+    let args_decoded: Vec<RlpValue> = rlp_decode(args)?;
     for i in 0..args_decoded.len() {
         arg_bytes.extend_from_slice(&eip_712_hash_argument(
             &methods.method.args[i].t,
@@ -763,18 +769,22 @@ mod tests {
                     Arg {
                         name: "q".to_string(),
                         type_raw: "Foo".to_string(),
-                        t: Type::Custom("Foo".to_string())
+                        t: ArgType::Custom("Foo".to_string())
                     },
                     Arg {
                         name: "w".to_string(),
                         type_raw: "Bar".to_string(),
-                        t: Type::Custom("Bar".to_string())
+                        t: ArgType::Custom("Bar".to_string())
                     }
                 ]
         );
         assert!(
             methods.types.get("T").unwrap().args
-                == [Arg { name: "x".to_string(), type_raw: "string".to_string(), t: Type::String }]
+                == [Arg {
+                    name: "x".to_string(),
+                    type_raw: "string".to_string(),
+                    t: ArgType::String
+                }]
         )
     }
 }

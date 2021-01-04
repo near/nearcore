@@ -16,7 +16,7 @@ use crate::types::{
     AddressArg, DataKey, FunctionCallArgs, GetStorageAtArgs, Method, RawU256, Result, TransferArgs,
     ViewCallArgs, WithdrawArgs,
 };
-use crate::utils::{self, combine_data_key, near_erc721_domain, parse_meta_call};
+use crate::utils::{self, combine_data_key, near_erc712_domain, parse_meta_call};
 use near_vm_errors::InconsistentStateError::StorageError;
 
 pub struct EvmContext<'a> {
@@ -155,7 +155,7 @@ impl<'a> EvmContext<'a> {
             config.limit_config.max_gas_burnt
         };
         // TODO: pass chain id from ??? genesis / config.
-        let domain_separator = near_erc721_domain(U256::from(chain_id));
+        let domain_separator = near_erc712_domain(U256::from(chain_id));
         Self {
             ext,
             account_id,
