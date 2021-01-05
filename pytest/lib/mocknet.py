@@ -1,5 +1,6 @@
 import base58
-from cluster import GCloudNode, Key
+from cluster import GCloudNode
+from key import Key
 from metrics import Metrics
 from transaction import sign_payment_tx_and_get_hash, sign_staking_tx_and_get_hash
 import data
