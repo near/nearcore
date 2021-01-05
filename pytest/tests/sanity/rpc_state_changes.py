@@ -10,7 +10,8 @@ import threading
 import deepdiff
 
 sys.path.append('lib')
-from cluster import start_cluster, Key
+from cluster import start_cluster
+from key import Key
 from utils import load_binary_file
 import transaction
 
