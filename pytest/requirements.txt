@@ -3,7 +3,7 @@ colorama
 fabric
 tornado
 requests
-retry
+retrying
 ed25519
 base58
 prometheus-client
@@ -12,6 +12,6 @@ tqdm
 deepdiff
 pynacl
 numpy
-sklearn
+scikit-learn==0.21.3
 PyGithub
 semver

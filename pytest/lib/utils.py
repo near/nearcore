@@ -1,6 +1,6 @@
 from transaction import sign_payment_tx
 import random, base58
-from retry import retry
+from retrying import retry
 from cluster import LocalNode, GCloudNode, CONFIG_ENV_VAR
 import sys
 from rc import run, gcloud
@@ -22,7 +22,7 @@ class TxContext:
         assert len(act_to_val) == self.num_nodes
         assert self.num_nodes >= 2
 
-    @retry(tries=10, backoff=1.2)
+    @retry(stop_max_attempt_number=10, wait_exponential_multiplier=1.2)
     def get_balance(self, whose):
         r = self.nodes[self.act_to_val[whose]].get_account("test%s" % whose)
         assert 'result' in r, r

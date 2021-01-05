@@ -3,11 +3,11 @@ import json
 import requests
 import time
 
-from cluster import Key
 from transaction import (
     sign_payment_tx, sign_deploy_contract_tx, sign_function_call_tx,
     sign_create_account_with_full_access_key_and_balance_tx, sign_staking_tx)
-import utils
+from key import Key
+from utils import load_binary_file
 
 
 class Account:
@@ -47,7 +47,7 @@ class Account:
         return self.send_tx(tx)
 
     def send_deploy_contract_tx(self, wasm_filename):
-        wasm_binary = utils.load_binary_file(wasm_filename)
+        wasm_binary = load_binary_file(wasm_filename)
         self.prep_tx()
         tx = sign_deploy_contract_tx(self.key, wasm_binary, self.nonce,
                                      self.base_block_hash)
