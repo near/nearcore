@@ -1,7 +1,7 @@
 use ethereum_types::{Address, U256};
 use keccak_hash::keccak;
 use near_crypto::{PublicKey, Signature, Signer};
-use near_evm_runner::utils::{near_erc721_domain, prepare_meta_call_args, u256_to_arr};
+use near_evm_runner::utils::{near_erc712_domain, prepare_meta_call_args, u256_to_arr};
 use near_evm_runner::EvmContext;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -79,7 +79,7 @@ pub fn encode_meta_call_function_args(
     method_def: &str,
     args: Vec<u8>,
 ) -> Vec<u8> {
-    let domain_separator = near_erc721_domain(U256::from(chain_id));
+    let domain_separator = near_erc712_domain(U256::from(chain_id));
     let (msg, _) = prepare_meta_call_args(
         &domain_separator,
         &"evm".to_string(),
