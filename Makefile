@@ -4,21 +4,23 @@ docker-nearcore:
 docker-nearcore-nightly:
 	DOCKER_BUILDKIT=1 docker build -t nearcore-nightly -f Dockerfile.nightly .
 
+RUST_OPTIONS:=+stable
+
 release:
-	cargo +stable build -p neard --release
-	cargo +stable build -p keypair-generator --release
-	cargo +stable build -p genesis-csv-to-json --release
-	cargo +stable build -p near-vm-runner-standalone --release
-	cargo +stable build -p state-viewer --release
-	cargo +stable build -p store-validator --release
+	cargo $(RUST_OPTIONS) build -p neard --release
+	cargo $(RUST_OPTIONS) build -p keypair-generator --release
+	cargo $(RUST_OPTIONS) build -p genesis-csv-to-json --release
+	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --release
+	cargo $(RUST_OPTIONS) build -p state-viewer --release
+	cargo $(RUST_OPTIONS) build -p store-validator --release
 
 debug:
-	cargo +stable build -p neard
-	cargo +stable build -p keypair-generator
-	cargo +stable build -p genesis-csv-to-json
-	cargo +stable build -p near-vm-runner-standalone
-	cargo +stable build -p state-viewer
-	cargo +stable build -p store-validator
+	cargo $(RUST_OPTIONS) build -p neard
+	cargo $(RUST_OPTIONS) build -p keypair-generator
+	cargo $(RUST_OPTIONS) build -p genesis-csv-to-json
+	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone
+	cargo $(RUST_OPTIONS) build -p state-viewer
+	cargo $(RUST_OPTIONS) build -p store-validator
 
 nightly-release:
 	cargo build -p neard --release --features nightly_protocol --features nightly_protocol_features
