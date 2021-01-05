@@ -12,11 +12,12 @@ use near_vm_logic::{ActionCosts, External, VMConfig, VMLogicError, VMOutcome};
 
 use crate::evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore};
 use crate::interpreter;
+use crate::meta_parsing::{near_erc712_domain, parse_meta_call};
 use crate::types::{
     AddressArg, DataKey, FunctionCallArgs, GetStorageAtArgs, Method, RawU256, Result, TransferArgs,
     ViewCallArgs, WithdrawArgs,
 };
-use crate::utils::{self, combine_data_key, near_erc712_domain, parse_meta_call};
+use crate::utils::{self, combine_data_key};
 use near_vm_errors::InconsistentStateError::StorageError;
 
 pub struct EvmContext<'a> {
