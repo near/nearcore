@@ -1,6 +1,11 @@
-mod utils;
+use ethereum_types::{Address, U256};
+use rlp::Encodable;
 
-use crate::utils::{accounts, create_context, setup};
+use near_crypto::{InMemorySigner, KeyType};
+
+use crate::utils::{accounts, create_context, setup, sign_eth_transaction, CHAIN_ID};
+
+mod utils;
 
 /// Test various invalid inputs to function calls.
 #[test]
@@ -29,5 +34,43 @@ fn test_invalid_view_args() {
     assert_eq!(
         context.view_call_function(args).unwrap_err().to_string(),
         "EvmError(ContractNotFound)"
+    );
+}
+
+#[test]
+fn test_invalid_raw_call_args() {
+    let signer = InMemorySigner::from_seed("doesnt", KeyType::SECP256K1, "a");
+    let mut signed_transaction = sign_eth_transaction(
+        &signer,
+        CHAIN_ID,
+        U256::zero(),
+        U256::from(200),
+        U256::from(24000),
+        Some(Address::zero()),
+        U256::from(100),
+        vec![],
+    );
+    signed_transaction.v = 30;
+
+    let (mut fake_external, vm_config, fees_config) = setup();
+    let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
+    assert_eq!(
+        context.raw_call_function(signed_transaction.rlp_bytes()).unwrap_err().to_string(),
+        "EvmError(InvalidEcRecoverSignature)"
+    );
+
+    let signed_transaction = sign_eth_transaction(
+        &signer,
+        1,
+        U256::zero(),
+        U256::from(200),
+        U256::from(24000),
+        Some(Address::zero()),
+        U256::from(100),
+        vec![],
+    );
+    assert_eq!(
+        context.raw_call_function(signed_transaction.rlp_bytes()).unwrap_err().to_string(),
+        "EvmError(InvalidChainId)"
     );
 }

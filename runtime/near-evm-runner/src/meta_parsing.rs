@@ -542,10 +542,10 @@ pub fn parse_meta_call(
         &method_def,
         args,
     )?;
-    let sender = ecrecover_address(&msg, &signature);
-    if sender == Address::zero() {
-        return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
+    match ecrecover_address(&msg, &signature) {
+        Some(sender) => {
+            Ok(MetaCallArgs { sender, nonce, fee_amount, fee_address, contract_address, input })
+        }
+        None => Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature)),
     }
-
-    Ok(MetaCallArgs { sender, nonce, fee_amount, fee_address, contract_address, input })
 }

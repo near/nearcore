@@ -256,7 +256,17 @@ impl<'a> EvmContext<'a> {
     pub fn raw_call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>> {
         let signed_transaction = EthSignedTransaction::decode(&Rlp::new(&args))
             .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
-        let sender = signed_transaction.sender();
+        // Validate chain id if provided inside the signature.
+        if let Some(chain_id) = signed_transaction.chain_id() {
+            if chain_id != self.chain_id {
+                return Err(VMLogicError::EvmError(EvmError::InvalidChainId));
+            }
+        }
+        // Retrieve the signer of given transaction.
+        let sender = match signed_transaction.sender() {
+            Some(sender) => sender,
+            None => return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature)),
+        };
         if signed_transaction.transaction.data.is_empty() {
             // If data is empty, this is a simple transfer.
             if let Some(receiver) = signed_transaction.transaction.to {
@@ -266,6 +276,7 @@ impl<'a> EvmContext<'a> {
                 Err(VMLogicError::EvmError(EvmError::InvalidRawTransactionMissingTo))
             }
         } else {
+            // Otherwise it's either code deployment if to == None or function call.
             if let Some(receiver) = signed_transaction.transaction.to {
                 let result = interpreter::call(
                     self,

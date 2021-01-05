@@ -9,7 +9,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::types::{TransferArgs, WithdrawArgs};
 use near_evm_runner::utils::{
     address_from_arr, address_to_vec, ecrecover_address, encode_call_function_args,
-    encode_view_call_function_args, near_account_id_to_evm_address, near_erc721_domain,
+    encode_view_call_function_args, near_account_id_to_evm_address, near_erc712_domain,
     parse_meta_call, u256_to_arr,
 };
 use near_runtime_fees::RuntimeFeesConfig;
