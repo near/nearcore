@@ -15,6 +15,9 @@ mod pricer;
 mod runner;
 #[cfg(feature = "protocol_feature_evm")]
 pub mod types;
+
+#[cfg(feature = "protocol_feature_evm")]
+mod meta_parsing;
 #[cfg(feature = "protocol_feature_evm")]
 pub mod utils;
 #[cfg(feature = "protocol_feature_evm")]
