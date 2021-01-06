@@ -13,7 +13,7 @@ RUN apt-get update -qq && apt-get install -y \
     clang \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ./rust-toolchain /tmp/rust-toolchain
+COPY ./stable.rust-toolchain /tmp/rust-toolchain
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
@@ -32,7 +32,7 @@ ENV PORTABLE=ON
 RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo +stable build -p neard --release --features nightly_protocol --features nightly_protocol_features && \
+    cargo +"$(cat /tmp/rust-toolchain)" build -p neard --release --features nightly_protocol --features nightly_protocol_features && \
     mkdir /tmp/build && \
     cd /tmp/target/release && \
     mv ./neard /tmp/build
