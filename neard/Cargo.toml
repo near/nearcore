@@ -67,6 +67,7 @@ protocol_feature_evm = ["near-primitives/protocol_feature_evm", "node-runtime/pr
 nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 wasmtime_vm = ["node-runtime/wasmtime_vm"]
+wasmer1_vm = ["node-runtime/wasmer1_vm"]
 
 [[bin]]
 path = "src/main.rs"

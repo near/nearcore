@@ -36,6 +36,30 @@ macro_rules! wrapped_imports {
                     logic.$func( $( $arg_name, )* )
                 }
             )*
+
+            }
+            pub mode wasmer1_ext {
+            use near_vm_logic::VMLogic;
+            use wasmer::{WasmerEnv, LazyInit};
+            #[derive(WasmerEnv, Clone, Default)]
+            struct MyEnv {
+                #[wasmer(export)]
+                memory: LazyInit<Memory>,
+            }
+            let env = MyEnv::default();
+
+            type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
+            $(
+                #[allow(unused_parens)]
+                pub fn $func( env: &mut MyEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
+                    // TODO: ctx does not exist in wasmer 1.0, either save logic in MyEnv, or
+                    // as global consts in imports! macro (import! was only able to import functions
+                    // and have a import_with_state syntax, but now it can import globals, and doesn't
+                    // support import_with_state)
+                    let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
+                    logic.$func( $( $arg_name, )* )
+                }
+            )*
             }
 
             #[cfg(feature = "wasmtime_vm")]
@@ -89,6 +113,25 @@ macro_rules! wrapped_imports {
                         "memory" => memory,
                         $(
                             stringify!($func) => wasmer_runtime::func!(wasmer_ext::$func),
+                        )*
+                    },
+                }
+            }
+
+            #[cfg(feature = "wasmer1_vm")]
+            pub(crate) fn build_wasmer1(memory: wasmer::Memory, logic: &mut VMLogic<'_>) ->
+                wasmer::ImportObject {
+                let raw_ptr = logic as *mut _ as *mut c_void;
+                let import_reference = ImportReference(raw_ptr);
+                wasmer::imports! {
+                    move || {
+                        let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
+                        (import_reference.0, dtor)
+                    },
+                    "env" => {
+                        "memory" => memory,
+                        $(
+                            stringify!($func) => wasmer::Function::new_with_native_env(wasmer_ext::$func),
                         )*
                     },
                 }

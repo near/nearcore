@@ -286,6 +286,8 @@ fn test_stack_overflow() {
             Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
         )
     );
+
+    // TODO add a Wasmer1 test?
 }
 
 fn memory_grow() -> Vec<u8> {
@@ -389,6 +391,7 @@ fn test_bad_import_3() {
         let msg = match vm_kind {
             VMKind::Wasmer => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
             VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { params: [I64], results: [] })\\n\"",
+            VMKind::Wasmer1 => "TODO: FILL ME"
         }.to_string();
         assert_eq!(
             make_simple_contract_call_vm(&bad_import_global("env"), b"hello", vm_kind),

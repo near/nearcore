@@ -7,10 +7,12 @@ use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum VMKind {
-    /// Wasmer VM.
+    /// Wasmer 0.17.x VM.
     Wasmer,
     /// Wasmtime VM.
     Wasmtime,
+    /// Wasmer 1.x VM.
+    Wasmer1,
 }
 
 impl Default for VMKind {
@@ -19,12 +21,21 @@ impl Default for VMKind {
         VMKind::Wasmer
     }
 
+    #[cfg(feature = "wasmer1_default")]
+    fn default() -> Self {
+        VMKind::Wasmer1
+    }
+
     #[cfg(feature = "wasmtime_default")]
     fn default() -> Self {
         VMKind::Wasmtime
     }
 
-    #[cfg(all(not(feature = "wasmer_default"), not(feature = "wasmtime_default")))]
+    #[cfg(all(
+        not(feature = "wasmer_default"),
+        not(feature = "wasmer1_default"),
+        not(feature = "wasmtime_default")
+    ))]
     fn default() -> Self {
         VMKind::Wasmer
     }

@@ -56,8 +56,13 @@ pub fn run_vm<'a>(
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     use crate::wasmer_runner::run_wasmer;
+
     #[cfg(feature = "wasmtime_vm")]
     use crate::wasmtime_runner::wasmtime_runner::run_wasmtime;
+
+    #[cfg(feature = "wasmer1_vm")]
+    use crate::wasmer1_runner::run_wasmer1;
+
     match vm_kind {
         VMKind::Wasmer => run_wasmer(
             code_hash,
@@ -90,6 +95,22 @@ pub fn run_vm<'a>(
         VMKind::Wasmtime => {
             panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
         }
+        #[cfg(feature = "wasmer1_vm")]
+        VMKind::Wasmer1 => run_wasmer1(
+            code_hash,
+            code,
+            method_name,
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            None,
+            current_protocol_version,
+            cache,
+        ),
+        #[cfg(not(feature = "wasmer1_vm"))]
+        VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
     }
 }
 
@@ -142,13 +163,33 @@ pub fn run_vm_profiled<'a>(
         VMKind::Wasmtime => {
             panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
         }
+        #[cfg(feature = "wasmer1_vm")]
+        VMKind::Wasmer1 => run_wasm1(
+            code_hash,
+            code,
+            method_name,
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            Some(profile),
+            current_protocol_version,
+            cache,
+        ),
+        #[cfg(not(feature = "wasmer1_vm"))]
+        VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
     }
 }
 
 pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
     runner(VMKind::Wasmer);
+
     #[cfg(feature = "wasmtime_vm")]
     runner(VMKind::Wasmtime);
+
+    #[cfg(feature = "wasmer1_vm")]
+    runner(VMKind::Wasmer1);
 }
 
 /// Used for testing cost of compiling a module
@@ -167,6 +208,13 @@ pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) -> bool {
         VMKind::Wasmtime => {
             panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
         }
+        #[cfg(feature = "wasmer1_vm")]
+        VMKind::Wasmer1 => {
+            use crate::wasmer1_runner::compile_module;
+            compile_module(code)
+        }
+        #[cfg(not(feature = "wasmer1_vm"))]
+        VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasm1_vm'"),
     };
     false
 }
