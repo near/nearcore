@@ -948,6 +948,15 @@ impl Client {
                 };
                 near_metrics::stop_timer(timer);
             }
+
+            if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
+                let next_epoch_protocol_version = unwrap_or_return!(self
+                    .runtime_adapter
+                    .get_epoch_protocol_version(block.header().next_epoch_id()));
+                if next_epoch_protocol_version > PROTOCOL_VERSION {
+                    panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
+                }
+            }
         }
 
         if let Some(validator_signer) = self.validator_signer.clone() {

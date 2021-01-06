@@ -43,6 +43,7 @@ near-jsonrpc = { path = "../chain/jsonrpc" }
 near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
 near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
+near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
 delay-detector = { path = "../tools/delay_detector", optional = true }
 
@@ -53,6 +54,7 @@ testlib = { path = "../test-utils/testlib" }
 primitive-types = "0.7.2"
 
 [features]
+performance_stats = ["near-performance-metrics/performance_stats"]
 adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-store/adversarial"]
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]

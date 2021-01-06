@@ -14,11 +14,11 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 borsh = "0.7.1"
-wasmer-runtime = { version = "=0.17.1", features = ["default-backend-singlepass"], default-features = false }
-wasmer-runtime-core = { version = "=0.17.1" }
+wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near" }
+wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
-wasmtime = { version = "0.17.0", features = ["lightbeam"], default-features = false, optional = true }
+wasmtime = { version = "0.20.0", default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
 near-runtime-fees = { path="../near-runtime-fees", version = "2.3.0" }
 near-vm-logic = { path="../near-vm-logic", version = "2.3.0", default-features = false, features = []}
@@ -35,10 +35,10 @@ bencher = "^0.1.5"
 [features]
 default = [ "wasmer_default" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
+lightbeam = ["wasmtime/lightbeam"]
 wasmer_default = []
 wasmtime_default = ["wasmtime_vm"]
 no_cpu_compatibility_checks = []
-lightbeam = ["wasmtime_vm"]
 protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
 
 # Use this feature to enable counting of fees and costs applied.
