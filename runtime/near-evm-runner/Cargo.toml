@@ -16,6 +16,7 @@ byteorder = "1.0"
 num-bigint = { version = "0.3", default-features = false }
 num-traits = "0.2.12"
 enum-primitive-derive = "0.2"
+itertools = "0.9.0"
 
 sha2 = ">=0.8,<0.10"
 sha3 = "0.9"
@@ -26,9 +27,11 @@ libsecp256k1 = "0.3.5"
 
 evm = { git = "https://github.com/openethereum/openethereum", rev = "v2.7.2" }
 vm = { git = "https://github.com/openethereum/openethereum", rev = "v2.7.2" }
+lunarity-lexer = "0.2"
 bn = { git = "https://github.com/near/bn", rev = "43953916ed1a314b78320771734f36af77993dd9" }
 parity-bytes = "0.1.0"
 ethereum-types = "0.8.0"
+ethabi = "11.0.0"
 
 near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }
@@ -38,11 +41,11 @@ near-runtime-fees = { path = "../near-runtime-fees" }
 derivative = "2.1.1"
 
 [dev-dependencies]
-ethabi = "9.0.1"
-ethabi-contract = "9.0.0"
-ethabi-derive = "9.0.1"
+ethabi-contract = "11.0.0"
+ethabi-derive = "11.0.0"
 lazy_static = "1.4"
 lazy-static-include = "2.2.2"
+criterion = "0.3.0"
 
 near-crypto = { path = "../../core/crypto" }
 
@@ -59,3 +62,8 @@ required-features = ["protocol_feature_evm"]
 name = "standard_ops"
 path = "tests/standard_ops.rs"
 required-features = ["protocol_feature_evm"]
+
+[[bench]]
+name = "bench"
+required-features = ["protocol_feature_evm"]
+harness = false

@@ -35,8 +35,7 @@ impl Method {
             // Change the state methods.
             "deploy_code" => Self::DeployCode,
             "call_function" | "call" => Self::Call,
-            // TODO: Meta calls are temporary disabled.
-            // "meta_call" => Self::MetaCall,
+            "meta_call" => Self::MetaCall,
             "deposit" => Self::Deposit,
             "withdraw" => Self::Withdraw,
             "transfer" => Self::Transfer,
