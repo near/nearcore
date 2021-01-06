@@ -33,7 +33,7 @@ pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 const BLOCK_REQUEST_TIMEOUT: i64 = 2;
 
 /// Sync state download timeout in seconds.
-pub const STATE_SYNC_TIMEOUT: i64 = 10;
+pub const STATE_SYNC_TIMEOUT: i64 = 60;
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
 /// Number of state parts already requested stored as pending.
