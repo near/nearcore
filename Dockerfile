@@ -32,7 +32,7 @@ ENV PORTABLE=ON
 RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo build -p neard --release && \
+    cargo +stable build -p neard --release && \
     mkdir /tmp/build && \
     cd /tmp/target/release && \
     mv ./neard /tmp/build
