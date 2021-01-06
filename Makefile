@@ -23,17 +23,17 @@ debug:
 	cargo $(RUST_OPTIONS) build -p store-validator
 
 nightly-release:
-	cargo build -p neard --release --features nightly_protocol --features nightly_protocol_features
-	cargo build -p keypair-generator --release --features nightly_protocol --features nightly_protocol_features
-	cargo build -p genesis-csv-to-json --release --features nightly_protocol --features nightly_protocol_features
-	cargo build -p near-vm-runner-standalone --release --features nightly_protocol --features nightly_protocol_features
-	cargo build -p state-viewer --release --features nightly_protocol --features nightly_protocol_features
-	cargo build -p store-validator --release --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p neard --release --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p keypair-generator --release --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p genesis-csv-to-json --release --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --release --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p state-viewer --release --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p store-validator --release --features nightly_protocol --features nightly_protocol_features
 
 nightly-debug:
-	cargo build -p neard --features nightly_protocol --features nightly_protocol_features
-	cargo build -p keypair-generator --features nightly_protocol --features nightly_protocol_features
-	cargo build -p genesis-csv-to-json --features nightly_protocol --features nightly_protocol_features
-	cargo build -p near-vm-runner-standalone --features nightly_protocol --features nightly_protocol_features
-	cargo build -p state-viewer --release nightly_protocol --features nightly_protocol_features
-	cargo build -p store-validator --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p neard --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p keypair-generator --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p genesis-csv-to-json --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --features nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p state-viewer --release nightly_protocol --features nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p store-validator --features nightly_protocol --features nightly_protocol_features
