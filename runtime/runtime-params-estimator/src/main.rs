@@ -21,7 +21,15 @@ fn main() {
         .arg(
             Arg::with_name("warmup-iters")
                 .long("warmup-iters")
-                .default_value("3")
+                .default_value("0")
+                .required(true)
+                .takes_value(true)
+                .help("How many warm up iterations per block should we run."),
+        )
+        .arg(
+            Arg::with_name("warmup-transactions")
+                .long("warmup-transactions")
+                .default_value("0")
                 .required(true)
                 .takes_value(true)
                 .help("How many warm up iterations per block should we run."),

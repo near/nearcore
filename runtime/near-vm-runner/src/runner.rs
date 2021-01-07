@@ -29,8 +29,9 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
-    profile: &Option<ProfileData>,
+    #[allow(unused_variables)] profile: &Option<ProfileData>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    #[cfg(feature = "costs_counting")]
     match profile {
         Some(profile) => run_vm_profiled(
             code_hash,
@@ -60,6 +61,20 @@ pub fn run<'a>(
             cache,
         ),
     }
+    #[cfg(not(feature = "costs_counting"))]
+    run_vm(
+        code_hash,
+        code,
+        method_name,
+        ext,
+        context,
+        wasm_config,
+        fees_config,
+        promise_results,
+        VMKind::default(),
+        current_protocol_version,
+        cache,
+    )
 }
 pub fn run_vm<'a>(
     code_hash: Vec<u8>,

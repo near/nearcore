@@ -1,7 +1,7 @@
 use ethereum_types::{Address, U256};
 use keccak_hash::keccak;
 use near_crypto::{PublicKey, Signature, Signer};
-use near_evm_runner::utils::{near_erc721_domain, prepare_meta_call_args, u256_to_arr};
+use near_evm_runner::utils::{near_erc712_domain, prepare_meta_call_args, u256_to_arr};
 use near_evm_runner::EvmContext;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -76,32 +76,38 @@ pub fn encode_meta_call_function_args(
     fee_amount: U256,
     fee_token: Address,
     address: Address,
-    method_name: &str,
+    method_def: &str,
     args: Vec<u8>,
 ) -> Vec<u8> {
-    let domain_separator = near_erc721_domain(U256::from(chain_id));
-    let msg = prepare_meta_call_args(
+    let domain_separator = near_erc712_domain(U256::from(chain_id));
+    let (msg, _) = prepare_meta_call_args(
         &domain_separator,
         &"evm".to_string(),
         nonce,
         fee_amount,
         fee_token,
         address,
-        method_name,
+        method_def,
         &args,
-    );
+    )
+    .unwrap();
     match signer.sign(&msg) {
         Signature::ED25519(_) => panic!("Wrong Signer"),
-        Signature::SECP256K1(sig) => [
-            Into::<[u8; 65]>::into(sig).to_vec(),
-            u256_to_arr(&nonce).to_vec(),
-            u256_to_arr(&fee_amount).to_vec(),
-            fee_token.0.to_vec(),
-            address.0.to_vec(),
-            vec![method_name.len() as u8],
-            method_name.as_bytes().to_vec(),
-            args,
-        ]
-        .concat(),
+        Signature::SECP256K1(sig) => {
+            let mut signature = Into::<[u8; 65]>::into(sig.clone()).to_vec();
+            // Add 27 to align eth-sig-util signature format
+            signature[64] += 27;
+            [
+                signature,
+                u256_to_arr(&nonce).to_vec(),
+                u256_to_arr(&fee_amount).to_vec(),
+                fee_token.0.to_vec(),
+                address.0.to_vec(),
+                vec![method_def.len() as u8],
+                method_def.as_bytes().to_vec(),
+                args,
+            ]
+            .concat()
+        }
     }
 }

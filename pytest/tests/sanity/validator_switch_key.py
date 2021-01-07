@@ -8,7 +8,8 @@ import sys, time, base58
 
 sys.path.append('lib')
 
-from cluster import start_cluster, Key
+from cluster import start_cluster
+from key import Key
 from transaction import sign_staking_tx
 
 EPOCH_LENGTH = 30
