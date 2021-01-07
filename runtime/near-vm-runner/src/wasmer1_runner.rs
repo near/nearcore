@@ -1,5 +1,10 @@
+use crate::imports;
+use near_primitives::types::CompiledContractCache;
+use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
-use wasmer::{Memory, MemoryType, Module, Pages, Singlepass, Store, JIT};
+use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
+use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+use wasmer::{Bytes, Instance, Memory, MemoryType, Module, Pages, Singlepass, Store, JIT};
 
 pub struct Wasmer1Memory(Memory);
 
@@ -54,8 +59,8 @@ impl MemoryLike for Wasmer1Memory {
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
-    use wasmer_types::{ExportIndex, Function};
-    if let Some(ExportIndex(Function(index))) = info.exports.get(method_name) {
+    use wasmer_types::ExportIndex::Function;
+    if let Some(Function(index)) = info.exports.get(method_name) {
         let func = info.signatures.get(index.clone()).unwrap();
         let sig = info.signatures.get(func.clone()).unwrap();
         if sig.params().is_empty() && sig.returns().is_empty() {
@@ -101,7 +106,8 @@ pub fn run_wasmer1<'a>(
         Err(err) => return (None, Some(err)),
     };
 
-    let mut memory = WasmerMemory::new(
+    let mut memory = Wasmer1Memory::new(
+        store,
         wasm_config.limit_config.initial_memory_pages,
         wasm_config.limit_config.max_memory_pages,
     )
@@ -128,7 +134,7 @@ pub fn run_wasmer1<'a>(
             ))),
         );
     }
-    let import_object = imports::build_wasmer1(memory_copy, &mut logic);
+    let import_object = imports::build_wasmer1(store, memory_copy, &mut logic);
 
     let method_name = match std::str::from_utf8(method_name) {
         Ok(x) => x,

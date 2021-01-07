@@ -68,6 +68,9 @@ pub struct VMLogic<'a> {
     current_protocol_version: ProtocolVersion,
 }
 
+unsafe impl<'a> Send for VMLogic<'a> {}
+unsafe impl<'a> Sync for VMLogic<'a> {}
+
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
 /// calls. A single promise can be created with zero or several dependencies on other promises.
 /// * If a promise was created from a receipt (using `promise_create` or `promise_then`) it's a

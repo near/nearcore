@@ -36,17 +36,18 @@ macro_rules! wrapped_imports {
                     logic.$func( $( $arg_name, )* )
                 }
             )*
-
             }
+
+            #[cfg(feature = "wasmer1_vm")]
             pub mod wasmer1_ext {
             use near_vm_logic::VMLogic;
-            use wasmer::{WasmerEnv, LazyInit};
+            use wasmer::{WasmerEnv, LazyInit, Memory};
             #[derive(WasmerEnv, Clone, Default)]
-            struct MyEnv {
+            pub struct MyEnv<'a> {
                 #[wasmer(export)]
-                memory: LazyInit<Memory>,
+                pub memory: LazyInit<Memory>,
                 #[wasmer(export)]
-                logic: LazyInit<VMLogic>,
+                pub logic: LazyInit<VMLogic<'a>>,
             }
 
             type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
@@ -116,9 +117,9 @@ macro_rules! wrapped_imports {
             }
 
             #[cfg(feature = "wasmer1_vm")]
-            pub(crate) fn build_wasmer1(memory: wasmer::Memory, logic: &mut VMLogic<'_>) ->
+            pub(crate) fn build_wasmer1(store: &wasmer::Store, memory: wasmer::Memory, logic: &mut VMLogic<'_>) ->
                 wasmer::ImportObject {
-                let env = MyEnv {logic, memory: wasmer::LazyInit::new(memory.clone())};
+                let env = wasmer1_ext::MyEnv {logic, memory: wasmer::LazyInit::new(memory.clone())};
                 wasmer::imports! {
                     "env" => {
                         "memory" => memory,
