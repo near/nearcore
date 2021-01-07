@@ -52,7 +52,27 @@ impl MemoryLike for Wasmer1Memory {
     }
 }
 
-pub fn run_wasmer<'a>(
+fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
+    let info = module.info();
+    use wasmer_types::{ExportIndex, Function};
+    if let Some(ExportIndex(Function(index))) = info.exports.get(method_name) {
+        let func = info.signatures.get(index.clone()).unwrap();
+        let sig = info.signatures.get(func.clone()).unwrap();
+        if sig.params().is_empty() && sig.returns().is_empty() {
+            Ok(())
+        } else {
+            Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodInvalidSignature,
+            )))
+        }
+    } else {
+        Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+            MethodResolveError::MethodNotFound,
+        )))
+    }
+}
+
+pub fn run_wasmer1<'a>(
     code_hash: Vec<u8>,
     code: &[u8],
     method_name: &[u8],
@@ -108,8 +128,31 @@ pub fn run_wasmer<'a>(
             ))),
         );
     }
-
     let import_object = imports::build_wasmer1(memory_copy, &mut logic);
+
+    let method_name = match std::str::from_utf8(method_name) {
+        Ok(x) => x,
+        Err(_) => {
+            return (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodUTF8Error,
+                ))),
+            )
+        }
+    };
+
+    if let Err(e) = check_method(&module, method_name) {
+        return (None, Some(e));
+    }
+
+    match Instance::new(&module, &import_object) {
+        Ok(instance) => match instance.call(&method_name, &[]) {
+            Ok(_) => (Some(logic.outcome()), None),
+            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+        },
+        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+    }
 }
 
 pub fn compile_module(code: &[u8]) -> bool {
