@@ -142,6 +142,7 @@ pub(crate) fn execute_function_call(
             promise_results,
             apply_state.current_protocol_version,
             cache,
+            #[cfg(feature = "costs_counting")]
             &apply_state.profile,
         )
     }

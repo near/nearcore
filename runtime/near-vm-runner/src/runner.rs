@@ -29,7 +29,7 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
-    #[allow(unused_variables)] profile: &Option<ProfileData>,
+    #[cfg(feature = "costs_counting")] profile: &Option<ProfileData>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     #[cfg(feature = "costs_counting")]
     match profile {
