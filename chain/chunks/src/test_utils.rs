@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::types::RuntimeAdapter;
@@ -20,8 +20,30 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 
 use crate::{
-    Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS, PAST_SEAL_HEIGHT_HORIZON,
+    types::TimeProvider, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS,
+    PAST_SEAL_HEIGHT_HORIZON,
 };
+
+#[derive(Copy, Clone, Default)]
+pub struct MockTimeProvider {
+    fixed_time: Option<DateTime<Utc>>,
+}
+
+impl MockTimeProvider {
+    fn fix_time(&mut self, t: DateTime<Utc>) {
+        self.fixed_time = Some(t);
+    }
+
+    fn unset_fixed_time(&mut self) {
+        self.fixed_time = None;
+    }
+}
+
+impl TimeProvider for MockTimeProvider {
+    fn now(&self) -> DateTime<Utc> {
+        self.fixed_time.unwrap_or_else(Utc::now)
+    }
+}
 
 pub struct SealsManagerTestFixture {
     pub mock_chunk_producer: AccountId,
@@ -97,11 +119,15 @@ impl SealsManagerTestFixture {
         update.commit().unwrap();
     }
 
-    pub fn create_seals_manager(&self) -> SealsManager {
-        SealsManager::new(self.mock_me.clone(), self.mock_runtime.clone())
+    pub fn create_seals_manager(&self) -> SealsManager<MockTimeProvider> {
+        SealsManager::new(
+            self.mock_me.clone(),
+            self.mock_runtime.clone(),
+            MockTimeProvider::default(),
+        )
     }
 
-    pub fn create_seal(&self, seals_manager: &mut SealsManager) {
+    pub fn create_seal<T: TimeProvider>(&self, seals_manager: &mut SealsManager<T>) {
         seals_manager
             .get_seal(
                 &self.mock_chunk_hash,
@@ -114,20 +140,19 @@ impl SealsManagerTestFixture {
 
     pub fn create_expired_seal(
         &self,
-        seals_manager: &mut SealsManager,
+        seals_manager: &mut SealsManager<MockTimeProvider>,
         chunk_hash: &ChunkHash,
         parent_hash: &CryptoHash,
         height: BlockHeight,
     ) {
-        let seal =
-            seals_manager.get_seal(chunk_hash, parent_hash, height, self.mock_shard_id).unwrap();
-        let demur = match seal {
-            Seal::Active(demur) => demur,
-            Seal::Past => panic!("Active demur expected"),
-        };
-
         let d = chrono::Duration::milliseconds(2 * ACCEPTING_SEAL_PERIOD_MS);
-        demur.sent = demur.sent - d;
+        let t = Utc::now() - d;
+        // fix the time in the past so the new seal will be expired
+        seals_manager.time_provider.fix_time(t);
+        // create the seal
+        seals_manager.get_seal(chunk_hash, parent_hash, height, self.mock_shard_id).unwrap();
+        // restore the time provider
+        seals_manager.time_provider.unset_fixed_time();
     }
 }
 
