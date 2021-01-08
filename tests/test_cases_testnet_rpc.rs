@@ -204,4 +204,10 @@ mod test {
     fn test_evm_deploy_call_testnet() {
         run_testnet_test!(test_evm_deploy_call);
     }
+
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_fibonacci_gas_limit() {
+        run_testnet_test!(test_evm_fibonacci_gas_limit);
+    }
 }
