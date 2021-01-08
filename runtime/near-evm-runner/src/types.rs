@@ -104,11 +104,17 @@ pub struct MetaCallArgs {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct EthTransaction {
+    /// A monotonically increasing transaction counter for this sender
     pub nonce: U256,
+    /// The fee the sender pays per unit of gas
     pub gas_price: U256,
+    /// The maximum amount of gas units consumed by the transaction
     pub gas: U256,
+    /// The receiving address (`None` for the zero address)
     pub to: Option<Address>,
+    /// The amount of ETH to transfer
     pub value: U256,
+    /// Arbitrary binary data for a contract call invocation
     pub data: Vec<u8>,
 }
 
@@ -134,9 +140,13 @@ impl EthTransaction {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct EthSignedTransaction {
+    /// The unsigned transaction data
     pub transaction: EthTransaction,
+    /// The ECDSA recovery ID
     pub v: u64,
+    /// The first ECDSA signature output
     pub r: U256,
+    /// The second ECDSA signature output
     pub s: U256,
 }
 
