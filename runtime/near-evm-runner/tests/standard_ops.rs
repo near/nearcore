@@ -4,6 +4,7 @@ extern crate lazy_static_include;
 use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
 use ethereum_types::{Address, H256, U256};
+use rlp::Encodable;
 
 use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::types::{TransferArgs, WithdrawArgs};
@@ -354,7 +355,7 @@ fn test_ecrecover() {
     signature[1..].copy_from_slice(&signature2[..64]);
 
     assert_eq!(
-        ecrecover_address(&msg, &signature).0.to_vec(),
+        ecrecover_address(&msg, &signature).unwrap().0.to_vec(),
         hex::decode("3b748cf099f8068951f87331d1970bcafda8a4db").unwrap()
     );
 }
