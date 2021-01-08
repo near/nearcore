@@ -3,7 +3,7 @@ use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -28,7 +28,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockReference, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -611,17 +611,17 @@ impl RawRoutedMessage {
         routed_message_ttl: u8,
     ) -> RoutedMessage {
         let target = self.target.peer_id_or_hash().unwrap();
-        let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
+        let hash = RoutedMessage::build_hash(&target, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
         RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutedMessageNoSignature {
-    target: PeerIdOrHash,
-    author: PeerId,
-    body: RoutedMessageBody,
+#[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
+pub struct RoutedMessageNoSignature<'a> {
+    target: &'a PeerIdOrHash,
+    author: &'a PeerId,
+    body: &'a RoutedMessageBody,
 }
 
 /// RoutedMessage represent a package that will travel the network towards a specific peer id.
@@ -649,7 +649,11 @@ pub struct RoutedMessage {
 }
 
 impl RoutedMessage {
-    pub fn build_hash(target: PeerIdOrHash, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
+    pub fn build_hash(
+        target: &PeerIdOrHash,
+        source: &PeerId,
+        body: &RoutedMessageBody,
+    ) -> CryptoHash {
         hash(
             &RoutedMessageNoSignature { target, author: source, body }
                 .try_to_vec()
@@ -658,7 +662,7 @@ impl RoutedMessage {
     }
 
     pub fn hash(&self) -> CryptoHash {
-        RoutedMessage::build_hash(self.target.clone(), self.author.clone(), self.body.clone())
+        RoutedMessage::build_hash(&self.target, &self.author, &self.body)
     }
 
     pub fn verify(&self) -> bool {
@@ -1257,7 +1261,7 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-pub struct EdgeList(pub Vec<Edge>);
+pub struct EdgeList(pub Arc<Vec<Edge>>);
 
 impl Message for EdgeList {
     type Result = bool;
@@ -1491,10 +1495,6 @@ pub enum NetworkViewClientMessages {
     StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
     /// Get Chain information from Client.
     GetChainInfo,
-    /// Account announcements that needs to be validated before being processed.
-    /// They are paired with last epoch id known to this announcement, in order to accept only
-    /// newer announcements.
-    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
 pub enum NetworkViewClientResponses {
@@ -1517,8 +1517,6 @@ pub enum NetworkViewClientResponses {
     },
     /// Response to state request.
     StateResponse(Box<StateResponseInfo>),
-    /// Valid announce accounts.
-    AnnounceAccount(Vec<AnnounceAccount>),
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed

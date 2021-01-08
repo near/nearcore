@@ -29,8 +29,8 @@ use near_primitives::types::{
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
-    AccessKeyInfoView, AccessKeyList, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewStateResult,
+    AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
+    QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
@@ -724,6 +724,14 @@ impl RuntimeAdapter for KeyValueRuntime {
                 block_height,
                 block_hash: *block_hash,
             }),
+            QueryRequest::ViewCode { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewCode(ContractCodeView {
+                    code: vec![],
+                    hash: CryptoHash::default(),
+                }),
+                block_height,
+                block_hash: *block_hash,
+            }),
             QueryRequest::ViewAccessKeyList { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::AccessKeyList(AccessKeyList {
                     keys: vec![AccessKeyInfoView {
@@ -901,20 +909,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             prev_epoch_kickout: vec![],
             epoch_start_height: 0,
         })
-    }
-
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error> {
-        if epoch_id.0 == other_epoch_id.0 {
-            return Ok(Ordering::Equal);
-        }
-        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
-            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
-            _ => Err(ErrorKind::EpochOutOfBounds.into()),
-        }
     }
 
     fn chunk_needs_to_be_fetched_from_archival(

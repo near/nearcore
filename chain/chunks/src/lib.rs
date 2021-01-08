@@ -35,6 +35,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
     ValidatorStake,
 };
+use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::{checked_feature, unwrap_or_return};
@@ -77,7 +78,7 @@ pub enum ProcessPartialEncodedChunkResult {
     },
     /// The Header is the header of the current chunk, which is unknown to the caller, to request
     ///     parts / receipts for
-    NeedMorePartsOrReceipts(Box<ShardChunkHeader>),
+    NeedMorePartsOrReceipts,
     /// PartialEncodedChunkMessage is received earlier than Block for the same height.
     /// Without the block we cannot restore the epoch and save encoded chunk data.
     NeedBlock,
@@ -656,7 +657,7 @@ impl ShardsManager {
 
     fn request_chunk_single(
         &mut self,
-        chunk_header: ShardChunkHeader,
+        chunk_header: &ShardChunkHeader,
         header_head: Option<&Tip>,
         protocol_version: ProtocolVersion,
     ) {
@@ -727,7 +728,7 @@ impl ShardsManager {
         T: IntoIterator<Item = ShardChunkHeader>,
     {
         for chunk_header in chunks_to_request {
-            self.request_chunk_single(chunk_header, Some(header_head), protocol_version)
+            self.request_chunk_single(&chunk_header, Some(header_head), protocol_version)
         }
     }
 
@@ -1167,21 +1168,17 @@ impl ShardsManager {
 
     pub fn process_partial_encoded_chunk(
         &mut self,
-        partial_encoded_chunk: PartialEncodedChunkV2,
+        partial_encoded_chunk: MaybeValidated<&PartialEncodedChunkV2>,
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
         protocol_version: ProtocolVersion,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         // Check validity first
 
-        if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
-            return Err(Error::InvalidChunkHeader);
-        }
-        let header = partial_encoded_chunk.header.clone();
-        let chunk_hash = header.chunk_hash();
-
-        // 1. Checking signature validity
-        match self.runtime_adapter.verify_chunk_header_signature(&header) {
+        // 1. Checking signature validity (if needed)
+        let signature_check = partial_encoded_chunk
+            .validate_with(|pec| self.runtime_adapter.verify_chunk_header_signature(&pec.header));
+        match signature_check {
             Ok(false) => {
                 byzantine_assert!(false);
                 return Err(Error::InvalidChunkSignature);
@@ -1201,6 +1198,16 @@ impl ShardsManager {
                 };
             }
         };
+
+        // We must check the protocol version every time, since a new value
+        // could be passed to the function, whereas the signature check is intrinsic
+        // to the header, thus only needs to happen exactly once.
+        let partial_encoded_chunk = partial_encoded_chunk.extract();
+        if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
+            return Err(Error::InvalidChunkHeader);
+        }
+        let header = &partial_encoded_chunk.header;
+        let chunk_hash = header.chunk_hash();
 
         // 2. Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1294,8 +1301,8 @@ impl ShardsManager {
         );
         store_update.commit()?;
 
-        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
-        self.process_seals(&partial_encoded_chunk, false)?;
+        self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
+        self.process_seals(partial_encoded_chunk, false)?;
 
         // Forward my parts to others tracking this chunk's shard
         checked_feature!(
@@ -1361,7 +1368,7 @@ impl ShardsManager {
         if can_reconstruct {
             let height = header.height_created();
             let mut encoded_chunk = EncodedShardChunk::from_header(
-                header,
+                header.clone(),
                 self.runtime_adapter.num_total_parts(),
                 protocol_version,
             );
@@ -1388,7 +1395,7 @@ impl ShardsManager {
         }
 
         match self.chunk_forwards_cache.cache_remove(&chunk_hash) {
-            None => Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(Box::new(header))),
+            None => Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts),
 
             Some(forwarded_parts) => {
                 // We have the header now, and there were some parts we were forwarded earlier.
@@ -1402,7 +1409,9 @@ impl ShardsManager {
                 // properly in the next call. Note no requests are actually sent at this point.
                 self.request_chunk_single(header, None, protocol_version);
                 self.process_partial_encoded_chunk(
-                    forwarded_chunk,
+                    // We can assert the signature on the header is valid because
+                    // it would have been checked in an earlier call to this function.
+                    MaybeValidated::Validated(&forwarded_chunk),
                     chain_store,
                     rs,
                     protocol_version,
@@ -1416,7 +1425,7 @@ impl ShardsManager {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn send_partial_encoded_chunk_to_chunk_trackers(
         &mut self,
-        partial_encoded_chunk: PartialEncodedChunkV2,
+        partial_encoded_chunk: &PartialEncodedChunkV2,
     ) -> Result<(), Error> {
         let me = match &self.me {
             Some(me) => me,
@@ -1427,12 +1436,13 @@ impl ShardsManager {
         let shard_id = partial_encoded_chunk.header.shard_id();
         let owned_parts: Vec<_> = partial_encoded_chunk
             .parts
-            .into_iter()
+            .iter()
             .filter(|part| {
                 self.runtime_adapter
                     .get_part_owner(&parent_hash, part.part_ord)
                     .map_or(false, |owner| &owner == me)
             })
+            .cloned()
             .collect();
 
         if owned_parts.is_empty() {
@@ -1924,9 +1934,10 @@ mod test {
             encoded_chunk.create_partial_encoded_chunk(vec![2, 3, 4], vec![], &proof);
         std::thread::sleep(Duration::from_millis(ACCEPTING_SEAL_PERIOD_MS as u64 + 100));
         for partial_encoded_chunk in vec![partial_encoded_chunk1, partial_encoded_chunk2] {
+            let pec_v2 = partial_encoded_chunk.into();
             shards_manager
                 .process_partial_encoded_chunk(
-                    partial_encoded_chunk.into(),
+                    MaybeValidated::NotValidated(&pec_v2),
                     &mut chain_store,
                     &mut rs,
                     PROTOCOL_VERSION,
@@ -2156,15 +2167,15 @@ mod test {
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         let result = shards_manager
             .process_partial_encoded_chunk(
-                partial_encoded_chunk,
+                MaybeValidated::NotValidated(&partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
                 PROTOCOL_VERSION,
             )
             .unwrap();
         match result {
-            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(_) => shards_manager
-                .request_chunk_single(fixture.mock_chunk_header.clone(), None, PROTOCOL_VERSION),
+            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => shards_manager
+                .request_chunk_single(&fixture.mock_chunk_header, None, PROTOCOL_VERSION),
 
             _ => panic!("Expected to need more parts!"),
         }
@@ -2227,7 +2238,7 @@ mod test {
         };
         let result = shards_manager
             .process_partial_encoded_chunk(
-                partial_encoded_chunk,
+                MaybeValidated::NotValidated(&partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
                 PROTOCOL_VERSION,

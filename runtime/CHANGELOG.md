@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.0
+
+- Added disk cache to `near-vm-runner`
+- Contains a dependency on `near-primitives`, so it's impossible to publish to crates.io
+- Needed to differentiate from `2.2.0` to avoid patch conflicts.
+
 ## 2.2.0
 
 - Add ability to specify protocol version when initializing VMLogic.

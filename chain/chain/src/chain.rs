@@ -12,6 +12,7 @@ use rand::SeedableRng;
 
 use crate::error::{Error, ErrorKind, LogTransientStorageError};
 use crate::lightclient::get_epoch_block_producers_view;
+use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
@@ -88,6 +89,16 @@ pub struct Orphan {
     block: Block,
     provenance: Provenance,
     added: Instant,
+}
+
+impl BlockLike for Orphan {
+    fn hash(&self) -> CryptoHash {
+        *self.block.hash()
+    }
+
+    fn height(&self) -> u64 {
+        self.block.header().height()
+    }
 }
 
 pub struct OrphanBlockPool {
@@ -179,7 +190,7 @@ pub struct Chain {
     store: ChainStore,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
-    blocks_with_missing_chunks: OrphanBlockPool,
+    pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
     genesis: Block,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
@@ -216,7 +227,7 @@ impl Chain {
             store,
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
-            blocks_with_missing_chunks: OrphanBlockPool::new(),
+            blocks_with_missing_chunks: MissingChunksPool::new(),
             genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -328,7 +339,7 @@ impl Chain {
             store,
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
-            blocks_with_missing_chunks: OrphanBlockPool::new(),
+            blocks_with_missing_chunks: MissingChunksPool::new(),
             genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -1077,7 +1088,10 @@ impl Chain {
                         block_misses_chunks(missing_chunks.clone());
                         let orphan = Orphan { block, provenance, added: Instant::now() };
 
-                        self.blocks_with_missing_chunks.add(orphan);
+                        self.blocks_with_missing_chunks.add_block_with_missing_chunks(
+                            orphan,
+                            missing_chunks.iter().map(|header| header.chunk_hash()).collect(),
+                        );
 
                         debug!(
                             target: "chain",
@@ -1145,7 +1159,6 @@ impl Chain {
     pub fn check_blocks_with_missing_chunks<F, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
-        prev_hash: CryptoHash,
         block_accepted: F,
         block_misses_chunks: F2,
         on_challenge: F3,
@@ -1155,28 +1168,27 @@ impl Chain {
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let mut new_blocks_accepted = vec![];
-        if let Some(orphans) = self.blocks_with_missing_chunks.remove_by_prev_hash(prev_hash) {
-            for orphan in orphans.into_iter() {
-                let block_hash = *orphan.block.header().hash();
-                let res = self.process_block_single(
-                    me,
-                    orphan.block,
-                    orphan.provenance,
-                    block_accepted,
-                    block_misses_chunks,
-                    on_challenge,
-                );
-                match res {
-                    Ok(_) => {
-                        debug!(target: "chain", "Block with missing chunks is accepted; me: {:?}", me);
-                        new_blocks_accepted.push(block_hash);
-                    }
-                    Err(_) => {
-                        debug!(target: "chain", "Block with missing chunks is declined; me: {:?}", me);
-                    }
+        let orphans = self.blocks_with_missing_chunks.ready_blocks();
+        for orphan in orphans {
+            let block_hash = *orphan.block.header().hash();
+            let res = self.process_block_single(
+                me,
+                orphan.block,
+                orphan.provenance,
+                block_accepted,
+                block_misses_chunks,
+                on_challenge,
+            );
+            match res {
+                Ok(_) => {
+                    debug!(target: "chain", "Block with missing chunks is accepted; me: {:?}", me);
+                    new_blocks_accepted.push(block_hash);
+                }
+                Err(_) => {
+                    debug!(target: "chain", "Block with missing chunks is declined; me: {:?}", me);
                 }
             }
-        };
+        }
 
         for accepted_block in new_blocks_accepted {
             self.check_orphans(
@@ -2198,6 +2210,12 @@ impl Chain {
         self.store.head()
     }
 
+    /// Gets chain tail height
+    #[inline]
+    pub fn tail(&self) -> Result<BlockHeight, Error> {
+        self.store.tail()
+    }
+
     /// Gets chain header head.
     #[inline]
     pub fn header_head(&self) -> Result<Tip, Error> {
@@ -2423,7 +2441,7 @@ pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
-    blocks_with_missing_chunks: &'a OrphanBlockPool,
+    blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
     epoch_length: BlockHeightDelta,
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
@@ -2435,7 +2453,7 @@ impl<'a> ChainUpdate<'a> {
         store: &'a mut ChainStore,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
-        blocks_with_missing_chunks: &'a OrphanBlockPool,
+        blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
         epoch_length: BlockHeightDelta,
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,

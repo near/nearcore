@@ -20,8 +20,9 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
 };
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, EpochValidatorInfo,
-    ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
+    EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
+    ViewStateResult,
 };
 
 use crate::user::User;
@@ -68,6 +69,10 @@ impl User for RpcUser {
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         self.query(format!("contract/{}", account_id), prefix)?.try_into()
+    }
+
+    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
+        self.query(format!("code/{}", account_id), &[])?.try_into()
     }
 
     fn view_call(

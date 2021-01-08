@@ -1,12 +1,12 @@
 use num_rational::Ratio;
 #[cfg(feature = "protocol_feature_evm")]
 use num_traits::cast::FromPrimitive;
-use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::process;
+use std::sync::{Arc, Mutex};
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -40,19 +40,65 @@ fn measure_function(
     metric: Metric,
     method_name: &'static str,
     measurements: &mut Measurements,
-    testbed: RuntimeTestbed,
+    testbed: Arc<Mutex<RuntimeTestbed>>,
     accounts_deployed: &[usize],
     nonces: &mut HashMap<usize, u64>,
     config: &Config,
     allow_failures: bool,
     args: Vec<u8>,
-) -> RuntimeTestbed {
+) -> Arc<Mutex<RuntimeTestbed>> {
     // Measure the speed of creating a function fixture with 1MiB input.
     let mut rng = rand_xorshift::XorShiftRng::from_seed([0u8; 16]);
+    let testbed = testbed.clone();
+    let mut accounts_deployed = accounts_deployed.to_vec();
     let mut f = || {
-        let account_idx = *accounts_deployed.choose(&mut rng).unwrap();
+        let i = rng.gen::<usize>() % accounts_deployed.len();
+        let account_idx = accounts_deployed[i];
+        accounts_deployed.remove(i);
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let mut f_write = |account_idx, method_name: &str| {
+            let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+            let function_call = Action::FunctionCall(FunctionCallAction {
+                method_name: method_name.to_string(),
+                args: args.clone(),
+                gas: 10u64.pow(18),
+                deposit: 0,
+            });
+            let block = vec![SignedTransaction::from_actions(
+                nonce as u64,
+                account_id.clone(),
+                account_id.clone(),
+                &signer,
+                vec![function_call],
+                CryptoHash::default(),
+            )];
+            let mut testbed = testbed.lock().unwrap();
+            testbed.process_block(&block, allow_failures);
+            testbed.process_blocks_until_no_receipts(allow_failures);
+        };
+
+        f_write(account_idx, "noop");
+        match metric {
+            Metric::storage_has_key_10b_key_10b_value_1k
+            | Metric::storage_read_10b_key_10b_value_1k
+            | Metric::storage_remove_10b_key_10b_value_1k => {
+                f_write(account_idx, "storage_write_10b_key_10b_value_1k")
+            }
+            Metric::storage_has_key_10kib_key_10b_value_1k
+            | Metric::storage_read_10kib_key_10b_value_1k
+            | Metric::storage_remove_10kib_key_10b_value_1k => {
+                f_write(account_idx, "storage_write_10kib_key_10b_value_1k")
+            }
+            Metric::storage_has_key_10b_key_10kib_value_1k
+            | Metric::storage_read_10b_key_10kib_value_1k
+            | Metric::storage_remove_10b_key_10kib_value_1k
+            | Metric::storage_write_10b_key_10kib_value_1k_evict => {
+                f_write(account_idx, "storage_write_10b_key_10kib_value_1k")
+            }
+            _ => {}
+        }
+
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         let function_call = Action::FunctionCall(FunctionCallAction {
             method_name: method_name.to_string(),
@@ -60,6 +106,7 @@ fn measure_function(
             gas: 10u64.pow(18),
             deposit: 0,
         });
+
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
@@ -69,7 +116,14 @@ fn measure_function(
             CryptoHash::default(),
         )
     };
-    measure_transactions(metric, measurements, config, Some(testbed), &mut f, allow_failures)
+    measure_transactions(
+        metric,
+        measurements,
+        config,
+        Some(testbed.clone()),
+        &mut f,
+        allow_failures,
+    )
 }
 
 macro_rules! calls_helper(
@@ -187,12 +241,14 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         }
     }
     config.block_sizes = vec![100];
+    let mut nonces: HashMap<usize, u64> = HashMap::new();
+
     // Warmup for receipts
-    measure_actions(Metric::warmup, &mut m, &config, None, vec![], false, false);
+    measure_actions(Metric::warmup, &mut m, &config, None, vec![], false, false, &mut nonces);
     // Measure the speed of processing empty receipts.
-    measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
+    measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false, &mut nonces);
     // Measure the speed of processing a sir receipt (where sender is receiver).
-    measure_actions(Metric::SirReceipt, &mut m, &config, None, vec![], true, false);
+    measure_actions(Metric::SirReceipt, &mut m, &config, None, vec![], true, false, &mut nonces);
 
     // Measure the speed of processing simple transfers.
     measure_actions(
@@ -203,10 +259,10 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         vec![Action::Transfer(TransferAction { deposit: 1 })],
         false,
         false,
+        &mut nonces,
     );
 
     // Measure the speed of creating account.
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut f = || {
         let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
         let account_id = get_account_id(account_idx);
@@ -229,7 +285,6 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     measure_transactions(Metric::ActionCreateAccount, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of deleting an account.
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut deleted_accounts = HashSet::new();
     let mut beneficiaries = HashSet::new();
     let mut f = || {
@@ -277,6 +332,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         })],
         true,
         true,
+        &mut nonces,
     );
 
     // Measure the speed of adding a function call access key.
@@ -301,6 +357,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         })],
         true,
         true,
+        &mut nonces,
     );
 
     // Measure the speed of adding an access key with 1k methods each 10bytes long.
@@ -326,10 +383,10 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         })],
         true,
         true,
+        &mut nonces,
     );
 
     // Measure the speed of deleting an access key.
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
     // Accounts with deleted access keys.
     let mut deleted_accounts = HashSet::new();
     let mut f = || {
@@ -364,6 +421,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         vec![Action::Stake(StakeAction { stake: 1, public_key })],
         true,
         true,
+        &mut nonces,
     );
 
     // Measure the speed of deploying some code.
@@ -372,7 +430,6 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     let code_100k = include_bytes!("../test-contract/res/medium_contract.wasm");
     let code_1m = include_bytes!("../test-contract/res/large_contract.wasm");
     let curr_code = RefCell::new(smallest_code.to_vec());
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut accounts_deployed = HashSet::new();
     let mut good_code_accounts = HashSet::new();
     let good_account = RefCell::new(false);
@@ -723,9 +780,26 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
         config.vm_kind,
     )
     .unwrap();
+
+    // let test_contract_compilation_cost = ratio_to_gas(config.metric, compile_cost.1);
+
     runtime_config.transaction_costs = get_runtime_fees_config(measurement);
+
+    // Shifting compilation costs from function call runtime to the deploy action cost at execution
+    // time.
+    runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
+        runtime_config.wasm_config.ext_costs.contract_compile_base;
+    runtime_config
+        .transaction_costs
+        .action_creation_config
+        .deploy_contract_cost_per_byte
+        .execution += runtime_config.wasm_config.ext_costs.contract_compile_bytes;
+    runtime_config.wasm_config.ext_costs.contract_compile_base = 0;
+    runtime_config.wasm_config.ext_costs.contract_compile_bytes = 0;
+
     runtime_config
 }
+
 fn get_compile_cost(config: &Config, verbose: bool) -> (u64, u64) {
     let (a, b) = cost_to_compile(config.metric, config.vm_kind, verbose);
     (ratio_to_gas(config.metric, a), ratio_to_gas(config.metric, b))

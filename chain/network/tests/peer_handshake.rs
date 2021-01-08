@@ -16,6 +16,7 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeout};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
+use near_primitives::test_utils::MockEpochInfoProvider;
 use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
@@ -51,8 +52,14 @@ fn make_peer_manager(
         }
     }))
     .start();
-    PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-        .unwrap()
+    PeerManagerActor::new(
+        store,
+        config,
+        client_addr.recipient(),
+        view_client_addr.recipient(),
+        Box::new(MockEpochInfoProvider::default()),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -234,8 +241,9 @@ fn connection_spam_security_test() {
         let arbiter = Arbiter::new();
         let port = open_port();
 
-        let pm = make_peer_manager("test1", port, vec![], 10);
-        let pm = PeerManagerActor::start_in_arbiter(&arbiter, |_ctx| pm);
+        let pm = PeerManagerActor::start_in_arbiter(&arbiter, move |_ctx| {
+            make_peer_manager("test1", port, vec![], 10)
+        });
 
         let addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
 
