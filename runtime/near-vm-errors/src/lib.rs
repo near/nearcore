@@ -272,6 +272,8 @@ pub enum VMLogicError {
     EvmError(EvmError),
 }
 
+impl std::error::Error for VMLogicError {}
+
 /// An error that is caused by an operation on an inconsistent state.
 /// E.g. a deserialization error or an integer overflow.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
