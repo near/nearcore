@@ -59,7 +59,7 @@ macro_rules! wrapped_imports {
             $(
                 #[allow(unused_parens)]
                 pub fn $func<'a>( env: &MyEnv<'a>, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
-                    let logic: &mut VMLogic<'_> = &mut env.logic.borrow_mut().unwrap().0;
+                    let logic: &mut VMLogic<'_> = &mut env.logic.0.borrow_mut().unwrap();
                     logic.$func( $( $arg_name, )* )
                 }
             )*
