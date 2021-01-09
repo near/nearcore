@@ -17,8 +17,7 @@ impl Wasmer1Memory {
         Ok(Wasmer1Memory(
             Memory::new(
                 &store,
-                MemoryType::new(Pages(initial_memory_pages), Some(Pages(max_memory_pages)), false)
-                    .unwrap(),
+                MemoryType::new(Pages(initial_memory_pages), Some(Pages(max_memory_pages)), false),
             )
             .expect("TODO creating memory cannot fail"),
         ))
@@ -61,7 +60,7 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
     use wasmer_types::ExportIndex::Function;
     if let Some(Function(index)) = info.exports.get(method_name) {
-        let func = info.signatures.get(index.clone()).unwrap();
+        let func = info.functions.get(index.clone()).unwrap();
         let sig = info.signatures.get(func.clone()).unwrap();
         if sig.params().is_empty() && sig.returns().is_empty() {
             Ok(())
