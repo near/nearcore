@@ -62,7 +62,7 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     if let Some(Function(index)) = info.exports.get(method_name) {
         let func = info.functions.get(index.clone()).unwrap();
         let sig = info.signatures.get(func.clone()).unwrap();
-        if sig.params().is_empty() && sig.returns().is_empty() {
+        if sig.params().is_empty() && sig.results().is_empty() {
             Ok(())
         } else {
             Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
@@ -102,11 +102,11 @@ pub fn run_wasmer1<'a>(
     let store = Store::new(&engine);
     let module = match Module::new(&store, code) {
         Ok(x) => x,
-        Err(err) => return (None, Some(err)),
+        Err(err) => return (None, Some(err.into_vm_error())),
     };
 
     let mut memory = Wasmer1Memory::new(
-        store,
+        &store,
         wasm_config.limit_config.initial_memory_pages,
         wasm_config.limit_config.max_memory_pages,
     )
@@ -133,7 +133,7 @@ pub fn run_wasmer1<'a>(
             ))),
         );
     }
-    let import_object = imports::build_wasmer1(store, memory_copy, &mut logic);
+    let import_object = imports::build_wasmer1(&store, memory_copy, logic);
 
     let method_name = match std::str::from_utf8(method_name) {
         Ok(x) => x,
@@ -152,12 +152,16 @@ pub fn run_wasmer1<'a>(
     }
 
     match Instance::new(&module, &import_object) {
-        Ok(instance) => match instance.call(&method_name, &[]) {
+        Ok(instance) => match call(instance, &method_name) {
             Ok(_) => (Some(logic.outcome()), None),
             Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
         },
         Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
     }
+}
+
+fn call(instance: wasmer::Instance, method_name: &str) -> Result<(), VMError> {
+    instance.exports.get_function(&method_name)?.native::<(), ()>()?.call(&[])?
 }
 
 pub fn compile_module(code: &[u8]) -> bool {
