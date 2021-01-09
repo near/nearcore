@@ -8,9 +8,14 @@ use near_evm_runner::types::WithdrawArgs;
 use near_evm_runner::utils::{
     address_from_arr, encode_call_function_args, encode_view_call_function_args, u256_to_arr,
 };
+use near_primitives::errors::{ActionError, ActionErrorKind};
+use near_primitives::views::FinalExecutionStatus;
+use near_vm_errors::{EvmError, FunctionCallError};
 
 use_contract!(cryptozombies, "../../runtime/near-evm-runner/tests/build/zombieAttack.abi");
 use_contract!(precompiles, "../../runtime/near-evm-runner/tests/build/StandardPrecompiles.abi");
+use_contract!(fibonacci, "../../runtime/near-evm-runner/tests/build/Fibonacci.abi");
+use_contract!(inf_loop, "../../runtime/near-evm-runner/tests/build/Loop.abi");
 
 /// Deploy the "CryptoZombies" contract (derived from
 /// https://cryptozombies.io/en/course/) to the EVM.
@@ -31,6 +36,102 @@ fn deploy_zombie_attack_contract(node: impl Node) -> Address {
     assert_eq!(result.result, u256_to_arr(&U256::from(10)).to_vec());
 
     address_from_arr(&contract_id)
+}
+
+/// Deploy the "Fibonacci" contract to the EVM and attach a boat load of gas.
+/// Source: https://github.com/web3j/web3j/blob/master/codegen/src/test/resources/solidity/fibonacci/Fibonacci.sol
+fn deploy_fibonacci_contract(node: impl Node) -> Address {
+    let node_user = node.user();
+    let bytes = hex::decode(
+        include_bytes!("../../../runtime/near-evm-runner/tests/build/Fibonacci.bin").to_vec(),
+    )
+    .unwrap();
+    let contract_id = node_user
+        .function_call(alice_account(), evm_account(), "deploy_code", bytes, 10u64.pow(14), 0)
+        .unwrap()
+        .status
+        .as_success_decoded()
+        .unwrap();
+
+    address_from_arr(&contract_id)
+}
+
+/// Tests infinite loop gas limit.
+pub fn test_evm_infinite_loop_gas_limit(node: impl Node) {
+    let node_user = node.user();
+    let bytes = hex::decode(
+        include_bytes!("../../../runtime/near-evm-runner/tests/build/Loop.bin").to_vec(),
+    )
+    .unwrap();
+    let contract_id = node_user
+        .function_call(alice_account(), evm_account(), "deploy_code", bytes, 10u64.pow(14), 0)
+        .unwrap()
+        .status
+        .as_success_decoded()
+        .unwrap();
+
+    let contract_id = address_from_arr(&contract_id);
+
+    let (input, _decoder) = inf_loop::functions::run::call();
+    let args = encode_call_function_args(contract_id, input);
+    let status = node_user
+        .function_call(alice_account(), evm_account(), "call", args.clone(), 300 * 10u64.pow(12), 0)
+        .unwrap()
+        .status;
+    assert_eq!(
+        status,
+        FinalExecutionStatus::Failure(
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::EvmError(
+                    EvmError::OutOfGas
+                ))
+            }
+            .into()
+        )
+    );
+}
+
+/// Tests deep Fibonacci gas limit.
+pub fn test_evm_fibonacci_gas_limit(node: impl Node) {
+    let node_user = node.user();
+    let contract_id = deploy_fibonacci_contract(node);
+
+    let (input, _decoder) = fibonacci::functions::fibonacci::call(U256::from(20));
+    let args = encode_call_function_args(contract_id, input);
+    let status = node_user
+        .function_call(alice_account(), evm_account(), "call", args.clone(), 300 * 10u64.pow(12), 0)
+        .unwrap()
+        .status;
+    assert_eq!(
+        status,
+        FinalExecutionStatus::Failure(
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::EvmError(
+                    EvmError::OutOfGas
+                ))
+            }
+            .into()
+        )
+    );
+}
+
+/// Tests Fibonacci 16.
+pub fn test_evm_fibonacci_16(node: impl Node) {
+    let node_user = node.user();
+    let contract_id = deploy_fibonacci_contract(node);
+
+    let (input, _decoder) = fibonacci::functions::fibonacci::call(U256::from(16));
+    // sender, to, attached amount, args
+    let args = encode_call_function_args(contract_id, input);
+    let bytes = node_user
+        .function_call(alice_account(), evm_account(), "call", args.clone(), 100 * 10u64.pow(12), 0)
+        .unwrap();
+    println!("{:?}", bytes);
+    let bytes = bytes.status.as_success_decoded().unwrap();
+    let res = fibonacci::functions::fibonacci::decode_output(&bytes).unwrap();
+    assert_eq!(res, U256::from(987));
 }
 
 /// Tests for deploying the "CryptoZombies" contract (derived from

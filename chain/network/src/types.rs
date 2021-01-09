@@ -3,7 +3,7 @@ use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -28,7 +28,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, BlockReference, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -1261,7 +1261,7 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-pub struct EdgeList(pub Arc<Vec<Edge>>);
+pub struct EdgeList(pub Vec<Edge>);
 
 impl Message for EdgeList {
     type Result = bool;
@@ -1495,6 +1495,10 @@ pub enum NetworkViewClientMessages {
     StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
     /// Get Chain information from Client.
     GetChainInfo,
+    /// Account announcements that needs to be validated before being processed.
+    /// They are paired with last epoch id known to this announcement, in order to accept only
+    /// newer announcements.
+    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
 pub enum NetworkViewClientResponses {
@@ -1517,6 +1521,8 @@ pub enum NetworkViewClientResponses {
     },
     /// Response to state request.
     StateResponse(Box<StateResponseInfo>),
+    /// Valid announce accounts.
+    AnnounceAccount(Vec<AnnounceAccount>),
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed

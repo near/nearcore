@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -16,13 +17,13 @@ use near_chain_configs::{Genesis, GenesisConfig};
 #[cfg(feature = "protocol_feature_evm")]
 use near_chain_configs::{MAINNET_EVM_CHAIN_ID, TEST_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
-use near_primitives::epoch_manager::BlockInfo;
+use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -54,12 +55,14 @@ use node_runtime::{
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_runtime_configs::RuntimeConfig;
 
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+use near_epoch_manager::NUM_SECONDS_IN_A_YEAR;
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 /// Wrapper type for epoch manager to get avoid implementing trait for foreign types.
-#[derive(Clone)]
 pub struct SafeEpochManager(pub Arc<RwLock<EpochManager>>);
 
 impl AsRef<RwLock<EpochManager>> for SafeEpochManager {
@@ -113,35 +116,6 @@ impl EpochInfoProvider for SafeEpochManager {
         let mut epoch_manager = self.0.write().expect(POISONED_LOCK_ERR);
         epoch_manager.minimum_stake(prev_block_hash)
     }
-
-    fn verify_validator_signature(
-        &self,
-        epoch_id: &EpochId,
-        account_id: &String,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, EpochError> {
-        let mut epoch_manager = self.as_ref().write().expect(POISONED_LOCK_ERR);
-        let validator = match epoch_manager.get_validator_by_account_id(epoch_id, account_id)? {
-            Some(v) => v,
-            None => return Ok(false),
-        };
-
-        Ok(signature.verify(data, &validator.public_key))
-    }
-
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, EpochError> {
-        // if the epoch ids are the same, don't need to take the lock.
-        if epoch_id == other_epoch_id {
-            return Ok(Ordering::Equal);
-        }
-        let mut epoch_manager = self.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id)
-    }
 }
 
 /// Defines Nightshade state transition and validator rotation.
@@ -167,45 +141,76 @@ impl NightshadeRuntime {
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
     ) -> Self {
-        let epoch_manager = SafeEpochManager(Arc::new(RwLock::new(EpochManager::from_genesis(
-            genesis,
-            store.clone(),
-        ))));
-        Self::new_with_epoch_manager(
-            home_dir,
-            store,
-            genesis,
-            initial_tracking_accounts,
-            initial_tracking_shards,
-            epoch_manager,
-        )
-    }
-
-    pub fn new_with_epoch_manager(
-        home_dir: &Path,
-        store: Arc<Store>,
-        genesis: &Genesis,
-        initial_tracking_accounts: Vec<AccountId>,
-        initial_tracking_shards: Vec<ShardId>,
-        epoch_manager: SafeEpochManager,
-    ) -> Self {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new();
         let genesis_config = genesis.config.clone();
         let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
-
+        let initial_epoch_config = EpochConfig {
+            epoch_length: genesis.config.epoch_length,
+            num_shards,
+            num_block_producer_seats: genesis.config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: genesis
+                .config
+                .num_block_producer_seats_per_shard
+                .clone(),
+            avg_hidden_validator_seats_per_shard: genesis
+                .config
+                .avg_hidden_validator_seats_per_shard
+                .clone(),
+            block_producer_kickout_threshold: genesis.config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: genesis.config.chunk_producer_kickout_threshold,
+            fishermen_threshold: genesis.config.fishermen_threshold,
+            online_min_threshold: genesis.config.online_min_threshold,
+            online_max_threshold: genesis.config.online_max_threshold,
+            protocol_upgrade_num_epochs: genesis.config.protocol_upgrade_num_epochs,
+            protocol_upgrade_stake_threshold: genesis.config.protocol_upgrade_stake_threshold,
+            minimum_stake_divisor: genesis.config.minimum_stake_divisor,
+        };
+        let reward_calculator = RewardCalculator {
+            max_inflation_rate: genesis.config.max_inflation_rate,
+            num_blocks_per_year: genesis.config.num_blocks_per_year,
+            epoch_length: genesis.config.epoch_length,
+            protocol_reward_rate: genesis.config.protocol_reward_rate,
+            protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
+            online_max_threshold: genesis.config.online_max_threshold,
+            online_min_threshold: genesis.config.online_min_threshold,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
+        };
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let tries = ShardTries::new(
             store.clone(),
             genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
         );
+        let epoch_manager = Arc::new(RwLock::new(
+            EpochManager::new(
+                store.clone(),
+                initial_epoch_config,
+                genesis_config.protocol_version,
+                reward_calculator,
+                genesis_config
+                    .validators
+                    .iter()
+                    .map(|account_info| ValidatorStake {
+                        account_id: account_info.account_id.clone(),
+                        public_key: account_info
+                            .public_key
+                            .clone()
+                            .try_into()
+                            .expect("Failed to deserialize validator public key"),
+                        stake: account_info.amount,
+                    })
+                    .collect(),
+            )
+            .expect("Failed to start Epoch Manager"),
+        ));
         let shard_tracker = ShardTracker::new(
             initial_tracking_accounts,
             initial_tracking_shards,
             EpochId::default(),
-            epoch_manager.0.clone(),
+            epoch_manager.clone(),
             num_shards,
         );
         NightshadeRuntime {
@@ -215,7 +220,7 @@ impl NightshadeRuntime {
             tries,
             runtime,
             trie_viewer,
-            epoch_manager,
+            epoch_manager: SafeEpochManager(epoch_manager),
             shard_tracker,
             genesis_state_roots: state_roots,
         }
@@ -1354,6 +1359,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
+    }
+
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         chunk_prev_block_hash: &CryptoHash,
@@ -1523,7 +1537,6 @@ mod test {
     use crate::get_store_path;
 
     use super::*;
-    use std::convert::TryInto;
 
     #[cfg(feature = "protocol_feature_rectify_inflation")]
     use primitive_types::U256;
