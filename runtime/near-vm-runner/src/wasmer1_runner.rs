@@ -1,7 +1,7 @@
 use crate::imports;
 use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
+use near_vm_errors::{FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
 use wasmer::{Bytes, Instance, Memory, MemoryType, Module, Pages, Singlepass, Store, JIT};
@@ -133,7 +133,7 @@ pub fn run_wasmer1<'a>(
             ))),
         );
     }
-    let import_object = imports::build_wasmer1(&store, memory_copy, logic);
+    let import_object = imports::build_wasmer1(&store, memory_copy, &mut logic);
 
     let method_name = match std::str::from_utf8(method_name) {
         Ok(x) => x,

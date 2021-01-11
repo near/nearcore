@@ -1,5 +1,4 @@
 use near_vm_logic::VMLogic;
-use std::sync::Arc;
 
 use std::ffi::c_void;
 
@@ -8,9 +7,9 @@ unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
 
 #[derive(Clone)]
-struct VMLogicReference<'a>(Arc<VMLogic<'a>>);
-unsafe impl Send for VMLogicReference<'_> {}
-unsafe impl Sync for VMLogicReference<'_> {}
+struct VMLogicReference(*mut c_void);
+unsafe impl Send for VMLogicReference {}
+unsafe impl Sync for VMLogicReference {}
 
 // Wasm has only i32/i64 types, so Wasmtime 0.17 only accepts
 // external functions taking i32/i64 type.
@@ -47,19 +46,19 @@ macro_rules! wrapped_imports {
             #[cfg(feature = "wasmer1_vm")]
             pub mod wasmer1_ext {
             use near_vm_logic::VMLogic;
-            use wasmer::{WasmerEnv, LazyInit, Memory};
+            use wasmer::{WasmerEnv, Memory};
             use crate::imports::VMLogicReference;
             #[derive(WasmerEnv, Clone)]
-            pub struct MyEnv<'a> {
+            pub struct MyEnv {
                 pub memory: Memory,
-                pub logic: VMLogicReference<'a>,
+                pub logic: VMLogicReference,
             }
 
             type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
             $(
                 #[allow(unused_parens)]
-                pub fn $func<'a>( env: &MyEnv<'a>, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
-                    let logic: &mut VMLogic<'a> = &mut env.logic.0.borrow_mut().unwrap();
+                pub fn $func(env: &MyEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
+                    let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
             )*
@@ -122,9 +121,9 @@ macro_rules! wrapped_imports {
             }
 
             #[cfg(feature = "wasmer1_vm")]
-            pub(crate) fn build_wasmer1(store: &wasmer::Store, memory: wasmer::Memory, logic: VMLogic<'_>) ->
+            pub(crate) fn build_wasmer1(store: &wasmer::Store, memory: wasmer::Memory, logic: &mut VMLogic<'_>) ->
                 wasmer::ImportObject {
-                let env = wasmer1_ext::MyEnv {logic: VMLogicReference(Arc::new(logic)), memory: memory.clone()};
+                let env = wasmer1_ext::MyEnv {logic: VMLogicReference(logic as * mut _ as * mut c_void), memory: memory.clone()};
                 wasmer::imports! {
                     "env" => {
                         "memory" => memory,
