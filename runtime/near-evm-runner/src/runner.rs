@@ -600,8 +600,16 @@ pub fn run_evm(
         }
     };
 
+    let max_gas_burnt_limit = if is_view {
+        config.limit_config.max_gas_burnt_view
+    } else {
+        config.limit_config.max_gas_burnt
+    };
+
+    // Currently EVM doesn't have an ability to spawn a new receipt, so maximum EVM gas should be
+    // limited by the max gas burnt limit.
     let evm_gas_result = max_evm_gas_from_near_gas(
-        prepaid_gas,
+        std::cmp::min(max_gas_burnt_limit, prepaid_gas),
         &fees_config.evm_config,
         &method,
         if method == Method::DeployCode { Some(args.len()) } else { None },
