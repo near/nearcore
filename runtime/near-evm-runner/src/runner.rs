@@ -12,11 +12,12 @@ use near_vm_logic::{ActionCosts, External, VMConfig, VMLogicError, VMOutcome};
 
 use crate::evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore};
 use crate::interpreter;
+use crate::meta_parsing::{near_erc712_domain, parse_meta_call};
 use crate::types::{
     AddressArg, DataKey, FunctionCallArgs, GetStorageAtArgs, Method, RawU256, Result, TransferArgs,
     ViewCallArgs, WithdrawArgs,
 };
-use crate::utils::{self, combine_data_key, near_erc721_domain, parse_meta_call};
+use crate::utils::{self, combine_data_key};
 use near_vm_errors::InconsistentStateError::StorageError;
 
 pub struct EvmContext<'a> {
@@ -155,7 +156,7 @@ impl<'a> EvmContext<'a> {
             config.limit_config.max_gas_burnt
         };
         // TODO: pass chain id from ??? genesis / config.
-        let domain_separator = near_erc721_domain(U256::from(chain_id));
+        let domain_separator = near_erc712_domain(U256::from(chain_id));
         Self {
             ext,
             account_id,
@@ -532,8 +533,16 @@ pub fn run_evm(
         }
     };
 
+    let max_gas_burnt_limit = if is_view {
+        config.limit_config.max_gas_burnt_view
+    } else {
+        config.limit_config.max_gas_burnt
+    };
+
+    // Currently EVM doesn't have an ability to spawn a new receipt, so maximum EVM gas should be
+    // limited by the max gas burnt limit.
     let evm_gas_result = max_evm_gas_from_near_gas(
-        prepaid_gas,
+        std::cmp::min(max_gas_burnt_limit, prepaid_gas),
         &fees_config.evm_config,
         &method,
         if method == Method::DeployCode { Some(args.len()) } else { None },
@@ -578,7 +587,6 @@ pub fn run_evm(
             context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();
             r
         }
-        // TODO: MetaCalls are currently disabled
         Method::MetaCall => {
             let r = context.meta_call_function(args);
             context.pay_gas_from_evm_gas(EvmOpForGas::Funcall).unwrap();

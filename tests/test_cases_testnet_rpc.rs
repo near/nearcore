@@ -204,4 +204,22 @@ mod test {
     fn test_evm_deploy_call_testnet() {
         run_testnet_test!(test_evm_deploy_call);
     }
+
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_fibonacci_gas_limit_testnet() {
+        run_testnet_test!(test_evm_fibonacci_gas_limit);
+    }
+
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_fibonacci_16_testnet() {
+        run_testnet_test!(test_evm_fibonacci_16);
+    }
+
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_infinite_loop_gas_limit_testnet() {
+        run_testnet_test!(test_evm_infinite_loop_gas_limit);
+    }
 }

@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -572,6 +573,12 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
     ) -> bool;
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error>;
 
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
