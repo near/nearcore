@@ -260,6 +260,16 @@ fn test_view_call() {
         ))
         .unwrap();
     assert_eq!(raw[12..32], test_addr.0);
+
+    let raw = context
+        .view_call_function(encode_view_call_function_args(
+            test_addr,
+            Address::zero(),
+            U256::zero(),
+            vec![],
+        ))
+        .unwrap();
+    assert_eq!(raw.to_vec(), hex::decode("f55df5ec5c8c64582378dce8eee51ec4af77ccd6").unwrap());
 }
 
 #[test]
@@ -377,7 +387,7 @@ fn test_send_eth_tx() {
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     context
         .transfer(
-            TransferArgs { address: signer_addr.0, amount: u256_to_arr(&U256::from(100)) }
+            TransferArgs { address: signer_addr.0, amount: u256_to_arr(&U256::from(200)) }
                 .try_to_vec()
                 .unwrap(),
         )
@@ -402,5 +412,19 @@ fn test_send_eth_tx() {
     assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(100));
     assert_eq!(context.get_balance(sub_addr).unwrap(), U256::from(100));
 
-    // TODO: add transfer and deploy code examples.
+    // Deploy contract.
+    let signed_transaction = sign_eth_transaction(
+        &signer,
+        CHAIN_ID,
+        U256::zero(),
+        U256::from(200),
+        U256::from(24000),
+        None,
+        U256::from(100),
+        hex::decode(&TEST).unwrap(),
+    );
+    let raw = context.raw_call_function(signed_transaction.rlp_bytes()).unwrap();
+    assert_eq!(context.get_balance(raw).unwrap(), U256::from(100));
+
+    // TODO: add transfer example.
 }

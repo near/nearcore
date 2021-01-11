@@ -158,6 +158,7 @@ impl<'a> vm::Ext for NearExt<'a> {
             self.depth,
             address_type,
             true,
+            true,
             &code.to_vec(),
             gas,
             &self.evm_gas_config,

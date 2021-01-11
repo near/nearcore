@@ -23,6 +23,7 @@ pub fn deploy_code<T: EvmState>(
     call_stack_depth: usize,
     address_type: CreateContractAddress,
     recreate: bool,
+    should_commit: bool,
     code: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
@@ -66,8 +67,10 @@ pub fn deploy_code<T: EvmState>(
     };
 
     if apply {
-        state.commit_changes(&state_updates.unwrap())?;
-        state.set_code(&address, &return_data.to_vec())?;
+        if should_commit {
+            state.commit_changes(&state_updates.unwrap())?;
+            state.set_code(&address, &return_data.to_vec())?;
+        }
         Ok(ContractCreateResult::Created(address, gas_left))
     } else {
         Ok(ContractCreateResult::Reverted(gas_left, return_data))

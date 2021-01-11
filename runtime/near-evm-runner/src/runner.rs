@@ -190,6 +190,7 @@ impl<'a> EvmContext<'a> {
         sender: Address,
         value: U256,
         bytecode: Vec<u8>,
+        should_commit: bool,
     ) -> Result<Address> {
         match interpreter::deploy_code(
             self,
@@ -199,6 +200,7 @@ impl<'a> EvmContext<'a> {
             0,
             CreateContractAddress::FromSenderAndNonce,
             false,
+            should_commit,
             &bytecode,
             &self.evm_gas_counter.gas_left(),
             &self.fees_config.evm_config,
@@ -219,7 +221,7 @@ impl<'a> EvmContext<'a> {
     pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address> {
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         self.add_balance(&sender, U256::from(self.attached_deposit))?;
-        self.internal_deploy_code(sender, U256::from(self.attached_deposit), bytecode)
+        self.internal_deploy_code(sender, U256::from(self.attached_deposit), bytecode, true)
     }
 
     /// Make an EVM transaction. Calls `contract_address` with RLP encoded `input`. Execution
@@ -267,17 +269,16 @@ impl<'a> EvmContext<'a> {
             Some(sender) => sender,
             None => return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature)),
         };
-        if signed_transaction.transaction.data.is_empty() {
-            // If data is empty, this is a simple transfer.
-            if let Some(receiver) = signed_transaction.transaction.to {
-                self.transfer_balance(&sender, &receiver, signed_transaction.transaction.value)
-                    .map(|_| vec![])
+        if let Some(receiver) = signed_transaction.transaction.to {
+            if signed_transaction.transaction.data.is_empty() {
+                // If data is empty, this is a simple transfer.
+                if let Some(receiver) = signed_transaction.transaction.to {
+                    self.transfer_balance(&sender, &receiver, signed_transaction.transaction.value)
+                        .map(|_| vec![])
+                } else {
+                    Err(VMLogicError::EvmError(EvmError::InvalidRawTransactionMissingTo))
+                }
             } else {
-                Err(VMLogicError::EvmError(EvmError::InvalidRawTransactionMissingTo))
-            }
-        } else {
-            // Otherwise it's either code deployment if to == None or function call.
-            if let Some(receiver) = signed_transaction.transaction.to {
                 let result = interpreter::call(
                     self,
                     &sender,
@@ -296,14 +297,16 @@ impl<'a> EvmContext<'a> {
                     self.chain_id,
                 )?;
                 self.process_call_result(result)
-            } else {
-                self.internal_deploy_code(
-                    sender,
-                    signed_transaction.transaction.value,
-                    signed_transaction.transaction.data,
-                )
-                .map(|address| address.0.to_vec())
             }
+        } else {
+            // It's code deployment if to == None.
+            self.internal_deploy_code(
+                sender,
+                signed_transaction.transaction.value,
+                signed_transaction.transaction.data,
+                true,
+            )
+            .map(|address| address.0.to_vec())
         }
     }
 
@@ -344,23 +347,30 @@ impl<'a> EvmContext<'a> {
         let args = ViewCallArgs::try_from_slice(&args)
             .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
         let sender = Address::from(&args.sender);
+        let receiver = Address::from(&args.address);
         let attached_amount = U256::from(args.amount);
-        self.add_balance(&sender, attached_amount)?;
         // TODO: Verify we don't keep the balance in case `call` returns `Err`
-        let result = interpreter::call(
-            self,
-            &sender,
-            &sender,
-            Some(attached_amount),
-            0,
-            &Address::from(&args.address),
-            &args.input,
-            false,
-            &self.evm_gas_counter.gas_left(),
-            &self.fees_config.evm_config,
-            self.chain_id,
-        )?;
-        let result = self.process_call_result(result);
+        self.add_balance(&sender, attached_amount)?;
+        let result = if receiver == Address::zero() {
+            // If there is no contract address, this is view call for deployment.
+            self.internal_deploy_code(sender, attached_amount, args.input, false)
+                .map(|address| address.0.to_vec())
+        } else {
+            let result = interpreter::call(
+                self,
+                &sender,
+                &sender,
+                Some(attached_amount),
+                0,
+                &receiver,
+                &args.input,
+                false,
+                &self.evm_gas_counter.gas_left(),
+                &self.fees_config.evm_config,
+                self.chain_id,
+            )?;
+            self.process_call_result(result)
+        };
         // Need to subtract amount back, because if view call is called inside the transaction state will be applied.
         // The interpreter call is not committing changes, but `add_balance` did, so need to revert that.
         self.sub_balance(&sender, attached_amount)?;
