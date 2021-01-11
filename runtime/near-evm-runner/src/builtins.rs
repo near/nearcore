@@ -172,9 +172,10 @@ impl Impl for EcRecover {
         let mut signature = [0; 65];
         signature.copy_from_slice(&input[63..]);
 
-        let result = ecrecover_address(&hash, &signature).unwrap_or_else(|| Address::zero());
-        output.write(0, &[0, 12]);
-        output.write(12, &result.0);
+        if let Some(result) = ecrecover_address(&hash, &signature) {
+            output.write(0, &[0, 12]);
+            output.write(12, &result.0);
+        }
 
         Ok(())
     }
