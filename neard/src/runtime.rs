@@ -457,6 +457,7 @@ impl NightshadeRuntime {
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
+            #[cfg(feature = "costs_counting")]
             profile: None,
         };
 

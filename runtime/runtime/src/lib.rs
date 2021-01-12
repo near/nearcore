@@ -94,6 +94,7 @@ pub struct ApplyState {
     #[cfg(feature = "protocol_feature_evm")]
     pub evm_chain_id: u128,
     /// Data collected from making a contract call
+    #[cfg(feature = "costs_counting")]
     pub profile: Option<ProfileData>,
 }
 
