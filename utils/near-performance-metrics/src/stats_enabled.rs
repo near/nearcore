@@ -146,7 +146,7 @@ pub fn measure_performance_with_debug<F, Message, Result>(
 ) -> Result
 where
     F: FnOnce(Message) -> Result,
-    Message: AsStaticRef<str>
+    Message: AsStaticRef<str>,
 {
     let msg_text: &'static str = msg.as_static();
     measure_performance_internal(class_name, msg, f, Some(msg_text))
@@ -156,17 +156,17 @@ pub fn measure_performance_internal<F, Message, Result>(
     class_name: &'static str,
     msg: Message,
     f: F,
-    msg_text: Option<&'static str>
+    msg_text: Option<&'static str>,
 ) -> Result
-    where
-        F: FnOnce(Message) -> Result,
+where
+    F: FnOnce(Message) -> Result,
 {
     let now = Instant::now();
     let result = f(msg);
 
     let took = now.elapsed();
     if took > SLOW_CALL_THRESHOLD {
-        let text_field = msg_text.map(|x|format!(" msg: {}", x)).unwrap_or(format!(""));
+        let text_field = msg_text.map(|x| format!(" msg: {}", x)).unwrap_or(format!(""));
         info!(
             "Function exceeded time limit {}:{} {:?} took: {}ms {}",
             class_name,
@@ -179,7 +179,6 @@ pub fn measure_performance_internal<F, Message, Result>(
     STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
     result
 }
-
 
 pub struct MyFuture<F>
 where

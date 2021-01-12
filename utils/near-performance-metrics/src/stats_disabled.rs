@@ -19,7 +19,7 @@ pub fn measure_performance_with_debug<F, Message, Result>(
 ) -> Result
 where
     F: FnOnce(Message) -> Result,
-    Message: AsStaticRef<str>
+    Message: AsStaticRef<str>,
 {
     f(msg)
 }

@@ -12,9 +12,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
+use strum::AsStaticStr;
 use tokio::net::TcpStream;
 use tracing::{error, warn};
-use strum::AsStaticStr;
 
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
