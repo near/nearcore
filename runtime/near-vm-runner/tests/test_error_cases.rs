@@ -391,7 +391,7 @@ fn test_bad_import_3() {
         let msg = match vm_kind {
             VMKind::Wasmer => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
             VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { params: [I64], results: [] })\\n\"",
-            VMKind::Wasmer1 => "TODO: FILL ME"
+            VMKind::Wasmer1 => "Error while importing \"env\".\"wtf\": unknown import. Expected Function(FunctionType { params: [], results: [] })"
         }.to_string();
         assert_eq!(
             make_simple_contract_call_vm(&bad_import_global("env"), b"hello", vm_kind),
@@ -409,6 +409,7 @@ fn test_bad_import_4() {
         let msg = match vm_kind {
             VMKind::Wasmer => "link error: Import not found, namespace: env, name: wtf",
             VMKind::Wasmtime => "\"unknown import: `env::wtf` has not been defined\"",
+            VMKind::Wasmer1 => "Error while importing \"env\".\"wtf\": unknown import. Expected Function(FunctionType { params: [], results: [] })",
         }
         .to_string();
         assert_eq!(

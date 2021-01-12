@@ -7,7 +7,7 @@ unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
 
 #[derive(Clone)]
-struct VMLogicReference(*mut c_void);
+pub struct VMLogicReference(pub *mut c_void);
 unsafe impl Send for VMLogicReference {}
 unsafe impl Sync for VMLogicReference {}
 

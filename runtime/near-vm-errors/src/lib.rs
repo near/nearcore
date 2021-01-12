@@ -36,6 +36,11 @@ pub enum FunctionCallError {
     WasmUnknownError,
     HostError(HostError),
     EvmError(EvmError),
+    /// An error message when wasmer 1.0 returns a wasmer::RuntimeError
+    /// In wasmer 1.0 the internal of runtime error is not pub, so we cannot tell it's a UserError
+    /// or Trap, and which kind of Trap. The pub thing we have is a error message returns by wasmer,
+    /// Indicate the reason of RuntimeError, and if it's a Trap what kind of trap it is.
+    WasmerRuntimeError(String),
 }
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
@@ -338,6 +343,7 @@ impl fmt::Display for FunctionCallError {
                 write!(f, "Unknown error during Wasm contract execution")
             }
             FunctionCallError::EvmError(e) => write!(f, "EVM: {:?}", e),
+            FunctionCallError::WasmerRuntimeError(e) => write!(f, "Wasmer Runtime: {}", e),
         }
     }
 }

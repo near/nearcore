@@ -1,7 +1,10 @@
+use crate::errors::IntoVMError;
 use crate::imports;
 use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::{FunctionCallError, MethodResolveError, VMError};
+use near_vm_errors::{
+    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError,
+};
 use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
 use wasmer::{Bytes, Instance, Memory, MemoryType, Module, Pages, Singlepass, Store, JIT};
@@ -53,6 +56,46 @@ impl MemoryLike for Wasmer1Memory {
             .iter()
             .zip(buffer.iter())
             .for_each(|(cell, v)| cell.set(*v));
+    }
+}
+
+impl IntoVMError for wasmer::CompileError {
+    fn into_vm_error(self) -> VMError {
+        VMError::FunctionCallError(FunctionCallError::CompilationError(
+            CompilationError::WasmerCompileError { msg: self.to_string() },
+        ))
+    }
+}
+
+impl IntoVMError for wasmer::InstantiationError {
+    fn into_vm_error(self) -> VMError {
+        match self {
+            wasmer::InstantiationError::Link(e) => {
+                VMError::FunctionCallError(FunctionCallError::LinkError { msg: e.to_string() })
+            }
+            _ => VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::PrepareError(PrepareError::Instantiate),
+            )),
+        }
+    }
+}
+
+impl IntoVMError for wasmer::RuntimeError {
+    fn into_vm_error(self) -> VMError {
+        VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(self.message()))
+    }
+}
+
+impl IntoVMError for wasmer::ExportError {
+    fn into_vm_error(self) -> VMError {
+        match self {
+            wasmer::ExportError::IncompatibleType => VMError::FunctionCallError(
+                FunctionCallError::MethodResolveError(MethodResolveError::MethodInvalidSignature),
+            ),
+            wasmer::ExportError::Missing(_) => VMError::FunctionCallError(
+                FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
+            ),
+        }
     }
 }
 
@@ -152,16 +195,18 @@ pub fn run_wasmer1<'a>(
     }
 
     match Instance::new(&module, &import_object) {
-        Ok(instance) => match call(instance, &method_name) {
-            Ok(_) => (Some(logic.outcome()), None),
-            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+        Ok(instance) => match instance.exports.get_function(&method_name) {
+            Ok(f) => match f.native::<(), ()>() {
+                Ok(f) => match f.call() {
+                    Ok(_) => (Some(logic.outcome()), None),
+                    Err(e) => (Some(logic.outcome()), Some(e.into_vm_error())),
+                },
+                Err(e) => (Some(logic.outcome()), Some(e.into_vm_error())),
+            },
+            Err(e) => (Some(logic.outcome()), Some(e.into_vm_error())),
         },
         Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
     }
-}
-
-fn call(instance: wasmer::Instance, method_name: &str) -> Result<(), VMError> {
-    instance.exports.get_function(&method_name)?.native::<(), ()>()?.call(&[])?
 }
 
 pub fn compile_module(code: &[u8]) -> bool {
