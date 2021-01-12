@@ -1,6 +1,7 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, RwLock};
@@ -8,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use cached::{Cached, SizedCache};
-use log::{error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
@@ -18,13 +19,14 @@ use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, StateResponseInfo, StateResponseInfoV1,
-    StateResponseInfoV2,
+    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
+    StateResponseInfoV1, StateResponseInfoV2,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
+use near_primitives::network::AnnounceAccount;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::syncing::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
@@ -404,6 +406,24 @@ impl ViewClientActor {
             }
         }
         Ok(headers)
+    }
+
+    fn check_signature_account_announce(
+        &self,
+        announce_account: &AnnounceAccount,
+    ) -> Result<bool, Error> {
+        let announce_hash = announce_account.hash();
+        let head = self.chain.head()?;
+
+        self.runtime_adapter
+            .verify_validator_signature(
+                &announce_account.epoch_id,
+                &head.last_block_hash,
+                &announce_account.account_id,
+                announce_hash.as_ref(),
+                &announce_account.signature,
+            )
+            .map_err(|e| e.into())
     }
 
     fn get_height(&self, head: &Tip) -> BlockHeight {
@@ -1062,6 +1082,40 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     state_response,
                 });
                 NetworkViewClientResponses::StateResponse(Box::new(info))
+            }
+            NetworkViewClientMessages::AnnounceAccount(announce_accounts) => {
+                let mut filtered_announce_accounts = Vec::new();
+
+                for (announce_account, last_epoch) in announce_accounts {
+                    // Keep the announcement if it is newer than the last announcement from
+                    // the same account.
+                    if let Some(last_epoch) = last_epoch {
+                        match self
+                            .runtime_adapter
+                            .compare_epoch_id(&announce_account.epoch_id, &last_epoch)
+                        {
+                            Ok(Ordering::Greater) => {}
+                            _ => continue,
+                        }
+                    }
+
+                    match self.check_signature_account_announce(&announce_account) {
+                        Ok(true) => {
+                            filtered_announce_accounts.push(announce_account);
+                        }
+                        Ok(false) => {
+                            return NetworkViewClientResponses::Ban {
+                                ban_reason: ReasonForBan::InvalidSignature,
+                            };
+                        }
+                        // Filter this account
+                        Err(e) => {
+                            debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
+                        }
+                    }
+                }
+
+                NetworkViewClientResponses::AnnounceAccount(filtered_announce_accounts)
             }
         }
     }
