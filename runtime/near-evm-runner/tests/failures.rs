@@ -4,6 +4,7 @@ use rlp::Encodable;
 use near_crypto::{InMemorySigner, KeyType};
 
 use crate::utils::{accounts, create_context, setup, sign_eth_transaction, CHAIN_ID};
+use near_evm_runner::utils::{near_erc712_domain, prepare_meta_call_args};
 
 mod utils;
 
@@ -73,4 +74,33 @@ fn test_invalid_raw_call_args() {
         context.raw_call_function(signed_transaction.rlp_bytes()).unwrap_err().to_string(),
         "EvmError(InvalidChainId)"
     );
+}
+
+#[test]
+fn test_wrong_meta_tx() {
+    let domain_separator = near_erc712_domain(U256::from(CHAIN_ID));
+    let err = prepare_meta_call_args(
+        &domain_separator,
+        &"evm".to_string(),
+        U256::from(14),
+        U256::from(6),
+        Address::from_slice(&[0u8; 20]),
+        Address::from_slice(&[0u8; 20]),
+        "wrong_method",
+        &hex::decode("ca").unwrap(),
+    )
+    .unwrap_err();
+    assert_eq!(err.to_string(), "EvmError(InvalidMetaTransactionMethodName)");
+    let err = prepare_meta_call_args(
+        &domain_separator,
+        &"evm".to_string(),
+        U256::from(14),
+        U256::from(6),
+        Address::from_slice(&[0u8; 20]),
+        Address::from_slice(&[0u8; 20]),
+        "wrong_method([])",
+        &hex::decode("ca").unwrap(),
+    )
+    .unwrap_err();
+    assert_eq!(err.to_string(), "EvmError(InvalidMetaTransactionMethodName)");
 }

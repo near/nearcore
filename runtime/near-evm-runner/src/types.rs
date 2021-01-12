@@ -93,6 +93,7 @@ pub struct ViewCallArgs {
     pub input: Vec<u8>,
 }
 
+#[derive(Debug)]
 pub struct MetaCallArgs {
     pub sender: Address,
     pub nonce: U256,
