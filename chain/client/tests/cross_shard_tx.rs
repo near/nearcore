@@ -523,7 +523,7 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx_drop_chunks() {
-        test_cross_shard_tx_common(64, false, true, false, 250, None, None);
+        test_cross_shard_tx_common(64, false, true, false, 2000, None, None);
     }
 
     #[test]
