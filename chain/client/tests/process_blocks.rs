@@ -193,6 +193,7 @@ fn receive_network_block() {
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
+                last_block.header.block_ordinal + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -263,6 +264,7 @@ fn produce_block_with_approvals() {
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
+                last_block.header.block_ordinal + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -425,6 +427,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
+                last_block.header.block_ordinal + 1,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {

@@ -52,6 +52,8 @@ pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
 
 pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
+pub const BLOCK_ORDINAL_UPGRADE_VERSION: ProtocolVersion = 45;
+
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
     upper: Option<ProtocolVersion>,
@@ -90,7 +92,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 41;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 46;
+pub const PROTOCOL_VERSION: ProtocolVersion = 47;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![

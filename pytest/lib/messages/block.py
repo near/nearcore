@@ -26,6 +26,10 @@ class BlockHeaderV2:
     pass
 
 
+class BlockHeaderV3:
+    pass
+
+
 class BlockHeaderInnerLite:
     pass
 
@@ -35,6 +39,10 @@ class BlockHeaderInnerRest:
 
 
 class BlockHeaderInnerRestV2:
+    pass
+
+
+class BlockHeaderInnerRestV3:
     pass
 
 
@@ -182,7 +190,8 @@ block_schema = [
             'field': 'enum',
             'values': [
                 ['BlockHeaderV1', BlockHeaderV1],
-                ['BlockHeaderV2', BlockHeaderV2]
+                ['BlockHeaderV2', BlockHeaderV2],
+                ['BlockHeaderV3', BlockHeaderV3]
             ]
         }
     ],
@@ -204,6 +213,17 @@ block_schema = [
                 ['prev_hash', [32]],
                 ['inner_lite', BlockHeaderInnerLite],
                 ['inner_rest', BlockHeaderInnerRestV2],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        BlockHeaderV3, {
+            'kind' : 'struct',
+            'fields': [
+                ['prev_hash', [32]],
+                ['inner_lite', BlockHeaderInnerLite],
+                ['inner_rest', BlockHeaderInnerRestV3],
                 ['signature', Signature],
             ]
         }
@@ -256,6 +276,28 @@ block_schema = [
                 ['random_value', [32]],
                 ['validator_proposals', [ValidatorStake]],
                 ['chunk_mask', ['u8']],
+                ['gas_price', 'u128'],
+                ['total_supply', 'u128'],
+                ['challenges_result', [()]], # TODO
+                ['last_final_block', [32]],
+                ['last_ds_final_block', [32]],
+                ['approvals', [{'kind': 'option', 'type': Signature}]],
+                ['latest_protocol_verstion', 'u32'],
+            ]
+        }
+    ],
+    [
+        BlockHeaderInnerRestV2, {
+            'kind': 'struct',
+            'fields': [
+                ['chunk_receipts_root', [32]],
+                ['chunk_headers_root', [32]],
+                ['chunk_tx_root', [32]],
+                ['challenges_root', [32]],
+                ['random_value', [32]],
+                ['validator_proposals', [ValidatorStake]],
+                ['chunk_mask', ['u8']],
+                ['block_ordinal', 'u64'],
                 ['gas_price', 'u128'],
                 ['total_supply', 'u128'],
                 ['challenges_result', [()]], # TODO

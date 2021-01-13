@@ -3199,10 +3199,6 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 
-        if !header.verify_chunks_included() {
-            return Err(ErrorKind::InvalidChunkMask.into());
-        }
-
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
         if header.raw_timestamp() <= prev_header.raw_timestamp() {

@@ -6,7 +6,7 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
-use crate::block_header::{BlockHeader, BlockHeaderV2};
+use crate::block_header::{BlockHeader, BlockHeaderV3};
 use crate::errors::{EpochError, TxExecutionError};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
@@ -248,10 +248,11 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
-    pub fn get_mut(&mut self) -> &mut BlockHeaderV2 {
+    pub fn get_mut(&mut self) -> &mut BlockHeaderV3 {
         match self {
             BlockHeader::BlockHeaderV1(_) => panic!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV2(header) => header,
+            BlockHeader::BlockHeaderV2(_) => panic!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(header) => header,
         }
     }
 
@@ -384,6 +385,7 @@ impl Block {
             PROTOCOL_VERSION,
             prev.header(),
             height,
+            prev.header().block_ordinal() + 1,
             prev.chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
