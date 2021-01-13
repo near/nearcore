@@ -203,7 +203,7 @@ impl TrieViewer {
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "protocol_feature_evm")]
-    use near_chain_configs::TEST_EVM_CHAIN_ID;
+    use near_chain_configs::TESTNET_EVM_CHAIN_ID;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
@@ -228,7 +228,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
             root,
@@ -257,7 +257,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
             root,
