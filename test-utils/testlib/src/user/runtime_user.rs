@@ -139,7 +139,7 @@ impl RuntimeUser {
             config: self.runtime_config.clone(),
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
             #[cfg(feature = "costs_counting")]
             profile: None,
         }
