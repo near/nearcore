@@ -183,8 +183,7 @@ pub fn format_log(topics: Vec<H256>, data: &[u8]) -> std::result::Result<Vec<u8>
 }
 
 /// Given signature and data, validates that signature is valid for given data and returns ecrecover address.
-/// If signature is invalid or doesn't match, returns 0x0 address.
-pub fn ecrecover_address(hash: &RawHash, signature: &[u8; 65]) -> Address {
+pub fn ecrecover_address(hash: &RawHash, signature: &[u8; 65]) -> Option<Address> {
     use sha3::Digest;
 
     let hash = secp256k1::Message::parse(&H256::from_slice(hash).0);
@@ -202,8 +201,8 @@ pub fn ecrecover_address(hash: &RawHash, signature: &[u8; 65]) -> Address {
         if let Ok(p) = secp256k1::recover(&hash, &s, &rec_id) {
             // recover returns the 65-byte key, but addresses come from the raw 64-byte key
             let r = sha3::Keccak256::digest(&p.serialize()[1..]);
-            return address_from_arr(&r[12..]);
+            return Some(address_from_arr(&r[12..]));
         }
     }
-    Address::zero()
+    None
 }

@@ -91,7 +91,7 @@ pub struct ApplyState {
     pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// Ethereum chain id.
     #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u128,
+    pub evm_chain_id: u64,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.

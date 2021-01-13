@@ -262,6 +262,8 @@ pub enum EvmError {
     InvalidMetaTransactionMethodName,
     /// Invalid function args in meta txn
     InvalidMetaTransactionFunctionArg,
+    /// Chain ID doesn't match. Trying to use transaction signed for a different chain.
+    InvalidChainId,
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]

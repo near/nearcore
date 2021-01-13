@@ -1392,7 +1392,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     #[cfg(feature = "protocol_feature_evm")]
     /// ID of the EVM chain: https://github.com/ethereum-lists/chains
-    fn evm_chain_id(&self) -> u128 {
+    fn evm_chain_id(&self) -> u64 {
         match self.genesis_config.chain_id.as_str() {
             "mainnet" => MAINNET_EVM_CHAIN_ID,
             "testnet" => TESTNET_EVM_CHAIN_ID,
@@ -1437,7 +1437,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-        #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u128,
+        #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u64,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let view_state = ViewApplyState {
