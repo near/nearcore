@@ -450,7 +450,10 @@ pub fn prepare_meta_call_args(
     args: &[u8],
 ) -> Result<(RawU256, Vec<u8>)> {
     let mut bytes = Vec::new();
-    let method_arg_start = method_def.find('(').unwrap();
+    let method_arg_start = match method_def.find('(') {
+        Some(index) => index,
+        None => return Err(VMLogicError::EvmError(EvmError::InvalidMetaTransactionMethodName)),
+    };
     let arguments = "Arguments".to_string() + &method_def[method_arg_start..];
     // Note: method_def is like "adopt(uint256 petId,PetObj petObj)PetObj(string name,address owner)",
     // MUST have no space after `,`. EIP-712 requires hashStruct start by packing the typeHash,
@@ -542,10 +545,10 @@ pub fn parse_meta_call(
         &method_def,
         args,
     )?;
-    let sender = ecrecover_address(&msg, &signature);
-    if sender == Address::zero() {
-        return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
+    match ecrecover_address(&msg, &signature) {
+        Some(sender) => {
+            Ok(MetaCallArgs { sender, nonce, fee_amount, fee_address, contract_address, input })
+        }
+        None => Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature)),
     }
-
-    Ok(MetaCallArgs { sender, nonce, fee_amount, fee_address, contract_address, input })
 }
