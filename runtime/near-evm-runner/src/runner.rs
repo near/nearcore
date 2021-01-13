@@ -271,13 +271,8 @@ impl<'a> EvmContext<'a> {
         };
         if let Some(receiver) = signed_transaction.transaction.to {
             if signed_transaction.transaction.data.is_empty() {
-                // If data is empty, this is a simple transfer.
-                if let Some(receiver) = signed_transaction.transaction.to {
-                    self.transfer_balance(&sender, &receiver, signed_transaction.transaction.value)
-                        .map(|_| vec![])
-                } else {
-                    Err(VMLogicError::EvmError(EvmError::InvalidRawTransactionMissingTo))
-                }
+                self.transfer_balance(&sender, &receiver, signed_transaction.transaction.value)
+                    .map(|_| vec![])
             } else {
                 let result = interpreter::call(
                     self,

@@ -262,8 +262,6 @@ pub enum EvmError {
     InvalidMetaTransactionMethodName,
     /// Invalid function args in meta txn
     InvalidMetaTransactionFunctionArg,
-    /// No receiver (to field) provided in transaction data
-    InvalidRawTransactionMissingTo,
     /// Chain ID doesn't match. Trying to use transaction signed for a different chain.
     InvalidChainId,
 }
