@@ -67,7 +67,6 @@ near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
-runtime-params-estimator = { path = "./runtime/runtime-params-estimator" }
 
 node-runtime = { path = "./runtime/runtime" }
 
@@ -113,4 +112,5 @@ rosetta_rpc = ["neard/rosetta_rpc"]
 protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_parts"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm"]
-protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
+protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm"]
+costs_counting = ["neard/costs_counting", "testlib/costs_counting", "node-runtime/costs_counting"]
