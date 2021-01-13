@@ -5,6 +5,7 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
@@ -44,7 +45,6 @@ use crate::types::{
     StoreValue, ValidatorKickoutReason, ValidatorStake,
 };
 use crate::version::{ProtocolVersion, Version};
-use std::sync::Arc;
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -87,7 +87,7 @@ pub struct ViewApplyState {
     pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// EVM chain ID
     #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u128,
+    pub evm_chain_id: u64,
 }
 
 impl From<&Account> for AccountView {

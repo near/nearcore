@@ -4,6 +4,7 @@ extern crate lazy_static_include;
 use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
 use ethereum_types::{Address, H256, U256};
+use rlp::Encodable;
 
 use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::types::{TransferArgs, WithdrawArgs};
@@ -19,8 +20,9 @@ use near_vm_logic::VMConfig;
 
 use crate::utils::{
     accounts, create_context, encode_meta_call_function_args, public_key_to_address, setup,
-    CHAIN_ID,
+    sign_eth_transaction, CHAIN_ID,
 };
+
 mod utils;
 
 use_contract!(soltest, "tests/build/SolTests.abi");
@@ -258,6 +260,16 @@ fn test_view_call() {
         ))
         .unwrap();
     assert_eq!(raw[12..32], test_addr.0);
+
+    let raw = context
+        .view_call_function(encode_view_call_function_args(
+            test_addr,
+            Address::zero(),
+            U256::zero(),
+            vec![],
+        ))
+        .unwrap();
+    assert_eq!(raw.to_vec(), hex::decode("f55df5ec5c8c64582378dce8eee51ec4af77ccd6").unwrap());
 }
 
 #[test]
@@ -353,7 +365,66 @@ fn test_ecrecover() {
     signature[1..].copy_from_slice(&signature2[..64]);
 
     assert_eq!(
-        ecrecover_address(&msg, &signature).0.to_vec(),
+        ecrecover_address(&msg, &signature).unwrap().0.to_vec(),
         hex::decode("3b748cf099f8068951f87331d1970bcafda8a4db").unwrap()
     );
+}
+
+#[test]
+fn test_send_eth_tx() {
+    let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
+
+    let signer = InMemorySigner::from_seed("doesnt", KeyType::SECP256K1, "a");
+    let signer_addr = public_key_to_address(signer.public_key.clone());
+
+    let mut context =
+        create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 1000);
+    assert_eq!(
+        context.deposit(address_to_vec(&near_account_id_to_evm_address(&accounts(1)))).unwrap(),
+        U256::from(1000)
+    );
+
+    let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
+    context
+        .transfer(
+            TransferArgs { address: signer_addr.0, amount: u256_to_arr(&U256::from(200)) }
+                .try_to_vec()
+                .unwrap(),
+        )
+        .unwrap();
+
+    let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
+    let (input, _) = soltest::functions::deploy_new_guy::call(8);
+    let signed_transaction = sign_eth_transaction(
+        &signer,
+        CHAIN_ID,
+        U256::zero(),
+        U256::from(200),
+        U256::from(24000),
+        Some(test_addr),
+        U256::from(100),
+        input,
+    );
+    let raw = context.raw_call_function(signed_transaction.rlp_bytes()).unwrap();
+
+    // The sub_addr should have been transferred 100 yoctoN.
+    let sub_addr = raw[12..32].to_vec();
+    assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(100));
+    assert_eq!(context.get_balance(sub_addr).unwrap(), U256::from(100));
+
+    // Deploy contract.
+    let signed_transaction = sign_eth_transaction(
+        &signer,
+        CHAIN_ID,
+        U256::zero(),
+        U256::from(200),
+        U256::from(24000),
+        None,
+        U256::from(100),
+        hex::decode(&TEST).unwrap(),
+    );
+    let raw = context.raw_call_function(signed_transaction.rlp_bytes()).unwrap();
+    assert_eq!(context.get_balance(raw).unwrap(), U256::from(100));
+
+    // TODO: add transfer example.
 }
