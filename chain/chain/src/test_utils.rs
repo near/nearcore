@@ -969,7 +969,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     #[cfg(feature = "protocol_feature_evm")]
-    fn evm_chain_id(&self) -> u128 {
+    fn evm_chain_id(&self) -> u64 {
         // See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
         1313161555
     }
@@ -1162,16 +1162,20 @@ impl ChainGenesis {
 
 #[cfg(test)]
 mod test {
-    use super::KeyValueRuntime;
-    use crate::RuntimeAdapter;
+    use std::time::Instant;
+
     use borsh::BorshSerialize;
+    use rand::Rng;
+
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
     use near_primitives::types::NumShards;
     use near_store::test_utils::create_test_store;
-    use rand::Rng;
-    use std::time::Instant;
+
+    use crate::RuntimeAdapter;
+
+    use super::KeyValueRuntime;
 
     impl KeyValueRuntime {
         fn naive_build_receipt_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
