@@ -94,6 +94,7 @@ impl RuntimeTestbed {
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
+            #[cfg(feature = "costs_counting")]
             profile: None,
         };
         Self {

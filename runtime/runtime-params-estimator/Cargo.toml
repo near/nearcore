@@ -20,9 +20,9 @@ num-rational = "0.3.0"
 near-chain-configs = { path = "../../core/chain-configs" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-crypto = { path = "../../core/crypto" }
-near-vm-logic = {path = "../../runtime/near-vm-logic" , features = ["costs_counting"]}
-near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting" ]}
-node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting"]}
+near-vm-logic = {path = "../../runtime/near-vm-logic"  }
+near-vm-runner = {path = "../../runtime/near-vm-runner" }
+node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 testlib = { path = "../../test-utils/testlib" }
@@ -31,7 +31,7 @@ neard = { path = "../../neard" }
 rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 glob = "0.3.0"
 walrus = "0.18.0"
-near-evm-runner = { path = "../../runtime/near-evm-runner", features = ["costs_counting"], optional = true }
+near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 hex = "0.4"
 ethabi = "9.0.1"
 ethabi-contract = "9.0.0"
@@ -42,9 +42,15 @@ num-traits = "0.2.12"
 libc = "0.2.81"
 
 [features]
-default = []
+default = ["costs_counting"]
+costs_counting = ["near-vm-logic/costs_counting",
+                  "near-vm-runner/costs_counting",
+                  "neard/costs_counting",
+                  "node-runtime/costs_counting",
+                  "testlib/costs_counting",
+                  "near-evm-runner/costs_counting"]
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
-required = ["near-vm-runner/no_cpu_compatibility_checks", "no_cache", "near-store/single_thread_rocksdb"]
+required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache", "near-store/single_thread_rocksdb"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
