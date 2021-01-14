@@ -83,7 +83,8 @@ impl IntoVMError for wasmer::InstantiationError {
 
 impl IntoVMError for wasmer::RuntimeError {
     fn into_vm_error(self) -> VMError {
-        match self.clone().downcast::<VMLogicError>() {
+        let error_msg = self.message();
+        match self.downcast::<VMLogicError>() {
             Ok(e) => {
                 println!("aaaaaa");
 
@@ -103,7 +104,7 @@ impl IntoVMError for wasmer::RuntimeError {
             _ => {
                 println!("bbbbbb");
 
-                VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(self.message()))
+                VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(error_msg))
             }
         }
     }
