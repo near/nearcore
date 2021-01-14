@@ -53,6 +53,7 @@ use crate::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
 use near_performance_metrics_macros::perf;
+use near_performance_metrics_macros::perf_with_debug;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -806,7 +807,7 @@ impl Handler<GetBlockProof> for ViewClientActor {
 impl Handler<NetworkViewClientMessages> for ViewClientActor {
     type Result = NetworkViewClientResponses;
 
-    #[perf]
+    #[perf_with_debug]
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
         match msg {
             #[cfg(feature = "adversarial")]
