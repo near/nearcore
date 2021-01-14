@@ -1,6 +1,10 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
+    time::Duration,
+};
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
@@ -11,16 +15,22 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_network::{NetworkClientMessages, PeerInfo};
-use near_primitives::block::Approval;
-use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
-use neard::config::{GenesisExt, TESTING_INIT_STAKE};
-use neard::{load_test_config, start_with_config, NearConfig};
+use near_network::{
+    test_utils::{convert_boot_nodes, open_port, WaitOrTimeout},
+    NetworkClientMessages, PeerInfo,
+};
+use near_primitives::{
+    block::Approval,
+    merkle::PartialMerkleTree,
+    transaction::SignedTransaction,
+    types::{BlockHeightDelta, EpochId, ValidatorStake},
+    validator_signer::{InMemoryValidatorSigner, ValidatorSigner},
+    version::PROTOCOL_VERSION,
+};
+use neard::{
+    config::{GenesisExt, TESTING_INIT_STAKE},
+    load_test_config, start_with_config, NearConfig,
+};
 use testlib::{genesis_block, test_helpers::heavy_test};
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.

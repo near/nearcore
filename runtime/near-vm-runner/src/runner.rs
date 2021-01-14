@@ -1,8 +1,10 @@
 use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::VMError;
-use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_logic::{
+    types::{ProfileData, PromiseResult, ProtocolVersion},
+    External, VMConfig, VMContext, VMKind, VMOutcome,
+};
 
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)

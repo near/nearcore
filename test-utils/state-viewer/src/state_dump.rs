@@ -2,9 +2,11 @@ use std::collections::HashMap;
 
 use near_chain::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisConfig};
-use near_primitives::block::BlockHeader;
-use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountInfo, StateRoot};
+use near_primitives::{
+    block::BlockHeader,
+    state_record::StateRecord,
+    types::{AccountInfo, StateRoot},
+};
 use near_store::TrieIterator;
 use neard::NightshadeRuntime;
 
@@ -64,23 +66,19 @@ pub fn state_dump(
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashSet;
-    use std::iter::FromIterator;
-    use std::path::Path;
-    use std::sync::Arc;
+    use std::{collections::HashSet, iter::FromIterator, path::Path, sync::Arc};
 
     use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
-    use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::NumBlocks;
-    use near_store::test_utils::create_test_store;
-    use near_store::Store;
-    use neard::config::GenesisExt;
-    use neard::config::TESTING_INIT_STAKE;
-    use neard::genesis_validate::validate_genesis;
-    use neard::NightshadeRuntime;
+    use near_primitives::{transaction::SignedTransaction, types::NumBlocks};
+    use near_store::{test_utils::create_test_store, Store};
+    use neard::{
+        config::{GenesisExt, TESTING_INIT_STAKE},
+        genesis_validate::validate_genesis,
+        NightshadeRuntime,
+    };
 
     use crate::state_dump::state_dump;
 

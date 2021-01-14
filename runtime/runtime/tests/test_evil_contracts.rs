@@ -1,6 +1,8 @@
-use near_primitives::errors::{ActionError, ActionErrorKind};
-use near_primitives::serialize::to_base64;
-use near_primitives::views::FinalExecutionStatus;
+use near_primitives::{
+    errors::{ActionError, ActionErrorKind},
+    serialize::to_base64,
+    views::FinalExecutionStatus,
+};
 use near_vm_errors::{FunctionCallError, HostError};
 use std::mem::size_of;
 use testlib::node::{Node, RuntimeNode};

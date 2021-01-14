@@ -4,14 +4,16 @@ use serde::Serialize;
 
 use near_crypto::{KeyType, PublicKey, Signature};
 
-use crate::challenge::ChallengesResult;
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::combine_hash;
-use crate::network::PeerId;
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, ValidatorStake};
-use crate::utils::{from_timestamp, to_timestamp};
-use crate::validator_signer::ValidatorSigner;
-use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
+use crate::{
+    challenge::ChallengesResult,
+    hash::{hash, CryptoHash},
+    merkle::combine_hash,
+    network::PeerId,
+    types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, ValidatorStake},
+    utils::{from_timestamp, to_timestamp},
+    validator_signer::ValidatorSigner,
+    version::{ProtocolVersion, PROTOCOL_VERSION},
+};
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {

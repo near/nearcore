@@ -7,22 +7,24 @@ use num_rational::Rational;
 use primitive_types::U256;
 use serde::Serialize;
 
-use crate::block::BlockValidityError::{
-    InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
-    InvalidStateRoot, InvalidTransactionRoot,
-};
 pub use crate::block_header::*;
-use crate::challenge::{Challenges, ChallengesResult};
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::{merklize, verify_path, MerklePath};
-use crate::sharding::{
-    ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
-    ShardChunkHeaderV1,
+use crate::{
+    block::BlockValidityError::{
+        InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
+        InvalidStateRoot, InvalidTransactionRoot,
+    },
+    challenge::{Challenges, ChallengesResult},
+    hash::{hash, CryptoHash},
+    merkle::{merklize, verify_path, MerklePath},
+    sharding::{
+        ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
+        ShardChunkHeaderV1,
+    },
+    types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot},
+    utils::to_timestamp,
+    validator_signer::{EmptyValidatorSigner, ValidatorSigner},
+    version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION},
 };
-use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
-use crate::utils::to_timestamp;
-use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
-use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use std::ops::Index;
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]

@@ -1,17 +1,18 @@
 use chrono::{DateTime, Duration, Utc};
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use borsh::de::BorshDeserialize;
 
 use near_crypto::Signature;
-use near_network::routing::{
-    Edge, EdgeType, RoutingTable, SAVE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME,
+use near_network::{
+    routing::{Edge, EdgeType, RoutingTable, SAVE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME},
+    test_utils::random_peer_id,
 };
-use near_network::test_utils::random_peer_id;
 use near_primitives::network::PeerId;
-use near_store::test_utils::create_test_store;
-use near_store::{ColComponentEdges, ColPeerComponent, Store};
+use near_store::{test_utils::create_test_store, ColComponentEdges, ColPeerComponent, Store};
 
 #[derive(Eq, PartialEq, Hash)]
 struct EdgeDescription(usize, usize, EdgeType);

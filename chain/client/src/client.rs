@@ -1,48 +1,58 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use std::collections::{HashMap, HashSet};
-use std::iter;
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    iter,
+    sync::{Arc, RwLock},
+    time::{Duration, Instant},
+};
 
 use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
-use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
-use near_chain::test_utils::format_hash;
-use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
+    chain::TX_ROUTING_HEIGHT_HORIZON,
+    test_utils::format_hash,
+    types::{AcceptedBlock, LatestKnown},
     BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode, ErrorKind,
     Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
-use near_network::types::PartialEncodedChunkResponseMsg;
-use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
-use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
-use near_primitives::challenge::{Challenge, ChallengeBody};
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
-    ShardChunkHeader,
+use near_network::{
+    types::PartialEncodedChunkResponseMsg, FullPeerInfo, NetworkAdapter, NetworkClientResponses,
+    NetworkRequests,
 };
-use near_primitives::syncing::ReceiptResponse;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
-use near_primitives::unwrap_or_return;
-use near_primitives::utils::{to_timestamp, MaybeValidated};
-use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::{
+    block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip},
+    challenge::{Challenge, ChallengeBody},
+    hash::CryptoHash,
+    merkle::{merklize, MerklePath},
+    receipt::Receipt,
+    sharding::{
+        EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
+        ShardChunkHeader,
+    },
+    syncing::ReceiptResponse,
+    transaction::SignedTransaction,
+    types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId},
+    unwrap_or_return,
+    utils::{to_timestamp, MaybeValidated},
+    validator_signer::ValidatorSigner,
+};
 
-use crate::metrics;
-use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
-use crate::types::{Error, ShardSyncDownload};
-use crate::SyncStatus;
-use near_primitives::block_header::ApprovalType;
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use crate::{
+    metrics,
+    sync::{BlockSync, HeaderSync, StateSync, StateSyncResult},
+    types::{Error, ShardSyncDownload},
+    SyncStatus,
+};
+use near_primitives::{
+    block_header::ApprovalType,
+    version::{ProtocolVersion, PROTOCOL_VERSION},
+};
 
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_network::types::PartialEncodedChunkForwardMsg;
@@ -1610,21 +1620,20 @@ impl Client {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-    use std::path::Path;
-    use std::sync::Arc;
+    use std::{collections::HashMap, path::Path, sync::Arc};
 
     use cached::Cached;
 
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
-    use near_chunks::test_utils::ChunkForwardingTestFixture;
-    use near_chunks::ProcessPartialEncodedChunkResult;
+    use near_chunks::{test_utils::ChunkForwardingTestFixture, ProcessPartialEncodedChunkResult};
     use near_crypto::KeyType;
-    use near_primitives::block::{Approval, ApprovalInner};
-    use near_primitives::hash::hash;
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::{
+        block::{Approval, ApprovalInner},
+        hash::hash,
+        validator_signer::InMemoryValidatorSigner,
+        version::PROTOCOL_VERSION,
+    };
     use near_store::test_utils::create_test_store;
     use neard::config::GenesisExt;
 
@@ -1632,10 +1641,12 @@ mod test {
     use near_network::test_utils::MockNetworkAdapter;
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
-    use near_primitives::block_header::ApprovalType;
-    use near_primitives::network::PeerId;
-    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
-    use near_primitives::utils::MaybeValidated;
+    use near_primitives::{
+        block_header::ApprovalType,
+        network::PeerId,
+        sharding::{PartialEncodedChunk, ShardChunkHeader},
+        utils::MaybeValidated,
+    };
 
     fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
         let genesis = Genesis::test(vec!["test0", "test1"], 1);

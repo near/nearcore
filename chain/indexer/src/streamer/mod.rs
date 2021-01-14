@@ -2,24 +2,25 @@ use std::time::Duration;
 
 use actix::Addr;
 use rocksdb::DB;
-use tokio::sync::mpsc;
-use tokio::time;
+use tokio::{sync::mpsc, time};
 use tracing::{debug, info};
 
 pub use near_primitives::views;
 
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 
-use self::errors::FailedToFetchData;
-use self::fetchers::{
-    fetch_block_by_height, fetch_chunks, fetch_latest_block, fetch_outcomes, fetch_state_changes,
-    fetch_status,
-};
 pub use self::types::{
     IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
-use self::utils::convert_transactions_sir_into_local_receipts;
+use self::{
+    errors::FailedToFetchData,
+    fetchers::{
+        fetch_block_by_height, fetch_chunks, fetch_latest_block, fetch_outcomes,
+        fetch_state_changes, fetch_status,
+    },
+    utils::convert_transactions_sir_into_local_receipts,
+};
 
 mod errors;
 mod fetchers;

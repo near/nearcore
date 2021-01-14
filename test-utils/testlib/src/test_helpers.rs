@@ -1,9 +1,11 @@
 use crate::node::Node;
 use lazy_static::lazy_static;
-use std::process::Output;
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
-use std::time::Duration;
+use std::{
+    process::Output,
+    sync::{Arc, Mutex, RwLock},
+    thread,
+    time::Duration,
+};
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());

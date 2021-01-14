@@ -1,6 +1,8 @@
 use crate::remote_node::{get_result, RemoteNode};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
+};
 
 /// Stats measured while executing load testing on the node.
 pub struct Stats {

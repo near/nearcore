@@ -1,9 +1,7 @@
 use arrayref::{array_refs, mut_array_refs};
-use curve25519_dalek::ristretto::CompressedRistretto;
-use curve25519_dalek::traits::VartimeMultiscalarMul;
+use curve25519_dalek::{ristretto::CompressedRistretto, traits::VartimeMultiscalarMul};
 
-pub use curve25519_dalek::ristretto::RistrettoPoint as Point;
-pub use curve25519_dalek::scalar::Scalar;
+pub use curve25519_dalek::{ristretto::RistrettoPoint as Point, scalar::Scalar};
 
 pub fn vmul2(s1: Scalar, p1: &Point, s2: Scalar, p2: &Point) -> Point {
     Point::vartime_multiscalar_mul(&[s1, s2], [p1, p2].iter().copied())

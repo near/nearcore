@@ -10,10 +10,12 @@ use vm::{
 
 use near_vm_errors::{EvmError, VMLogicError};
 
-use crate::evm_state::{EvmState, StateStore, SubState};
-use crate::near_ext::NearExt;
-use crate::types::{convert_vm_error, Result};
-use crate::utils;
+use crate::{
+    evm_state::{EvmState, StateStore, SubState},
+    near_ext::NearExt,
+    types::{convert_vm_error, Result},
+    utils,
+};
 
 pub fn deploy_code<T: EvmState>(
     state: &mut T,

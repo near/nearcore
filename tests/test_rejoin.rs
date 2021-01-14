@@ -2,17 +2,20 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod test {
-    use std::process::Command;
-    use std::sync::{Arc, RwLock};
-    use std::thread;
-    use std::time::Duration;
+    use std::{
+        process::Command,
+        sync::{Arc, RwLock},
+        thread,
+        time::Duration,
+    };
 
     use near_chain_configs::Genesis;
-    use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::AccountId;
+    use near_primitives::{transaction::SignedTransaction, types::AccountId};
     use node_runtime::config::RuntimeConfig;
-    use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig};
-    use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
+    use testlib::{
+        node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig},
+        test_helpers::{heavy_test, wait, wait_for_catchup},
+    };
 
     fn warmup() {
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {

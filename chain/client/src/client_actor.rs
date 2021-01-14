@@ -1,24 +1,23 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+    thread,
+    time::{Duration, Instant},
+};
 
 use actix::{Actor, Addr, Arbiter, Context, Handler};
-use chrono::Duration as OldDuration;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as OldDuration, Utc};
 use log::{debug, error, info, trace, warn};
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_chain::test_utils::format_hash;
-use near_chain::types::AcceptedBlock;
 #[cfg(feature = "adversarial")]
 use near_chain::StoreValidator;
 use near_chain::{
-    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
-    RuntimeAdapter,
+    byzantine_assert, test_utils::format_hash, types::AcceptedBlock, Block, BlockHeader,
+    ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
@@ -28,34 +27,38 @@ use near_crypto::Signature;
 use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkInfo, ReasonForBan};
 use near_network::{
+    types::{NetworkInfo, ReasonForBan},
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{BlockHeight, EpochId};
-use near_primitives::unwrap_or_return;
-use near_primitives::utils::{from_timestamp, MaybeValidated};
-use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::ValidatorInfo;
+use near_primitives::{
+    hash::CryptoHash,
+    network::{AnnounceAccount, PeerId},
+    types::{BlockHeight, EpochId},
+    unwrap_or_return,
+    utils::{from_timestamp, MaybeValidated},
+    validator_signer::ValidatorSigner,
+    version::PROTOCOL_VERSION,
+    views::ValidatorInfo,
+};
 #[cfg(feature = "adversarial")]
 use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
 
-use crate::client::Client;
-use crate::info::{InfoHelper, ValidatorInfoHelper};
-use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
-use crate::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusSyncInfo, SyncStatus,
-};
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
-use crate::StatusResponse;
+use crate::{
+    client::Client,
+    info::{InfoHelper, ValidatorInfoHelper},
+    sync::{highest_height_peer, StateSync, StateSyncResult},
+    types::{
+        Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
+        StatusSyncInfo, SyncStatus,
+    },
+    StatusResponse,
+};
 use near_primitives::block_header::ApprovalType;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.

@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::Signature;
 
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::MerklePath;
-use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
-use crate::types::AccountId;
-use crate::validator_signer::ValidatorSigner;
+use crate::{
+    hash::{hash, CryptoHash},
+    merkle::MerklePath,
+    sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader},
+    types::AccountId,
+    validator_signer::ValidatorSigner,
+};
 
 /// Serialized TrieNodeWithSize
 pub type StateItem = Vec<u8>;

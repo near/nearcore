@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
-use std::time::{Duration, SystemTime};
+use std::{
+    collections::VecDeque,
+    time::{Duration, SystemTime},
+};
 
 const MINUTE_IN_MILLIS: u128 = 60_000;
 

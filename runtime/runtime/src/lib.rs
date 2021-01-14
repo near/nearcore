@@ -1,30 +1,35 @@
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
+use std::{
+    cmp::max,
+    collections::{HashMap, HashSet},
+};
 
 use borsh::BorshSerialize;
 use log::debug;
 
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
-};
-use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{
-    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
-};
-use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
-    EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
-    StateRoot, ValidatorStake,
-};
-use near_primitives::utils::{
-    create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
-    system_account,
+use near_primitives::{
+    account::{AccessKey, Account},
+    contract::ContractCode,
+    errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
+    hash::CryptoHash,
+    receipt::{
+        ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
+    },
+    state_record::StateRecord,
+    transaction::{
+        Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
+        SignedTransaction,
+    },
+    trie_key::TrieKey,
+    types::{
+        AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
+        EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
+        StateRoot, ValidatorStake,
+    },
+    utils::{
+        create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
+        system_account,
+    },
 };
 use near_runtime_configs::get_insufficient_storage_stake;
 use near_store::{
@@ -32,24 +37,23 @@ use near_store::{
     set_access_key, set_account, set_code, set_postponed_receipt, set_received_data,
     PartialStorage, ShardTries, StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
 };
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::ReturnData;
+use near_vm_logic::{types::PromiseResult, ReturnData};
 #[cfg(feature = "costs_counting")]
 pub use near_vm_runner::EXT_COSTS_COUNTER;
 
-use crate::actions::*;
-use crate::balance_checker::check_balance;
-use crate::config::{
-    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, RuntimeConfig,
-};
-use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+use crate::{
+    actions::*,
+    balance_checker::check_balance,
+    config::{
+        exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit,
+        total_exec_fees, total_prepaid_gas, RuntimeConfig,
+    },
+    verifier::validate_receipt,
+};
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_fees::RuntimeFeesConfig;
-use std::borrow::Borrow;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::{borrow::Borrow, rc::Rc, sync::Arc};
 
 mod actions;
 pub mod adapter;
@@ -1451,16 +1455,15 @@ mod tests {
     use super::*;
 
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::errors::ReceiptValidationError;
-    use near_primitives::hash::hash;
-    use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
-    use near_primitives::transaction::{
-        AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
+    use near_primitives::{
+        errors::ReceiptValidationError,
+        hash::hash,
+        test_utils::{account_new, MockEpochInfoProvider},
+        transaction::{AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction},
+        types::MerkleHash,
+        version::PROTOCOL_VERSION,
     };
-    use near_primitives::types::MerkleHash;
-    use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::test_utils::create_tries;
-    use near_store::StoreCompiledContractCache;
+    use near_store::{test_utils::create_tries, StoreCompiledContractCache};
     use near_vm_logic::types::ProfileData;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};

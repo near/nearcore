@@ -1,5 +1,4 @@
-use std::convert::TryInto;
-use std::sync::Arc;
+use std::{convert::TryInto, sync::Arc};
 
 use actix::Addr;
 

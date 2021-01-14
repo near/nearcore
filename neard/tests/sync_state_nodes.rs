@@ -1,5 +1,7 @@
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::{
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 use actix::{Actor, System};
 use futures::{future, FutureExt};

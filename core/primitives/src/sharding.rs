@@ -4,13 +4,15 @@ use serde::Serialize;
 
 use near_crypto::Signature;
 
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::{combine_hash, merklize, MerklePath};
-use crate::receipt::Receipt;
-use crate::transaction::SignedTransaction;
-use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
-use crate::validator_signer::ValidatorSigner;
-use crate::version::{ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
+use crate::{
+    hash::{hash, CryptoHash},
+    merkle::{combine_hash, merklize, MerklePath},
+    receipt::Receipt,
+    transaction::SignedTransaction,
+    types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake},
+    validator_signer::ValidatorSigner,
+    version::{ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION},
+};
 use reed_solomon_erasure::ReconstructShard;
 use std::sync::Arc;
 

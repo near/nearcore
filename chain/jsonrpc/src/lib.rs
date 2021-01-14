@@ -1,16 +1,12 @@
-use std::fmt::Display;
-use std::string::FromUtf8Error;
-use std::time::Duration;
+use std::{fmt::Display, string::FromUtf8Error, time::Duration};
 
 use actix::{Addr, MailboxError};
 use actix_cors::{Cors, CorsFactory};
 use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use borsh::BorshDeserialize;
-use futures::Future;
-use futures::{FutureExt, TryFutureExt};
+use futures::{Future, FutureExt, TryFutureExt};
 use prometheus;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use tokio::time::{delay_for, timeout};
 
@@ -21,25 +17,27 @@ use near_client::{
     GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus, TxStatusError, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::message::{Message, Request, RpcError};
-use near_jsonrpc_client::ChunkId;
+use near_jsonrpc_client::{
+    message::{Message, Request, RpcError},
+    ChunkId,
+};
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
-use near_primitives::errors::{InvalidTxError, TxExecutionError};
-use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{
-    RpcBroadcastTxSyncResponse, RpcLightClientExecutionProofRequest,
-    RpcLightClientExecutionProofResponse, RpcQueryRequest, RpcStateChangesInBlockRequest,
-    RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
-    RpcValidatorsOrderedRequest, TransactionInfo,
-};
-use near_primitives::serialize::{from_base, from_base64, BaseEncode};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId};
-use near_primitives::views::{
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest,
+use near_primitives::{
+    errors::{InvalidTxError, TxExecutionError},
+    hash::CryptoHash,
+    rpc::{
+        RpcBroadcastTxSyncResponse, RpcLightClientExecutionProofRequest,
+        RpcLightClientExecutionProofResponse, RpcQueryRequest, RpcStateChangesInBlockRequest,
+        RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
+        RpcValidatorsOrderedRequest, TransactionInfo,
+    },
+    serialize::{from_base, from_base64, BaseEncode},
+    transaction::SignedTransaction,
+    types::{AccountId, BlockId, BlockReference, MaybeBlockId},
+    views::{FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest},
 };
 use near_runtime_utils::is_valid_account_id;
 

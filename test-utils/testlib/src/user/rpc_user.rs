@@ -1,7 +1,4 @@
-use std::convert::TryInto;
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
+use std::{convert::TryInto, sync::Arc, thread, time::Duration};
 
 use actix::System;
 use borsh::BorshSerialize;
@@ -9,20 +6,22 @@ use futures::{Future, TryFutureExt};
 
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
-use near_jsonrpc::client::{new_client, JsonRpcClient};
-use near_jsonrpc::ServerError;
-use near_jsonrpc_client::ChunkId;
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
-use near_primitives::serialize::{to_base, to_base64};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
+use near_jsonrpc::{
+    client::{new_client, JsonRpcClient},
+    ServerError,
 };
-use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
-    EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
-    ViewStateResult,
+use near_jsonrpc_client::ChunkId;
+use near_primitives::{
+    hash::CryptoHash,
+    receipt::Receipt,
+    serialize::{to_base, to_base64},
+    transaction::SignedTransaction,
+    types::{AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId},
+    views::{
+        AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
+        EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
+        ViewStateResult,
+    },
 };
 
 use crate::user::User;

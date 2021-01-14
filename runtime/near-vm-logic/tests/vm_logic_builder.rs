@@ -1,8 +1,8 @@
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::mocks::mock_memory::MockedMemory;
-use near_vm_logic::VMContext;
-use near_vm_logic::{VMConfig, VMLogic};
+use near_vm_logic::{
+    mocks::{mock_external::MockedExternal, mock_memory::MockedMemory},
+    VMConfig, VMContext, VMLogic,
+};
 
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 

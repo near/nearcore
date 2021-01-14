@@ -1,13 +1,17 @@
-use std::collections::{HashMap, HashSet};
-use std::convert::{Into, TryFrom, TryInto};
-use std::fmt;
-use std::net::{AddrParseError, IpAddr, SocketAddr};
-use std::str::FromStr;
-use std::sync::RwLock;
-use std::time::{Duration, Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::{Into, TryFrom, TryInto},
+    fmt,
+    net::{AddrParseError, IpAddr, SocketAddr},
+    str::FromStr,
+    sync::RwLock,
+    time::{Duration, Instant},
+};
 
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Addr, MailboxError, Message, Recipient};
+use actix::{
+    dev::{MessageResponse, ResponseChannel},
+    Actor, Addr, MailboxError, Message, Recipient,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
@@ -18,30 +22,31 @@ use tracing::{error, warn};
 
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
-use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
-use near_primitives::challenge::Challenge;
-use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
-    PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
+use near_primitives::{
+    block::{Approval, ApprovalMessage, GenesisId},
+    challenge::Challenge,
+    errors::InvalidTxError,
+    hash::{hash, CryptoHash},
+    network::{AnnounceAccount, PeerId},
+    sharding::{
+        ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
+        PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
+    },
+    syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1},
+    transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction},
+    types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId},
+    utils::{from_timestamp, to_timestamp},
+    version::{ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
+    views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse},
 };
-use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
-use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
-use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::version::{
-    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
-};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
-use crate::peer::Peer;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::MetricRecorder;
-use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
-use serde::export::fmt::Error;
-use serde::export::Formatter;
+use crate::{
+    peer::Peer,
+    routing::{Edge, EdgeInfo, RoutingTableInfo},
+};
+use serde::export::{fmt::Error, Formatter};
 use std::{fmt::Debug, io};
 
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]

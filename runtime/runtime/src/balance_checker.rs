@@ -1,19 +1,21 @@
 use crate::safe_add_balance_apply;
 
-use crate::config::{
-    safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas,
+use crate::{
+    config::{
+        safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
+        total_prepaid_gas,
+    },
+    ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate,
 };
-use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate};
-use near_primitives::errors::{
-    BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError,
+use near_primitives::{
+    errors::{BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError},
+    receipt::{Receipt, ReceiptEnum},
+    transaction::SignedTransaction,
+    trie_key::TrieKey,
+    types::{AccountId, Balance},
+    utils::system_account,
+    version::ProtocolVersion,
 };
-use near_primitives::receipt::{Receipt, ReceiptEnum};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::system_account;
-use near_primitives::version::ProtocolVersion;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
@@ -224,14 +226,15 @@ mod tests {
     use super::*;
     use crate::ApplyStats;
     use near_crypto::{InMemorySigner, KeyType};
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::receipt::ActionReceipt;
-    use near_primitives::test_utils::account_new;
-    use near_primitives::transaction::{Action, TransferAction};
-    use near_primitives::types::{MerkleHash, StateChangeCause};
+    use near_primitives::{
+        hash::{hash, CryptoHash},
+        receipt::ActionReceipt,
+        test_utils::account_new,
+        transaction::{Action, TransferAction},
+        types::{MerkleHash, StateChangeCause},
+    };
     use near_runtime_fees::RuntimeFeesConfig;
-    use near_store::set_account;
-    use near_store::test_utils::create_tries;
+    use near_store::{set_account, test_utils::create_tries};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use assert_matches::assert_matches;

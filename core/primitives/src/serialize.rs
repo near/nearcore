@@ -44,8 +44,7 @@ pub trait BaseDecode: for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Erro
 }
 
 pub mod base64_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
 
     use super::{from_base64, to_base64};
 
@@ -68,8 +67,7 @@ pub mod base64_format {
 }
 
 pub mod option_base64_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
 
     use super::{from_base64, to_base64};
 
@@ -98,8 +96,7 @@ pub mod option_base64_format {
 }
 
 pub mod base_bytes_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
 
     use super::{from_base, to_base};
 
@@ -120,8 +117,7 @@ pub mod base_bytes_format {
 }
 
 pub mod u64_dec_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(num: &u64, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -140,8 +136,7 @@ pub mod u64_dec_format {
 }
 
 pub mod u128_dec_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(num: &u128, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -188,8 +183,7 @@ pub mod u128_dec_format_compatible {
 }
 
 pub mod option_u128_dec_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(data: &Option<u128>, serializer: S) -> Result<S::Ok, S::Error>
     where

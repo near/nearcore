@@ -1,7 +1,5 @@
 //! Constructs state of token holders from the csv file.
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
+use std::{fs::File, io::Read, path::PathBuf};
 
 use chrono::{DateTime, Utc};
 use csv::ReaderBuilder;
@@ -9,12 +7,14 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey};
 use near_network::PeerInfo;
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{Action, FunctionCallAction};
-use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
+use near_primitives::{
+    account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission},
+    hash::{hash, CryptoHash},
+    receipt::{ActionReceipt, Receipt, ReceiptEnum},
+    state_record::StateRecord,
+    transaction::{Action, FunctionCallAction},
+    types::{AccountId, AccountInfo, Balance, Gas},
+};
 use near_runtime_utils::is_valid_account_id;
 
 /// Methods that can be called by a non-privileged access key.

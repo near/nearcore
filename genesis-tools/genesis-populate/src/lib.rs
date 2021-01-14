@@ -1,25 +1,26 @@
 //! Tools for creating a genesis block.
 
-use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use near_chain::types::BlockHeaderInfo;
-use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
+use near_chain::{types::BlockHeaderInfo, Block, Chain, ChainStore, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::block::{genesis_chunks, Tip};
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state_record::StateRecord;
-use near_primitives::types::{
-    AccountId, Balance, ChunkExtra, EpochId, ShardId, StateChangeCause, StateRoot,
+use near_primitives::{
+    account::{AccessKey, Account},
+    block::{genesis_chunks, Tip},
+    contract::ContractCode,
+    hash::{hash, CryptoHash},
+    state_record::StateRecord,
+    types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateChangeCause, StateRoot},
 };
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,

@@ -4,12 +4,14 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::PublicKey;
 
-use crate::account::{AccessKey, Account};
-use crate::challenge::ChallengesResult;
-use crate::errors::EpochError;
-use crate::hash::CryptoHash;
-use crate::serialize::u128_dec_format;
-use crate::trie_key::TrieKey;
+use crate::{
+    account::{AccessKey, Account},
+    challenge::ChallengesResult,
+    errors::EpochError,
+    hash::CryptoHash,
+    serialize::u128_dec_format,
+    trie_key::TrieKey,
+};
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;

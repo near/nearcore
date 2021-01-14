@@ -1,12 +1,14 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::iter;
-
-use near_primitives::epoch_manager::{EpochConfig, EpochInfo};
-use near_primitives::errors::EpochError;
-use near_primitives::types::{
-    AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason, ValidatorStake,
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    iter,
 };
-use near_primitives::version::ProtocolVersion;
+
+use near_primitives::{
+    epoch_manager::{EpochConfig, EpochInfo},
+    errors::EpochError,
+    types::{AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason, ValidatorStake},
+    version::ProtocolVersion,
+};
 
 use crate::types::RngSeed;
 
@@ -127,8 +129,7 @@ pub fn proposals_to_epoch_info(
 
     assert!(dup_proposals.len() >= num_total_seats as usize, "bug in find_threshold");
     {
-        use protocol_defining_rand::seq::SliceRandom;
-        use protocol_defining_rand::{rngs::StdRng, SeedableRng};
+        use protocol_defining_rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
         // Shuffle duplicate proposals.
         let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
         dup_proposals.shuffle(&mut rng);

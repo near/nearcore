@@ -4,8 +4,7 @@ extern crate bencher;
 use bencher::Bencher;
 use rand::random;
 
-use near_store::test_utils::create_tries;
-use near_store::Trie;
+use near_store::{test_utils::create_tries, Trie};
 
 fn rand_bytes() -> Vec<u8> {
     (0..10).map(|_| random::<u8>()).collect()

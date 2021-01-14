@@ -4,18 +4,22 @@ use std::fmt::{Display, Formatter};
 
 use near_crypto::PublicKey;
 
-use crate::account::{AccessKey, Account};
-use crate::hash::{hash, CryptoHash};
-use crate::receipt::{Receipt, ReceivedData};
-use crate::serialize::{base64_format, option_base64_format};
-use crate::trie_key::col;
-use crate::trie_key::trie_key_parsers::{
-    parse_account_id_from_access_key_key, parse_account_id_from_account_key,
-    parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
-    parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
-    parse_data_key_from_contract_data_key, parse_public_key_from_access_key_key,
+use crate::{
+    account::{AccessKey, Account},
+    hash::{hash, CryptoHash},
+    receipt::{Receipt, ReceivedData},
+    serialize::{base64_format, option_base64_format},
+    trie_key::{
+        col,
+        trie_key_parsers::{
+            parse_account_id_from_access_key_key, parse_account_id_from_account_key,
+            parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
+            parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
+            parse_data_key_from_contract_data_key, parse_public_key_from_access_key_key,
+        },
+    },
+    types::AccountId,
 };
-use crate::types::AccountId;
 
 /// Record in the state storage.
 #[derive(Serialize, Deserialize, Clone, Debug)]

@@ -2,13 +2,12 @@ use crate::testbed_runners::{end_count, start_count, GasMetric};
 use glob::glob;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_logic::{mocks::mock_external::MockedExternal, VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
-use std::collections::hash_map::DefaultHasher;
-use std::fs;
 use std::{
+    collections::hash_map::DefaultHasher,
+    fs,
     hash::{Hash, Hasher},
     path::PathBuf,
 };

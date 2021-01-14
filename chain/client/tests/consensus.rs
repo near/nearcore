@@ -3,15 +3,18 @@
 mod tests {
     use actix::{Addr, System};
     use near_chain::Block;
-    use near_client::test_utils::setup_mock_all_validators;
-    use near_client::{ClientActor, ViewClientActor};
+    use near_client::{test_utils::setup_mock_all_validators, ClientActor, ViewClientActor};
     use near_logger_utils::init_integration_logger;
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
-    use near_primitives::block::{Approval, ApprovalInner};
-    use near_primitives::types::BlockHeight;
+    use near_primitives::{
+        block::{Approval, ApprovalInner},
+        types::BlockHeight,
+    };
     use rand::{thread_rng, Rng};
-    use std::collections::{BTreeMap, HashMap, HashSet};
-    use std::sync::{Arc, RwLock, RwLockWriteGuard};
+    use std::{
+        collections::{BTreeMap, HashMap, HashSet},
+        sync::{Arc, RwLock, RwLockWriteGuard},
+    };
 
     /// Rotates three independent sets of block producers producing blocks with a very short epoch length.
     /// Occasionally when an endorsement comes, make all the endorsers send a skip message far-ish into

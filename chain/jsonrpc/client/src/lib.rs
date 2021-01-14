@@ -2,17 +2,19 @@ use std::time::Duration;
 
 use actix_web::client::{Client, Connector};
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{
-    RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
-};
-use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
-use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    QueryResponse, StatusResponse, ValidatorStakeView,
+use near_primitives::{
+    hash::CryptoHash,
+    rpc::{
+        RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse,
+        RpcValidatorsOrderedRequest,
+    },
+    types::{BlockId, BlockReference, MaybeBlockId, ShardId},
+    views::{
+        BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
+        QueryResponse, StatusResponse, ValidatorStakeView,
+    },
 };
 
 use crate::message::{from_slice, Message, RpcError};

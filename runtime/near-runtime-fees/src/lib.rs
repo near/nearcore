@@ -405,8 +405,7 @@ impl RuntimeFeesConfig {
 /// It is required as this module doesn't depend on primitives.
 /// TODO(3384): move basic primitives into a separate module and use in runtime.
 pub mod u128_dec_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(num: &u128, serializer: S) -> Result<S::Ok, S::Error>
     where

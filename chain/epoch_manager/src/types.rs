@@ -3,12 +3,14 @@ use std::collections::{BTreeMap, HashMap};
 use borsh::{BorshDeserialize, BorshSerialize};
 use log::error;
 
-use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{
-    AccountId, BlockHeight, EpochId, ShardId, ValidatorId, ValidatorStake, ValidatorStats,
+use near_primitives::{
+    epoch_manager::{BlockInfo, EpochInfo},
+    hash::CryptoHash,
+    types::{
+        AccountId, BlockHeight, EpochId, ShardId, ValidatorId, ValidatorStake, ValidatorStats,
+    },
+    version::ProtocolVersion,
 };
-use near_primitives::version::ProtocolVersion;
 
 use crate::EpochManager;
 

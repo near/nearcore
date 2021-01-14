@@ -1,25 +1,36 @@
 use near_chain::{ChainStoreAccess, Error};
-use std::cmp::min;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::{ops::Add, time::Duration as TimeDuration};
+use std::{
+    cmp::min,
+    collections::HashMap,
+    ops::Add,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration as TimeDuration,
+};
 
 use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
-use rand::seq::{IteratorRandom, SliceRandom};
-use rand::{thread_rng, Rng};
+use rand::{
+    seq::{IteratorRandom, SliceRandom},
+    thread_rng, Rng,
+};
 
 use near_chain::{Chain, RuntimeAdapter};
-use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
-use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
-use near_primitives::block::Tip;
-use near_primitives::hash::CryptoHash;
-use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
-use near_primitives::utils::to_timestamp;
+use near_network::{
+    types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan},
+    FullPeerInfo, NetworkAdapter, NetworkRequests,
+};
+use near_primitives::{
+    block::Tip,
+    hash::CryptoHash,
+    syncing::get_num_state_parts,
+    types::{AccountId, BlockHeight, BlockHeightDelta, ShardId},
+    utils::to_timestamp,
+};
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
 use cached::{Cached, SizedCache};
@@ -1030,25 +1041,27 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-    use std::thread;
+    use std::{sync::Arc, thread};
 
-    use near_chain::test_utils::{setup, setup_with_validators};
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::{
+        test_utils::{setup, setup_with_validators},
+        ChainGenesis, Provenance,
+    };
     use near_crypto::{KeyType, PublicKey};
-    use near_network::routing::EdgeInfo;
-    use near_network::test_utils::MockNetworkAdapter;
-    use near_network::types::PeerChainInfoV2;
-    use near_network::PeerInfo;
-    use near_primitives::block::{Approval, Block, GenesisId};
-    use near_primitives::network::PeerId;
+    use near_network::{
+        routing::EdgeInfo, test_utils::MockNetworkAdapter, types::PeerChainInfoV2, PeerInfo,
+    };
+    use near_primitives::{
+        block::{Approval, Block, GenesisId},
+        network::PeerId,
+    };
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_primitives::merkle::PartialMerkleTree;
-    use near_primitives::types::EpochId;
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::{
+        merkle::PartialMerkleTree, types::EpochId, validator_signer::InMemoryValidatorSigner,
+        version::PROTOCOL_VERSION,
+    };
     use num_rational::Ratio;
     use std::collections::HashSet;
 

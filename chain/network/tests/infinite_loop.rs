@@ -1,18 +1,25 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
 
-use actix::actors::mocker::Mocker;
-use actix::{Actor, System};
+use actix::{actors::mocker::Mocker, Actor, System};
 use futures::{future, FutureExt};
 
 use near_client::ClientActor;
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, SyncData};
-use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
-use near_primitives::block::GenesisId;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_network::{
+    test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout},
+    types::{NetworkViewClientMessages, NetworkViewClientResponses, SyncData},
+    NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor,
+};
+use near_primitives::{
+    block::GenesisId,
+    network::{AnnounceAccount, PeerId},
+};
 use near_store::test_utils::create_test_store;
 
 /// Make Peer Manager with mocked client ready to accept any announce account.

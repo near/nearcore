@@ -3,16 +3,16 @@ use std::collections::{HashMap, HashSet};
 use borsh::BorshSerialize;
 use thiserror::Error;
 
-use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
-use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
-use near_primitives::syncing::{
-    get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
+use near_primitives::{
+    block::{Block, BlockHeader, Tip},
+    epoch_manager::{BlockInfo, EpochInfo},
+    hash::CryptoHash,
+    sharding::{ChunkHash, ShardChunk, StateSyncInfo},
+    syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey},
+    transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction},
+    types::{BlockHeight, ChunkExtra, EpochId, ShardId},
+    utils::{get_block_shard_id, index_to_bytes},
 };
-use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
-use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
     ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomeIds, ColStateHeaders,

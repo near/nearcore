@@ -1,8 +1,7 @@
 use crate::types::PeerMessage;
 use actix::Message;
 use near_primitives::{hash::CryptoHash, network::PeerId};
-use serde::ser::SerializeMap;
-use serde::{Deserialize, Serialize};
+use serde::{ser::SerializeMap, Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tracing::info;
 

@@ -3,9 +3,11 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
-use std::convert::{TryFrom, TryInto};
-use std::fmt;
-use std::sync::Arc;
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt,
+    sync::Arc,
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
@@ -13,38 +15,40 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 
-use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Block, BlockHeader};
-use crate::block_header::{
-    BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderV1,
-    BlockHeaderV2,
+use crate::{
+    account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission},
+    block::{Block, BlockHeader},
+    block_header::{
+        BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderV1,
+        BlockHeaderV2,
+    },
+    challenge::{Challenge, ChallengesResult},
+    contract::ContractCode,
+    errors::TxExecutionError,
+    hash::{hash, CryptoHash},
+    logging,
+    merkle::MerklePath,
+    receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum},
+    serialize::{
+        base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
+        u128_dec_format, u64_dec_format,
+    },
+    sharding::{
+        ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV2,
+    },
+    transaction::{
+        Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+        DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
+        FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    },
+    types::{
+        AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
+        EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
+        StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage,
+        StoreKey, StoreValue, ValidatorKickoutReason, ValidatorStake,
+    },
+    version::{ProtocolVersion, Version},
 };
-use crate::challenge::{Challenge, ChallengesResult};
-use crate::contract::ContractCode;
-use crate::errors::TxExecutionError;
-use crate::hash::{hash, CryptoHash};
-use crate::logging;
-use crate::merkle::MerklePath;
-use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
-use crate::serialize::{
-    base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
-    u128_dec_format, u64_dec_format,
-};
-use crate::sharding::{
-    ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV2,
-};
-use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
-};
-use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
-    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
-    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason, ValidatorStake,
-};
-use crate::version::{ProtocolVersion, Version};
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]

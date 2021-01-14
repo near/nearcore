@@ -1,6 +1,10 @@
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::{
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use actix::{Actor, Addr, Arbiter, System};
 use futures::{future, FutureExt};
@@ -11,14 +15,20 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_network::NetworkClientMessages;
-use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
-use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use neard::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
+use near_network::{
+    test_utils::{convert_boot_nodes, open_port, WaitOrTimeout},
+    NetworkClientMessages,
+};
+use near_primitives::{
+    hash::CryptoHash,
+    transaction::SignedTransaction,
+    types::{AccountId, BlockHeightDelta, BlockReference, NumSeats},
+    views::{QueryRequest, QueryResponseKind, ValidatorInfo},
+};
+use neard::{
+    config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE},
+    load_test_config, start_with_config, NearConfig, NEAR_BASE,
+};
 use testlib::{genesis_hash, test_helpers::heavy_test};
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]

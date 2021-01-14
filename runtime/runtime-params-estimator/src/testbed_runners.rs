@@ -1,18 +1,20 @@
-use crate::cases::Metric;
-use crate::stats::Measurements;
-use crate::testbed::RuntimeTestbed;
+use crate::{cases::Metric, stats::Measurements, testbed::RuntimeTestbed};
 use indicatif::{ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{Action, SignedTransaction};
+use near_primitives::{
+    hash::CryptoHash,
+    transaction::{Action, SignedTransaction},
+};
 use near_vm_logic::VMKind;
 use rand::Rng;
-use std::collections::{HashMap, HashSet};
-use std::convert::TryInto;
-use std::os::raw::c_void;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryInto,
+    os::raw::c_void,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {

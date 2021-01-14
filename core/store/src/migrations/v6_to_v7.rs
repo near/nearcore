@@ -1,20 +1,19 @@
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::io::Cursor;
+use std::{collections::HashMap, convert::TryFrom, io::Cursor};
 
 use borsh::ser::BorshSerialize;
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use near_primitives::block::Block;
-use near_primitives::borsh::BorshDeserialize;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::ShardChunkV1;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, NumShards, ShardId};
+use near_primitives::{
+    block::Block,
+    borsh::BorshDeserialize,
+    hash::{hash, CryptoHash},
+    receipt::Receipt,
+    sharding::ShardChunkV1,
+    transaction::SignedTransaction,
+    types::{AccountId, NumShards, ShardId},
+};
 
-use crate::db::refcount::encode_value_with_rc;
-use crate::{DBCol, Store, StoreUpdate};
+use crate::{db::refcount::encode_value_with_rc, DBCol, Store, StoreUpdate};
 
 // Refcount from i32 to i64
 pub(crate) fn col_state_refcount_8byte(store: &Store, store_update: &mut StoreUpdate) {

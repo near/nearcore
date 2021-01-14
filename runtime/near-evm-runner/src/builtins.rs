@@ -4,11 +4,13 @@ use std::{
     mem::size_of,
 };
 
-use crate::pricer::{
-    AltBn128PairingPrice, AltBn128PairingPricer, Bls12ConstOperations, Linear, ModexpPricer,
-    Pricer, Pricing,
+use crate::{
+    pricer::{
+        AltBn128PairingPrice, AltBn128PairingPricer, Bls12ConstOperations, Linear, ModexpPricer,
+        Pricer, Pricing,
+    },
+    utils::ecrecover_address,
 };
-use crate::utils::ecrecover_address;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 
 use ethereum_types::{Address, U256};

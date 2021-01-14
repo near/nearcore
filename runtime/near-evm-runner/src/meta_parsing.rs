@@ -6,8 +6,10 @@ use near_vm_errors::{EvmError, VMLogicError};
 use near_vm_logic::types::AccountId;
 use rlp::{Decodable, DecoderError, Rlp};
 
-use crate::types::{MetaCallArgs, RawU256, Result};
-use crate::utils::{address_from_arr, ecrecover_address, u256_to_arr};
+use crate::{
+    types::{MetaCallArgs, RawU256, Result},
+    utils::{address_from_arr, ecrecover_address, u256_to_arr},
+};
 
 use std::collections::HashMap;
 

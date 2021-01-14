@@ -3,9 +3,11 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use crate::types::{PoolIterator, PoolKey, TransactionGroup};
 use borsh::BorshSerialize;
 use near_crypto::PublicKey;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::{
+    hash::{hash, CryptoHash},
+    transaction::SignedTransaction,
+    types::AccountId,
+};
 use rand::RngCore;
 use std::ops::Bound;
 
@@ -205,13 +207,11 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use rand::seq::SliceRandom;
-    use rand::thread_rng;
+    use rand::{seq::SliceRandom, thread_rng};
 
     use near_crypto::{InMemorySigner, KeyType};
 
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::types::Balance;
+    use near_primitives::{hash::CryptoHash, types::Balance};
 
     fn generate_transactions(
         signer_id: &str,

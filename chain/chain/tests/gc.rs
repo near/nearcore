@@ -2,17 +2,23 @@
 mod tests {
     use std::sync::Arc;
 
-    use near_chain::chain::Chain;
-    use near_chain::test_utils::KeyValueRuntime;
-    use near_chain::types::{ChainGenesis, Tip};
-    use near_chain::DoomslugThresholdMode;
+    use near_chain::{
+        chain::Chain,
+        test_utils::KeyValueRuntime,
+        types::{ChainGenesis, Tip},
+        DoomslugThresholdMode,
+    };
     use near_crypto::KeyType;
-    use near_primitives::block::Block;
-    use near_primitives::merkle::PartialMerkleTree;
-    use near_primitives::types::{NumBlocks, NumShards, StateRoot};
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_store::test_utils::{create_test_store, gen_changes};
-    use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
+    use near_primitives::{
+        block::Block,
+        merkle::PartialMerkleTree,
+        types::{NumBlocks, NumShards, StateRoot},
+        validator_signer::InMemoryValidatorSigner,
+    };
+    use near_store::{
+        test_utils::{create_test_store, gen_changes},
+        ShardTries, StoreUpdate, Trie, WrappedTrieChanges,
+    };
     use rand::Rng;
 
     fn get_chain(num_shards: NumShards) -> Chain {

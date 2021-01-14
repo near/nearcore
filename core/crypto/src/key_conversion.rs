@@ -1,8 +1,10 @@
 use crate::{signature, vrf, PublicKey};
 use arrayref::array_ref;
-use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
-use curve25519_dalek::ristretto::RistrettoPoint;
-use curve25519_dalek::scalar::Scalar;
+use curve25519_dalek::{
+    edwards::{CompressedEdwardsY, EdwardsPoint},
+    ristretto::RistrettoPoint,
+    scalar::Scalar,
+};
 use std::mem::transmute;
 
 pub fn is_valid_staking_key(public_key: &PublicKey) -> bool {

@@ -1,9 +1,10 @@
 use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::export::fmt::Error;
-use serde::export::Formatter;
-use serde::{Deserialize, Serialize};
+use serde::{
+    export::{fmt::Error, Formatter},
+    Deserialize, Serialize,
+};
 
 use near_rpc_error_macro::RpcError;
 
@@ -450,8 +451,7 @@ impl std::fmt::Display for HostError {
 pub mod hex_format {
     use hex::{decode, encode};
 
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S, T>(data: T, serializer: S) -> Result<S::Ok, S::Error>
     where

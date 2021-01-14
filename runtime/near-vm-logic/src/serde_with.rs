@@ -62,9 +62,11 @@ pub mod bytes_as_base58 {
 pub mod vec_bytes_as_str {
     use std::fmt;
 
-    use serde::de::{SeqAccess, Visitor};
-    use serde::ser::SerializeSeq;
-    use serde::{Deserializer, Serializer};
+    use serde::{
+        de::{SeqAccess, Visitor},
+        ser::SerializeSeq,
+        Deserializer, Serializer,
+    };
 
     pub fn serialize<S>(data: &Vec<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -107,8 +109,7 @@ pub mod vec_bytes_as_str {
 }
 
 pub mod u128_dec_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(num: &u128, serializer: S) -> Result<S::Ok, S::Error>
     where

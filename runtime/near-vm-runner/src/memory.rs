@@ -1,8 +1,10 @@
 use near_vm_errors::VMError;
 use near_vm_logic::MemoryLike;
-use wasmer_runtime::units::{Bytes, Pages};
-use wasmer_runtime::wasm::MemoryDescriptor;
-use wasmer_runtime::Memory;
+use wasmer_runtime::{
+    units::{Bytes, Pages},
+    wasm::MemoryDescriptor,
+    Memory,
+};
 
 pub struct WasmerMemory(Memory);
 

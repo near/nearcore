@@ -1,12 +1,12 @@
 use log::warn;
-use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ChunkHash;
-use near_primitives::types::BlockHeight;
-use std::cmp::Ordering;
-use std::collections::{
-    btree_map::{self, BTreeMap},
-    hash_map::{self, HashMap},
-    BinaryHeap, HashSet,
+use near_primitives::{hash::CryptoHash, sharding::ChunkHash, types::BlockHeight};
+use std::{
+    cmp::Ordering,
+    collections::{
+        btree_map::{self, BTreeMap},
+        hash_map::{self, HashMap},
+        BinaryHeap, HashSet,
+    },
 };
 
 type BlockHash = CryptoHash;
@@ -183,9 +183,11 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
 #[cfg(test)]
 mod test {
     use super::{BlockHash, BlockLike, MissingChunksPool, MAX_BLOCKS_MISSING_CHUNKS};
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::sharding::ChunkHash;
-    use near_primitives::types::BlockHeight;
+    use near_primitives::{
+        hash::{hash, CryptoHash},
+        sharding::ChunkHash,
+        types::BlockHeight,
+    };
 
     fn get_hash(idx: u64) -> CryptoHash {
         hash(&idx.to_le_bytes())

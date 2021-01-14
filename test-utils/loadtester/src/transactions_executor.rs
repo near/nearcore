@@ -1,14 +1,18 @@
 //! Executes a single transaction or a list of transactions on a set of nodes.
 
-use crate::remote_node::{try_wait, wait, RemoteNode};
-use crate::stats::Stats;
-use crate::transactions_generator::{Generator, TransactionType};
+use crate::{
+    remote_node::{try_wait, wait, RemoteNode},
+    stats::Stats,
+    transactions_generator::{Generator, TransactionType},
+};
 use futures::{future, FutureExt, StreamExt, TryFutureExt};
 use log::{debug, info, warn};
-use std::sync::{Arc, RwLock};
-use std::thread;
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::{
+    sync::{Arc, RwLock},
+    thread,
+    thread::JoinHandle,
+    time::{Duration, Instant},
+};
 use tokio::time::interval;
 
 pub struct Executor {

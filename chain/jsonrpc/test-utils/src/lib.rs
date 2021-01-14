@@ -1,8 +1,7 @@
 use actix::Addr;
 
 use near_chain_configs::GenesisConfig;
-use near_client::test_utils::setup_no_network_with_validity_period;
-use near_client::ViewClientActor;
+use near_client::{test_utils::setup_no_network_with_validity_period, ViewClientActor};
 use near_jsonrpc::{start_http, RpcConfig};
 use near_network::test_utils::open_port;
 use near_primitives::types::NumBlocks;

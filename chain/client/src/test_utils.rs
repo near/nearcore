@@ -1,56 +1,57 @@
 use log::info;
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::ops::DerefMut;
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::{
+    cmp::max,
+    collections::{HashMap, HashSet},
+    ops::DerefMut,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
-use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, AsyncContext, Context};
+use actix::{actors::mocker::Mocker, Actor, Addr, AsyncContext, Context};
 use chrono::{DateTime, Utc};
 use futures::{future, FutureExt};
 use rand::{thread_rng, Rng};
 
-use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
+    test_utils::KeyValueRuntime, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
+    Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
-use near_network::routing::EdgeInfo;
-use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfoV2,
-};
 use near_network::{
+    routing::EdgeInfo,
+    types::{
+        AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
+        PeerChainInfoV2,
+    },
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::block::{ApprovalInner, Block, GenesisId};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+use near_primitives::{
+    block::{ApprovalInner, Block, GenesisId},
+    hash::{hash, CryptoHash},
+    transaction::SignedTransaction,
+    types::{AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards},
+    validator_signer::{InMemoryValidatorSigner, ValidatorSigner},
+    version::PROTOCOL_VERSION,
+    views::{AccountView, QueryRequest, QueryResponseKind},
 };
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
-use near_store::test_utils::create_test_store;
-use near_store::Store;
+use near_store::{test_utils::create_test_store, Store};
 use near_telemetry::TelemetryActor;
 
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_network::test_utils::MockNetworkAdapter;
-use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::{
+    merkle::{merklize, MerklePath},
+    receipt::Receipt,
+    sharding::{EncodedShardChunk, ReedSolomonWrapper},
+};
 use num_rational::Rational;
-use std::mem::swap;
-use std::time::Instant;
+use std::{mem::swap, time::Instant};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 

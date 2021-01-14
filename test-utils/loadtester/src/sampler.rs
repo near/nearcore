@@ -1,8 +1,7 @@
 //! Functions to sample a collection of objects. The functions that accept predicate optimize not
 //! for the runtime complexity but for how many times it runs the predicate. It is useful for
 //! predicates that do expensive invocations, e.g. querying a node.
-use rand::seq::SliceRandom;
-use rand::thread_rng;
+use rand::{seq::SliceRandom, thread_rng};
 use std::collections::HashSet;
 
 const EMPTY_COLLECTION: &str = "Collection is expected to be non-empty";

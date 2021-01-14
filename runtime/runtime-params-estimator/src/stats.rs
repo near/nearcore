@@ -1,10 +1,11 @@
-use crate::cases::Metric;
-use crate::testbed_runners::GasMetric;
+use crate::{cases::Metric, testbed_runners::GasMetric};
 use gnuplot::{AxesCommon, Caption, Color, DotDotDash, Figure, Graph, LineStyle, PointSymbol};
 use near_vm_logic::ExtCosts;
 use rand::Rng;
-use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+};
 
 type ExecutionCost = u64;
 

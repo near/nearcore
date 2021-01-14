@@ -1,10 +1,10 @@
 //! Settings of the parameters of the runtime.
-use near_primitives::account::AccessKeyPermission;
-use near_primitives::errors::IntegerOverflowError;
-use near_primitives::transaction::{
-    Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
+use near_primitives::{
+    account::AccessKeyPermission,
+    errors::IntegerOverflowError,
+    transaction::{Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction},
+    types::{AccountId, Balance, Gas},
 };
-use near_primitives::types::{AccountId, Balance, Gas};
 use near_runtime_fees::RuntimeFeesConfig;
 
 // Just re-exporting RuntimeConfig for backwards compatibility.
@@ -14,8 +14,7 @@ use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOC
 use near_runtime_utils::is_account_id_64_len_hex;
 use num_bigint::BigUint;
 use num_rational::Rational;
-use num_traits::cast::ToPrimitive;
-use num_traits::pow::Pow;
+use num_traits::{cast::ToPrimitive, pow::Pow};
 use std::convert::TryFrom;
 
 /// Describes the cost of converting this transaction into a receipt.

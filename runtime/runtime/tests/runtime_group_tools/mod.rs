@@ -1,20 +1,23 @@
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::Receipt;
-use near_primitives::state_record::StateRecord;
-use near_primitives::test_utils::MockEpochInfoProvider;
-use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::PROTOCOL_VERSION;
-use near_store::test_utils::create_tries;
-use near_store::ShardTries;
+use near_primitives::{
+    account::{AccessKey, Account},
+    hash::{hash, CryptoHash},
+    receipt::Receipt,
+    state_record::StateRecord,
+    test_utils::MockEpochInfoProvider,
+    transaction::{ExecutionOutcomeWithId, SignedTransaction},
+    types::{AccountId, Balance},
+    version::PROTOCOL_VERSION,
+};
+use near_store::{test_utils::create_tries, ShardTries};
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
-use std::collections::HashMap;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
-use std::thread::JoinHandle;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Condvar, Mutex},
+    thread,
+    thread::JoinHandle,
+};
 
 pub mod random_config;
 

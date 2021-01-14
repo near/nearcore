@@ -8,12 +8,13 @@ use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
-use near_primitives::account::{AccessKey, AccessKeyPermission};
-use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::RpcQueryRequest;
-use near_primitives::rpc::RpcValidatorsOrderedRequest;
-use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::{
+    account::{AccessKey, AccessKeyPermission},
+    hash::CryptoHash,
+    rpc::{RpcQueryRequest, RpcValidatorsOrderedRequest},
+    types::{BlockId, BlockReference, ShardId, SyncCheckpoint},
+    views::{QueryRequest, QueryResponseKind},
+};
 
 #[macro_use]
 pub mod test_utils;

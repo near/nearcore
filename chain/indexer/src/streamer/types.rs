@@ -1,5 +1,4 @@
-pub use near_primitives::hash::CryptoHash;
-pub use near_primitives::{types, views};
+pub use near_primitives::{hash::CryptoHash, types, views};
 
 /// Resulting struct represents block with chunks
 #[derive(Debug)]

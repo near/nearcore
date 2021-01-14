@@ -1,13 +1,13 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
 
-use crate::hash::CryptoHash;
-use crate::merkle::MerklePath;
-use crate::receipt::Receipt;
-use crate::sharding::{
-    ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
+use crate::{
+    hash::CryptoHash,
+    merkle::MerklePath,
+    receipt::Receipt,
+    sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1},
+    types::{BlockHeight, ShardId, StateRoot, StateRootNode},
 };
-use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);

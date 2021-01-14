@@ -1,5 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::io::{Error, Write};
+use std::{
+    collections::{HashMap, HashSet},
+    io::{Error, Write},
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, U256};
@@ -7,9 +9,11 @@ use ethereum_types::{Address, U256};
 use near_vm_errors::EvmError;
 use near_vm_logic::VMLogicError;
 
-use crate::types::{DataKey, RawU256, Result};
-use crate::utils;
-use crate::utils::split_data_key;
+use crate::{
+    types::{DataKey, RawU256, Result},
+    utils,
+    utils::split_data_key,
+};
 
 #[derive(Default, Clone, Copy, Debug)]
 pub struct EvmAccount {

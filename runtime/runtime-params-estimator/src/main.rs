@@ -1,12 +1,11 @@
 use clap::{App, Arg};
 use near_vm_logic::VMKind;
 use neard::get_default_home;
-use runtime_params_estimator::cases::run;
-use runtime_params_estimator::testbed_runners::Config;
-use runtime_params_estimator::testbed_runners::GasMetric;
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
+use runtime_params_estimator::{
+    cases::run,
+    testbed_runners::{Config, GasMetric},
+};
+use std::{fs::File, io::Write, path::Path};
 
 fn main() {
     let default_home = get_default_home();

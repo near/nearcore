@@ -1,12 +1,15 @@
-use crate::errors::IntoVMError;
-use crate::memory::WasmerMemory;
-use crate::{cache, imports};
+use crate::{cache, errors::IntoVMError, imports, memory::WasmerMemory};
 use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
-use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
-use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
+use near_vm_errors::{
+    CompilationError, FunctionCallError,
+    FunctionCallError::{WasmTrap, WasmUnknownError},
+    MethodResolveError, VMError,
+};
+use near_vm_logic::{
+    types::{ProfileData, PromiseResult, ProtocolVersion},
+    External, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome,
+};
 use wasmer_runtime::Module;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
@@ -89,8 +92,7 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
         use near_vm_errors::WasmTrap::BreakpointTrap;
-        use wasmer_runtime::error::InvokeError;
-        use wasmer_runtime::error::RuntimeError;
+        use wasmer_runtime::error::{InvokeError, RuntimeError};
         match &self {
             RuntimeError::InvokeError(invoke_error) => match invoke_error {
                 // Indicates an exceptional circumstance such as a bug in Wasmer

@@ -1,14 +1,18 @@
-use std::collections::{HashMap, HashSet};
-use std::io::Cursor;
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::{HashMap, HashSet},
+    io::Cursor,
+    sync::{Arc, RwLock},
+};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use log::info;
 
 use near_epoch_manager::EpochManager;
-use near_primitives::errors::EpochError;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, EpochId, NumShards, ShardId};
+use near_primitives::{
+    errors::EpochError,
+    hash::{hash, CryptoHash},
+    types::{AccountId, EpochId, NumShards, ShardId},
+};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -227,14 +231,18 @@ impl ShardTracker {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::sync::{Arc, RwLock};
+    use std::{
+        collections::HashSet,
+        sync::{Arc, RwLock},
+    };
 
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::{EpochManager, RewardCalculator};
-    use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{BlockHeight, EpochId, NumShards, ValidatorStake};
+    use near_primitives::{
+        epoch_manager::{BlockInfo, EpochConfig},
+        hash::{hash, CryptoHash},
+        types::{BlockHeight, EpochId, NumShards, ValidatorStake},
+    };
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};

@@ -1,13 +1,11 @@
-use std::collections::BTreeMap;
-use std::iter::Peekable;
+use std::{collections::BTreeMap, iter::Peekable};
 
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{
-    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
+use near_primitives::{
+    hash::CryptoHash,
+    types::{RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause},
 };
 
-use crate::trie::TrieChanges;
-use crate::StorageError;
+use crate::{trie::TrieChanges, StorageError};
 
 use super::{Trie, TrieIterator};
 use near_primitives::trie_key::TrieKey;

@@ -3,24 +3,23 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
-use std::fs::File;
-use std::io::BufReader;
-use std::marker::PhantomData;
-use std::path::Path;
+use std::{fs::File, io::BufReader, marker::PhantomData, path::Path};
 
 use chrono::{DateTime, Utc};
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
-use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
-use near_primitives::state_record::StateRecord;
-use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, NumBlocks,
-    NumSeats,
+use near_primitives::{
+    hash::CryptoHash,
+    serialize::{u128_dec_format, u128_dec_format_compatible},
+    state_record::StateRecord,
+    types::{
+        AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas,
+        NumBlocks, NumSeats,
+    },
+    version::ProtocolVersion,
 };
-use near_primitives::version::ProtocolVersion;
 use near_runtime_configs::RuntimeConfig;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;

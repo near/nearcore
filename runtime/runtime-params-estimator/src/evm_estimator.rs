@@ -1,29 +1,37 @@
-use crate::testbed::RuntimeTestbed;
-use crate::testbed_runners::{end_count, get_account_id, start_count, total_transactions, Config};
+use crate::{
+    testbed::RuntimeTestbed,
+    testbed_runners::{end_count, get_account_id, start_count, total_transactions, Config},
+};
 use ethabi_contract::use_contract;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use lazy_static_include::lazy_static_include_str;
 use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::EvmContext;
-use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
+use near_primitives::{
+    hash::CryptoHash,
+    transaction::{Action, FunctionCallAction, SignedTransaction},
+};
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::gas_counter::reset_evm_gas_counter;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::VMConfig;
+use near_vm_logic::{
+    gas_counter::reset_evm_gas_counter, mocks::mock_external::MockedExternal, VMConfig,
+};
 use node_runtime::Runtime;
 use num_rational::Ratio;
 use num_traits::cast::ToPrimitive;
 use rand::Rng;
 use rocksdb::Env;
-use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::fs;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex, RwLock};
-use testlib::node::{Node, RuntimeNode};
-use testlib::user::runtime_user::MockClient;
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryFrom,
+    fs,
+    path::PathBuf,
+    sync::{Arc, Mutex, RwLock},
+};
+use testlib::{
+    node::{Node, RuntimeNode},
+    user::runtime_user::MockClient,
+};
 
 #[derive(Debug)]
 pub struct EvmCost {

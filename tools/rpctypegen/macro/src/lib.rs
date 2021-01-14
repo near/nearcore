@@ -1,5 +1,4 @@
-use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::{cell::RefCell, collections::BTreeMap};
 
 use proc_macro::TokenStream;
 use serde::{Deserialize, Serialize};

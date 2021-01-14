@@ -1,23 +1,26 @@
 use reqwest::Client as AsyncClient;
-use std::format;
-use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::{
+    format,
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+    thread,
+    time::{Duration, Instant},
+};
 
 use borsh::BorshSerialize;
 use futures::{future, future::BoxFuture, FutureExt, TryFutureExt};
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc::client::message::Message;
-use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::to_base64;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Nonce};
-use near_primitives::views::AccessKeyView;
+use near_primitives::{
+    hash::CryptoHash,
+    serialize::to_base64,
+    transaction::SignedTransaction,
+    types::{AccountId, Nonce},
+    views::AccessKeyView,
+};
 use reqwest::blocking::Client as SyncClient;
 use std::convert::TryInto;
-use testlib::user::rpc_user::RpcUser;
-use testlib::user::User;
+use testlib::user::{rpc_user::RpcUser, User};
 
 use log::{debug, info};
 

@@ -1,11 +1,13 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::hash::Hash;
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    hash::Hash,
+    sync::{Arc, RwLock},
+    time::{Duration, Instant},
+};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use cached::{Cached, SizedCache};
@@ -18,42 +20,46 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
+use near_network::{
+    types::{
+        NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
+        StateResponseInfoV1, StateResponseInfoV2,
+    },
+    NetworkAdapter, NetworkRequests,
 };
-use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, PartialMerkleTree};
-use near_primitives::network::AnnounceAccount;
-use near_primitives::sharding::ShardChunk;
-use near_primitives::syncing::{
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
-    ShardStateSyncResponseV2,
-};
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, ShardId,
-    TransactionOrReceiptId,
-};
-use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
-    StateChangesView, ValidatorStakeView,
+use near_primitives::{
+    block::{Block, BlockHeader, GenesisId, Tip},
+    hash::CryptoHash,
+    merkle::{merklize, PartialMerkleTree},
+    network::AnnounceAccount,
+    sharding::ShardChunk,
+    syncing::{
+        ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
+        ShardStateSyncResponseV2,
+    },
+    types::{
+        AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, ShardId,
+        TransactionOrReceiptId,
+    },
+    views::{
+        BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+        FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
+        GasPriceView, LightClientBlockView, QueryRequest, QueryResponse, ReceiptView,
+        StateChangesKindsView, StateChangesView, ValidatorStakeView,
+    },
 };
 
-use crate::types::{
-    Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt,
-    GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
-};
 use crate::{
-    sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
+    sync,
+    types::{
+        Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
+        GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt,
+        GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
+    },
+    GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
-use near_performance_metrics_macros::perf;
-use near_performance_metrics_macros::perf_with_debug;
+use near_performance_metrics_macros::{perf, perf_with_debug};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;

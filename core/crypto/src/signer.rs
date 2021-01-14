@@ -1,9 +1,8 @@
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
-use crate::key_conversion::convert_secret_key;
-use crate::key_file::KeyFile;
-use crate::{KeyType, PublicKey, SecretKey, Signature};
+use crate::{
+    key_conversion::convert_secret_key, key_file::KeyFile, KeyType, PublicKey, SecretKey, Signature,
+};
 
 /// Generic signer trait, that can sign with some subset of supported curves.
 pub trait Signer: Sync + Send {

@@ -1,49 +1,54 @@
 use rand::seq::{IteratorRandom, SliceRandom};
-use std::cmp;
-use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::atomic::Ordering;
-use std::sync::{atomic::AtomicUsize, Arc};
-use std::time::{Duration, Instant};
+use std::{
+    cmp,
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 
-use actix::actors::resolver::{ConnectAddr, Resolver};
-use actix::io::FramedWrite;
 use actix::{
+    actors::resolver::{ConnectAddr, Resolver},
+    io::FramedWrite,
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, SyncContext, SystemService, WrapFuture,
 };
 use chrono::Utc;
-use futures::task::Poll;
-use futures::{future, Stream, StreamExt};
+use futures::{future, task::Poll, Stream, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
 
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::AccountId;
-use near_primitives::utils::from_timestamp;
+use near_primitives::{
+    hash::CryptoHash,
+    network::{AnnounceAccount, PeerId},
+    types::AccountId,
+    utils::from_timestamp,
+};
 use near_store::Store;
 
-use crate::codec::Codec;
-use crate::metrics;
-use crate::peer::Peer;
-use crate::peer_store::{PeerStore, TrustLevel};
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{MetricRecorder, PeerMessageMetadata};
-use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
-use crate::types::{
-    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
-    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData, Unregister,
-};
-use crate::types::{
-    EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerInfo,
+use crate::{
+    codec::Codec,
+    metrics,
+    peer::Peer,
+    peer_store::{PeerStore, TrustLevel},
+    routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable},
+    types::{
+        AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, EdgeList,
+        FullPeerInfo, InboundTcpConnect, KnownPeerState, KnownPeerStatus, KnownProducer,
+        NetworkClientMessages, NetworkConfig, NetworkInfo, NetworkRequests, NetworkResponses,
+        NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
+        PeerInfo, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
+        PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
+        RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo,
+        SyncData, Unregister,
+    },
 };
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;

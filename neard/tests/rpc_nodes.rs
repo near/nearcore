@@ -1,29 +1,30 @@
 use std::time::Duration;
 
-use actix::clock::delay_for;
-use actix::{Actor, System};
+use actix::{clock::delay_for, Actor, System};
 use borsh::BorshSerialize;
-use futures::future::join_all;
-use futures::{future, FutureExt, TryFutureExt};
+use futures::{future, future::join_all, FutureExt, TryFutureExt};
 
 use near_client::{GetBlock, GetExecutionOutcome, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeout;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
-use near_primitives::serialize::{from_base64, to_base64};
-use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
-use near_primitives::types::{BlockId, BlockReference, TransactionOrReceiptId};
-use near_primitives::views::{
-    ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
-    QueryResponseKind,
+use near_primitives::{
+    hash::{hash, CryptoHash},
+    merkle::{compute_root_from_path_and_item, verify_path},
+    serialize::{from_base64, to_base64},
+    transaction::{PartialExecutionStatus, SignedTransaction},
+    types::{BlockId, BlockReference, TransactionOrReceiptId},
+    views::{
+        ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum,
+        FinalExecutionStatus, QueryResponseKind,
+    },
 };
 use neard::config::TESTING_INIT_BALANCE;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering::SeqCst},
+    Arc,
+};
 use testlib::{genesis_block, start_nodes, test_helpers::heavy_test};
 
 macro_rules! panic_on_rpc_error {

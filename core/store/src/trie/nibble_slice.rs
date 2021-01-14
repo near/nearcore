@@ -17,8 +17,7 @@
 //! Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 
 use elastic_array::ElasticArray36;
-use std::cmp::*;
-use std::fmt;
+use std::{cmp::*, fmt};
 
 /// Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 ///

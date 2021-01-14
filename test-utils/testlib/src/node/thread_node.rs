@@ -1,15 +1,15 @@
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 use neard::{start_with_config, NearConfig};
 
-use crate::actix_utils::ShutdownableThread;
-use crate::node::Node;
-use crate::user::rpc_user::RpcUser;
-use crate::user::User;
+use crate::{
+    actix_utils::ShutdownableThread,
+    node::Node,
+    user::{rpc_user::RpcUser, User},
+};
 
 pub enum ThreadNodeState {
     Stopped,

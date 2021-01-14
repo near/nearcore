@@ -1,17 +1,23 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+};
 
 use cached::{Cached, SizedCache};
 
 use near_primitives::hash::CryptoHash;
 
-use crate::db::refcount::decode_value_with_rc;
-use crate::trie::POISONED_LOCK_ERR;
-use crate::{ColState, StorageError, Store};
+use crate::{
+    db::refcount::decode_value_with_rc, trie::POISONED_LOCK_ERR, ColState, StorageError, Store,
+};
 use near_primitives::types::ShardId;
-use std::convert::{TryFrom, TryInto};
-use std::io::ErrorKind;
+use std::{
+    convert::{TryFrom, TryInto},
+    io::ErrorKind,
+};
 
 #[derive(Clone)]
 pub struct TrieCache(Arc<Mutex<SizedCache<CryptoHash, Vec<u8>>>>);

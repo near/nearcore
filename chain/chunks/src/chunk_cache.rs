@@ -2,11 +2,13 @@ use std::collections::{HashMap, HashSet};
 
 use cached::{Cached, SizedCache};
 
-use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
+use near_primitives::{
+    hash::CryptoHash,
+    sharding::{
+        ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
+    },
+    types::{BlockHeight, BlockHeightDelta, ShardId},
 };
-use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
@@ -176,12 +178,13 @@ mod tests {
     use std::collections::HashMap;
 
     use near_crypto::KeyType;
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::sharding::{PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2};
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives::{
+        hash::CryptoHash,
+        sharding::{PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2},
+        validator_signer::InMemoryValidatorSigner,
+    };
 
-    use crate::chunk_cache::EncodedChunksCache;
-    use crate::ChunkRequestInfo;
+    use crate::{chunk_cache::EncodedChunksCache, ChunkRequestInfo};
 
     #[test]
     fn test_cache_removal() {

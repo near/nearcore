@@ -1,8 +1,11 @@
-use std::path::Path;
-use std::process::{Child, Command};
-use std::sync::Arc;
-use std::time::Duration;
-use std::{env, thread};
+use std::{
+    env,
+    path::Path,
+    process::{Child, Command},
+    sync::Arc,
+    thread,
+    time::Duration,
+};
 
 use log::error;
 use rand::Rng;
@@ -12,9 +15,10 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 use neard::config::NearConfig;
 
-use crate::node::Node;
-use crate::user::rpc_user::RpcUser;
-use crate::user::User;
+use crate::{
+    node::Node,
+    user::{rpc_user::RpcUser, User},
+};
 use actix::{Actor, System};
 use futures::{FutureExt, TryFutureExt};
 use near_jsonrpc_client::new_client;

@@ -1,5 +1,4 @@
-use near_chain::test_utils::setup;
-use near_chain::Block;
+use near_chain::{test_utils::setup, Block};
 use near_logger_utils::init_test_logger;
 use near_primitives::merkle::PartialMerkleTree;
 

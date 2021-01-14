@@ -1,10 +1,12 @@
-use std::convert::TryInto;
-use std::fs;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    convert::TryInto,
+    fs,
+    fs::File,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use actix;
 use actix_web;
@@ -17,20 +19,21 @@ use lazy_static::lazy_static;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
-use near_network::test_utils::open_port;
-use near_network::types::ROUTED_MESSAGE_TTL;
-use near_network::utils::blacklist_from_iter;
-use near_network::NetworkConfig;
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::hash::CryptoHash;
-use near_primitives::state_record::StateRecord;
-use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
-    NumShards, ShardId,
+use near_network::{
+    test_utils::open_port, types::ROUTED_MESSAGE_TTL, utils::blacklist_from_iter, NetworkConfig,
 };
-use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::{
+    account::{AccessKey, Account},
+    hash::CryptoHash,
+    state_record::StateRecord,
+    types::{
+        AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
+        NumShards, ShardId,
+    },
+    utils::{generate_random_string, get_num_seats_per_shard},
+    validator_signer::{InMemoryValidatorSigner, ValidatorSigner},
+    version::PROTOCOL_VERSION,
+};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_runtime_configs::RuntimeConfig;

@@ -1,9 +1,7 @@
 use crate::{ActionCosts, ExtCosts};
 use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
-use std::fmt;
-use std::rc::Rc;
+use std::{cell::RefCell, fmt, rc::Rc};
 
 pub type AccountId = String;
 pub type PublicKey = Vec<u8>;

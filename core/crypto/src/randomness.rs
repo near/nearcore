@@ -1,16 +1,20 @@
-use crate::hash::Hash512;
-use crate::util::{unpack, vmul2, Packable, Point, Scalar};
+use crate::{
+    hash::Hash512,
+    util::{unpack, vmul2, Packable, Point, Scalar},
+};
 use arrayref::{array_ref, array_refs};
 use c2_chacha::guts::ChaCha;
-use curve25519_dalek::constants::{
-    RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
+use curve25519_dalek::{
+    constants::{RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT},
+    traits::{Identity, VartimeMultiscalarMul},
 };
-use curve25519_dalek::traits::{Identity, VartimeMultiscalarMul};
 use rand_core::OsRng;
-use std::borrow::Borrow;
-use std::convert::TryFrom;
-use std::iter::once;
-use std::ops::{AddAssign, Deref, DerefMut, Sub};
+use std::{
+    borrow::Borrow,
+    convert::TryFrom,
+    iter::once,
+    ops::{AddAssign, Deref, DerefMut, Sub},
+};
 
 pub use crate::vrf::{PublicKey, SecretKey};
 

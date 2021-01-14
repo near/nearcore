@@ -1,5 +1,7 @@
-use crate::serialize::u128_dec_format;
-use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
+use crate::{
+    serialize::u128_dec_format,
+    types::{AccountId, Balance, EpochId, Gas, Nonce},
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use serde::{Deserialize, Serialize};

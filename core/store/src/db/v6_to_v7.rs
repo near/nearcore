@@ -1,12 +1,13 @@
-use std::io::Cursor;
-use std::marker::PhantomPinned;
+use std::{io::Cursor, marker::PhantomPinned};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
 use strum::IntoEnumIterator;
 
-use crate::db::{rocksdb_column_options, rocksdb_options, DBError, RocksDB};
-use crate::DBCol;
+use crate::{
+    db::{rocksdb_column_options, rocksdb_options, DBError, RocksDB},
+    DBCol,
+};
 
 fn refcount_merge_v6(
     _new_key: &[u8],

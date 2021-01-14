@@ -1,6 +1,8 @@
 use log::{info, warn};
-use std::borrow::Cow;
-use std::time::{Duration, Instant};
+use std::{
+    borrow::Cow,
+    time::{Duration, Instant},
+};
 
 pub struct DelayDetector<'a> {
     msg: Cow<'a, str>,

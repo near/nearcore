@@ -1,7 +1,9 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::sync::{Arc, RwLock};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    convert::TryFrom,
+    sync::{Arc, RwLock},
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -11,37 +13,41 @@ use serde::Serialize;
 
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::serialize::to_base;
-use near_primitives::sharding::ChunkHash;
-use near_primitives::transaction::{
-    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
-    TransferAction,
+use near_primitives::{
+    account::{AccessKey, Account},
+    challenge::ChallengesResult,
+    errors::InvalidTxError,
+    hash::{hash, CryptoHash},
+    receipt::{ActionReceipt, Receipt, ReceiptEnum},
+    serialize::to_base,
+    sharding::ChunkHash,
+    transaction::{
+        Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
+        TransferAction,
+    },
+    types::{
+        AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
+        ShardId, StateRoot, StateRootNode, ValidatorStake,
+    },
+    validator_signer::InMemoryValidatorSigner,
+    version::{ProtocolVersion, PROTOCOL_VERSION},
+    views::{
+        AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
+        QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
+    },
 };
-use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
-    ShardId, StateRoot, StateRootNode, ValidatorStake,
-};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
-use near_primitives::views::{
-    AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
-    QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
-};
-use near_store::test_utils::create_test_store;
 use near_store::{
-    ColBlockHeader, PartialStorage, ShardTries, Store, Trie, TrieChanges, WrappedTrieChanges,
+    test_utils::create_test_store, ColBlockHeader, PartialStorage, ShardTries, Store, Trie,
+    TrieChanges, WrappedTrieChanges,
 };
 
-use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
-use crate::error::{Error, ErrorKind};
-use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
-use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use crate::{
+    chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA},
+    error::{Error, ErrorKind},
+    store::ChainStoreAccess,
+    types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis},
+    BlockHeader, DoomslugThresholdMode, RuntimeAdapter,
+};
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -1167,10 +1173,12 @@ mod test {
     use borsh::BorshSerialize;
     use rand::Rng;
 
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::receipt::Receipt;
-    use near_primitives::sharding::ReceiptList;
-    use near_primitives::types::NumShards;
+    use near_primitives::{
+        hash::{hash, CryptoHash},
+        receipt::Receipt,
+        sharding::ReceiptList,
+        types::NumShards,
+    };
     use near_store::test_utils::create_test_store;
 
     use crate::RuntimeAdapter;

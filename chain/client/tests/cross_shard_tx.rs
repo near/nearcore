@@ -1,15 +1,18 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, RwLock,
+};
 
 use actix::{Addr, System};
 use futures::{future, FutureExt};
 
-use near_client::test_utils::setup_mock_all_validators;
-use near_client::{ClientActor, Query, ViewClientActor};
+use near_client::{test_utils::setup_mock_all_validators, ClientActor, Query, ViewClientActor};
 use near_logger_utils::init_integration_logger;
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
-use near_primitives::types::BlockReference;
-use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
+use near_primitives::{
+    types::BlockReference,
+    views::{QueryRequest, QueryResponseKind::ViewAccount},
+};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
@@ -78,25 +81,33 @@ fn test_keyvalue_runtime_balances() {
 #[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, RwLock};
+    use std::{
+        collections::HashSet,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, RwLock,
+        },
+    };
 
     use actix::{Addr, MailboxError, System};
     use futures::{future, FutureExt};
 
     use near_chain::test_utils::account_id_to_shard_id;
-    use near_client::test_utils::{setup_mock_all_validators, BlockStats};
-    use near_client::{ClientActor, Query, ViewClientActor};
+    use near_client::{
+        test_utils::{setup_mock_all_validators, BlockStats},
+        ClientActor, Query, ViewClientActor,
+    };
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
     use near_network::{
         NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
     };
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{AccountId, BlockReference};
-    use near_primitives::views::{QueryRequest, QueryResponse, QueryResponseKind::ViewAccount};
+    use near_primitives::{
+        hash::CryptoHash,
+        transaction::SignedTransaction,
+        types::{AccountId, BlockReference},
+        views::{QueryRequest, QueryResponse, QueryResponseKind::ViewAccount},
+    };
 
     fn send_tx(
         num_validators: usize,

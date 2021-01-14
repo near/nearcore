@@ -18,9 +18,9 @@
 // along with Open Ethereum.  If not, see <http://www.gnu.org/licenses/>.
 
 use ethereum_types::U256;
-use std::convert::TryInto;
 use std::{
     cmp::{max, min},
+    convert::TryInto,
     io::{self, Read},
 };
 

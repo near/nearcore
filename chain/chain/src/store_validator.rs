@@ -1,22 +1,26 @@
-use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryFrom,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use borsh::BorshDeserialize;
 use log::warn;
 use strum::IntoEnumIterator;
 
 use near_chain_configs::GenesisConfig;
-use near_primitives::block::{Block, BlockHeader};
-use near_primitives::borsh;
-use near_primitives::epoch_manager::{BlockInfo, EpochInfo, AGGREGATOR_KEY};
-use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
-use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, GCCount, ShardId};
-use near_primitives::utils::get_block_shard_id_rev;
+use near_primitives::{
+    block::{Block, BlockHeader},
+    borsh,
+    epoch_manager::{BlockInfo, EpochInfo, AGGREGATOR_KEY},
+    hash::CryptoHash,
+    sharding::{ChunkHash, ShardChunk, StateSyncInfo},
+    syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey},
+    transaction::ExecutionOutcomeWithIdAndProof,
+    types::{AccountId, BlockHeight, ChunkExtra, EpochId, GCCount, ShardId},
+    utils::get_block_shard_id_rev,
+};
 use near_store::{
     decode_value_with_rc, DBCol, Store, TrieChanges, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC,
 };
@@ -392,8 +396,7 @@ impl StoreValidator {
 mod tests {
     use near_store::test_utils::create_test_store;
 
-    use crate::test_utils::KeyValueRuntime;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use crate::{test_utils::KeyValueRuntime, Chain, ChainGenesis, DoomslugThresholdMode};
 
     use super::*;
 

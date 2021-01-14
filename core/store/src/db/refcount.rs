@@ -1,12 +1,12 @@
-use std::cmp::Ordering;
-use std::io::{Cursor, Write};
+use std::{
+    cmp::Ordering,
+    io::{Cursor, Write},
+};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use rocksdb::compaction_filter::Decision;
-use rocksdb::MergeOperands;
+use rocksdb::{compaction_filter::Decision, MergeOperands};
 
-use crate::db::RocksDB;
-use crate::DBCol;
+use crate::{db::RocksDB, DBCol};
 
 /// Refcounted columns store value with rc.
 ///

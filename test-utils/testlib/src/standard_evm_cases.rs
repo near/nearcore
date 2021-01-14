@@ -1,15 +1,21 @@
-use crate::node::Node;
-use crate::runtime_utils::{alice_account, bob_account, evm_account};
-use crate::user::User;
+use crate::{
+    node::Node,
+    runtime_utils::{alice_account, bob_account, evm_account},
+    user::User,
+};
 use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
 use ethereum_types::{Address, U256};
-use near_evm_runner::types::WithdrawArgs;
-use near_evm_runner::utils::{
-    address_from_arr, encode_call_function_args, encode_view_call_function_args, u256_to_arr,
+use near_evm_runner::{
+    types::WithdrawArgs,
+    utils::{
+        address_from_arr, encode_call_function_args, encode_view_call_function_args, u256_to_arr,
+    },
 };
-use near_primitives::errors::{ActionError, ActionErrorKind};
-use near_primitives::views::FinalExecutionStatus;
+use near_primitives::{
+    errors::{ActionError, ActionErrorKind},
+    views::FinalExecutionStatus,
+};
 use near_vm_errors::{EvmError, FunctionCallError};
 
 use_contract!(cryptozombies, "../../runtime/near-evm-runner/tests/build/zombieAttack.abi");

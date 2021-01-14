@@ -6,12 +6,10 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 
-use byteorder::ByteOrder;
-use byteorder::LittleEndian;
+use byteorder::{ByteOrder, LittleEndian};
 
 use crate::remote_node::RemoteNode;
-use std::mem::size_of;
-use std::str::FromStr;
+use std::{mem::size_of, str::FromStr};
 
 #[derive(Clone, Copy, Debug)]
 pub enum TransactionType {

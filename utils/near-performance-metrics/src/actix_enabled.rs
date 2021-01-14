@@ -1,6 +1,5 @@
 use log::info;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::stats_enabled::{MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD, STATS, TID};
 

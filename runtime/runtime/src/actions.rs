@@ -1,21 +1,23 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
-use near_primitives::checked_feature;
-use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt};
-use near_primitives::transaction::{
-    Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    FunctionCallAction, StakeAction, TransferAction,
-};
-use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
-use near_primitives::utils::create_random_seed;
-use near_primitives::version::{
-    ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+use near_primitives::{
+    account::{AccessKey, AccessKeyPermission, Account},
+    checked_feature,
+    contract::ContractCode,
+    errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError},
+    hash::CryptoHash,
+    receipt::{ActionReceipt, Receipt},
+    transaction::{
+        Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
+        FunctionCallAction, StakeAction, TransferAction,
+    },
+    types::{AccountId, EpochInfoProvider, ValidatorStake},
+    utils::create_random_seed,
+    version::{
+        ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+        IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+    },
 };
 use near_runtime_configs::AccountCreationConfig;
 use near_runtime_fees::RuntimeFeesConfig;
@@ -28,13 +30,14 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_errors::{CacheError, CompilationError, FunctionCallError, InconsistentStateError};
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_logic::{types::PromiseResult, VMContext, VMOutcome};
 use near_vm_runner::VMError;
 
-use crate::config::{safe_add_gas, RuntimeConfig};
-use crate::ext::RuntimeExt;
-use crate::{ActionResult, ApplyState};
+use crate::{
+    config::{safe_add_gas, RuntimeConfig},
+    ext::RuntimeExt,
+    ActionResult, ApplyState,
+};
 
 /// Runs given function call with given context / apply state.
 /// Precompiles:

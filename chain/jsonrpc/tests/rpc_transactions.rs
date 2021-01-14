@@ -8,11 +8,13 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::WaitOrTimeout;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::{to_base, to_base64};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockReference;
-use near_primitives::views::FinalExecutionStatus;
+use near_primitives::{
+    hash::{hash, CryptoHash},
+    serialize::{to_base, to_base64},
+    transaction::SignedTransaction,
+    types::BlockReference,
+    views::FinalExecutionStatus,
+};
 
 #[macro_use]
 pub mod test_utils;

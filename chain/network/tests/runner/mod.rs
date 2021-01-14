@@ -1,30 +1,35 @@
-use std::collections::HashSet;
-use std::iter::Iterator;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::{
+    collections::HashSet,
+    iter::Iterator,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
+    time::Duration,
+};
 
 use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, System};
 use chrono::{DateTime, Utc};
 use futures::{future, FutureExt, TryFutureExt};
 
-use near_chain::test_utils::KeyValueRuntime;
-use near_chain::ChainGenesis;
+use near_chain::{test_utils::KeyValueRuntime, ChainGenesis};
 use near_chain_configs::ClientConfig;
 use near_client::{start_view_client, ClientActor};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
-    GetInfo, StopSignal, WaitOrTimeout,
-};
-use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
-use near_network::utils::blacklist_from_iter;
 use near_network::{
+    test_utils::{
+        convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
+        GetInfo, StopSignal, WaitOrTimeout,
+    },
+    types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL},
+    utils::blacklist_from_iter,
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::types::{AccountId, ValidatorId};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::{
+    types::{AccountId, ValidatorId},
+    validator_signer::InMemoryValidatorSigner,
+};
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 

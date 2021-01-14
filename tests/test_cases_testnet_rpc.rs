@@ -3,16 +3,17 @@
 #[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod test {
-    use std::thread;
-    use std::time::Duration;
+    use std::{thread, time::Duration};
 
     use near_logger_utils::init_test_module_logger;
-    use testlib::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
-    use testlib::runtime_utils::alice_account;
     #[cfg(feature = "protocol_feature_evm")]
     use testlib::standard_evm_cases::*;
-    use testlib::standard_test_cases::*;
-    use testlib::test_helpers::heavy_test;
+    use testlib::{
+        node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode},
+        runtime_utils::alice_account,
+        standard_test_cases::*,
+        test_helpers::heavy_test,
+    };
 
     fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
         init_test_module_logger("runtime");

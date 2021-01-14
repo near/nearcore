@@ -1,20 +1,18 @@
 use std::convert::TryFrom;
 
-pub(crate) use self::add_key::AddKeyOperation;
-pub(crate) use self::create_account::CreateAccountOperation;
-pub(crate) use self::delete_account::DeleteAccountOperation;
-pub(crate) use self::delete_key::DeleteKeyOperation;
-pub(crate) use self::deploy_contract::DeployContractOperation;
-pub(crate) use self::function_call::FunctionCallOperation;
-pub(crate) use self::initiate_add_key::InitiateAddKeyOperation;
-pub(crate) use self::initiate_create_account::InitiateCreateAccountOperation;
-pub(crate) use self::initiate_delete_account::InitiateDeleteAccountOperation;
-pub(crate) use self::initiate_delete_key::InitiateDeleteKeyOperation;
-pub(crate) use self::initiate_deploy_contract::InitiateDeployContractOperation;
-pub(crate) use self::initiate_function_call::InitiateFunctionCallOperation;
-pub(crate) use self::refund_delete_account::RefundDeleteAccountOperation;
-pub(crate) use self::stake::StakeOperation;
-pub(crate) use self::transfer::TransferOperation;
+pub(crate) use self::{
+    add_key::AddKeyOperation, create_account::CreateAccountOperation,
+    delete_account::DeleteAccountOperation, delete_key::DeleteKeyOperation,
+    deploy_contract::DeployContractOperation, function_call::FunctionCallOperation,
+    initiate_add_key::InitiateAddKeyOperation,
+    initiate_create_account::InitiateCreateAccountOperation,
+    initiate_delete_account::InitiateDeleteAccountOperation,
+    initiate_delete_key::InitiateDeleteKeyOperation,
+    initiate_deploy_contract::InitiateDeployContractOperation,
+    initiate_function_call::InitiateFunctionCallOperation,
+    refund_delete_account::RefundDeleteAccountOperation, stake::StakeOperation,
+    transfer::TransferOperation,
+};
 
 mod add_key;
 mod create_account;

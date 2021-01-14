@@ -1,5 +1,7 @@
-use crate::types::{AccountId, Balance, Gas, PublicKey};
-use crate::{External, ValuePtr};
+use crate::{
+    types::{AccountId, Balance, Gas, PublicKey},
+    External, ValuePtr,
+};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

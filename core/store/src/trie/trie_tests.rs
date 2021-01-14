@@ -1,15 +1,22 @@
-use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
-use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
-use crate::trie::POISONED_LOCK_ERR;
-use crate::{PartialStorage, Trie, TrieUpdate};
-use near_primitives::errors::StorageError;
-use near_primitives::hash::{hash, CryptoHash};
-use rand::seq::SliceRandom;
-use rand::Rng;
-use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use crate::{
+    test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie},
+    trie::{
+        trie_storage::{TrieMemoryPartialStorage, TrieStorage},
+        POISONED_LOCK_ERR,
+    },
+    PartialStorage, Trie, TrieUpdate,
+};
+use near_primitives::{
+    errors::StorageError,
+    hash::{hash, CryptoHash},
+};
+use rand::{seq::SliceRandom, Rng};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 /// TrieMemoryPartialStorage, but contains only the first n requested nodes.
 pub struct IncompletePartialStorage {

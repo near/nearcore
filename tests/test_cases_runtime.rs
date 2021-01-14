@@ -3,11 +3,13 @@ mod test {
     use near_chain_configs::Genesis;
     use near_primitives::state_record::StateRecord;
     use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
-    use testlib::node::RuntimeNode;
-    use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
     #[cfg(feature = "protocol_feature_evm")]
     use testlib::standard_evm_cases::*;
-    use testlib::standard_test_cases::*;
+    use testlib::{
+        node::RuntimeNode,
+        runtime_utils::{add_test_contract, alice_account, bob_account},
+        standard_test_cases::*,
+    };
 
     fn create_runtime_node() -> RuntimeNode {
         RuntimeNode::new(&alice_account())

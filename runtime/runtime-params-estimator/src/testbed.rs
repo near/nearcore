@@ -1,20 +1,19 @@
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
+use std::{fs::File, io::Read, path::Path};
 
 use borsh::BorshDeserialize;
 
 use near_chain_configs::Genesis;
-use near_primitives::receipt::Receipt;
-use near_primitives::test_utils::MockEpochInfoProvider;
-use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Gas, MerkleHash, StateRoot};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::{
+    receipt::Receipt,
+    test_utils::MockEpochInfoProvider,
+    transaction::{ExecutionStatus, SignedTransaction},
+    types::{Gas, MerkleHash, StateRoot},
+    version::PROTOCOL_VERSION,
+};
 use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use neard::get_store_path;
-use node_runtime::config::RuntimeConfig;
-use node_runtime::{ApplyState, Runtime};
+use node_runtime::{config::RuntimeConfig, ApplyState, Runtime};
 use std::sync::Arc;
 
 const STATE_DUMP_FILE: &str = "state_dump";

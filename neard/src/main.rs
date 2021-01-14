@@ -1,23 +1,19 @@
-use std::convert::TryInto;
-use std::env;
-use std::fs;
-use std::io;
-use std::path::Path;
+use std::{convert::TryInto, env, fs, io, path::Path};
 
 use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 #[cfg(feature = "adversarial")]
 use log::error;
 use log::info;
-use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
 use git_version::git_version;
 use near_performance_metrics;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
-use neard::config::init_testnet_configs;
-use neard::genesis_validate::validate_genesis;
-use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
+use neard::{
+    config::init_testnet_configs, genesis_validate::validate_genesis, get_default_home,
+    get_store_path, init_configs, load_config, start_with_config,
+};
 
 fn init_logging(verbose: Option<&str>) {
     let mut env_filter = EnvFilter::new(

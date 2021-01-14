@@ -1,11 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-use std::fs;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::time::Duration;
+use std::{fs, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
 
 use clap::{crate_version, App, Arg, SubCommand};
 use env_logger::Builder;
@@ -13,16 +9,16 @@ use log::info;
 
 use git_version::git_version;
 use near_crypto::Signer;
-use near_primitives::types::{NumSeats, NumShards};
-use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::Version;
+use near_primitives::{
+    types::{NumSeats, NumShards},
+    validator_signer::ValidatorSigner,
+    version::Version,
+};
 use near_store::{create_store, ColState};
-use neard::config::create_testnet_configs;
-use neard::{get_default_home, get_store_path};
+use neard::{config::create_testnet_configs, get_default_home, get_store_path};
 use remote_node::RemoteNode;
 
-use crate::transactions_executor::Executor;
-use crate::transactions_generator::TransactionType;
+use crate::{transactions_executor::Executor, transactions_generator::TransactionType};
 
 pub mod remote_node;
 pub mod sampler;

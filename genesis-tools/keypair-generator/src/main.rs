@@ -1,5 +1,7 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use clap::{App, AppSettings, Arg, SubCommand};
 

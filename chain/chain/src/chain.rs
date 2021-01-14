@@ -1,58 +1,60 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration as TimeDuration, Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::{Duration as TimeDuration, Instant},
+};
 
 use borsh::BorshSerialize;
-use chrono::Duration;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use log::{debug, error, info, warn};
-use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
+use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
-use crate::error::{Error, ErrorKind, LogTransientStorageError};
-use crate::lightclient::get_epoch_block_producers_view;
-use crate::missing_chunks::{BlockLike, MissingChunksPool};
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
-use crate::types::{
-    AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
-    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter,
+use crate::{
+    byzantine_assert, create_light_client_block_view,
+    error::{Error, ErrorKind, LogTransientStorageError},
+    lightclient::get_epoch_block_producers_view,
+    metrics,
+    missing_chunks::{BlockLike, MissingChunksPool},
+    store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode},
+    types::{
+        AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
+        BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter,
+    },
+    validate::{
+        validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
+        validate_transactions_order,
+    },
+    Doomslug, DoomslugThresholdMode,
 };
-use crate::validate::{
-    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
-    validate_transactions_order,
-};
-use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
-use crate::{metrics, DoomslugThresholdMode};
-use near_primitives::block::{genesis_chunks, Tip};
-use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk, SlashedValidator,
-};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{
-    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
-};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo,
-    ShardProof, StateSyncInfo,
-};
-use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
-    ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2,
-    StateHeaderKey, StatePartKey,
-};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, MerkleHash,
-    NumBlocks, ShardId, ValidatorStake,
-};
-use near_primitives::unwrap_or_return;
-use near_primitives::views::{
-    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
-    FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
-    SignedTransactionView,
+use near_primitives::{
+    block::{genesis_chunks, Tip},
+    challenge::{
+        BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
+        MaybeEncodedShardChunk, SlashedValidator,
+    },
+    hash::{hash, CryptoHash},
+    merkle::{combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem},
+    receipt::Receipt,
+    sharding::{
+        ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader,
+        ShardInfo, ShardProof, StateSyncInfo,
+    },
+    syncing::{
+        get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
+        ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1,
+        ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
+    },
+    transaction::ExecutionOutcomeWithIdAndProof,
+    types::{
+        AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId,
+        MerkleHash, NumBlocks, ShardId, ValidatorStake,
+    },
+    unwrap_or_return,
+    views::{
+        ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+        FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
+        SignedTransactionView,
+    },
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 

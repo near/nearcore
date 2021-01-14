@@ -1,55 +1,59 @@
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    convert::TryInto,
+    fs::File,
+    io::Read,
+    path::Path,
+    sync::{Arc, RwLock},
+};
 
-use borsh::ser::BorshSerialize;
-use borsh::BorshDeserialize;
+use borsh::{ser::BorshSerialize, BorshDeserialize};
 use log::{debug, error, info, warn};
 
-use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
-use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
+use near_chain::{
+    chain::NUM_EPOCHS_TO_KEEP_STORE_DATA,
+    types::{ApplyTransactionResult, BlockHeaderInfo},
+    BlockHeader, Error, ErrorKind, RuntimeAdapter,
+};
 use near_chain_configs::{Genesis, GenesisConfig};
 #[cfg(feature = "protocol_feature_evm")]
 use near_chain_configs::{BETANET_EVM_CHAIN_ID, MAINNET_EVM_CHAIN_ID, TESTNET_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::block::{Approval, ApprovalInner};
-use near_primitives::challenge::ChallengesResult;
-use near_primitives::contract::ContractCode;
-use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
-use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::ChunkHash;
-use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::trie_key::trie_key_parsers;
-use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake,
-};
-use near_primitives::version::ProtocolVersion;
-use near_primitives::views::{
-    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewApplyState, ViewStateResult,
+use near_primitives::{
+    account::{AccessKey, Account},
+    block::{Approval, ApprovalInner},
+    challenge::ChallengesResult,
+    contract::ContractCode,
+    epoch_manager::{BlockInfo, EpochConfig},
+    errors::{EpochError, InvalidTxError, RuntimeError},
+    hash::{hash, CryptoHash},
+    receipt::Receipt,
+    sharding::ChunkHash,
+    state_record::StateRecord,
+    transaction::SignedTransaction,
+    trie_key::trie_key_parsers,
+    types::{
+        AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider,
+        Gas, MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode,
+        ValidatorStake,
+    },
+    version::ProtocolVersion,
+    views::{
+        AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
+        QueryResponseKind, ViewApplyState, ViewStateResult,
+    },
 };
 use near_store::{
     get_access_key_raw, get_genesis_hash, get_genesis_state_roots, set_genesis_hash,
     set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store,
     StoreCompiledContractCache, Trie, WrappedTrieChanges,
 };
-use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
-    validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
-    ValidatorAccountsUpdate,
+    adapter::ViewRuntimeAdapter, state_viewer::TrieViewer, validate_transaction,
+    verify_and_charge_transaction, ApplyState, Runtime, ValidatorAccountsUpdate,
 };
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
@@ -1522,21 +1526,23 @@ mod test {
     use near_chain::ReceiptResult;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_logger_utils::init_test_logger;
-    use near_primitives::block::Tip;
-    use near_primitives::challenge::SlashedValidator;
-    use near_primitives::transaction::{
-        Action, CreateAccountAction, DeleteAccountAction, StakeAction,
-    };
-    use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
-    use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-    use near_primitives::views::{
-        AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
+    use near_primitives::{
+        block::Tip,
+        challenge::SlashedValidator,
+        transaction::{Action, CreateAccountAction, DeleteAccountAction, StakeAction},
+        types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason},
+        validator_signer::{InMemoryValidatorSigner, ValidatorSigner},
+        views::{
+            AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
+        },
     };
     use near_store::create_store;
     use node_runtime::config::RuntimeConfig;
 
-    use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use crate::get_store_path;
+    use crate::{
+        config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE},
+        get_store_path,
+    };
 
     use super::*;
 

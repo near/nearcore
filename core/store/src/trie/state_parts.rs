@@ -1,16 +1,14 @@
-use std::cmp::min;
-use std::collections::HashMap;
+use std::{cmp::min, collections::HashMap};
 
-use near_primitives::challenge::PartialState;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::StateRoot;
+use near_primitives::{challenge::PartialState, hash::CryptoHash, types::StateRoot};
 
-use crate::trie::iterator::CrumbStatus;
-use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{
-    NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize, ValueHandle, POISONED_LOCK_ERR,
+use crate::{
+    trie::{
+        iterator::CrumbStatus, nibble_slice::NibbleSlice, NodeHandle, RawTrieNodeWithSize,
+        TrieNode, TrieNodeWithSize, ValueHandle, POISONED_LOCK_ERR,
+    },
+    PartialStorage, StorageError, Trie, TrieChanges, TrieIterator,
 };
-use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 
 impl Trie {
     /// Computes the set of trie nodes for a state part.

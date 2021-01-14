@@ -1,19 +1,19 @@
-use std::collections::{
-    hash_map::{Entry, Iter},
-    HashMap,
+use std::{
+    collections::{
+        hash_map::{Entry, Iter},
+        HashMap,
+    },
+    convert::TryInto,
+    net::SocketAddr,
+    sync::Arc,
 };
-use std::convert::TryInto;
-use std::net::SocketAddr;
-use std::sync::Arc;
 
 use borsh::BorshSerialize;
 use chrono::Utc;
 use log::{debug, error};
-use rand::seq::SliceRandom;
-use rand::thread_rng;
+use rand::{seq::SliceRandom, thread_rng};
 
-use near_primitives::network::PeerId;
-use near_primitives::utils::to_timestamp;
+use near_primitives::{network::PeerId, utils::to_timestamp};
 use near_store::{ColPeers, Store};
 
 use crate::types::{KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan};
@@ -374,8 +374,7 @@ impl PeerStore {
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
-    use near_store::create_store;
-    use near_store::test_utils::create_test_store;
+    use near_store::{create_store, test_utils::create_test_store};
 
     use super::*;
 

@@ -1,9 +1,11 @@
-use std::cmp::Ordering;
-use std::convert::{AsRef, TryFrom, TryInto};
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
-use std::io::{Error, ErrorKind, Write};
-use std::str::FromStr;
+use std::{
+    cmp::Ordering,
+    convert::{AsRef, TryFrom, TryInto},
+    fmt::{Debug, Display, Formatter},
+    hash::{Hash, Hasher},
+    io::{Error, ErrorKind, Write},
+    str::FromStr,
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signature as _, Signer as _, Verifier as _};

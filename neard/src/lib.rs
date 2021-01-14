@@ -1,6 +1,4 @@
-use std::fs;
-use std::path::Path;
-use std::sync::Arc;
+use std::{fs, path::Path, sync::Arc};
 
 use actix::{Actor, Addr, Arbiter};
 use log::{error, info};
@@ -17,9 +15,11 @@ use near_rosetta_rpc::start_rosetta_rpc;
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
-pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 use crate::migrations::migrate_12_to_13;
-pub use crate::runtime::NightshadeRuntime;
+pub use crate::{
+    config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE},
+    runtime::NightshadeRuntime,
+};
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_6_to_7, migrate_7_to_8,

@@ -1,25 +1,28 @@
 use near_crypto::key_conversion::is_valid_staking_key;
-use near_primitives::account::AccessKeyPermission;
-use near_primitives::errors::{
-    ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
-    RuntimeError,
+use near_primitives::{
+    account::AccessKeyPermission,
+    errors::{
+        ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
+        RuntimeError,
+    },
+    receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum},
+    transaction::{
+        Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
+        SignedTransaction, StakeAction,
+    },
+    version::ProtocolVersion,
 };
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
-use near_primitives::transaction::{
-    Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
-    SignedTransaction, StakeAction,
-};
-use near_primitives::version::ProtocolVersion;
 use near_runtime_configs::get_insufficient_storage_stake;
 use near_runtime_utils::is_valid_account_id;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
-use near_vm_logic::types::Balance;
-use near_vm_logic::VMLimitConfig;
+use near_vm_logic::{types::Balance, VMLimitConfig};
 
-use crate::config::{total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost};
-use crate::VerificationResult;
+use crate::{
+    config::{total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost},
+    VerificationResult,
+};
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
@@ -430,15 +433,15 @@ mod tests {
     use std::sync::Arc;
 
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
-    use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::receipt::DataReceiver;
-    use near_primitives::test_utils::account_new;
-    use near_primitives::transaction::{
-        CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
+    use near_primitives::{
+        account::{AccessKey, Account, FunctionCallPermission},
+        hash::{hash, CryptoHash},
+        receipt::DataReceiver,
+        test_utils::account_new,
+        transaction::{CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction},
+        types::{AccountId, Balance, MerkleHash, StateChangeCause},
+        version::PROTOCOL_VERSION,
     };
-    use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
-    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 

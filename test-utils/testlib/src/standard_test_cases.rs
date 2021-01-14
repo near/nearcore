@@ -3,22 +3,25 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::ServerError;
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::errors::{
-    ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, TxExecutionError,
+use near_primitives::{
+    account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
+    errors::{
+        ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, TxExecutionError,
+    },
+    hash::hash,
+    serialize::to_base64,
+    types::Balance,
+    views::{AccountView, FinalExecutionOutcomeView, FinalExecutionStatus},
 };
-use near_primitives::hash::hash;
-use near_primitives::serialize::to_base64;
-use near_primitives::types::Balance;
-use near_primitives::views::FinalExecutionStatus;
-use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
 use near_vm_errors::{FunctionCallError, HostError, MethodResolveError};
 use neard::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
-use crate::fees_utils::FeeHelper;
-use crate::node::Node;
-use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
-use crate::user::User;
+use crate::{
+    fees_utils::FeeHelper,
+    node::Node,
+    runtime_utils::{alice_account, bob_account, eve_dot_alice_account},
+    user::User,
+};
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;

@@ -1,38 +1,38 @@
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use borsh::BorshSerialize;
 
-use near_chain::missing_chunks::MissingChunksPool;
-use near_chain::types::BlockEconomicsConfig;
-use near_chain::validate::validate_challenge;
 use near_chain::{
+    missing_chunks::MissingChunksPool, types::BlockEconomicsConfig, validate::validate_challenge,
     Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
     RuntimeAdapter,
 };
 use near_chain_configs::Genesis;
-use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
-use near_client::Client;
+use near_client::{
+    test_utils::{create_chunk, create_chunk_with_transactions, TestEnv},
+    Client,
+};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::MockNetworkAdapter;
-use near_network::NetworkRequests;
-use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
+use near_network::{test_utils::MockNetworkAdapter, NetworkRequests};
+use near_primitives::{
+    challenge::{BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk},
+    hash::CryptoHash,
+    merkle::{merklize, MerklePath, PartialMerkleTree},
+    receipt::Receipt,
+    serialize::BaseDecode,
+    sharding::{EncodedShardChunk, ReedSolomonWrapper},
+    transaction::SignedTransaction,
+    types::StateRoot,
+    utils::MaybeValidated,
+    validator_signer::InMemoryValidatorSigner,
+    version::PROTOCOL_VERSION,
 };
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
-use near_primitives::receipt::Receipt;
-use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::StateRoot;
-use near_primitives::utils::MaybeValidated;
-use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
-use neard::config::{GenesisExt, FISHERMEN_THRESHOLD};
-use neard::NightshadeRuntime;
+use neard::{
+    config::{GenesisExt, FISHERMEN_THRESHOLD},
+    NightshadeRuntime,
+};
 use num_rational::Rational;
 
 #[test]

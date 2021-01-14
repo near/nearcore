@@ -1,9 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use crate::hash::CryptoHash;
-use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
-use crate::types::{AccountId, Balance, Nonce, StorageUsage};
+use crate::{
+    hash::CryptoHash,
+    serialize::{option_u128_dec_format, u128_dec_format_compatible},
+    types::{AccountId, Balance, Nonce, StorageUsage},
+};
 
 /// Per account information stored in the state.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -87,8 +89,7 @@ pub struct FunctionCallPermission {
 mod tests {
     use borsh::BorshSerialize;
 
-    use crate::hash::hash;
-    use crate::serialize::to_base;
+    use crate::{hash::hash, serialize::to_base};
 
     use super::*;
 

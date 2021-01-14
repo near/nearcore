@@ -8,9 +8,11 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port};
-use near_primitives::block::{Block, BlockHeader};
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
+use near_primitives::{
+    block::{Block, BlockHeader},
+    hash::CryptoHash,
+    types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId},
+};
 use near_store::test_utils::create_test_store;
 use neard::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 

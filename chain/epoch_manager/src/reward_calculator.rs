@@ -3,9 +3,11 @@ use std::collections::HashMap;
 use num_rational::Rational;
 use primitive_types::U256;
 
-use near_primitives::checked_feature;
-use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
-use near_primitives::version::{ProtocolVersion, ENABLE_INFLATION_PROTOCOL_VERSION};
+use near_primitives::{
+    checked_feature,
+    types::{AccountId, Balance, BlockChunkValidatorStats},
+    version::{ProtocolVersion, ENABLE_INFLATION_PROTOCOL_VERSION},
+};
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 pub(crate) const NUM_NS_IN_SECOND: u64 = 1_000_000_000;
@@ -129,8 +131,10 @@ mod tests {
     #[cfg(feature = "protocol_feature_rectify_inflation")]
     use crate::reward_calculator::NUM_NS_IN_SECOND;
     use crate::RewardCalculator;
-    use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::{
+        types::{BlockChunkValidatorStats, ValidatorStats},
+        version::PROTOCOL_VERSION,
+    };
     use num_rational::Rational;
     use std::collections::HashMap;
 

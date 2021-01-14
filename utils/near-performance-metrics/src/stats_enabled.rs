@@ -1,15 +1,17 @@
 use log::info;
-use std::cell::RefCell;
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::task::Poll;
-use std::time::Duration;
-use std::time::Instant;
+use std::{
+    cell::RefCell,
+    cmp::max,
+    collections::{HashMap, HashSet},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+    task::Poll,
+    time::{Duration, Instant},
+};
 
-use futures;
-use futures::task::Context;
+use futures::{self, task::Context};
 use once_cell::sync::Lazy;
 use std::pin::Pin;
 use strum::AsStaticRef;

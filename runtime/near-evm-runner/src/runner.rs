@@ -6,20 +6,23 @@ use vm::{ContractCreateResult, MessageCallResult};
 
 use near_runtime_fees::{EvmCostConfig, RuntimeFeesConfig};
 use near_runtime_utils::is_account_id_64_len_hex;
-use near_vm_errors::InconsistentStateError::StorageError;
-use near_vm_errors::{EvmError, FunctionCallError, VMError};
-use near_vm_logic::gas_counter::GasCounter;
-use near_vm_logic::types::{AccountId, Balance, Gas, ReturnData, StorageUsage};
-use near_vm_logic::{ActionCosts, External, VMConfig, VMLogicError, VMOutcome};
-
-use crate::evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore};
-use crate::interpreter;
-use crate::meta_parsing::{near_erc712_domain, parse_meta_call};
-use crate::types::{
-    AddressArg, DataKey, EthSignedTransaction, FunctionCallArgs, GetStorageAtArgs, Method, RawU256,
-    Result, TransferArgs, ViewCallArgs, WithdrawArgs,
+use near_vm_errors::{EvmError, FunctionCallError, InconsistentStateError::StorageError, VMError};
+use near_vm_logic::{
+    gas_counter::GasCounter,
+    types::{AccountId, Balance, Gas, ReturnData, StorageUsage},
+    ActionCosts, External, VMConfig, VMLogicError, VMOutcome,
 };
-use crate::utils::{self, combine_data_key};
+
+use crate::{
+    evm_state::{EvmAccount, EvmGasCounter, EvmState, StateStore},
+    interpreter,
+    meta_parsing::{near_erc712_domain, parse_meta_call},
+    types::{
+        AddressArg, DataKey, EthSignedTransaction, FunctionCallArgs, GetStorageAtArgs, Method,
+        RawU256, Result, TransferArgs, ViewCallArgs, WithdrawArgs,
+    },
+    utils::{self, combine_data_key},
+};
 
 pub struct EvmContext<'a> {
     ext: &'a mut dyn External,

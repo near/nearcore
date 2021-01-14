@@ -1,9 +1,6 @@
 #[cfg(not(feature = "single_thread_rocksdb"))]
 use std::cmp;
-use std::collections::HashMap;
-use std::io;
-use std::marker::PhantomPinned;
-use std::sync::RwLock;
+use std::{collections::HashMap, io, marker::PhantomPinned, sync::RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(feature = "single_thread_rocksdb")]
@@ -573,9 +570,11 @@ impl TestDB {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::DBCol::ColState;
-    use crate::db::{rocksdb_read_options, DBError, Database, RocksDB};
-    use crate::{create_store, DBCol};
+    use crate::{
+        create_store,
+        db::{rocksdb_read_options, DBCol::ColState, DBError, Database, RocksDB},
+        DBCol,
+    };
 
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]

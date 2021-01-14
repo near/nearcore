@@ -1,27 +1,35 @@
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::fmt;
-use std::io::{Cursor, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    convert::TryFrom,
+    fmt,
+    io::{Cursor, Read, Write},
+    sync::{Arc, Mutex},
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use near_primitives::challenge::PartialState;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{ShardId, StateRoot, StateRootNode};
-
-use crate::trie::insert_delete::NodesStorage;
-use crate::trie::iterator::TrieIterator;
-use crate::trie::nibble_slice::NibbleSlice;
-pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-use crate::trie::trie_storage::{
-    TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage,
+use near_primitives::{
+    challenge::PartialState,
+    hash::{hash, CryptoHash},
+    types::{ShardId, StateRoot, StateRootNode},
 };
+
+pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub(crate) use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-use crate::StorageError;
+use crate::{
+    trie::{
+        insert_delete::NodesStorage,
+        iterator::TrieIterator,
+        nibble_slice::NibbleSlice,
+        trie_storage::{
+            TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage,
+        },
+    },
+    StorageError,
+};
 
 mod insert_delete;
 pub mod iterator;

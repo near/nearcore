@@ -1,22 +1,24 @@
-use std::cmp::max;
-use std::convert::{AsRef, TryFrom};
-use std::fmt;
+use std::{
+    cmp::max,
+    convert::{AsRef, TryFrom},
+    fmt,
+};
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde;
 
-use crate::hash::{hash, CryptoHash};
-use crate::receipt::Receipt;
-use crate::transaction::SignedTransaction;
-use crate::types::{AccountId, CompiledContractCache, NumSeats, NumShards, ShardId};
-use crate::version::{
-    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
+use crate::{
+    hash::{hash, CryptoHash},
+    receipt::Receipt,
+    transaction::SignedTransaction,
+    types::{AccountId, CompiledContractCache, NumSeats, NumShards, ShardId},
+    version::{
+        ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
+    },
 };
-use std::mem::size_of;
-use std::ops::Deref;
+use std::{mem::size_of, ops::Deref};
 
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;

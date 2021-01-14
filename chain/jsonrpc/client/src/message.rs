@@ -12,9 +12,11 @@
 
 use std::fmt::{Formatter, Result as FmtResult};
 
-use serde::de::{Deserializer, Error, Unexpected, Visitor};
-use serde::ser::{SerializeStruct, Serializer};
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{Deserializer, Error, Unexpected, Visitor},
+    ser::{SerializeStruct, Serializer},
+    Deserialize, Serialize,
+};
 use serde_json::{to_value, Result as JsonResult, Value};
 use uuid::Uuid;
 
@@ -347,10 +349,7 @@ impl Into<Vec<u8>> for Message {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::de::from_slice;
-    use serde_json::json;
-    use serde_json::ser::to_vec;
-    use serde_json::Value;
+    use serde_json::{de::from_slice, json, ser::to_vec, Value};
 
     use super::*;
 

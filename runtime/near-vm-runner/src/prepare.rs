@@ -1,8 +1,10 @@
 //! Module that takes care of loading, checking and preprocessing of a
 //! wasm module before execution.
 
-use parity_wasm::builder;
-use parity_wasm::elements::{self, External, MemorySection, Type};
+use parity_wasm::{
+    builder,
+    elements::{self, External, MemorySection, Type},
+};
 use pwasm_utils::{self, rules};
 use wasmer_runtime_core::wasmparser;
 

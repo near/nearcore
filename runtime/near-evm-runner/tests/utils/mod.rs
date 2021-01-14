@@ -3,13 +3,13 @@ use keccak_hash::keccak;
 
 use borsh::BorshSerialize;
 use near_crypto::{InMemorySigner, PublicKey, Signature, Signer};
-use near_evm_runner::types::{EthSignedTransaction, EthTransaction};
-use near_evm_runner::utils::{near_erc712_domain, prepare_meta_call_args, u256_to_arr};
-use near_evm_runner::EvmContext;
+use near_evm_runner::{
+    types::{EthSignedTransaction, EthTransaction},
+    utils::{near_erc712_domain, prepare_meta_call_args, u256_to_arr},
+    EvmContext,
+};
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::types::Balance;
-use near_vm_logic::VMConfig;
+use near_vm_logic::{mocks::mock_external::MockedExternal, types::Balance, VMConfig};
 use rlp::RlpStream;
 
 /// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json

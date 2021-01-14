@@ -1,8 +1,7 @@
 use clap::{App, Arg};
 use near_primitives::types::ShardId;
 use neard::get_default_home;
-use std::collections::HashSet;
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 pub mod csv_parser;
 pub mod csv_to_json_configs;

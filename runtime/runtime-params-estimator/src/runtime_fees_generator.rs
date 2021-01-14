@@ -1,5 +1,7 @@
-use crate::cases::Metric;
-use crate::stats::{DataStats, Measurements};
+use crate::{
+    cases::Metric,
+    stats::{DataStats, Measurements},
+};
 use num_rational::Ratio;
 use std::collections::BTreeMap;
 

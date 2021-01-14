@@ -1,8 +1,6 @@
-use near_chain::test_utils::setup;
-use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
+use near_chain::{test_utils::setup, Block, ChainStoreAccess, ErrorKind, Provenance};
 use near_logger_utils::init_test_logger;
-use near_primitives::hash::CryptoHash;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::{hash::CryptoHash, version::PROTOCOL_VERSION};
 use num_rational::Rational;
 
 #[test]

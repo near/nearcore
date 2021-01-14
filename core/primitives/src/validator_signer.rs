@@ -1,17 +1,18 @@
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use borsh::BorshSerialize;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 
-use crate::block::{Approval, ApprovalInner, BlockHeader};
-use crate::challenge::ChallengeBody;
-use crate::hash::{hash, CryptoHash};
-use crate::network::{AnnounceAccount, PeerId};
-use crate::sharding::ChunkHash;
-use crate::telemetry::TelemetryInfo;
-use crate::types::{AccountId, BlockHeight, EpochId};
+use crate::{
+    block::{Approval, ApprovalInner, BlockHeader},
+    challenge::ChallengeBody,
+    hash::{hash, CryptoHash},
+    network::{AnnounceAccount, PeerId},
+    sharding::ChunkHash,
+    telemetry::TelemetryInfo,
+    types::{AccountId, BlockHeight, EpochId},
+};
 
 /// Validator signer that is used to sign blocks and approvals.
 pub trait ValidatorSigner: Sync + Send {

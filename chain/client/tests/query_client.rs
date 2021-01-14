@@ -1,20 +1,22 @@
 use actix::System;
 use futures::{future, FutureExt};
 
-use near_client::test_utils::setup_no_network;
 use near_client::{
-    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
+    test_utils::setup_no_network, GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock,
+    Query, Status, TxStatus,
 };
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::{NetworkClientMessages, NetworkClientResponses, PeerInfo};
-use near_primitives::block::{Block, BlockHeader};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockReference, EpochId};
-use near_primitives::utils::to_timestamp;
-use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest, QueryResponseKind};
+use near_primitives::{
+    block::{Block, BlockHeader},
+    transaction::SignedTransaction,
+    types::{BlockReference, EpochId},
+    utils::to_timestamp,
+    validator_signer::InMemoryValidatorSigner,
+    version::PROTOCOL_VERSION,
+    views::{FinalExecutionOutcomeViewEnum, QueryRequest, QueryResponseKind},
+};
 use num_rational::Rational;
 use std::time::Duration;
 

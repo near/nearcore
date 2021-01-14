@@ -1,6 +1,8 @@
-use crate::config::{ActionCosts, ExtCosts, ExtCostsConfig};
-use crate::types::{Gas, ProfileData};
-use crate::{HostError, VMLogicError};
+use crate::{
+    config::{ActionCosts, ExtCosts, ExtCostsConfig},
+    types::{Gas, ProfileData},
+    HostError, VMLogicError,
+};
 #[cfg(feature = "protocol_feature_evm")]
 use near_runtime_fees::EvmGas;
 use near_runtime_fees::Fee;

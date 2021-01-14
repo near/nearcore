@@ -1,13 +1,13 @@
-use std::fs;
-use std::mem::size_of;
-use std::path::PathBuf;
+use std::{fs, mem::size_of, path::PathBuf};
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
 
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{ReturnData, VMConfig, VMContext, VMOutcome};
+use near_vm_logic::{
+    mocks::mock_external::MockedExternal,
+    types::{PromiseResult, ProtocolVersion},
+    ReturnData, VMConfig, VMContext, VMOutcome,
+};
 use near_vm_runner::{run, VMError};
 
 const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;

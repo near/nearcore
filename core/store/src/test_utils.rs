@@ -1,13 +1,9 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use rand::seq::SliceRandom;
-use rand::Rng;
+use rand::{seq::SliceRandom, Rng};
 
-use crate::db::TestDB;
-use crate::{ShardTries, Store};
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::ShardId;
+use crate::{db::TestDB, ShardTries, Store};
+use near_primitives::{hash::CryptoHash, types::ShardId};
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Arc<Store> {

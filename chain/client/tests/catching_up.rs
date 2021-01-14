@@ -1,29 +1,34 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod tests {
-    use std::collections::hash_map::Entry;
-    use std::collections::{HashMap, HashSet};
-    use std::sync::{Arc, RwLock};
+    use std::{
+        collections::{hash_map::Entry, HashMap, HashSet},
+        sync::{Arc, RwLock},
+    };
 
     use actix::{Addr, System};
     use borsh::{BorshDeserialize, BorshSerialize};
     use futures::{future, FutureExt};
 
     use near_chain::test_utils::account_id_to_shard_id;
-    use near_client::sync::STATE_SYNC_TIMEOUT;
-    use near_client::test_utils::setup_mock_all_validators;
-    use near_client::{ClientActor, Query, ViewClientActor};
+    use near_client::{
+        sync::STATE_SYNC_TIMEOUT, test_utils::setup_mock_all_validators, ClientActor, Query,
+        ViewClientActor,
+    };
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash};
-    use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
-    use near_primitives::hash::hash as hash_func;
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::Receipt;
-    use near_primitives::sharding::ChunkHash;
-    use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta, BlockReference};
-    use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
+    use near_network::{
+        types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash},
+        NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo,
+    };
+    use near_primitives::{
+        hash::{hash as hash_func, CryptoHash},
+        receipt::Receipt,
+        sharding::ChunkHash,
+        transaction::SignedTransaction,
+        types::{BlockHeight, BlockHeightDelta, BlockReference},
+        views::{QueryRequest, QueryResponseKind::ViewAccount},
+    };
 
     fn get_validators_and_key_pairs() -> (Vec<Vec<&'static str>>, Vec<PeerInfo>) {
         let validators = vec![

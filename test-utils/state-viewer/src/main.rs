@@ -1,27 +1,32 @@
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    fs::File,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use ansi_term::Color::Red;
 use clap::{App, Arg, SubCommand};
 
 use borsh::BorshSerialize;
-use near_chain::chain::collect_receipts_from_response;
-use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
+use near_chain::{
+    chain::collect_receipts_from_response,
+    types::{ApplyTransactionResult, BlockHeaderInfo},
+    ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter,
+};
 use near_logger_utils::init_integration_logger;
 use near_network::peer_store::PeerStore;
-use near_primitives::block::BlockHeader;
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::to_base;
-use near_primitives::state_record::StateRecord;
-use near_primitives::types::{BlockHeight, ChunkExtra, ShardId, StateRoot};
-use near_store::test_utils::create_test_store;
-use near_store::{create_store, Store, TrieIterator};
+use near_primitives::{
+    block::BlockHeader,
+    contract::ContractCode,
+    hash::CryptoHash,
+    serialize::to_base,
+    state_record::StateRecord,
+    types::{BlockHeight, ChunkExtra, ShardId, StateRoot},
+};
+use near_store::{create_store, test_utils::create_test_store, Store, TrieIterator};
 use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use state_dump::state_dump;

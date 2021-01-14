@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use near_primitives::hash::{hash, CryptoHash};
 
-use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{
-    NodeHandle, RawTrieNode, RawTrieNodeWithSize, StorageHandle, StorageValueHandle, TrieNode,
-    TrieNodeWithSize, ValueHandle,
+use crate::{
+    trie::{
+        nibble_slice::NibbleSlice, NodeHandle, RawTrieNode, RawTrieNodeWithSize, StorageHandle,
+        StorageValueHandle, TrieNode, TrieNodeWithSize, ValueHandle,
+    },
+    StorageError, Trie, TrieChanges,
 };
-use crate::{StorageError, Trie, TrieChanges};
 
 pub(crate) struct NodesStorage {
     nodes: Vec<Option<TrieNodeWithSize>>,

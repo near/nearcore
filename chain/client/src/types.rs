@@ -1,30 +1,38 @@
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use actix::Message;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
-use near_network::PeerInfo;
-use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, MaybeBlockId, ShardId, TransactionOrReceiptId,
-};
-use near_primitives::utils::generate_random_string;
-use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
-    StateChangesView, ValidatorStakeView,
+use near_network::{
+    types::{AccountOrPeerIdOrHash, KnownProducer},
+    PeerInfo,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
+use near_primitives::{
+    errors::InvalidTxError,
+    hash::CryptoHash,
+    merkle::{MerklePath, PartialMerkleTree},
+    sharding::ChunkHash,
+    types::{
+        AccountId, BlockHeight, BlockReference, MaybeBlockId, ShardId, TransactionOrReceiptId,
+    },
+    utils::generate_random_string,
+    views::{
+        BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+        FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView,
+        LightClientBlockView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
+        StateChangesRequestView, StateChangesView, ValidatorStakeView,
+    },
+};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]

@@ -1,5 +1,7 @@
-use std::convert::{AsRef, TryInto};
-use std::sync::Arc;
+use std::{
+    convert::{AsRef, TryInto},
+    sync::Arc,
+};
 
 use actix::Addr;
 use actix_cors::{Cors, CorsFactory};
@@ -13,8 +15,7 @@ use strum::IntoEnumIterator;
 
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
-use near_primitives::borsh::BorshDeserialize;
-use near_primitives::serialize::BaseEncode;
+use near_primitives::{borsh::BorshDeserialize, serialize::BaseEncode};
 
 pub use config::RosettaRpcConfig;
 

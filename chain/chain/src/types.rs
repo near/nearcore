@@ -1,6 +1,4 @@
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{cmp::Ordering, collections::HashMap, sync::Arc};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
@@ -8,22 +6,24 @@ use serde::Serialize;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::challenge::{ChallengesResult, SlashedValidator};
-use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
-use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
+use near_primitives::{
+    challenge::{ChallengesResult, SlashedValidator},
+    errors::InvalidTxError,
+    hash::{hash, CryptoHash},
+    merkle::{merklize, MerklePath},
+    receipt::Receipt,
+    sharding::{ChunkHash, ReceiptList, ShardChunkHeader},
+    transaction::{ExecutionOutcomeWithId, SignedTransaction},
+    types::{
+        AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
+        NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
+    },
+    version::{
+        ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX,
+        MIN_PROTOCOL_VERSION_NEP_92, MIN_PROTOCOL_VERSION_NEP_92_FIX,
+    },
+    views::{EpochValidatorInfo, QueryRequest, QueryResponse},
 };
-use near_primitives::version::{
-    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
-    MIN_PROTOCOL_VERSION_NEP_92_FIX,
-};
-use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
@@ -632,11 +632,13 @@ mod tests {
     use chrono::Utc;
 
     use near_crypto::KeyType;
-    use near_primitives::block::{genesis_chunks, Approval};
-    use near_primitives::merkle::verify_path;
-    use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::{
+        block::{genesis_chunks, Approval},
+        merkle::verify_path,
+        transaction::{ExecutionOutcome, ExecutionStatus},
+        validator_signer::InMemoryValidatorSigner,
+        version::PROTOCOL_VERSION,
+    };
 
     use crate::Chain;
 

@@ -2,21 +2,21 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use near_chain::test_utils::KeyValueRuntime;
-use near_chain::types::RuntimeAdapter;
-use near_chain::ChainStore;
+use near_chain::{test_utils::KeyValueRuntime, types::RuntimeAdapter, ChainStore};
 use near_crypto::KeyType;
 use near_network::test_utils::MockNetworkAdapter;
-use near_primitives::block::BlockHeader;
-use near_primitives::hash::{self, CryptoHash};
-use near_primitives::merkle;
-use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
+use near_primitives::{
+    block::BlockHeader,
+    hash::{self, CryptoHash},
+    merkle,
+    sharding::{
+        ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper,
+        ShardChunkHeader,
+    },
+    types::{AccountId, BlockHeight, MerkleHash, ShardId},
+    validator_signer::InMemoryValidatorSigner,
+    version::PROTOCOL_VERSION,
 };
-use near_primitives::types::{AccountId, ShardId};
-use near_primitives::types::{BlockHeight, MerkleHash};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 
 use crate::{

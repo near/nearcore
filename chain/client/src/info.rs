@@ -1,6 +1,4 @@
-use std::cmp::min;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{cmp::min, sync::Arc, time::Instant};
 
 use actix::Addr;
 use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
@@ -10,20 +8,18 @@ use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, Sy
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_metrics::set_gauge;
 use near_network::types::NetworkInfo;
-use near_primitives::block::Tip;
-use near_primitives::network::PeerId;
-use near_primitives::serialize::to_base;
-use near_primitives::telemetry::{
-    TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
+use near_primitives::{
+    block::Tip,
+    network::PeerId,
+    serialize::to_base,
+    telemetry::{TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo},
+    types::{BlockHeight, Gas},
+    validator_signer::ValidatorSigner,
+    version::Version,
 };
-use near_primitives::types::{BlockHeight, Gas};
-use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::Version;
 use near_telemetry::{telemetry, TelemetryActor};
 
-use crate::metrics;
-use crate::types::ShardSyncStatus;
-use crate::SyncStatus;
+use crate::{metrics, types::ShardSyncStatus, SyncStatus};
 
 pub struct ValidatorInfoHelper {
     pub is_validator: bool,

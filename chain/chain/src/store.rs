@@ -1,37 +1,39 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::io;
-use std::sync::Arc;
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    convert::TryFrom,
+    io,
+    sync::Arc,
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
 use tracing::debug;
 
-use near_primitives::block::{Approval, Tip};
-use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
-    StateSyncInfo,
+use near_primitives::{
+    block::{Approval, Tip},
+    errors::InvalidTxError,
+    hash::CryptoHash,
+    merkle::{MerklePath, PartialMerkleTree},
+    receipt::Receipt,
+    sharding::{
+        ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
+        ShardChunkHeader, StateSyncInfo,
+    },
+    syncing::{
+        get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
+        StateHeaderKey, StatePartKey,
+    },
+    transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction},
+    trie_key::{trie_key_parsers, TrieKey},
+    types::{
+        AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, GCCount, NumBlocks, ShardId,
+        StateChanges, StateChangesExt, StateChangesKinds, StateChangesKindsExt,
+        StateChangesRequest,
+    },
+    utils::{get_block_shard_id, index_to_bytes, to_timestamp},
+    views::LightClientBlockView,
 };
-use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
-    StateHeaderKey, StatePartKey,
-};
-use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
-};
-use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, GCCount, NumBlocks, ShardId,
-    StateChanges, StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
-};
-use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
-use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockInfo,
     ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount,
@@ -46,9 +48,12 @@ use near_store::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, TAIL_KEY,
 };
 
-use crate::error::{Error, ErrorKind};
-use crate::types::{Block, BlockHeader, LatestKnown};
-use crate::{byzantine_assert, ReceiptResult};
+use crate::{
+    byzantine_assert,
+    error::{Error, ErrorKind},
+    types::{Block, BlockHeader, LatestKnown},
+    ReceiptResult,
+};
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -2901,22 +2906,25 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use near_crypto::KeyType;
-    use near_primitives::block::{Block, Tip};
     #[cfg(feature = "expensive_tests")]
     use near_primitives::epoch_manager::BlockInfo;
-    use near_primitives::errors::InvalidTxError;
-    use near_primitives::hash::hash;
-    use near_primitives::types::{BlockHeight, EpochId, GCCount, NumBlocks};
-    use near_primitives::utils::index_to_bytes;
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_store::test_utils::create_test_store;
-    use near_store::DBCol;
+    use near_primitives::{
+        block::{Block, Tip},
+        errors::InvalidTxError,
+        hash::hash,
+        types::{BlockHeight, EpochId, GCCount, NumBlocks},
+        utils::index_to_bytes,
+        validator_signer::InMemoryValidatorSigner,
+    };
+    use near_store::{test_utils::create_test_store, DBCol};
     #[cfg(feature = "expensive_tests")]
     use {crate::store_validator::StoreValidator, near_chain_configs::GenesisConfig};
 
-    use crate::store::{ChainStoreAccess, GCMode};
-    use crate::test_utils::KeyValueRuntime;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use crate::{
+        store::{ChainStoreAccess, GCMode},
+        test_utils::KeyValueRuntime,
+        Chain, ChainGenesis, DoomslugThresholdMode,
+    };
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)

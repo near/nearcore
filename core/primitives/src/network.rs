@@ -1,14 +1,18 @@
-use std::convert::{From, TryFrom};
-use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::{
+    convert::{From, TryFrom},
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 
-use crate::hash::{hash, CryptoHash};
-use crate::types::{AccountId, EpochId};
+use crate::{
+    hash::{hash, CryptoHash},
+    types::{AccountId, EpochId},
+};
 
 /// Peer id is the public key.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]

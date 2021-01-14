@@ -1,7 +1,9 @@
-use std::fs::File;
-use std::io::{Read, Write};
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::{
+    fs::File,
+    io::{Read, Write},
+    os::unix::fs::PermissionsExt,
+    path::Path,
+};
 
 use serde::{Deserialize, Serialize};
 

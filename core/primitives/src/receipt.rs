@@ -1,17 +1,18 @@
-use std::borrow::Borrow;
-use std::fmt;
+use std::{borrow::Borrow, fmt};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey};
 
-use crate::hash::CryptoHash;
-use crate::logging;
-use crate::serialize::{option_base64_format, u128_dec_format_compatible};
-use crate::transaction::{Action, TransferAction};
-use crate::types::{AccountId, Balance};
-use crate::utils::system_account;
+use crate::{
+    hash::CryptoHash,
+    logging,
+    serialize::{option_base64_format, u128_dec_format_compatible},
+    transaction::{Action, TransferAction},
+    types::{AccountId, Balance},
+    utils::system_account,
+};
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.

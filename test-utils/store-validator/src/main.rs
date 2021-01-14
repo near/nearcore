@@ -1,12 +1,9 @@
-use std::path::Path;
-use std::process;
-use std::sync::Arc;
+use std::{path::Path, process, sync::Arc};
 
 use ansi_term::Color::{Green, Red, White, Yellow};
 use clap::{App, Arg, SubCommand};
 
-use near_chain::store_validator::StoreValidator;
-use near_chain::RuntimeAdapter;
+use near_chain::{store_validator::StoreValidator, RuntimeAdapter};
 use near_logger_utils::init_integration_logger;
 use near_store::create_store;
 use neard::{get_default_home, get_store_path, load_config};

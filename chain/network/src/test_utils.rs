@@ -1,6 +1,8 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::net::TcpListener;
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    net::TcpListener,
+    time::Duration,
+};
 
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::{future, FutureExt};
@@ -9,13 +11,12 @@ use rand::{thread_rng, RngCore};
 use tokio::time::delay_for;
 
 use near_crypto::{KeyType, SecretKey};
-use near_primitives::hash::hash;
-use near_primitives::network::PeerId;
-use near_primitives::types::EpochId;
-use near_primitives::utils::index_to_bytes;
+use near_primitives::{hash::hash, network::PeerId, types::EpochId, utils::index_to_bytes};
 
-use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ReasonForBan, ROUTED_MESSAGE_TTL};
-use crate::{NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor};
+use crate::{
+    types::{NetworkConfig, NetworkInfo, PeerInfo, ReasonForBan, ROUTED_MESSAGE_TTL},
+    NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor,
+};
 use futures::future::BoxFuture;
 use std::sync::{Arc, Mutex, RwLock};
 

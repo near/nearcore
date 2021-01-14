@@ -1,7 +1,8 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    sync::{Arc, RwLock},
+    time::Instant,
+};
 
 use actix::{Addr, System};
 use futures::{future, FutureExt};
@@ -12,19 +13,23 @@ use near_chunks::{
     CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
     CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
 };
-use near_client::test_utils::{setup_mock_all_validators, TestEnv};
-use near_client::{ClientActor, GetBlock, ViewClientActor};
+use near_client::{
+    test_utils::{setup_mock_all_validators, TestEnv},
+    ClientActor, GetBlock, ViewClientActor,
+};
 use near_crypto::KeyType;
 use near_logger_utils::{init_integration_logger, init_test_logger};
-use near_network::types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg};
-use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2,
+use near_network::{
+    types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg},
+    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo,
 };
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockHeight;
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::{
+    hash::{hash, CryptoHash},
+    sharding::{ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2},
+    transaction::SignedTransaction,
+    types::BlockHeight,
+    validator_signer::InMemoryValidatorSigner,
+};
 use testlib::test_helpers::heavy_test;
 
 #[test]

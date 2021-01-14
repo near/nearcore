@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
+use near_primitives::{contract::ContractCode, hash::CryptoHash};
 use near_store::StorageError;
 
 pub(crate) fn get_code(

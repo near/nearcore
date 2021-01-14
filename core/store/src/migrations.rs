@@ -1,38 +1,49 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    sync::Arc,
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::sharding::{
-    EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1,
-    ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkV1, ShardProof,
+use near_primitives::{
+    hash::{hash, CryptoHash},
+    sharding::{
+        EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1,
+        ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkV1, ShardProof,
+    },
+    transaction::ExecutionOutcomeWithIdAndProof,
+    version::DbVersion,
 };
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::version::DbVersion;
 
-use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts};
-use crate::db::{DBCol, RocksDB, VERSION_KEY};
-use crate::migrations::v6_to_v7::{
-    col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
+use crate::{
+    create_store,
+    db::{
+        DBCol,
+        DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts},
+        RocksDB, VERSION_KEY,
+    },
+    migrations::{
+        v6_to_v7::{
+            col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
+        },
+        v8_to_v9::{recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions},
+    },
+    Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY,
 };
-use crate::migrations::v8_to_v9::{
-    recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
-};
-use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 
 use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
-use near_primitives::block::{Block, Tip};
-use near_primitives::block_header::BlockHeader;
-use near_primitives::epoch_manager::EpochInfo;
-use near_primitives::merkle::merklize;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
-use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
-use near_primitives::trie_key::TrieKey;
-use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::{
+    block::{Block, Tip},
+    block_header::BlockHeader,
+    epoch_manager::EpochInfo,
+    merkle::merklize,
+    receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum},
+    syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1},
+    trie_key::TrieKey,
+    utils::{create_receipt_id_from_transaction, get_block_shard_id},
+    validator_signer::InMemoryValidatorSigner,
+};
 use std::rc::Rc;
 
 pub mod v6_to_v7;
@@ -513,10 +524,11 @@ pub fn migrate_14_to_15(path: &String) {
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 pub fn migrate_16_to_rectify_inflation(path: &String) {
-    use near_primitives::epoch_manager::BlockInfo;
-    use near_primitives::epoch_manager::SlashState;
-    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
-    use near_primitives::version::ProtocolVersion;
+    use near_primitives::{
+        epoch_manager::{BlockInfo, SlashState},
+        types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake},
+        version::ProtocolVersion,
+    };
     #[derive(BorshDeserialize)]
     struct OldBlockInfo {
         pub height: BlockHeight,

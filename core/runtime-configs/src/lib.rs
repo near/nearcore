@@ -1,10 +1,12 @@
 //! Settings of the parameters of the runtime.
 use serde::{Deserialize, Serialize};
 
-use near_primitives::account::Account;
-use near_primitives::serialize::u128_dec_format;
-use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::ProtocolVersion;
+use near_primitives::{
+    account::Account,
+    serialize::u128_dec_format,
+    types::{AccountId, Balance},
+    version::ProtocolVersion,
+};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::VMConfig;
 use std::sync::Arc;

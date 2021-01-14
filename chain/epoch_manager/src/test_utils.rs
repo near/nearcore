@@ -3,20 +3,20 @@ use std::collections::{BTreeMap, HashMap};
 use num_rational::Rational;
 
 use near_crypto::{KeyType, SecretKey};
-use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_manager::{EpochConfig, EpochInfo, ValidatorWeight};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
-    ValidatorId, ValidatorKickoutReason, ValidatorStake,
+use near_primitives::{
+    challenge::SlashedValidator,
+    epoch_manager::{EpochConfig, EpochInfo, ValidatorWeight},
+    hash::{hash, CryptoHash},
+    types::{
+        AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
+        ValidatorId, ValidatorKickoutReason, ValidatorStake,
+    },
+    utils::get_num_seats_per_shard,
+    version::PROTOCOL_VERSION,
 };
-use near_primitives::utils::get_num_seats_per_shard;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 
-use crate::proposals::find_threshold;
-use crate::RewardCalculator;
-use crate::{BlockInfo, EpochManager};
+use crate::{proposals::find_threshold, BlockInfo, EpochManager, RewardCalculator};
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use {crate::reward_calculator::NUM_NS_IN_SECOND, crate::NUM_SECONDS_IN_A_YEAR};

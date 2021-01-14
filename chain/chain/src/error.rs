@@ -1,17 +1,21 @@
-use std::fmt::{self, Display};
-use std::io;
+use std::{
+    fmt::{self, Display},
+    io,
+};
 
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 use log::error;
 
-use near_primitives::block::BlockValidityError;
-use near_primitives::challenge::{ChunkProofs, ChunkState};
-use near_primitives::errors::{EpochError, StorageError};
-use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::to_base;
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::{
+    block::BlockValidityError,
+    challenge::{ChunkProofs, ChunkState},
+    errors::{EpochError, StorageError},
+    hash::CryptoHash,
+    serialize::to_base,
+    sharding::{ChunkHash, ShardChunkHeader},
+    types::{BlockHeight, ShardId},
+};
 
 #[derive(Debug)]
 pub struct Error {

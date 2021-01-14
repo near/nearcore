@@ -4,8 +4,7 @@ use curve25519_dalek::constants::{
     RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
 };
 use rand_core::OsRng;
-use std::borrow::Borrow;
-use std::convert::TryFrom;
+use std::{borrow::Borrow, convert::TryFrom};
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 #[derive(Copy, Clone)]

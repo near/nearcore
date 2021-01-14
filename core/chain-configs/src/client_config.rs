@@ -1,11 +1,12 @@
 //! Chain Client Configuration
-use std::cmp::min;
-use std::time::Duration;
+use std::{cmp::min, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
-use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats, ShardId};
-use near_primitives::version::Version;
+use near_primitives::{
+    types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats, ShardId},
+    version::Version,
+};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum LogSummaryStyle {

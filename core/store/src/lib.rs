@@ -1,42 +1,49 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::fs::File;
-use std::io::{Read, Write};
-use std::ops::Deref;
-use std::path::Path;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::{fmt, io};
+use std::{
+    fmt,
+    fs::File,
+    io,
+    io::{Read, Write},
+    ops::Deref,
+    path::Path,
+    pin::Pin,
+    sync::Arc,
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
 
-pub use db::DBCol::{self, *};
 pub use db::{
+    DBCol::{self, *},
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC, TAIL_KEY,
 };
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceivedData};
-use near_primitives::serialize::to_base;
-use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
-
-pub use crate::db::refcount::decode_value_with_rc;
-use crate::db::refcount::encode_value_with_rc;
-use crate::db::{
-    DBOp, DBTransaction, Database, RocksDB, GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
+use near_primitives::{
+    account::{AccessKey, Account},
+    contract::ContractCode,
+    hash::CryptoHash,
+    receipt::{Receipt, ReceivedData},
+    serialize::to_base,
+    trie_key::{trie_key_parsers, TrieKey},
+    types::{AccountId, CompiledContractCache, StateRoot},
 };
-pub use crate::trie::{
-    iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
-    update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, ShardTries, Trie, TrieChanges,
-    WrappedTrieChanges,
+
+use crate::db::{
+    refcount::encode_value_with_rc, DBOp, DBTransaction, Database, RocksDB, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY,
+};
+pub use crate::{
+    db::refcount::decode_value_with_rc,
+    trie::{
+        iterator::TrieIterator,
+        update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr},
+        KeyForStateChanges, PartialStorage, ShardTries, Trie, TrieChanges, WrappedTrieChanges,
+    },
 };
 
 mod db;

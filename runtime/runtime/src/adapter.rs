@@ -1,12 +1,12 @@
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{
-    AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash, ShardId,
+use near_primitives::{
+    account::{AccessKey, Account},
+    contract::ContractCode,
+    hash::CryptoHash,
+    types::{AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash, ShardId},
+    version::ProtocolVersion,
+    views::ViewStateResult,
 };
-use near_primitives::version::ProtocolVersion;
-use near_primitives::views::ViewStateResult;
 
 /// Adapter for querying runtime.
 pub trait ViewRuntimeAdapter {

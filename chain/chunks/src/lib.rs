@@ -1,7 +1,9 @@
-use std::cmp;
-use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    cmp,
+    collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet},
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use borsh::BorshSerialize;
 use cached::{Cached, SizedCache};
@@ -9,36 +11,41 @@ use chrono::{DateTime, Utc};
 use log::{debug, error, warn};
 use rand::seq::SliceRandom;
 
-use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
-    byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
+    byzantine_assert, validate::validate_chunk_proofs, ChainStore, ChainStoreAccess,
+    ChainStoreUpdate, ErrorKind, RuntimeAdapter,
 };
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_network::types::PartialEncodedChunkForwardMsg;
-use near_network::types::{
-    AccountIdOrPeerTrackingShard, NetworkAdapter, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg,
+use near_network::{
+    types::{
+        AccountIdOrPeerTrackingShard, NetworkAdapter, PartialEncodedChunkRequestMsg,
+        PartialEncodedChunkResponseMsg,
+    },
+    NetworkRequests,
 };
-use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
-use near_primitives::block::{BlockHeader, Tip};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, verify_path, MerklePath};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
-    PartialEncodedChunkV1, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
-    ShardChunkHeader, ShardProof,
+use near_primitives::{
+    block::{BlockHeader, Tip},
+    checked_feature,
+    hash::{hash, CryptoHash},
+    merkle::{merklize, verify_path, MerklePath},
+    receipt::Receipt,
+    sharding::{
+        ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
+        PartialEncodedChunkV1, PartialEncodedChunkV2, ReceiptList, ReceiptProof,
+        ReedSolomonWrapper, ShardChunkHeader, ShardProof,
+    },
+    transaction::SignedTransaction,
+    types::{
+        AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
+        ValidatorStake,
+    },
+    unwrap_or_return,
+    utils::MaybeValidated,
+    validator_signer::ValidatorSigner,
+    version::ProtocolVersion,
 };
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
-    ValidatorStake,
-};
-use near_primitives::utils::MaybeValidated;
-use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolVersion;
-use near_primitives::{checked_feature, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
@@ -1721,12 +1728,13 @@ mod test {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use near_network::NetworkRequests;
-    use near_primitives::block::Tip;
-    use near_primitives::types::EpochId;
+    use near_primitives::{block::Tip, types::EpochId};
     #[cfg(feature = "expensive_tests")]
     use {
         crate::ACCEPTING_SEAL_PERIOD_MS, near_chain::ChainStore, near_chain::RuntimeAdapter,

@@ -1,8 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use crate::hash::{hash, CryptoHash};
-use crate::types::MerkleHash;
+use crate::{
+    hash::{hash, CryptoHash},
+    types::MerkleHash,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct MerklePathItem {
@@ -176,8 +178,7 @@ impl PartialMerkleTree {
 
 #[cfg(test)]
 mod tests {
-    use rand::rngs::StdRng;
-    use rand::{Rng, SeedableRng};
+    use rand::{rngs::StdRng, Rng, SeedableRng};
 
     use super::*;
 

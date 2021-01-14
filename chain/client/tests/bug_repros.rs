@@ -1,23 +1,25 @@
 // This test tracks tests that reproduce previously fixed bugs to make sure the regressions we
 // fix do not resurface
 
-use std::cmp::max;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::{
+    cmp::max,
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use actix::{Addr, System};
 use rand::{thread_rng, Rng};
 
 use futures::FutureExt;
 use near_chain::test_utils::account_id_to_shard_id;
-use near_client::test_utils::setup_mock_all_validators;
-use near_client::{ClientActor, GetBlock, ViewClientActor};
+use near_client::{test_utils::setup_mock_all_validators, ClientActor, GetBlock, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
-use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
-use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
-use near_primitives::block::Block;
-use near_primitives::transaction::SignedTransaction;
+use near_network::{
+    types::NetworkRequests::PartialEncodedChunkMessage, NetworkClientMessages, NetworkRequests,
+    NetworkResponses, PeerInfo,
+};
+use near_primitives::{block::Block, transaction::SignedTransaction};
 
 #[test]
 fn repro_1183() {

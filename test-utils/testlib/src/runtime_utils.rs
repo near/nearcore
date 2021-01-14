@@ -1,15 +1,15 @@
-use std::fs;
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 use byteorder::{ByteOrder, LittleEndian};
 
 use near_chain_configs::Genesis;
-use near_primitives::account::Account;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, StateRoot};
-use near_store::test_utils::create_tries;
-use near_store::{ShardTries, TrieUpdate};
+use near_primitives::{
+    account::Account,
+    hash::{hash, CryptoHash},
+    state_record::StateRecord,
+    types::{AccountId, StateRoot},
+};
+use near_store::{test_utils::create_tries, ShardTries, TrieUpdate};
 use neard::config::GenesisExt;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 

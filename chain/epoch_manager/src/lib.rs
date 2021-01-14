@@ -1,30 +1,30 @@
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::Arc,
+};
 
 use cached::{Cached, SizedCache};
 use log::{debug, warn};
 use primitive_types::U256;
 
-use near_primitives::epoch_manager::{
-    BlockInfo, EpochConfig, EpochInfo, EpochSummary, SlashState, AGGREGATOR_KEY,
-};
-use near_primitives::errors::EpochError;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
-    ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
-};
-use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
-use near_primitives::views::{
-    CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
+use near_primitives::{
+    epoch_manager::{BlockInfo, EpochConfig, EpochInfo, EpochSummary, SlashState, AGGREGATOR_KEY},
+    errors::EpochError,
+    hash::CryptoHash,
+    types::{
+        AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
+        ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
+    },
+    version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION},
+    views::{
+        CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
+    },
 };
 use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
 
-use crate::proposals::proposals_to_epoch_info;
-pub use crate::reward_calculator::RewardCalculator;
-use crate::types::EpochInfoAggregator;
-pub use crate::types::RngSeed;
+use crate::{proposals::proposals_to_epoch_info, types::EpochInfoAggregator};
+pub use crate::{reward_calculator::RewardCalculator, types::RngSeed};
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
@@ -1268,10 +1268,10 @@ impl EpochManager {
 mod tests {
     use num_rational::Rational;
 
-    use near_primitives::challenge::SlashedValidator;
-    use near_primitives::hash::hash;
-    use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::{
+        challenge::SlashedValidator, hash::hash, types::ValidatorKickoutReason::NotEnoughBlocks,
+        version::PROTOCOL_VERSION,
+    };
     use near_store::test_utils::create_test_store;
 
     use crate::test_utils::{

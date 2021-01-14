@@ -5,13 +5,15 @@ use num_rational::Rational;
 use serde::Serialize;
 use smart_default::SmartDefault;
 
-use crate::challenge::SlashedValidator;
-use crate::hash::CryptoHash;
-use crate::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
-    EpochId, NumSeats, NumShards, ValidatorId, ValidatorKickoutReason, ValidatorStake,
+use crate::{
+    challenge::SlashedValidator,
+    hash::CryptoHash,
+    types::{
+        AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
+        EpochId, NumSeats, NumShards, ValidatorId, ValidatorKickoutReason, ValidatorStake,
+    },
+    version::{ProtocolVersion, PROTOCOL_VERSION},
 };
-use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
 
 pub type RngSeed = [u8; 32];
 

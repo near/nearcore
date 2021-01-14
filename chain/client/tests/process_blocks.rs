@@ -1,55 +1,63 @@
-use std::collections::HashSet;
-use std::convert::TryFrom;
-use std::iter::FromIterator;
-use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashSet,
+    convert::TryFrom,
+    iter::FromIterator,
+    path::Path,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, RwLock,
+    },
+};
 
 use actix::System;
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
-use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
-use near_chain::types::LatestKnown;
-use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
-    Block, ChainGenesis, ChainStore, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter,
+    chain::NUM_EPOCHS_TO_KEEP_STORE_DATA, types::LatestKnown,
+    validate::validate_chunk_with_chunk_extra, Block, ChainGenesis, ChainStore, ChainStoreAccess,
+    ErrorKind, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::test_utils::{create_chunk_on_height, setup_mock_all_validators};
-use near_client::test_utils::{setup_client, setup_mock, TestEnv};
-use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
+use near_client::{
+    test_utils::{
+        create_chunk_on_height, setup_client, setup_mock, setup_mock_all_validators, TestEnv,
+    },
+    Client, GetBlock, GetBlockWithMerkleTree,
+};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
-use near_network::routing::EdgeInfo;
-use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
-use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
 use near_network::{
+    routing::EdgeInfo,
+    test_utils::{wait_or_panic, MockNetworkAdapter},
+    types::{NetworkInfo, PeerChainInfoV2, ReasonForBan},
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
 };
-use near_primitives::block::{Approval, ApprovalInner};
-use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash, Digest};
-use near_primitives::merkle::verify_hash;
-use near_primitives::sharding::{
-    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderV2,
+use near_primitives::{
+    block::{Approval, ApprovalInner},
+    errors::InvalidTxError,
+    hash::{hash, CryptoHash, Digest},
+    merkle::verify_hash,
+    sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderV2},
+    syncing::{get_num_state_parts, ShardStateSyncResponseHeader},
+    transaction::{
+        Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
+    },
+    types::{AccountId, BlockHeight, EpochId, NumBlocks, ValidatorStake},
+    utils::to_timestamp,
+    validator_signer::{InMemoryValidatorSigner, ValidatorSigner},
+    version::PROTOCOL_VERSION,
+    views::{QueryRequest, QueryResponseKind},
 };
-use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
-use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
-};
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ValidatorStake};
-use near_primitives::utils::to_timestamp;
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use neard::NEAR_BASE;
+use neard::{
+    config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE},
+    NEAR_BASE,
+};
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)

@@ -1,7 +1,6 @@
 use rocksdb::IteratorMode;
 
-use crate::db::RocksDB;
-use crate::DBCol;
+use crate::{db::RocksDB, DBCol};
 
 impl RocksDB {
     /// Clears the column using delete_range_cf()

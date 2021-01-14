@@ -1,22 +1,21 @@
-use crate::config::ActionCosts;
-use crate::config::ExtCosts::*;
-use crate::config::VMConfig;
-use crate::context::VMContext;
-use crate::dependencies::{External, MemoryLike};
-use crate::gas_counter::GasCounter;
-use crate::types::{
-    AccountId, Balance, EpochHeight, Gas, ProfileData, PromiseIndex, PromiseResult,
-    ProtocolVersion, ReceiptIndex, ReturnData, StorageUsage,
+use crate::{
+    config::{ActionCosts, ExtCosts::*, VMConfig},
+    context::VMContext,
+    dependencies::{External, MemoryLike},
+    gas_counter::GasCounter,
+    types::{
+        AccountId, Balance, EpochHeight, Gas, ProfileData, PromiseIndex, PromiseResult,
+        ProtocolVersion, ReceiptIndex, ReturnData, StorageUsage,
+    },
+    utils::split_method_names,
+    ExtCosts, HostError, VMLogicError, ValuePtr,
 };
-use crate::utils::split_method_names;
-use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
 use byteorder::ByteOrder;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::InconsistentStateError;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::mem::size_of;
+use std::{collections::HashMap, mem::size_of};
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 

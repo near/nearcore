@@ -1,7 +1,9 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
-use std::ops::Sub;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    ops::Sub,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use serde::Serialize;
 
@@ -13,18 +15,20 @@ use log::{trace, warn};
 
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::AccountId;
-use near_primitives::utils::index_to_bytes;
+use near_primitives::{
+    hash::{hash, CryptoHash},
+    network::{AnnounceAccount, PeerId},
+    types::AccountId,
+    utils::index_to_bytes,
+};
 use near_store::{
     ColAccountAnnouncements, ColComponentEdges, ColLastComponentNonce, ColPeerComponent, Store,
     StoreUpdate,
 };
 
-use crate::metrics;
 use crate::{
     cache::RouteBackCache,
+    metrics,
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
@@ -857,8 +861,10 @@ impl Graph {
 
 #[cfg(test)]
 mod test {
-    use crate::routing::Graph;
-    use crate::test_utils::{expected_routing_tables, random_peer_id};
+    use crate::{
+        routing::Graph,
+        test_utils::{expected_routing_tables, random_peer_id},
+    };
 
     #[test]
     fn graph_contains_edge() {

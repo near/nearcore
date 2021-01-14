@@ -1,19 +1,23 @@
-use std::borrow::Borrow;
-use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::{
+    borrow::Borrow,
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 
-use crate::account::AccessKey;
-use crate::errors::TxExecutionError;
-use crate::hash::{hash, CryptoHash};
-use crate::logging;
-use crate::merkle::MerklePath;
-use crate::serialize::{base64_format, u128_dec_format, u128_dec_format_compatible};
-use crate::types::{AccountId, Balance, Gas, Nonce};
+use crate::{
+    account::AccessKey,
+    errors::TxExecutionError,
+    hash::{hash, CryptoHash},
+    logging,
+    merkle::MerklePath,
+    serialize::{base64_format, u128_dec_format, u128_dec_format_compatible},
+    types::{AccountId, Balance, Gas, Nonce},
+};
 
 pub type LogEntry = String;
 
@@ -414,8 +418,10 @@ mod tests {
 
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 
-    use crate::account::{AccessKeyPermission, FunctionCallPermission};
-    use crate::serialize::to_base;
+    use crate::{
+        account::{AccessKeyPermission, FunctionCallPermission},
+        serialize::to_base,
+    };
 
     use super::*;
 

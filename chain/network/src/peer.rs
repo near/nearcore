@@ -1,14 +1,16 @@
-use std::cmp::max;
-use std::io;
-use std::net::SocketAddr;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::{
+    cmp::max,
+    io,
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
 };
-use std::time::{Duration, Instant};
 
-use actix::io::{FramedWrite, WriteHandler};
 use actix::{
+    io::{FramedWrite, WriteHandler},
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
@@ -16,31 +18,33 @@ use tracing::{debug, error, info, trace, warn};
 
 use near_metrics;
 use near_performance_metrics;
-use near_primitives::block::GenesisId;
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
-use near_primitives::unwrap_option_or_return;
-use near_primitives::utils::DisplayOption;
-use near_primitives::version::{
-    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
+use near_primitives::{
+    block::GenesisId,
+    hash::CryptoHash,
+    network::PeerId,
+    unwrap_option_or_return,
+    utils::DisplayOption,
+    version::{ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
 };
 
-use crate::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
-use crate::rate_counter::RateCounter;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{PeerMessageMetadata, Status};
-use crate::routing::{Edge, EdgeInfo};
-use crate::types::{
-    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
-    PeerMessage, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
-    PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, StateResponseInfo, Unregister,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+use crate::{
+    codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec},
+    metrics,
+    rate_counter::RateCounter,
+    routing::{Edge, EdgeInfo},
+    types::{
+        Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
+        NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
+        NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
+        PeerMessage, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType,
+        PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessage,
+        RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, Unregister,
+        UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    },
+    NetworkResponses, PeerManagerActor,
 };
-use crate::PeerManagerActor;
-use crate::{metrics, NetworkResponses};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;

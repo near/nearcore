@@ -1,11 +1,15 @@
-use std::convert::TryFrom;
-use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::{
+    convert::TryFrom,
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, BaseDecode};
+use crate::{
+    logging::pretty_hash,
+    serialize::{from_base, to_base, BaseDecode},
+};
 
 #[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord, derive_more::AsRef)]
 #[as_ref(forward)]

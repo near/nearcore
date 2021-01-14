@@ -1,8 +1,9 @@
 use near_primitives::hash::CryptoHash;
 
-use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{NodeHandle, TrieNode, TrieNodeWithSize, ValueHandle};
-use crate::{StorageError, Trie};
+use crate::{
+    trie::{nibble_slice::NibbleSlice, NodeHandle, TrieNode, TrieNodeWithSize, ValueHandle},
+    StorageError, Trie,
+};
 
 #[derive(Debug)]
 struct Crumb {

@@ -2,29 +2,34 @@ use num_rational::Ratio;
 #[cfg(feature = "protocol_feature_evm")]
 use num_traits::cast::FromPrimitive;
 use rand::{Rng, SeedableRng};
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::TryFrom;
-use std::process;
-use std::sync::{Arc, Mutex};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashMap, HashSet},
+    convert::TryFrom,
+    process,
+    sync::{Arc, Mutex},
+};
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+use near_primitives::{
+    account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
+    hash::CryptoHash,
+    transaction::{
+        Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+        DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    },
 };
 
 #[cfg(feature = "protocol_feature_evm")]
 use crate::evm_estimator::cost_of_evm;
-use crate::ext_costs_generator::ExtCostsGenerator;
-use crate::runtime_fees_generator::RuntimeFeesGenerator;
-use crate::stats::Measurements;
-use crate::testbed::RuntimeTestbed;
-use crate::testbed_runners::GasMetric;
-use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use crate::vm_estimator::{cost_per_op, cost_to_compile, load_and_compile};
+use crate::{
+    ext_costs_generator::ExtCostsGenerator,
+    runtime_fees_generator::RuntimeFeesGenerator,
+    stats::Measurements,
+    testbed::RuntimeTestbed,
+    testbed_runners::{get_account_id, measure_actions, measure_transactions, Config, GasMetric},
+    vm_estimator::{cost_per_op, cost_to_compile, load_and_compile},
+};
 
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,

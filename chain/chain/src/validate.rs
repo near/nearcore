@@ -3,23 +3,23 @@ use std::collections::HashMap;
 use borsh::BorshDeserialize;
 
 use near_crypto::PublicKey;
-use near_primitives::block::{Block, BlockHeader};
-use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk,
+use near_primitives::{
+    block::{Block, BlockHeader},
+    challenge::{
+        BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
+        MaybeEncodedShardChunk,
+    },
+    hash::CryptoHash,
+    merkle::merklize,
+    sharding::{ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2},
+    transaction::SignedTransaction,
+    types::{AccountId, ChunkExtra, EpochId, Nonce},
 };
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
-use near_primitives::sharding::{
-    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2,
-};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce};
 use near_store::PartialStorage;
 
-use crate::byzantine_assert;
-use crate::types::ApplyTransactionResult;
-use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
+use crate::{
+    byzantine_assert, types::ApplyTransactionResult, ChainStore, Error, ErrorKind, RuntimeAdapter,
+};
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;

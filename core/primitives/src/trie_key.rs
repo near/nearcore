@@ -1,5 +1,4 @@
-use crate::hash::CryptoHash;
-use crate::types::AccountId;
+use crate::{hash::CryptoHash, types::AccountId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use std::mem::size_of;

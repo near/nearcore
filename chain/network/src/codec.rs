@@ -128,19 +128,21 @@ pub fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, PublicKey, SecretKey};
-    use near_primitives::block::{Approval, ApprovalInner};
-    use near_primitives::hash::{self, CryptoHash};
-    use near_primitives::network::{AnnounceAccount, PeerId};
-    use near_primitives::transaction::{SignedTransaction, Transaction};
     use near_primitives::{
+        block::{Approval, ApprovalInner},
+        hash::{self, CryptoHash},
+        network::{AnnounceAccount, PeerId},
+        transaction::{SignedTransaction, Transaction},
         types::EpochId,
         version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
     };
 
-    use crate::routing::EdgeInfo;
-    use crate::types::{
-        Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerChainInfoV2,
-        PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody, SyncData,
+    use crate::{
+        routing::EdgeInfo,
+        types::{
+            Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerChainInfoV2,
+            PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody, SyncData,
+        },
     };
 
     use super::*;

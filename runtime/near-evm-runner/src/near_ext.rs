@@ -10,8 +10,10 @@ use vm::{
     MessageCallResult, Result as EvmResult, ReturnData, Schedule, TrapKind,
 };
 
-use crate::evm_state::{EvmState, SubState};
-use crate::interpreter;
+use crate::{
+    evm_state::{EvmState, SubState},
+    interpreter,
+};
 
 use crate::utils::format_log;
 
