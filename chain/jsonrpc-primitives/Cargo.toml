@@ -1,15 +1,15 @@
 [package]
-name = "near-jsonrpc-client"
+name = "near-jsonrpc-primitives"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 [dependencies]
-actix-web = "2"
-futures = "0.3"
+actix = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "~0.8", features = ["v4"] }
 
-near-jsonrpc-primitives = { path = "../../jsonrpc-primitives" }
-near-primitives = { path = "../../../core/primitives" }
+near-client-primitives = { path = "../client-primitives" }

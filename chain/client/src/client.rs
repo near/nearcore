@@ -41,8 +41,8 @@ use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
-use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use near_client_primitives::types::{Error, ShardSyncDownload};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 

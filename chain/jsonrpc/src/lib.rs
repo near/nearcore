@@ -21,8 +21,8 @@ use near_client::{
     GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus, TxStatusError, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::message::{Message, Request, RpcError};
 use near_jsonrpc_client::ChunkId;
+use near_jsonrpc_primitives::message::{Message, Request, RpcError};
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
@@ -39,7 +39,7 @@ use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId};
 use near_primitives::views::{
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest,
+    BlockView, FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest,
 };
 use near_runtime_utils::is_valid_account_id;
 
@@ -227,7 +227,7 @@ impl JsonRpcHandler {
             }
         }
 
-        let response = match request.method.as_ref() {
+        let response: Result<Value, RpcError> = match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params).await,
             "EXPERIMENTAL_broadcast_tx_sync" => self.send_tx_sync(request.params).await,
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
@@ -240,7 +240,9 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
             "tx" => self.tx_status_common(request.params, false).await,
             "EXPERIMENTAL_tx_status" => self.tx_status_common(request.params, true).await,
-            "block" => self.block(request.params).await,
+            "block" => self.block(request.params).await.and_then(|value| {
+                serde_json::to_value(value).map_err(|err| RpcError::parse_error(err.to_string()))
+            }),
             "chunk" => self.chunk(request.params).await,
             "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
             "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
@@ -253,6 +255,10 @@ impl JsonRpcHandler {
             "gas_price" => self.gas_price(request.params).await,
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
+
+        // let response = response.and_then(|value| {
+        //     serde_json::to_value(value).map_err(|err| RpcError::parse_error(err.to_string()))
+        // });
 
         if let Err(err) = &response {
             near_metrics::inc_counter_vec(
@@ -621,13 +627,15 @@ impl JsonRpcHandler {
             .map_err(|err| err.into())))
     }
 
-    async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
+    async fn block(&self, params: Option<Value>) -> Result<BlockView, RpcError> {
         let block_reference = if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
             BlockReference::BlockId(block_id)
         } else {
             parse_params::<BlockReference>(params)?
         };
-        jsonify(self.view_client_addr.send(GetBlock(block_reference)).await)
+        Ok(self.view_client_addr.send(GetBlock(block_reference)).await??)
+
+        // jsonify(self.view_client_addr.send(GetBlock(block_reference)).await)
     }
 
     async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -649,12 +657,9 @@ impl JsonRpcHandler {
 
     async fn changes_in_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let RpcStateChangesInBlockRequest { block_reference } = parse_params(params)?;
-        let block = self
-            .view_client_addr
-            .send(GetBlock(block_reference))
-            .await
-            .map_err(|err| RpcError::server_error(Some(err.to_string())))?
-            .map_err(|err| RpcError::server_error(Some(err)))?;
+        let block = self.view_client_addr.send(GetBlock(block_reference)).await??;
+        // .map_err(|err| RpcError::server_error(Some(err.to_string())))?
+        // .map_err(|err| RpcError::server_error(Some(err)))?;
         let block_hash = block.header.hash.clone();
         jsonify(self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await.map(|v| {
             v.map(|changes| RpcStateChangesInBlockResponse {
@@ -667,12 +672,9 @@ impl JsonRpcHandler {
     async fn changes_in_block_by_type(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let RpcStateChangesRequest { block_reference, state_changes_request } =
             parse_params(params)?;
-        let block = self
-            .view_client_addr
-            .send(GetBlock(block_reference))
-            .await
-            .map_err(|err| RpcError::server_error(Some(err.to_string())))?
-            .map_err(|err| RpcError::server_error(Some(err)))?;
+        let block = self.view_client_addr.send(GetBlock(block_reference)).await??;
+        // .map_err(|err| RpcError::server_error(Some(err.to_string())))?
+        // .map_err(|err| RpcError::server_error(Some(err)))?;
         let block_hash = block.header.hash.clone();
         jsonify(
             self.view_client_addr

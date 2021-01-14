@@ -130,6 +130,31 @@ impl std::string::ToString for RpcError {
     }
 }
 
+impl From<near_client_primitives::types::GetBlockError> for RpcError {
+    fn from(error: near_client_primitives::types::GetBlockError) -> RpcError {
+        RpcError::new(
+            -32_000,
+            "Server error".to_string(),
+            match error {
+                near_client_primitives::types::GetBlockError::ChainError(err) => {
+                    Some(Value::String(err.to_string()))
+                }
+                near_client_primitives::types::GetBlockError::ViewClientError(err) => {
+                    Some(Value::String(err.to_string()))
+                }
+                near_client_primitives::types::GetBlockError::InvalidParams(s)
+                | near_client_primitives::types::GetBlockError::Other(s) => Some(Value::String(s)),
+            },
+        )
+    }
+}
+
+impl From<actix::MailboxError> for RpcError {
+    fn from(error: actix::MailboxError) -> RpcError {
+        RpcError::new(-32_000, "Server error".to_string(), Some(Value::String(error.to_string())))
+    }
+}
+
 /// A response to an RPC.
 ///
 /// It is created by the methods on [Request](struct.Request.html).
@@ -303,12 +328,12 @@ impl Broken {
 /// A trick to easily deserialize and detect valid JSON, but invalid Message.
 #[derive(Deserialize)]
 #[serde(untagged)]
-pub(crate) enum WireMessage {
+pub enum WireMessage {
     Message(Message),
     Broken(Broken),
 }
 
-pub(crate) fn decoded_to_parsed(res: JsonResult<WireMessage>) -> Parsed {
+pub fn decoded_to_parsed(res: JsonResult<WireMessage>) -> Parsed {
     match res {
         Ok(WireMessage::Message(Message::UnmatchedSub(value))) => Err(Broken::Unmatched(value)),
         Ok(WireMessage::Message(m)) => Ok(m),

@@ -150,6 +150,13 @@ impl SyncStatus {
 /// Actor message requesting block by id or hash.
 pub struct GetBlock(pub BlockReference);
 
+pub enum GetBlockError {
+    ChainError(near_chain::Error),
+    ViewClientError(Error),
+    InvalidParams(String),
+    Other(String),
+}
+
 impl GetBlock {
     pub fn latest() -> Self {
         Self(BlockReference::latest())
@@ -157,7 +164,7 @@ impl GetBlock {
 }
 
 impl Message for GetBlock {
-    type Result = Result<BlockView, String>;
+    type Result = Result<BlockView, GetBlockError>;
 }
 
 /// Get block with the block merkle tree. Used for testing
@@ -170,7 +177,7 @@ impl GetBlockWithMerkleTree {
 }
 
 impl Message for GetBlockWithMerkleTree {
-    type Result = Result<(BlockView, PartialMerkleTree), String>;
+    type Result = Result<(BlockView, PartialMerkleTree), GetBlockError>;
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
