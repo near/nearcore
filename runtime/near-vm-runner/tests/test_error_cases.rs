@@ -358,33 +358,22 @@ fn bad_import_func(env: &str) -> Vec<u8> {
 // Invalid import from "env" -> LinkError
 fn test_bad_import_1() {
     with_vm_variants(|vm_kind: VMKind| {
-        match vm_kind {
-            VMKind::Wasmer => assert_eq!(
-                make_simple_contract_call_vm(&bad_import_global("wtf"), b"hello", vm_kind),
-                (
-                    None,
-                    Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                        CompilationError::PrepareError(PrepareError::Instantiate)
-                    )))
-                )
-            ),
-            VMKind::Wasmer1 => assert_eq!(
-                make_simple_contract_call_vm(&bad_import_global("wtf"), b"hello", vm_kind),
-                (
-                    Some(vm_outcome_with_gas(46500213)),
-                    Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: "Error while importing \"wtf\".\"input\": unknown import. Expected Global(GlobalType { ty: I32, mutability: Const })".to_string() }))
-                )
-            ),
-            VMKind::Wasmtime => {}
-        }
+        assert_eq!(
+            make_simple_contract_call_vm(&bad_import_global("wtf"), b"hello", vm_kind),
+            (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::PrepareError(PrepareError::Instantiate)
+                )))
+            )
+        )
     });
 }
 
 #[test]
 fn test_bad_import_2() {
     with_vm_variants(|vm_kind: VMKind| {
-        match vm_kind {
-        VMKind::Wasmer => assert_eq!(
+        assert_eq!(
             make_simple_contract_call_vm(&bad_import_func("wtf"), b"hello", vm_kind),
             (
                 None,
@@ -392,16 +381,7 @@ fn test_bad_import_2() {
                     CompilationError::PrepareError(PrepareError::Instantiate)
                 )))
             )
-        ),
-        VMKind::Wasmer1 => {
-            assert_eq!(make_simple_contract_call_vm(&bad_import_func("wtf"), b"hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(45849963)),
-                Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: "Error while importing \"wtf\".\"wtf\": unknown import. Expected Function(FunctionType { params: [], results: [] })".to_string() })))
-            )
-        }
-        VMKind::Wasmtime => {}
-    }
+        );
     });
 }
 
