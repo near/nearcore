@@ -9,7 +9,6 @@ members = [
     "core/chain-configs",
     "core/crypto",
     "core/primitives",
-    "core/runtime-configs",
     "core/store",
     "core/metrics",
     "utils/actix",

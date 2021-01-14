@@ -20,7 +20,7 @@ use near_store::{ShardTries, TrieUpdate};
 use neard::config::MIN_GAS_PRICE;
 #[cfg(feature = "protocol_feature_evm")]
 use neard::config::TESTNET_EVM_CHAIN_ID;
-use node_runtime::config::RuntimeConfig;
+use near_primitives::runtime::config::RuntimeConfig;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 

@@ -1,5 +1,12 @@
+use crate::{
+    hash::CryptoHash,
+    profile::ProfileData,
+    runtime::config::RuntimeConfig,
+    types::{Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId, Gas},
+    version::ProtocolVersion,
+};
 use std::sync::Arc;
-use crate::{hash::CryptoHash, profile::ProfileData, types::{Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId, Gas}, version::ProtocolVersion};
+
 #[derive(Debug)]
 pub struct ApplyState {
     /// Currently building block height.
@@ -28,7 +35,8 @@ pub struct ApplyState {
     pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// Ethereum chain id.
     #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u128,
+    pub evm_chain_id: u64,
     /// Data collected from making a contract call
+    #[cfg(feature = "costs_counting")]
     pub profile: Option<ProfileData>,
 }

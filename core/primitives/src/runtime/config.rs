@@ -1,12 +1,12 @@
-//! Settings of the parameters of the runtime.
+use crate::runtime::fees::RuntimeFeesConfig;
+use crate::{
+    account::Account,
+    config::VMConfig,
+    types::{AccountId, Balance},
+    version::ProtocolVersion,
+};
 use serde::{Deserialize, Serialize};
-
-use near_primitives::account::Account;
-use near_primitives::serialize::u128_dec_format;
-use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::ProtocolVersion;
-use near_runtime_fees::RuntimeFeesConfig;
-use near_primitives::config::VMConfig;
+use crate::serialize::u128_dec_format;
 use std::sync::Arc;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
@@ -78,33 +78,7 @@ impl Default for AccountCreationConfig {
     }
 }
 
-/// Checks if given account has enough balance for storage stake, and returns:
-///  - None if account has enough balance,
-///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
-///  - Err(message) if account has invalid storage usage or amount/locked.
-///
-/// Read details of state staking https://nomicon.io/Economics/README.html#state-stake
-pub fn get_insufficient_storage_stake(
-    account: &Account,
-    runtime_config: &RuntimeConfig,
-) -> Result<Option<Balance>, String> {
-    let required_amount = Balance::from(account.storage_usage)
-        .checked_mul(runtime_config.storage_amount_per_byte)
-        .ok_or_else(|| {
-            format!("Account's storage_usage {} overflows multiplication", account.storage_usage)
-        })?;
-    let available_amount = account.amount.checked_add(account.locked).ok_or_else(|| {
-        format!(
-            "Account's amount {} and locked {} overflow addition",
-            account.amount, account.locked
-        )
-    })?;
-    if available_amount >= required_amount {
-        Ok(None)
-    } else {
-        Ok(Some(required_amount - available_amount))
-    }
-}
+
 
 #[cfg(test)]
 mod tests {

@@ -27,11 +27,7 @@ pub fn clone_profile(profile: &ProfileData) -> ProfileData {
 
 impl ProfileData {
     pub fn new() -> Self {
-        Self {
-            data: Rc::new(RefCell::new(
-                [0u64; 1 + ExtCosts::count() + ActionCosts::count()],
-            )),
-        }
+        Self { data: Rc::new(RefCell::new([0u64; 1 + ExtCosts::count() + ActionCosts::count()])) }
     }
 
     const EXT_START: usize = 1;

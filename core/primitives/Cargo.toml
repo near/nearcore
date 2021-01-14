@@ -40,6 +40,7 @@ protocol_feature_rectify_inflation = []
 protocol_feature_evm = []
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm"]
 nightly_protocol = []
+costs_counting = []
 
 
 [dev-dependencies]

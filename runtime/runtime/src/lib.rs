@@ -22,7 +22,7 @@ use near_primitives::{
     },
     trie_key::TrieKey,
     types::{
-        AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
+        AccountId, Balance,
         EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
         StateRoot, ValidatorStake,
     },
@@ -31,7 +31,7 @@ use near_primitives::{
         system_account,
     },
 };
-use near_runtime_configs::get_insufficient_storage_stake;
+use near_primitives::runtime::get_insufficient_storage_stake;
 pub use near_store;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
@@ -55,7 +55,6 @@ use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOC
 use near_runtime_fees::RuntimeFeesConfig;
 use std::borrow::Borrow;
 use std::rc::Rc;
-use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
@@ -69,7 +68,7 @@ mod verifier;
 pub use near_primitives::profile::ProfileData;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
-pub use near_primitives::runtime::ApplyState;
+pub use near_primitives::runtime::apply_state::ApplyState;
 
 /// Contains information to update validators accounts at the first block of a new epoch.
 #[derive(Debug)]
@@ -1435,7 +1434,6 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
-    use near_vm_logic::types::ProfileData;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 

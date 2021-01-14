@@ -17,7 +17,7 @@ use near_primitives::version::{
     ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
     IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
 };
-use near_runtime_configs::AccountCreationConfig;
+use near_primitives::runtime::config::AccountCreationConfig;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::{
     is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
@@ -611,7 +611,7 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                return if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
                     && is_the_only_action
                     && is_account_id_64_len_hex(&account_id)
                     && !is_refund
@@ -624,12 +624,12 @@ pub(crate) fn check_account_existence(
                     // we don't want some type of abuse.
                     // - Account deletion with beneficiary creates a refund, so it'll not create a
                     // new account.
-                    return Ok(());
+                    Ok(())
                 } else {
-                    return Err(ActionErrorKind::AccountDoesNotExist {
+                    Err(ActionErrorKind::AccountDoesNotExist {
                         account_id: account_id.clone(),
                     }
-                    .into());
+                        .into())
                 };
             }
         }

@@ -24,7 +24,6 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
-near-runtime-configs = { path = "../../core/runtime-configs" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }

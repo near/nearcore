@@ -13,7 +13,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use neard::get_store_path;
-use node_runtime::config::RuntimeConfig;
+use near_primitives::runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
 use std::sync::Arc;
 

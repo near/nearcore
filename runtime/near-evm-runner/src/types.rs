@@ -5,8 +5,8 @@ use ethereum_types::{Address, U256};
 use keccak_hash::keccak;
 use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
 
+use near_primitives::types::AccountId;
 use near_vm_errors::{EvmError, InconsistentStateError, VMLogicError};
-use near_vm_logic::types::AccountId;
 
 use crate::utils::ecrecover_address;
 

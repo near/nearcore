@@ -31,7 +31,7 @@ use near_runtime_fees::{
     RuntimeFeesConfig,
 };
 use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
-use node_runtime::config::RuntimeConfig;
+use near_primitives::runtime::config::RuntimeConfig;
 
 /// How much gas there is in a nanosecond worth of computation.
 const GAS_IN_MEASURE_UNIT: u128 = 1_000_000u128;

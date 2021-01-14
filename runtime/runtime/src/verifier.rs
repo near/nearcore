@@ -14,14 +14,15 @@ use near_primitives::{
     types::Balance,
     version::ProtocolVersion,
 };
-use near_runtime_configs::get_insufficient_storage_stake;
+use near_primitives::runtime::get_insufficient_storage_stake;
 use near_runtime_utils::is_valid_account_id;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
 
-use crate::config::{total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost};
+use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::VerificationResult;
+use near_primitives::runtime::config::RuntimeConfig;
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.

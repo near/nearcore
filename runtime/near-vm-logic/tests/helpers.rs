@@ -1,7 +1,9 @@
-use near_primitives::config::ExtCosts;
+use near_primitives::{
+    types::Gas,
+    config::ExtCosts,
+};
 use near_vm_errors::VMLogicError;
-use near_vm_logic::types::Gas;
-use near_vm_logic::{ExtCosts, VMLogic, EXT_COSTS_COUNTER};
+use near_vm_logic::{VMLogic, EXT_COSTS_COUNTER};
 use std::collections::HashMap;
 
 #[allow(dead_code)]

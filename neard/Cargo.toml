@@ -31,7 +31,6 @@ near-actix-utils = { path = "../utils/actix" }
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
-near-runtime-configs = { path = "../core/runtime-configs" }
 near-store = { path = "../core/store" }
 node-runtime = { path = "../runtime/runtime"}
 near-chain = { path = "../chain/chain" }

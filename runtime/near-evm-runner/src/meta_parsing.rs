@@ -2,8 +2,8 @@ use ethabi::{encode, Token as ABIToken};
 use ethereum_types::{Address, U256};
 use keccak_hash::keccak;
 use lunarity_lexer::{Lexer, Token};
+use near_primitives::types::AccountId;
 use near_vm_errors::{EvmError, VMLogicError};
-use near_vm_logic::types::AccountId;
 use rlp::{Decodable, DecoderError, Rlp};
 
 use crate::types::{MetaCallArgs, RawU256, Result};

@@ -8,9 +8,9 @@ use near_evm_runner::utils::{near_erc712_domain, prepare_meta_call_args, u256_to
 use near_evm_runner::EvmContext;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::types::Balance;
-use near_vm_logic::VMConfig;
 use rlp::RlpStream;
+use near_primitives::config::VMConfig;
+use near_primitives::types::Balance;
 
 /// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
 pub const CHAIN_ID: u64 = 1313161555;

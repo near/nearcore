@@ -33,7 +33,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_runtime_configs::RuntimeConfig;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
 
 /// Initial balance used in tests.

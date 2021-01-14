@@ -1,8 +1,8 @@
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::types::{Balance, ReturnData};
-use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
+use near_primitives::types::{Balance};
+use near_vm_logic::{types::ReturnData, VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, with_vm_variants, VMError};
 use std::mem::size_of;
 

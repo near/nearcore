@@ -3022,7 +3022,6 @@ dependencies = [
  "derive_more",
  "near-crypto",
  "near-primitives",
- "near-runtime-configs",
  "near-runtime-fees",
  "num-rational 0.2.4",
  "serde",
@@ -3161,6 +3160,7 @@ dependencies = [
  "libsecp256k1",
  "lunarity-lexer",
  "near-crypto",
+ "near-primitives",
  "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
@@ -3376,7 +3376,6 @@ dependencies = [
  "near-crypto",
  "near-network",
  "near-primitives",
- "near-runtime-configs",
  "paperclip",
  "serde",
  "serde_json",
@@ -3409,19 +3408,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-runtime-configs"
-version = "0.1.0"
-dependencies = [
- "near-primitives",
- "near-runtime-fees",
- "near-vm-logic",
- "serde",
-]
-
-[[package]]
 name = "near-runtime-fees"
 version = "2.3.0"
 dependencies = [
+ "near-primitives",
  "num-rational 0.2.4",
  "serde",
 ]
@@ -3597,7 +3587,6 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-rosetta-rpc",
- "near-runtime-configs",
  "near-store",
  "near-telemetry",
  "node-runtime",
@@ -3656,7 +3645,6 @@ dependencies = [
  "near-evm-runner",
  "near-metrics",
  "near-primitives",
- "near-runtime-configs",
  "near-runtime-fees",
  "near-runtime-utils",
  "near-store",
