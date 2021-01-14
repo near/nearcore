@@ -91,7 +91,7 @@ pub struct ApplyState {
     pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// Ethereum chain id.
     #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u128,
+    pub evm_chain_id: u64,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -1541,7 +1541,7 @@ mod tests {
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
+            evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

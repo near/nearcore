@@ -258,6 +258,12 @@ pub enum EvmError {
     OutOfBounds,
     /// Execution has been reverted with REVERT.
     Reverted,
+    /// Invalid method name to parse
+    InvalidMetaTransactionMethodName,
+    /// Invalid function args in meta txn
+    InvalidMetaTransactionFunctionArg,
+    /// Chain ID doesn't match. Trying to use transaction signed for a different chain.
+    InvalidChainId,
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]

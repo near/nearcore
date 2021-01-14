@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -573,6 +574,12 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error>;
+
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         chunk_prev_block_hash: &CryptoHash,
@@ -580,7 +587,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<bool, Error>;
 
     #[cfg(feature = "protocol_feature_evm")]
-    fn evm_chain_id(&self) -> u128;
+    fn evm_chain_id(&self) -> u64;
 
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
