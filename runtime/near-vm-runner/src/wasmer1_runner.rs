@@ -74,9 +74,12 @@ impl IntoVMError for wasmer::InstantiationError {
             wasmer::InstantiationError::Link(e) => {
                 VMError::FunctionCallError(FunctionCallError::LinkError { msg: e.to_string() })
             }
-            _ => VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::Instantiate),
-            )),
+            wasmer::InstantiationError::Start(e) => e.into_vm_error(),
+            wasmer::InstantiationError::HostEnvInitialization(_) => {
+                VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::PrepareError(PrepareError::Instantiate),
+                ))
+            }
         }
     }
 }
