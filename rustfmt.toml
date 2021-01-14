@@ -2,4 +2,5 @@ use_small_heuristics = "Max"
 reorder_imports = true
 edition = "2018"
 # fn_args_density = "Compressed"
+merge_imports = true
 # overflow_delimited_expr = "true"
