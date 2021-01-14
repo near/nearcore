@@ -1,12 +1,13 @@
 use crate::errors::IntoVMError;
 use crate::imports;
+use crate::prepare;
 use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{
     CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError,
 };
 use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer::{Bytes, Instance, Memory, MemoryType, Module, Pages, Singlepass, Store, JIT};
 
 pub struct Wasmer1Memory(Memory);
@@ -82,7 +83,29 @@ impl IntoVMError for wasmer::InstantiationError {
 
 impl IntoVMError for wasmer::RuntimeError {
     fn into_vm_error(self) -> VMError {
-        VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(self.message()))
+        match self.clone().downcast::<VMLogicError>() {
+            Ok(e) => {
+                println!("aaaaaa");
+
+                match e {
+                    VMLogicError::HostError(h) => {
+                        VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+                    }
+                    VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
+                    VMLogicError::InconsistentStateError(e) => {
+                        VMError::InconsistentStateError(e.clone())
+                    }
+                    VMLogicError::EvmError(_) => unreachable!("Wasm can't return EVM error"),
+                }
+            }
+            // Either a Trap or Generic error of wasmer::RuntimeError
+            // We only know it's message
+            _ => {
+                println!("bbbbbb");
+
+                VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(self.message()))
+            }
+        }
     }
 }
 
@@ -153,7 +176,11 @@ pub fn run_wasmer1<'a>(
 
     let engine = JIT::new(Singlepass::default()).engine();
     let store = Store::new(&engine);
-    let module = match Module::new(&store, code) {
+    let prepared_code = match prepare::prepare_contract(code, wasm_config) {
+        Ok(code) => code,
+        Err(e) => return (None, Some(e.into())),
+    };
+    let module = match Module::new(&store, prepared_code) {
         Ok(x) => x,
         Err(err) => return (None, Some(err.into_vm_error())),
     };
