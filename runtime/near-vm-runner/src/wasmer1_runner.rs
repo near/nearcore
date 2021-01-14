@@ -85,27 +85,10 @@ impl IntoVMError for wasmer::RuntimeError {
     fn into_vm_error(self) -> VMError {
         let error_msg = self.message();
         match self.downcast::<VMLogicError>() {
-            Ok(e) => {
-                println!("aaaaaa");
-
-                match e {
-                    VMLogicError::HostError(h) => {
-                        VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
-                    }
-                    VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
-                    VMLogicError::InconsistentStateError(e) => {
-                        VMError::InconsistentStateError(e.clone())
-                    }
-                    VMLogicError::EvmError(_) => unreachable!("Wasm can't return EVM error"),
-                }
-            }
+            Ok(e) => e.into_vm_error(),
             // Either a Trap or Generic error of wasmer::RuntimeError
             // We only know it's message
-            _ => {
-                println!("bbbbbb");
-
-                VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(error_msg))
-            }
+            _ => VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(error_msg)),
         }
     }
 }
@@ -144,7 +127,7 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
 }
 
 pub fn run_wasmer1<'a>(
-    code_hash: Vec<u8>,
+    _code_hash: Vec<u8>,
     code: &[u8],
     method_name: &[u8],
     ext: &mut dyn External,
@@ -154,7 +137,7 @@ pub fn run_wasmer1<'a>(
     promise_results: &'a [PromiseResult],
     profile: Option<ProfileData>,
     current_protocol_version: ProtocolVersion,
-    cache: Option<&'a dyn CompiledContractCache>,
+    _cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
     // So doesn't require x86. However, when it is on x86, AVX is required:

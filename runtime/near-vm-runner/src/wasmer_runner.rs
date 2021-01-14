@@ -153,16 +153,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             }
             RuntimeError::User(data) => {
                 if let Some(err) = data.downcast_ref::<VMLogicError>() {
-                    match err {
-                        VMLogicError::HostError(h) => {
-                            VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
-                        }
-                        VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
-                        VMLogicError::InconsistentStateError(e) => {
-                            VMError::InconsistentStateError(e.clone())
-                        }
-                        VMLogicError::EvmError(_) => unreachable!("Wasm can't return EVM error"),
-                    }
+                    err.into_vm_error()
                 } else {
                     panic!(
                         "Bad error case! Output is non-deterministic {:?} {:?}",
