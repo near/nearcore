@@ -12,6 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
+use strum::AsStaticStr;
 use tokio::net::TcpStream;
 use tracing::{error, warn};
 
@@ -1390,7 +1391,7 @@ pub enum NetworkAdversarialMessage {
     AdvSetSyncInfo(u64),
 }
 
-#[derive(Debug, strum::AsRefStr)]
+#[derive(Debug, strum::AsRefStr, AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
@@ -1469,6 +1470,7 @@ impl Message for NetworkClientMessages {
     type Result = NetworkClientResponses;
 }
 
+#[derive(AsStaticStr)]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),
