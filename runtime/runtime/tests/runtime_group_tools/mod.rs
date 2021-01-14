@@ -70,6 +70,8 @@ impl StandaloneRuntime {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
+            #[cfg(feature = "costs_counting")]
+            profile: None,
         };
 
         Self {
