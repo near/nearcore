@@ -1,6 +1,5 @@
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::{
-    account::Account,
     config::VMConfig,
     types::{AccountId, Balance},
     version::ProtocolVersion,

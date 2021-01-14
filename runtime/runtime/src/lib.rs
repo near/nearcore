@@ -1434,7 +1434,6 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
-    use near_vm_logic::types::ProfileData;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 

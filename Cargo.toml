@@ -113,4 +113,9 @@ protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_pa
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm"]
 protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
-costs_counting = ["neard/costs_counting", "testlib/costs_counting", "node-runtime/costs_counting"]
+costs_counting = [
+    "near-primitives/costs_counting",
+    "neard/costs_counting",
+    "node-runtime/costs_counting",
+    "testlib/costs_counting"
+]

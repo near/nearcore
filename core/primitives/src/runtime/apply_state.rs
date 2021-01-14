@@ -1,6 +1,5 @@
 use crate::{
     hash::CryptoHash,
-    profile::ProfileData,
     runtime::config::RuntimeConfig,
     types::{Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId, Gas},
     version::ProtocolVersion,
@@ -38,5 +37,5 @@ pub struct ApplyState {
     pub evm_chain_id: u64,
     /// Data collected from making a contract call
     #[cfg(feature = "costs_counting")]
-    pub profile: Option<ProfileData>,
+    pub profile: Option<crate::profile::ProfileData>,
 }

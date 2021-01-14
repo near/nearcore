@@ -42,7 +42,7 @@ no_cpu_compatibility_checks = []
 protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
 
 # Use this feature to enable counting of fees and costs applied.
-costs_counting = ["near-vm-logic/costs_counting"]
+costs_counting = ["near-vm-logic/costs_counting", "near-primitives/costs_counting"]
 
 no_cache = []
 
