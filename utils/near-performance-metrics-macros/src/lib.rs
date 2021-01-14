@@ -16,7 +16,7 @@ use quote::quote;
 /// argument is called msg.
 ///
 /// # Examples
-/// ```
+/// ```ignore
 ///
 /// pub enum MyMessage {
 ///      ExampleMessage()
@@ -52,7 +52,7 @@ pub fn perf(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// has `#[derive(AsStaticStr)]`.
 ///
 /// # Examples
-/// ```
+/// ```ignore
 /// use strum::AsStaticStr;
 ///
 /// #[derive(AsStaticStr)]
