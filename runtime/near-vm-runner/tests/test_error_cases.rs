@@ -277,17 +277,20 @@ fn stack_overflow() -> Vec<u8> {
 
 #[test]
 fn test_stack_overflow() {
-    // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
-    // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
-    assert_eq!(
-        make_simple_contract_call_vm(&stack_overflow(), b"hello", VMKind::Wasmer0),
-        (
-            Some(vm_outcome_with_gas(63226248177)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
-        )
-    );
-
-    // TODO add a Wasmer1 test?
+    with_vm_variants(|vm_kind: VMKind| {
+        // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
+        // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => assert_eq!(
+                make_simple_contract_call_vm(&stack_overflow(), b"hello", VMKind::Wasmer0),
+                (
+                    Some(vm_outcome_with_gas(63226248177)),
+                    Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
+                )
+            ),
+            _ => {}
+        }
+    });
 }
 
 fn memory_grow() -> Vec<u8> {
