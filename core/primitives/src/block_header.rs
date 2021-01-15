@@ -829,6 +829,17 @@ impl BlockHeader {
         self.approvals().iter().filter(|x| x.is_some()).count() as u64
     }
 
+    pub fn verify_chunks_included(&self) -> bool {
+        match self {
+            BlockHeader::BlockHeaderV1(header) => {
+                header.inner_rest.chunk_mask.iter().map(|&x| u64::from(x)).sum::<u64>()
+                    == header.inner_rest.chunks_included
+            }
+            BlockHeader::BlockHeaderV2(_header) => true,
+            BlockHeader::BlockHeaderV3(_header) => true,
+        }
+    }
+
     #[inline]
     pub fn latest_protocol_version(&self) -> u32 {
         match self {
