@@ -1,4 +1,4 @@
-use log::info;
+use log::{info, warn};
 use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -65,7 +65,7 @@ impl ThreadStats {
 
         if ratio > MIN_OCCUPANCY_RATIO_THRESHOLD {
             let class_name = format!("{:?}", self.classes);
-            info!(
+            warn!(
                 "    Thread:{} ratio: {:.4} {}:{} ",
                 tid,
                 ratio,
@@ -76,7 +76,7 @@ impl ThreadStats {
             s.sort_by(|x, y| (*x).0.cmp(&(*y).0));
 
             for entry in s {
-                info!(
+                warn!(
                     "        func {} {}:{} cnt: {} total: {}ms max: {}ms",
                     TID.with(|x| *x.borrow()),
                     (entry.0).0,
@@ -167,7 +167,7 @@ where
     let took = now.elapsed();
     if took > SLOW_CALL_THRESHOLD {
         let text_field = msg_text.map(|x| format!(" msg: {}", x)).unwrap_or(format!(""));
-        info!(
+        warn!(
             "Function exceeded time limit {}:{} {:?} took: {}ms {}",
             class_name,
             TID.with(|x| *x.borrow()),
@@ -205,7 +205,7 @@ where
         STATS.lock().unwrap().log(this.class_name, this.file, this.line, took);
 
         if took > SLOW_CALL_THRESHOLD {
-            info!(
+            warn!(
                 "Function exceeded time limit {}:{} {}:{} took: {}ms",
                 this.class_name,
                 TID.with(|x| *x.borrow()),

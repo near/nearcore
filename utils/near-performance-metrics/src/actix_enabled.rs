@@ -1,4 +1,4 @@
-use log::info;
+use log::warn;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -32,7 +32,7 @@ where
         let took = now.elapsed();
         STATS.lock().unwrap().log("run_later", file, line, took);
         if took > SLOW_CALL_THRESHOLD {
-            info!(
+            warn!(
                 "Slow function call {}:{} {}:{} took: {}ms",
                 "run_later",
                 TID.with(|x| *x.borrow()),
