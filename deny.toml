@@ -130,5 +130,8 @@ skip = [
     { name = "actix-codec", version = "=0.3.0"},
 
     # actix-connect via actix-http  and actix-server
-    { name = "actix-utils", version = "=1.0.6" }
+    { name = "actix-utils", version = "=1.0.6" },
+
+    # wasmer 1.0 use some newer version of crates than wasmer 0.17 & wasmtime, old ones are skipped here
+    { name = "cranelift-frontend", version = "=0.67.0" }
 ]
