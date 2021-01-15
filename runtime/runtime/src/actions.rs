@@ -142,6 +142,8 @@ pub(crate) fn execute_function_call(
             promise_results,
             apply_state.current_protocol_version,
             cache,
+            #[cfg(feature = "costs_counting")]
+            &apply_state.profile,
         )
     }
 }
@@ -718,7 +720,7 @@ mod tests {
                 kind: ActionErrorKind::CreateAccountNotAllowed {
                     account_id: account_id.clone(),
                     predecessor_id: predecessor_id.clone(),
-                }
+                },
             })
         );
     }
@@ -737,7 +739,7 @@ mod tests {
                     account_id: account_id.clone(),
                     registrar_account_id: AccountId::from("registrar"),
                     predecessor_id: predecessor_id.clone(),
-                }
+                },
             })
         );
     }

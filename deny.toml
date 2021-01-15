@@ -23,7 +23,7 @@ deny = [
 skip = [
     # actix 0.9.0 still uses it
     { name = "tokio-util", version = "=0.2.0" },
-    { name = "parking_lot", version = "=0.10.2" },
+    { name = "parking_lot", version = "=0.11.1" },
     { name = "parking_lot_core", version = "=0.7.2" },
     { name = "lock_api", version = "=0.3.4" },
     # actix-server 1.0.2 still uses it
@@ -49,7 +49,7 @@ skip = [
     { name = "itertools", version = "=0.8.2" },
     { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
-    { name = "sha2", version = "=0.8.1" },
+    { name = "sha2", version = "=0.8.2" },
     { name = "crypto-mac", version = "=0.7.0" },
     { name = "block-padding", version = "=0.1.5" },
     { name = "block-buffer", version = "=0.7.3" },
@@ -131,6 +131,11 @@ skip = [
 
     # actix-connect via actix-http  and actix-server
     { name = "actix-utils", version = "=1.0.6" },
+
+    # trie-db via patricia-trie-ethereum and indexmap via actix-http
+    { name = "hashbrown", version = "=0.6.3" },
+
+    { name = "parking_lot", version = "=0.9.0" },
 
     # wasmer 1.0 use some newer version of crates than wasmer 0.17 & wasmtime, old ones are skipped here
     { name = "cranelift-frontend", version = "=0.67.0" }

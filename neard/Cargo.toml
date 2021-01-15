@@ -68,6 +68,7 @@ nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protoc
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 wasmtime_vm = ["node-runtime/wasmtime_vm"]
 wasmer1_vm = ["node-runtime/wasmer1_vm"]
+costs_counting = ["node-runtime/costs_counting"]
 
 [[bin]]
 path = "src/main.rs"

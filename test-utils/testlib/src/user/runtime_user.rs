@@ -19,7 +19,7 @@ use near_primitives::views::{
 use near_store::{ShardTries, TrieUpdate};
 use neard::config::MIN_GAS_PRICE;
 #[cfg(feature = "protocol_feature_evm")]
-use neard::config::TEST_EVM_CHAIN_ID;
+use neard::config::TESTNET_EVM_CHAIN_ID;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
@@ -139,7 +139,9 @@ impl RuntimeUser {
             config: self.runtime_config.clone(),
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
+            #[cfg(feature = "costs_counting")]
+            profile: None,
         }
     }
 
@@ -245,7 +247,7 @@ impl User for RuntimeUser {
             current_protocol_version: PROTOCOL_VERSION,
             cache: apply_state.cache,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         result.result = self
             .trie_viewer

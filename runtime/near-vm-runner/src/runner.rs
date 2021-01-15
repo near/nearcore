@@ -27,7 +27,39 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
+    #[cfg(feature = "costs_counting")] profile: &Option<ProfileData>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    #[cfg(feature = "costs_counting")]
+    match profile {
+        Some(profile) => run_vm_profiled(
+            code_hash,
+            code,
+            method_name,
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            VMKind::default(),
+            profile.clone(),
+            current_protocol_version,
+            cache,
+        ),
+        _ => run_vm(
+            code_hash,
+            code,
+            method_name,
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            VMKind::default(),
+            current_protocol_version,
+            cache,
+        ),
+    }
+    #[cfg(not(feature = "costs_counting"))]
     run_vm(
         code_hash,
         code,
@@ -135,7 +167,7 @@ pub fn run_vm_profiled<'a>(
 
     #[cfg(feature = "wasmer1_vm")]
     use crate::wasmer1_runner::run_wasmer1;
-    match vm_kind {
+    let (outcome, error) = match vm_kind {
         VMKind::Wasmer0 => run_wasmer(
             code_hash,
             code,
@@ -145,7 +177,7 @@ pub fn run_vm_profiled<'a>(
             wasm_config,
             fees_config,
             promise_results,
-            Some(profile),
+            Some(profile.clone()),
             current_protocol_version,
             cache,
         ),
@@ -159,7 +191,7 @@ pub fn run_vm_profiled<'a>(
             wasm_config,
             fees_config,
             promise_results,
-            Some(profile),
+            Some(profile.clone()),
             current_protocol_version,
             cache,
         ),
@@ -177,13 +209,18 @@ pub fn run_vm_profiled<'a>(
             wasm_config,
             fees_config,
             promise_results,
-            Some(profile),
+            Some(profile.clone()),
             current_protocol_version,
             cache,
         ),
         #[cfg(not(feature = "wasmer1_vm"))]
         VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
-    }
+    };
+    match &outcome {
+        Some(VMOutcome { burnt_gas, .. }) => profile.set_burnt_gas(*burnt_gas),
+        _ => (),
+    };
+    (outcome, error)
 }
 
 pub fn with_vm_variants(runner: fn(VMKind) -> ()) {

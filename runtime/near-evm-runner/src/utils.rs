@@ -7,11 +7,10 @@ use keccak_hash::keccak;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vm::CreateContractAddress;
 
-use crate::types::{
-    DataKey, FunctionCallArgs, MetaCallArgs, RawAddress, RawHash, RawU256, Result, ViewCallArgs,
+pub use crate::meta_parsing::{
+    encode_address, encode_string, near_erc712_domain, parse_meta_call, prepare_meta_call_args,
 };
-use near_vm_errors::{EvmError, VMLogicError};
-use near_vm_logic::types::AccountId;
+use crate::types::{DataKey, FunctionCallArgs, RawAddress, RawHash, RawU256, ViewCallArgs};
 
 pub fn saturating_next_address(addr: &RawAddress) -> RawAddress {
     let mut expanded_addr = [255u8; 32];
@@ -183,135 +182,27 @@ pub fn format_log(topics: Vec<H256>, data: &[u8]) -> std::result::Result<Vec<u8>
     Ok(result)
 }
 
-pub fn near_erc721_domain(chain_id: U256) -> RawU256 {
-    let mut bytes = Vec::with_capacity(70);
-    bytes.extend_from_slice(
-        &keccak("EIP712Domain(string name,string version,uint256 chainId)".as_bytes()).as_bytes(),
-    );
-    bytes.extend_from_slice(b"NEAR");
-    bytes.extend_from_slice(&[0x01]);
-    bytes.extend_from_slice(&u256_to_arr(&chain_id));
-    keccak(&bytes).into()
-}
-
-pub fn method_name_to_rlp(method_name: String) -> [u8; 4] {
-    let mut result = [0u8; 4];
-    result.copy_from_slice(&keccak(method_name)[..4]);
-    result
-}
-
-pub fn prepare_meta_call_args(
-    domain_separator: &RawU256,
-    account_id: &AccountId,
-    nonce: U256,
-    fee_amount: U256,
-    fee_address: Address,
-    contract_address: Address,
-    method_name: &str,
-    args: &[u8],
-) -> RawU256 {
-    let mut bytes = Vec::with_capacity(32 + 32 + 20 + account_id.len() + 4 + args.len());
-    bytes.extend_from_slice(
-        &keccak(
-            "NearTx(string evmId, uint256 nonce, uint256 feeAmount, uint256 feeAddress, address contractAddress, string contractMethod, Arguments arguments)"
-                .as_bytes(),
-        )
-        .as_bytes(),
-    );
-    bytes.extend_from_slice(account_id.as_bytes());
-    bytes.extend_from_slice(&u256_to_arr(&nonce));
-    bytes.extend_from_slice(&u256_to_arr(&fee_amount));
-    bytes.extend_from_slice(&fee_address.0);
-    bytes.extend_from_slice(&contract_address.0);
-    bytes.extend_from_slice(&method_name.as_bytes());
-    // TODO: hash?
-    bytes.extend_from_slice(args);
-    let message: RawU256 = keccak(&bytes).into();
-    let mut bytes = Vec::with_capacity(2 + 32 + 32);
-    bytes.extend_from_slice(&[0x19, 0x01]);
-    bytes.extend_from_slice(domain_separator);
-    bytes.extend_from_slice(&message);
-    keccak(&bytes).into()
-}
-
-/// Format
-/// [0..65): signature: v - 1 byte, s - 32 bytes, r - 32 bytes
-/// [65..97): nonce: nonce of the `signer` account of the `signature`.
-/// : fee_amount
-/// : fee_address
-/// [97..117): contract_id: address for contract to call
-/// : method_name_length
-/// : method_name
-/// 117..: RLP encoded rest of arguments.
-pub fn parse_meta_call(
-    domain_separator: &RawU256,
-    account_id: &AccountId,
-    args: Vec<u8>,
-) -> Result<MetaCallArgs> {
-    if args.len() <= 169 {
-        return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
-    }
-    let mut signature: [u8; 65] = [0; 65];
-    // Signatures coming from outside are srv but ecrecover takes vsr, so move last byte to first position.
-    // TODO: There is overflow.
-    signature[0] = args[64] + 27;
-    signature[1..].copy_from_slice(&args[..64]);
-    let nonce = U256::from_big_endian(&args[65..97]);
-    let fee_amount = U256::from_big_endian(&args[97..129]);
-    let fee_address = Address::from_slice(&args[129..149]);
-    let contract_address = Address::from_slice(&args[149..169]);
-    let method_name_len = args[169] as usize;
-    if args.len() < method_name_len + 170 {
-        return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
-    }
-    let method_name = String::from_utf8(args[170..170 + method_name_len].to_vec())
-        .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
-    let args = &args[170 + method_name_len..];
-
-    let msg = prepare_meta_call_args(
-        domain_separator,
-        account_id,
-        nonce,
-        fee_amount,
-        fee_address,
-        contract_address,
-        &method_name,
-        args,
-    );
-    let sender = ecrecover_address(&msg, &signature);
-    if sender == Address::zero() {
-        return Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature));
-    }
-    let method_name_rlp = method_name_to_rlp(method_name);
-    let input = [method_name_rlp.to_vec(), args.to_vec()].concat();
-    Ok(MetaCallArgs { sender, nonce, fee_amount, fee_address, contract_address, input })
-}
-
 /// Given signature and data, validates that signature is valid for given data and returns ecrecover address.
-/// If signature is invalid or doesn't match, returns 0x0 address.
-pub fn ecrecover_address(hash: &RawHash, signature: &[u8; 65]) -> Address {
+pub fn ecrecover_address(hash: &RawHash, signature: &[u8; 65]) -> Option<Address> {
     use sha3::Digest;
 
     let hash = secp256k1::Message::parse(&H256::from_slice(hash).0);
-    let v = &signature[0];
+    let v = signature[0];
     let bit = match v {
-        27..=30 => v - 27,
-        _ => {
-            // ??
-            return Address::zero();
-        }
+        0..=26 => v,
+        _ => v - 27,
     };
 
     let mut sig = [0u8; 64];
-    sig.copy_from_slice(&signature[1..]);
+    sig.copy_from_slice(&signature[1..65]);
     let s = secp256k1::Signature::parse(&sig);
 
     if let Ok(rec_id) = secp256k1::RecoveryId::parse(bit) {
         if let Ok(p) = secp256k1::recover(&hash, &s, &rec_id) {
             // recover returns the 65-byte key, but addresses come from the raw 64-byte key
             let r = sha3::Keccak256::digest(&p.serialize()[1..]);
-            return address_from_arr(&r[12..]);
+            return Some(address_from_arr(&r[12..]));
         }
     }
-    Address::zero()
+    None
 }
