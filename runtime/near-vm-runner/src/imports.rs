@@ -2,14 +2,17 @@ use near_vm_logic::VMLogic;
 
 use std::ffi::c_void;
 
-struct ImportReference(*mut c_void);
+#[derive(Clone)]
+pub struct ImportReference(pub *mut c_void);
 unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
 
-#[derive(Clone)]
-pub struct VMLogicReference(pub *mut c_void);
-unsafe impl Send for VMLogicReference {}
-unsafe impl Sync for VMLogicReference {}
+use wasmer::{Memory, WasmerEnv};
+#[derive(WasmerEnv, Clone)]
+pub struct MyEnv {
+    pub memory: Memory,
+    pub logic: ImportReference,
+}
 
 // Wasm has only i32/i64 types, so Wasmtime 0.17 only accepts
 // external functions taking i32/i64 type.
@@ -46,13 +49,7 @@ macro_rules! wrapped_imports {
             #[cfg(feature = "wasmer1_vm")]
             pub mod wasmer1_ext {
             use near_vm_logic::VMLogic;
-            use wasmer::{WasmerEnv, Memory};
-            use crate::imports::VMLogicReference;
-            #[derive(WasmerEnv, Clone)]
-            pub struct MyEnv {
-                pub memory: Memory,
-                pub logic: VMLogicReference,
-            }
+            use crate::imports::MyEnv;
 
             type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
             $(
@@ -123,7 +120,7 @@ macro_rules! wrapped_imports {
             #[cfg(feature = "wasmer1_vm")]
             pub(crate) fn build_wasmer1(store: &wasmer::Store, memory: wasmer::Memory, logic: &mut VMLogic<'_>) ->
                 wasmer::ImportObject {
-                let env = wasmer1_ext::MyEnv {logic: VMLogicReference(logic as * mut _ as * mut c_void), memory: memory.clone()};
+                let env = MyEnv {logic: ImportReference(logic as * mut _ as * mut c_void), memory: memory.clone()};
                 wasmer::imports! {
                     "env" => {
                         "memory" => memory,
