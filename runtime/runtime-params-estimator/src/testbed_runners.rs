@@ -118,6 +118,10 @@ const HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED: u32 = 1;
 const HYPERCALL_GET_BYTES_READ: u32 = 2;
 const HYPERCALL_GET_BYTES_WRITTEN: u32 = 3;
 
+// See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
+const READ_BYTE_COST: u32 = 27;
+const WRITE_BYTE_COST: u32 = 47;
+
 fn hypercall(index: u32) -> u64 {
     let mut result: u64 = 0;
     unsafe {
@@ -142,8 +146,8 @@ fn end_count_instructions() -> u64 {
         let result_insn = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED);
         let result_read = hypercall(HYPERCALL_GET_BYTES_READ);
         let result_written = hypercall(HYPERCALL_GET_BYTES_WRITTEN);
-        // See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
-        result_insn + result_read * 27 + result_written * 47
+
+        result_insn + result_read * READ_BYTE_COST + result_written * WRITE_BYTE_COST
     } else {
         hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)
     }
