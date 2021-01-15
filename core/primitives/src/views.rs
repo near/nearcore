@@ -20,7 +20,7 @@ use crate::block_header::{
     BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
 use crate::challenge::{Challenge, ChallengesResult};
-use crate::checked_feature_crate;
+use crate::checked_feature;
 use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -490,7 +490,7 @@ impl From<BlockHeaderView> for BlockHeader {
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
         };
-        let is_block_ordinal_enabled = checked_feature_crate!(
+        let is_block_ordinal_enabled = checked_feature!(
             "protocol_feature_block_ordinal",
             BlockOrdinal,
             view.latest_protocol_version

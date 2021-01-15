@@ -5,7 +5,7 @@ use serde::Serialize;
 use near_crypto::{KeyType, PublicKey, Signature};
 
 use crate::challenge::ChallengesResult;
-use crate::checked_feature_crate;
+use crate::checked_feature;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
@@ -359,11 +359,8 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root,
         };
-        let is_block_ordinal_enabled = checked_feature_crate!(
-            "protocol_feature_block_ordinal",
-            BlockOrdinal,
-            protocol_version
-        );
+        let is_block_ordinal_enabled =
+            checked_feature!("protocol_feature_block_ordinal", BlockOrdinal, protocol_version);
         if protocol_version <= 29 {
             let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
@@ -482,7 +479,7 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root: CryptoHash::default(),
         };
-        let is_block_ordinal_enabled = checked_feature_crate!(
+        let is_block_ordinal_enabled = checked_feature!(
             "protocol_feature_block_ordinal",
             BlockOrdinal,
             genesis_protocol_version
