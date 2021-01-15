@@ -119,8 +119,8 @@ const HYPERCALL_GET_BYTES_READ: u32 = 2;
 const HYPERCALL_GET_BYTES_WRITTEN: u32 = 3;
 
 // See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
-const READ_BYTE_COST: u32 = 27;
-const WRITE_BYTE_COST: u32 = 47;
+const READ_BYTE_COST: u64 = 27;
+const WRITE_BYTE_COST: u64 = 47;
 
 fn hypercall(index: u32) -> u64 {
     let mut result: u64 = 0;
