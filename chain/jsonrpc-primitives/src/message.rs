@@ -132,20 +132,18 @@ impl std::string::ToString for RpcError {
 
 impl From<near_client_primitives::types::GetBlockError> for RpcError {
     fn from(error: near_client_primitives::types::GetBlockError) -> RpcError {
-        RpcError::new(
-            -32_000,
-            "Server error".to_string(),
-            match error {
-                near_client_primitives::types::GetBlockError::ChainError(err) => {
-                    Some(Value::String(err.to_string()))
-                }
-                near_client_primitives::types::GetBlockError::ViewClientError(err) => {
-                    Some(Value::String(err.to_string()))
-                }
-                near_client_primitives::types::GetBlockError::InvalidParams(s)
-                | near_client_primitives::types::GetBlockError::Other(s) => Some(Value::String(s)),
-            },
-        )
+        let error_data = match error {
+            near_client_primitives::types::GetBlockError::ChainError(err) => {
+                Some(Value::String(err.to_string()))
+            }
+            near_client_primitives::types::GetBlockError::ViewClientError(err) => {
+                Some(Value::String(err.to_string()))
+            }
+            near_client_primitives::types::GetBlockError::InvalidParams(s)
+            | near_client_primitives::types::GetBlockError::Other(s) => Some(Value::String(s)),
+        };
+
+        RpcError::new(-32_000, "Server error".to_string(), error_data)
     }
 }
 

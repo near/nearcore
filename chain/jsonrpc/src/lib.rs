@@ -634,8 +634,6 @@ impl JsonRpcHandler {
             parse_params::<BlockReference>(params)?
         };
         Ok(self.view_client_addr.send(GetBlock(block_reference)).await??)
-
-        // jsonify(self.view_client_addr.send(GetBlock(block_reference)).await)
     }
 
     async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -658,8 +656,7 @@ impl JsonRpcHandler {
     async fn changes_in_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let RpcStateChangesInBlockRequest { block_reference } = parse_params(params)?;
         let block = self.view_client_addr.send(GetBlock(block_reference)).await??;
-        // .map_err(|err| RpcError::server_error(Some(err.to_string())))?
-        // .map_err(|err| RpcError::server_error(Some(err)))?;
+
         let block_hash = block.header.hash.clone();
         jsonify(self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await.map(|v| {
             v.map(|changes| RpcStateChangesInBlockResponse {
@@ -673,8 +670,7 @@ impl JsonRpcHandler {
         let RpcStateChangesRequest { block_reference, state_changes_request } =
             parse_params(params)?;
         let block = self.view_client_addr.send(GetBlock(block_reference)).await??;
-        // .map_err(|err| RpcError::server_error(Some(err.to_string())))?
-        // .map_err(|err| RpcError::server_error(Some(err)))?;
+
         let block_hash = block.header.hash.clone();
         jsonify(
             self.view_client_addr
