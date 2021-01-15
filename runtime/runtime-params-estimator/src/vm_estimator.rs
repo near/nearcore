@@ -167,6 +167,7 @@ pub fn cost_to_compile(
                         "wasmtime"
                     }
                 }
+                VMKind::Wasmer1 => "wasmer1",
             }
         );
     };
