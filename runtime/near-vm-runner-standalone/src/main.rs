@@ -186,7 +186,7 @@ fn main() {
     let vm_kind: VMKind = match matches.value_of("vm-kind") {
         Some(value) => match value {
             "wasmtime" => VMKind::Wasmtime,
-            "wasmer" => VMKind::Wasmer,
+            "wasmer" => VMKind::Wasmer0,
             "wasmer1" => VMKind::Wasmer1,
             _ => VMKind::default(),
         },

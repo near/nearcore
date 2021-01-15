@@ -241,7 +241,7 @@ pub fn test_out_of_memory() {
         &config,
         &fees,
         &promise_results,
-        VMKind::Wasmer,
+        VMKind::Wasmer0,
         LATEST_PROTOCOL_VERSION,
         None,
     );

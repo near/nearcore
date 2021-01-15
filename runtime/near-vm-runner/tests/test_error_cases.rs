@@ -149,7 +149,7 @@ fn trap_contract() -> Vec<u8> {
 fn test_trap_contract() {
     // See the comment is test_stack_overflow.
     assert_eq!(
-        make_simple_contract_call_vm(&trap_contract(), b"hello", VMKind::Wasmer),
+        make_simple_contract_call_vm(&trap_contract(), b"hello", VMKind::Wasmer0),
         (
             Some(vm_outcome_with_gas(47105334)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
@@ -174,7 +174,7 @@ fn trap_initializer() -> Vec<u8> {
 fn test_trap_initializer() {
     // See the comment is test_stack_overflow.
     assert_eq!(
-        make_simple_contract_call_vm(&trap_initializer(), b"hello", VMKind::Wasmer),
+        make_simple_contract_call_vm(&trap_initializer(), b"hello", VMKind::Wasmer0),
         (
             Some(vm_outcome_with_gas(47755584)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
@@ -280,7 +280,7 @@ fn test_stack_overflow() {
     // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
     // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
     assert_eq!(
-        make_simple_contract_call_vm(&stack_overflow(), b"hello", VMKind::Wasmer),
+        make_simple_contract_call_vm(&stack_overflow(), b"hello", VMKind::Wasmer0),
         (
             Some(vm_outcome_with_gas(63226248177)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
@@ -389,7 +389,7 @@ fn test_bad_import_2() {
 fn test_bad_import_3() {
     with_vm_variants(|vm_kind: VMKind| {
         let msg = match vm_kind {
-            VMKind::Wasmer => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
+            VMKind::Wasmer0 => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
             VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { params: [I64], results: [] })\\n\"",
             VMKind::Wasmer1 => "Error while importing \"env\".\"input\": incompatible import type. Expected Global(GlobalType { ty: I32, mutability: Const }) but received Function(FunctionType { params: [I64], results: [] })"
         }.to_string();
@@ -407,7 +407,7 @@ fn test_bad_import_3() {
 fn test_bad_import_4() {
     with_vm_variants(|vm_kind: VMKind| {
         let msg = match vm_kind {
-            VMKind::Wasmer => "link error: Import not found, namespace: env, name: wtf",
+            VMKind::Wasmer0 => "link error: Import not found, namespace: env, name: wtf",
             VMKind::Wasmtime => "\"unknown import: `env::wtf` has not been defined\"",
             VMKind::Wasmer1 => "Error while importing \"env\".\"wtf\": unknown import. Expected Function(FunctionType { params: [], results: [] })",
         }
@@ -541,9 +541,9 @@ fn test_contract_error_caching() {
     let terragas = 1000000000000u64;
     assert_eq!(cache.store.lock().unwrap().len(), 0);
     let err1 =
-        make_cached_contract_call_vm(&mut cache, &code, b"method_name1", terragas, VMKind::Wasmer);
+        make_cached_contract_call_vm(&mut cache, &code, b"method_name1", terragas, VMKind::Wasmer0);
     assert_eq!(cache.store.lock().unwrap().len(), 1);
     let err2 =
-        make_cached_contract_call_vm(&mut cache, &code, b"method_name2", terragas, VMKind::Wasmer);
+        make_cached_contract_call_vm(&mut cache, &code, b"method_name2", terragas, VMKind::Wasmer0);
     assert_eq!(err1, err2);
 }

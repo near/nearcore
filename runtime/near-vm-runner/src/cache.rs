@@ -102,7 +102,7 @@ pub(crate) fn compile_module_cached_wasmer(
     if cache.is_none() {
         return compile_module(wasm_code, config);
     }
-    let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer, config);
+    let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer0, config);
     let cache = cache.unwrap();
     match cache.get(&(key.0).0) {
         Ok(serialized) => match serialized {

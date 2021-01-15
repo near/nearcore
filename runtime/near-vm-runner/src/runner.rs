@@ -64,7 +64,7 @@ pub fn run_vm<'a>(
     use crate::wasmer1_runner::run_wasmer1;
 
     match vm_kind {
-        VMKind::Wasmer => run_wasmer(
+        VMKind::Wasmer0 => run_wasmer(
             code_hash,
             code,
             method_name,
@@ -136,7 +136,7 @@ pub fn run_vm_profiled<'a>(
     #[cfg(feature = "wasmer1_vm")]
     use crate::wasmer1_runner::run_wasmer1;
     match vm_kind {
-        VMKind::Wasmer => run_wasmer(
+        VMKind::Wasmer0 => run_wasmer(
             code_hash,
             code,
             method_name,
@@ -187,7 +187,7 @@ pub fn run_vm_profiled<'a>(
 }
 
 pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
-    runner(VMKind::Wasmer);
+    runner(VMKind::Wasmer0);
 
     #[cfg(feature = "wasmtime_vm")]
     runner(VMKind::Wasmtime);
@@ -199,7 +199,7 @@ pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
 /// Used for testing cost of compiling a module
 pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) -> bool {
     match vm_kind {
-        VMKind::Wasmer => {
+        VMKind::Wasmer0 => {
             use crate::wasmer_runner::compile_module;
             compile_module(code)
         }
