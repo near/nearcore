@@ -2411,6 +2411,7 @@ fn test_node_shutdown_with_old_protocol_version() {
     env.produce_block(0, 11);
 }
 
+#[cfg(feature = "protocol_feature_block_ordinal")]
 #[test]
 fn test_block_ordinal() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);

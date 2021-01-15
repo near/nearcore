@@ -5,6 +5,7 @@ use serde::Serialize;
 use near_crypto::{KeyType, PublicKey, Signature};
 
 use crate::challenge::ChallengesResult;
+use crate::checked_feature_crate;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
@@ -13,7 +14,7 @@ use crate::types::{
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
-use crate::version::{ProtocolVersion, BLOCK_ORDINAL_UPGRADE_VERSION, PROTOCOL_VERSION};
+use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
@@ -358,6 +359,11 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root,
         };
+        let is_block_ordinal_enabled = checked_feature_crate!(
+            "protocol_feature_block_ordinal",
+            BlockOrdinal,
+            protocol_version
+        );
         if protocol_version <= 29 {
             let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
@@ -389,7 +395,7 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
-        } else if protocol_version <= BLOCK_ORDINAL_UPGRADE_VERSION {
+        } else if !is_block_ordinal_enabled {
             let inner_rest = BlockHeaderInnerRestV2 {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -476,6 +482,11 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root: CryptoHash::default(),
         };
+        let is_block_ordinal_enabled = checked_feature_crate!(
+            "protocol_feature_block_ordinal",
+            BlockOrdinal,
+            genesis_protocol_version
+        );
         if genesis_protocol_version <= 29 {
             let inner_rest = BlockHeaderInnerRest {
                 chunk_receipts_root,
@@ -506,7 +517,7 @@ impl BlockHeader {
                 signature: Signature::empty(KeyType::ED25519),
                 hash,
             }))
-        } else if genesis_protocol_version <= BLOCK_ORDINAL_UPGRADE_VERSION {
+        } else if !is_block_ordinal_enabled {
             let inner_rest = BlockHeaderInnerRestV2 {
                 chunk_receipts_root,
                 chunk_headers_root,

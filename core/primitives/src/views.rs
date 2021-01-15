@@ -20,6 +20,7 @@ use crate::block_header::{
     BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
 use crate::challenge::{Challenge, ChallengesResult};
+use crate::checked_feature_crate;
 use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -44,7 +45,7 @@ use crate::types::{
     StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
     StoreValue, ValidatorKickoutReason, ValidatorStake,
 };
-use crate::version::{ProtocolVersion, Version, BLOCK_ORDINAL_UPGRADE_VERSION};
+use crate::version::{ProtocolVersion, Version};
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -489,6 +490,11 @@ impl From<BlockHeaderView> for BlockHeader {
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
         };
+        let is_block_ordinal_enabled = checked_feature_crate!(
+            "protocol_feature_block_ordinal",
+            BlockOrdinal,
+            view.latest_protocol_version
+        );
         if view.latest_protocol_version <= 29 {
             let mut header = BlockHeaderV1 {
                 prev_hash: view.prev_hash,
@@ -519,7 +525,7 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV1(Box::new(header))
-        } else if view.latest_protocol_version <= BLOCK_ORDINAL_UPGRADE_VERSION {
+        } else if !is_block_ordinal_enabled {
             let mut header = BlockHeaderV2 {
                 prev_hash: view.prev_hash,
                 inner_lite,

@@ -52,8 +52,6 @@ pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
 
 pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
-pub const BLOCK_ORDINAL_UPGRADE_VERSION: ProtocolVersion = 45;
-
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
     upper: Option<ProtocolVersion>,
@@ -84,6 +82,8 @@ pub enum ProtocolFeature {
     RectifyInflation,
     #[cfg(feature = "protocol_feature_evm")]
     EVM,
+    #[cfg(feature = "protocol_feature_block_ordinal")]
+    BlockOrdinal,
 }
 
 /// Current latest stable version of the protocol.
@@ -122,6 +122,8 @@ lazy_static! {
             (ProtocolFeature::RectifyInflation, 43),
             #[cfg(feature = "protocol_feature_evm")]
             (ProtocolFeature::EVM, 46),
+            #[cfg(feature = "protocol_feature_block_ordinal")]
+            (ProtocolFeature::BlockOrdinal, 47),
         ]
         .into_iter()
         .collect();
@@ -143,6 +145,45 @@ macro_rules! checked_feature {
         #[cfg(feature = $feature_name)]
         let is_feature_enabled = near_primitives::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
             [&near_primitives::version::ProtocolFeature::$feature]
+            <= $current_protocol_version;
+        #[cfg(not(feature = $feature_name))]
+        let is_feature_enabled = {
+            // Workaround unused variable warning
+            let _ = $current_protocol_version;
+
+            false
+        };
+        is_feature_enabled
+    }};
+
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{
+        checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {})
+    }};
+
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
+        #[cfg(feature = $feature_name)]
+        {
+            if checked_feature!($feature_name, $feature, $current_protocol_version) {
+                $feature_block
+            } else {
+                $non_feature_block
+            }
+        }
+        // Workaround unused variable warning
+        #[cfg(not(feature = $feature_name))]
+        {
+            let _ = $current_protocol_version;
+            $non_feature_block
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! checked_feature_crate {
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
+        #[cfg(feature = $feature_name)]
+        let is_feature_enabled = crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
+            [&crate::version::ProtocolFeature::$feature]
             <= $current_protocol_version;
         #[cfg(not(feature = $feature_name))]
         let is_feature_enabled = {
