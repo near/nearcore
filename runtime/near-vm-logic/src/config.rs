@@ -16,17 +16,29 @@ pub enum VMKind {
 }
 
 impl Default for VMKind {
-    #[cfg(feature = "wasmer_default")]
+    #[cfg(all(
+        feature = "wasmer_default",
+        not(feature = "wasmer1_default"),
+        not(feature = "wasmtime_default")
+    ))]
     fn default() -> Self {
         VMKind::Wasmer0
     }
 
-    #[cfg(feature = "wasmer1_default")]
+    #[cfg(all(
+        not(feature = "wasmer_default"),
+        feature = "wasmer1_default",
+        not(feature = "wasmtime_default")
+    ))]
     fn default() -> Self {
         VMKind::Wasmer1
     }
 
-    #[cfg(feature = "wasmtime_default")]
+    #[cfg(all(
+        not(feature = "wasmer_default"),
+        not(feature = "wasmer1_default"),
+        feature = "wasmtime_default"
+    ))]
     fn default() -> Self {
         VMKind::Wasmtime
     }
@@ -35,6 +47,16 @@ impl Default for VMKind {
         not(feature = "wasmer_default"),
         not(feature = "wasmer1_default"),
         not(feature = "wasmtime_default")
+    ))]
+    fn default() -> Self {
+        VMKind::Wasmer0
+    }
+
+    // These features should be mutually exclusive, but implement this to --all-features
+    #[cfg(all(
+        feature = "wasmer_default",
+        feature = "wasmer1_default",
+        feature = "wasmtime_default"
     ))]
     fn default() -> Self {
         VMKind::Wasmer0
