@@ -76,7 +76,6 @@ fn pass_through(bench: &mut Bencher) {
             &fees_config,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
-            None,
         );
         assert_run_result(result, 42);
     });
@@ -95,7 +94,6 @@ fn benchmark_fake_storage_8b_1000(bench: &mut Bencher) {
             &fees_config,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
-            None,
         );
         assert_run_result(result, 999 * 1000 / 2);
     });
@@ -114,7 +112,6 @@ fn benchmark_fake_storage_10kib_1000(bench: &mut Bencher) {
             &fees_config,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
-            None,
         );
         assert_run_result(result, 999 * 1000 / 2);
     });
@@ -133,7 +130,6 @@ fn sum_n_1000000(bench: &mut Bencher) {
             &fees_config,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
-            None,
         );
         assert_run_result(result, (1000000 - 1) * 1000000 / 2);
     });

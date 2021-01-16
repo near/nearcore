@@ -261,7 +261,6 @@ fn main() {
             vm_kind,
             Rc::clone(&profile_data),
             protocol_version,
-            None,
         )
     } else {
         run_vm(
@@ -275,7 +274,6 @@ fn main() {
             &promise_results,
             vm_kind,
             protocol_version,
-            None,
         )
     };
     let all_gas = match outcome.clone() {

@@ -67,7 +67,6 @@ impl StandaloneRuntime {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
-            cache: None,
         };
 
         Self {

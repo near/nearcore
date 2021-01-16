@@ -11,8 +11,6 @@ pub enum VMError {
     /// An error that is caused by an operation on an inconsistent state.
     /// E.g. an integer overflow by using a value from the given context.
     InconsistentStateError(InconsistentStateError),
-    /// Error caused by caching.
-    CacheError(CacheError),
 }
 
 #[derive(
@@ -31,15 +29,6 @@ pub enum FunctionCallError {
     WasmTrap(WasmTrap),
     WasmUnknownError,
     HostError(HostError),
-}
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
-pub enum CacheError {
-    ReadError,
-    WriteError,
-    DeserializationError,
-    SerializationError { hash: [u8; 32] },
 }
 /// A kind of a trap happened during execution of a binary
 #[derive(
@@ -294,7 +283,6 @@ impl fmt::Display for VMError {
             VMError::FunctionCallError(err) => fmt::Display::fmt(err, f),
             VMError::ExternalError(_err) => write!(f, "Serialized ExternalError"),
             VMError::InconsistentStateError(err) => fmt::Display::fmt(err, f),
-            VMError::CacheError(err) => write!(f, "Cache error: {:?}", err),
         }
     }
 }

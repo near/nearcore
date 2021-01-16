@@ -18,9 +18,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
-    EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
-    StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
+    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{
     create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
@@ -87,8 +86,6 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
-    /// Cache for compiled contracts.
-    pub cache: Option<Arc<dyn CompiledContractCache>>,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -1452,7 +1449,6 @@ mod tests {
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
-    use near_store::StoreCompiledContractCache;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -1503,6 +1499,7 @@ mod tests {
         let tries = create_tries();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
+
         let account_id = alice_account();
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
@@ -1535,7 +1532,6 @@ mod tests {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::default()),
-            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

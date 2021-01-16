@@ -135,7 +135,6 @@ impl RuntimeUser {
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
-            cache: None,
         }
     }
 

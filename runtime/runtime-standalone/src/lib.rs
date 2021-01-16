@@ -16,11 +16,9 @@ use near_primitives::types::{
     StateChangeCause,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::ViewApplyState;
 use near_runtime_configs::RuntimeConfig;
 use near_store::{
     get_access_key, get_account, set_account, test_utils::create_test_store, ShardTries, Store,
-    StoreCompiledContractCache,
 };
 use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 
@@ -227,8 +225,6 @@ impl RuntimeStandalone {
             epoch_id: EpochId::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
-            // TODO: shall we use compiled contracts cache in standalone runtime?
-            cache: None,
         };
 
         let apply_result = self.runtime.apply(
@@ -304,24 +300,20 @@ impl RuntimeStandalone {
     ) -> Result<(Vec<u8>, Vec<String>), Box<dyn std::error::Error>> {
         let trie_update = self.tries.new_trie_update(0, self.cur_block.state_root);
         let viewer = TrieViewer {};
-        let view_state = ViewApplyState {
-            block_height: self.cur_block.block_height,
-            last_block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: self.cur_block.epoch_height,
-            block_timestamp: self.cur_block.block_timestamp,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
-        };
         let mut logs = vec![];
         let result = viewer.call_function(
             trie_update,
-            &view_state,
+            self.cur_block.block_height,
+            self.cur_block.block_timestamp,
+            &CryptoHash::default(),
+            self.cur_block.epoch_height,
+            &EpochId::default(),
             account_id,
             method_name,
             args,
             &mut logs,
             self.epoch_info_provider.as_ref(),
+            PROTOCOL_VERSION,
         )?;
         Ok((result, logs))
     }

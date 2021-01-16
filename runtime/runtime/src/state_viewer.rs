@@ -9,15 +9,17 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::trie_key::trie_key_parsers;
-use near_primitives::types::{AccountId, EpochInfoProvider};
+use near_primitives::types::EpochHeight;
+use near_primitives::types::{AccountId, BlockHeight, EpochId, EpochInfoProvider};
 use near_primitives::utils::is_valid_account_id;
-use near_primitives::views::{StateItem, ViewApplyState, ViewStateResult};
+use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_logic::{ReturnData, VMConfig, VMContext};
 
 use crate::actions::get_code_with_cache;
 use crate::ext::RuntimeExt;
+use near_primitives::version::ProtocolVersion;
 
 pub struct TrieViewer {}
 
@@ -85,12 +87,17 @@ impl TrieViewer {
     pub fn call_function(
         &self,
         mut state_update: TrieUpdate,
-        view_state: &ViewApplyState,
+        block_height: BlockHeight,
+        block_timestamp: u64,
+        last_block_hash: &CryptoHash,
+        epoch_height: EpochHeight,
+        epoch_id: &EpochId,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
@@ -105,7 +112,6 @@ impl TrieViewer {
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty(KeyType::ED25519);
-        let cache = view_state.cache.as_deref();
         let (outcome, err) = {
             let empty_hash = CryptoHash::default();
             let mut runtime_ext = RuntimeExt::new(
@@ -115,10 +121,10 @@ impl TrieViewer {
                 &public_key,
                 0,
                 &empty_hash,
-                &view_state.epoch_id,
-                &view_state.last_block_hash,
+                epoch_id,
+                last_block_hash,
                 epoch_info_provider,
-                view_state.current_protocol_version,
+                current_protocol_version,
             );
 
             let context = VMContext {
@@ -127,9 +133,9 @@ impl TrieViewer {
                 signer_account_pk: public_key.try_to_vec().expect("Failed to serialize"),
                 predecessor_account_id: originator_id.clone(),
                 input: args.to_owned(),
-                block_index: view_state.block_height,
-                block_timestamp: view_state.block_timestamp,
-                epoch_height: view_state.epoch_height,
+                block_index: block_height,
+                block_timestamp,
+                epoch_height,
                 account_balance: account.amount,
                 account_locked_balance: account.locked,
                 storage_usage: account.storage_usage,
@@ -149,8 +155,7 @@ impl TrieViewer {
                 &VMConfig::default(),
                 &RuntimeFeesConfig::default(),
                 &[],
-                view_state.current_protocol_version,
-                cache,
+                current_protocol_version,
             )
         };
         let elapsed = now.elapsed();
@@ -180,40 +185,35 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    use crate::state_viewer::TrieViewer;
-    use crate::AccountId;
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::{EpochId, StateChangeCause};
-    use near_primitives::version::PROTOCOL_VERSION;
-    use near_primitives::views::{StateItem, ViewApplyState};
+    use near_primitives::types::StateChangeCause;
+    use near_primitives::views::StateItem;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
+
+    use super::*;
+    use near_primitives::test_utils::MockEpochInfoProvider;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     #[test]
     fn test_view_call() {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let view_state = ViewApplyState {
-            block_height: 1,
-            last_block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-        };
         let result = viewer.call_function(
             root,
-            &view_state,
+            1,
+            1,
+            &CryptoHash::default(),
+            0,
+            &EpochId::default(),
             &AccountId::from("test.contract"),
             "run_test",
             &[],
             &mut logs,
             &MockEpochInfoProvider::default(),
+            PROTOCOL_VERSION,
         );
 
         assert_eq!(result.unwrap(), encode_int(10));
@@ -224,23 +224,19 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let view_state = ViewApplyState {
-            block_height: 1,
-            last_block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-        };
         let result = viewer.call_function(
             root,
-            &view_state,
+            1,
+            1,
+            &CryptoHash::default(),
+            0,
+            &EpochId::default(),
             &"bad!contract".to_string(),
             "run_test",
             &[],
             &mut logs,
             &MockEpochInfoProvider::default(),
+            PROTOCOL_VERSION,
         );
 
         let err = result.unwrap_err();
@@ -255,23 +251,19 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let view_state = ViewApplyState {
-            block_height: 1,
-            last_block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-        };
         let result = viewer.call_function(
             root,
-            &view_state,
+            1,
+            1,
+            &CryptoHash::default(),
+            0,
+            &EpochId::default(),
             &AccountId::from("test.contract"),
             "run_test_with_storage_change",
             &[],
             &mut logs,
             &MockEpochInfoProvider::default(),
+            PROTOCOL_VERSION,
         );
         let err = result.unwrap_err();
         assert!(
@@ -285,23 +277,19 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
         let args: Vec<_> = [1u64, 2u64].iter().flat_map(|x| (*x).to_le_bytes().to_vec()).collect();
         let mut logs = vec![];
-        let view_state = ViewApplyState {
-            block_height: 1,
-            last_block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-        };
         let view_call_result = viewer.call_function(
             root,
-            &view_state,
+            1,
+            1,
+            &CryptoHash::default(),
+            0,
+            &EpochId::default(),
             &AccountId::from("test.contract"),
             "sum_with_input",
             &args,
             &mut logs,
             &MockEpochInfoProvider::default(),
+            PROTOCOL_VERSION,
         );
         assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
@@ -366,25 +354,22 @@ mod tests {
     #[test]
     fn test_log_when_panic() {
         let (viewer, root) = get_test_trie_viewer();
-        let view_state = ViewApplyState {
-            block_height: 1,
-            last_block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-        };
+
         let mut logs = vec![];
         viewer
             .call_function(
                 root,
-                &view_state,
+                1,
+                1,
+                &CryptoHash::default(),
+                0,
+                &EpochId::default(),
                 &AccountId::from("test.contract"),
                 "panic_after_logging",
                 &[],
                 &mut logs,
                 &MockEpochInfoProvider::default(),
+                PROTOCOL_VERSION,
             )
             .unwrap_err();
 

@@ -26,7 +26,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
+use near_primitives::types::{AccountId, StateRoot};
 
 pub use crate::db::refcount::decode_value_with_rc;
 use crate::db::refcount::encode_value_with_rc;
@@ -44,7 +44,6 @@ pub mod migrations;
 pub mod test_utils;
 mod trie;
 
-#[derive(Clone)]
 pub struct Store {
     storage: Pin<Arc<dyn Database>>,
 }
@@ -487,24 +486,4 @@ pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &V
     store_update
         .set_ser::<Vec<StateRoot>>(DBCol::ColBlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
         .expect("Borsh cannot fail");
-}
-
-pub struct StoreCompiledContractCache {
-    pub store: Arc<Store>,
-}
-
-/// Cache for compiled contracts code using Store for keeping data.
-/// We store contracts in VM-specific format in DBCol::ColCachedContractCode.
-/// Key must take into account VM being used and its configuration, so that
-/// we don't cache non-gas metered binaries, for example.
-impl CompiledContractCache for StoreCompiledContractCache {
-    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error> {
-        let mut store_update = self.store.store_update();
-        store_update.set(DBCol::ColCachedContractCode, key, value);
-        store_update.commit()
-    }
-
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
-        self.store.get(DBCol::ColCachedContractCode, key)
-    }
 }
