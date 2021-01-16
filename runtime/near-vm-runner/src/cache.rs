@@ -1,10 +1,11 @@
 use crate::errors::IntoVMError;
 use crate::prepare;
 use borsh::{BorshDeserialize, BorshSerialize};
+use log::error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
-use near_vm_errors::{CacheError, VMError};
+use near_vm_errors::VMError;
 use near_vm_logic::{VMConfig, VMKind};
 use std::convert::TryFrom;
 use wasmer_runtime::{compiler_for_backend, Backend};
@@ -70,25 +71,19 @@ fn compile_and_serialize_wasmer(
     Ok(module)
 }
 
-/// Deserializes contract or error from the binary data. Signature means that we could either
-/// return module or cached error, which both considered to be `Ok()`, or encounter an error during
-/// the deserialization process.
-fn deserialize_wasmer(
-    serialized: &[u8],
-) -> Result<Result<wasmer_runtime::Module, VMError>, CacheError> {
-    let record = CacheRecord::try_from_slice(serialized).map_err(|_e| DeserializationError)?;
+fn deserialize_wasmer(serialized: &[u8]) -> Result<wasmer_runtime::Module, VMError> {
+    let record = CacheRecord::try_from_slice(serialized)
+        .map_err(|_e| VMError::CacheError(DeserializationError))?;
     let serialized_artifact = match record {
-        CacheRecord::Error(err) => return Ok(Err(err)),
+        CacheRecord::Error(err) => return Err(err),
         CacheRecord::Code(code) => code,
     };
     let artifact = Artifact::deserialize(serialized_artifact.as_slice())
-        .map_err(|_e| CacheError::DeserializationError)?;
+        .map_err(|_e| VMError::CacheError(DeserializationError))?;
     unsafe {
         let compiler = compiler_for_backend(Backend::Singlepass).unwrap();
-        match load_cache_with(artifact, compiler.as_ref()) {
-            Ok(module) => Ok(Ok(module)),
-            Err(_) => Err(CacheError::DeserializationError),
-        }
+        load_cache_with(artifact, compiler.as_ref())
+            .map_err(|_e| VMError::CacheError(DeserializationError))
     }
 }
 
@@ -106,9 +101,13 @@ pub(crate) fn compile_module_cached_wasmer(
     let cache = cache.unwrap();
     match cache.get(&(key.0).0) {
         Ok(serialized) => match serialized {
-            Some(serialized) => {
-                deserialize_wasmer(serialized.as_slice()).map_err(VMError::CacheError)?
-            }
+            Some(serialized) => match deserialize_wasmer(serialized.as_slice()) {
+                Ok(module) => Ok(module),
+                Err(e) => {
+                    error!(target: "runtime", "Cannot deserialize cached contract: {:?}", e);
+                    Err(VMError::CacheError(DeserializationError))
+                }
+            },
             None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
         },
         Err(_) => Err(VMError::CacheError(ReadError)),
