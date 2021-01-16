@@ -18,11 +18,36 @@ dependencies = [
  "log",
  "parking_lot 0.10.2",
  "pin-project 0.4.27",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "tokio",
  "tokio-util 0.2.0",
- "trust-dns-proto",
- "trust-dns-resolver",
+ "trust-dns-proto 0.18.0-alpha.2",
+ "trust-dns-resolver 0.18.0-alpha.2",
+]
+
+[[package]]
+name = "actix"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1be241f88f3b1e7e9a3fbe3b5a8a0f6915b5a1d7ee0d9a248d3376d01068cc60"
+dependencies = [
+ "actix-rt",
+ "actix_derive",
+ "bitflags",
+ "bytes",
+ "crossbeam-channel 0.4.4",
+ "derive_more",
+ "futures-channel",
+ "futures-util",
+ "log",
+ "once_cell",
+ "parking_lot 0.11.1",
+ "pin-project 0.4.27",
+ "smallvec 1.6.1",
+ "tokio",
+ "tokio-util 0.3.1",
+ "trust-dns-proto 0.19.6",
+ "trust-dns-resolver 0.19.6",
 ]
 
 [[package]]
@@ -73,8 +98,8 @@ dependencies = [
  "log",
  "openssl",
  "tokio-openssl",
- "trust-dns-proto",
- "trust-dns-resolver",
+ "trust-dns-proto 0.18.0-alpha.2",
+ "trust-dns-resolver 0.18.0-alpha.2",
 ]
 
 [[package]]
@@ -171,7 +196,7 @@ dependencies = [
  "copyless",
  "futures-channel",
  "futures-util",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "tokio",
 ]
 
@@ -1062,7 +1087,7 @@ dependencies = [
  "log",
  "regalloc 0.0.30",
  "serde",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "target-lexicon 0.11.1",
  "thiserror",
 ]
@@ -1081,7 +1106,7 @@ dependencies = [
  "gimli 0.22.0",
  "log",
  "regalloc 0.0.31",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "target-lexicon 0.11.1",
  "thiserror",
 ]
@@ -1144,7 +1169,7 @@ checksum = "e09cd158c9a820a4cc14a34076811da225cce1d31dc6d03c5ef85b91aef560b9"
 dependencies = [
  "cranelift-codegen 0.67.0",
  "log",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "target-lexicon 0.11.1",
 ]
 
@@ -1156,7 +1181,7 @@ checksum = "b608bb7656c554d0a4cf8f50c7a10b857e80306f6ff829ad6d468a7e2323c8d8"
 dependencies = [
  "cranelift-codegen 0.68.0",
  "log",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "target-lexicon 0.11.1",
 ]
 
@@ -1633,28 +1658,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f52288f9a7ebb08959188872b58e7eaa12af9cb47da8e94158e16da7e143340"
 dependencies = [
  "num-traits",
- "quote 1.0.7",
- "syn 1.0.57",
-]
-
-[[package]]
-name = "enumset"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "959a80a2062fedd66ed41d99736212de987b3a8c83a4c2cef243968075256bd1"
-dependencies = [
- "enumset_derive",
- "num-traits",
-]
-
-[[package]]
-name = "enumset_derive"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74bef436ac71820c5cf768d7af9ba33121246b09a00e09a55d94ef8095a875ac"
-dependencies = [
- "darling",
- "proc-macro2 1.0.24",
  "quote 1.0.7",
  "syn 1.0.57",
 ]
@@ -2482,7 +2485,7 @@ dependencies = [
 name = "indexer-example"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix 0.10.0",
  "clap 3.0.0-beta.2",
  "near-indexer",
  "openssl-probe",
@@ -2804,7 +2807,7 @@ dependencies = [
  "itertools 0.8.2",
  "memoffset 0.5.6",
  "more-asserts",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "staticvec",
  "thiserror",
  "typemap",
@@ -3140,7 +3143,7 @@ dependencies = [
 name = "near-actix-utils"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
 ]
 
 [[package]]
@@ -3193,7 +3196,7 @@ dependencies = [
 name = "near-chunks"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "borsh",
  "cached",
  "chrono",
@@ -3215,7 +3218,7 @@ dependencies = [
 name = "near-client"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "ansi_term 0.11.0",
  "borsh",
  "cached",
@@ -3339,7 +3342,7 @@ dependencies = [
 name = "near-indexer"
 version = "0.7.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "futures",
  "near-client",
  "near-crypto",
@@ -3355,7 +3358,7 @@ dependencies = [
 name = "near-jsonrpc"
 version = "0.2.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "actix-cors",
  "actix-web",
  "borsh",
@@ -3395,7 +3398,7 @@ dependencies = [
 name = "near-jsonrpc-test-utils"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "lazy_static",
  "near-chain-configs",
  "near-client",
@@ -3425,7 +3428,7 @@ dependencies = [
 name = "near-network"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "bencher",
  "borsh",
  "byteorder",
@@ -3461,7 +3464,7 @@ dependencies = [
 name = "near-performance-metrics"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "actix-rt",
  "futures",
  "log",
@@ -3522,7 +3525,7 @@ dependencies = [
 name = "near-rosetta-rpc"
 version = "0.1.1"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "actix-cors",
  "actix-web",
  "derive_more",
@@ -3620,7 +3623,7 @@ dependencies = [
 name = "near-telemetry"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "actix-web",
  "futures",
  "near-performance-metrics",
@@ -3678,6 +3681,7 @@ dependencies = [
  "pwasm-utils",
  "wabt",
  "wasmer",
+ "wasmer-compiler-singlepass",
  "wasmer-runtime-core-near",
  "wasmer-runtime-near",
  "wasmer-types",
@@ -3703,7 +3707,7 @@ dependencies = [
 name = "nearcore"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "actix-rt",
  "futures",
  "lazy_static",
@@ -3730,7 +3734,7 @@ dependencies = [
 name = "neard"
 version = "1.2.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "actix-web",
  "borsh",
  "byteorder",
@@ -4162,7 +4166,7 @@ dependencies = [
  "ethereum-types",
  "malloc_size_of_derive",
  "parking_lot 0.9.0",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "winapi 0.3.9",
 ]
 
@@ -4229,7 +4233,7 @@ dependencies = [
  "cloudabi",
  "libc",
  "redox_syscall",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "winapi 0.3.9",
 ]
 
@@ -4243,7 +4247,7 @@ dependencies = [
  "instant",
  "libc",
  "redox_syscall",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "winapi 0.3.9",
 ]
 
@@ -4733,7 +4737,7 @@ version = "4.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a415a013dd7c5d4221382329a5a3482566da675737494935cbbbcdec04662f9d"
 dependencies = [
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
 ]
 
 [[package]]
@@ -4744,7 +4748,7 @@ checksum = "2041c2d34f6ff346d6f428974f03d8bf12679b0c816bb640dc5eb1d48848d8d1"
 dependencies = [
  "log",
  "rustc-hash",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
 ]
 
 [[package]]
@@ -4755,7 +4759,7 @@ checksum = "571f7f397d61c4755285cd37853fe8e03271c243424a907415909379659381c5"
 dependencies = [
  "log",
  "rustc-hash",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
 ]
 
 [[package]]
@@ -4853,6 +4857,16 @@ name = "resolv-conf"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11834e137f3b14e309437a8276714eed3a80d1ef894869e510f2c0c0b98b9f4a"
+dependencies = [
+ "hostname",
+ "quick-error",
+]
+
+[[package]]
+name = "resolv-conf"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52e44394d2086d010551b14b53b1f24e31647570cd1deb0379e2c21b329aba00"
 dependencies = [
  "hostname",
  "quick-error",
@@ -5301,9 +5315,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.5.1"
+version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae524f056d7d770e174287294f562e95044c68e88dec909a00d2094805db9d75"
+checksum = "fe0f37c9e8f3c5a4a66ad655a93c74daac4ad00c441533bf5c6e7990bb42604e"
 
 [[package]]
 name = "smart-default"
@@ -5561,7 +5575,7 @@ dependencies = [
 name = "testlib"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix 0.9.0",
  "assert_matches",
  "borsh",
  "byteorder",
@@ -5785,6 +5799,7 @@ checksum = "be8242891f2b6cbef26a2d7e8605133c2c554cd35b3e4948ea892d6d68436499"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "log",
  "pin-project-lite 0.1.11",
@@ -5884,7 +5899,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sharded-slab",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "thread_local",
  "tracing",
  "tracing-core",
@@ -5908,7 +5923,7 @@ dependencies = [
  "hashbrown 0.6.3",
  "log",
  "rand 0.6.5",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
 ]
 
 [[package]]
@@ -5925,8 +5940,28 @@ dependencies = [
  "lazy_static",
  "log",
  "rand 0.7.3",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "socket2",
+ "tokio",
+ "url 2.2.0",
+]
+
+[[package]]
+name = "trust-dns-proto"
+version = "0.19.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53861fcb288a166aae4c508ae558ed18b53838db728d4d310aad08270a7d4c2b"
+dependencies = [
+ "async-trait",
+ "backtrace",
+ "enum-as-inner",
+ "futures",
+ "idna 0.2.0",
+ "lazy_static",
+ "log",
+ "rand 0.7.3",
+ "smallvec 1.6.1",
+ "thiserror",
  "tokio",
  "url 2.2.0",
 ]
@@ -5944,10 +5979,30 @@ dependencies = [
  "lazy_static",
  "log",
  "lru-cache",
- "resolv-conf",
- "smallvec 1.5.1",
+ "resolv-conf 0.6.3",
+ "smallvec 1.6.1",
  "tokio",
- "trust-dns-proto",
+ "trust-dns-proto 0.18.0-alpha.2",
+]
+
+[[package]]
+name = "trust-dns-resolver"
+version = "0.19.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6759e8efc40465547b0dfce9500d733c65f969a4cbbfbe3ccf68daaa46ef179e"
+dependencies = [
+ "backtrace",
+ "cfg-if 0.1.10",
+ "futures",
+ "ipconfig",
+ "lazy_static",
+ "log",
+ "lru-cache",
+ "resolv-conf 0.7.0",
+ "smallvec 1.6.1",
+ "thiserror",
+ "tokio",
+ "trust-dns-proto 0.19.6",
 ]
 
 [[package]]
@@ -6330,9 +6385,8 @@ dependencies = [
 
 [[package]]
 name = "wasmer"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94b1ece7c894857344ae93506686ae36ccd867b4ed55819c06d2316d009098d4"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
  "cfg-if 0.1.10",
  "indexmap",
@@ -6341,7 +6395,6 @@ dependencies = [
  "thiserror",
  "wasmer-compiler",
  "wasmer-compiler-cranelift",
- "wasmer-compiler-singlepass",
  "wasmer-derive",
  "wasmer-engine",
  "wasmer-engine-jit",
@@ -6354,27 +6407,25 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc85134b257e5fba5870693441e300b601d08f18833ac4fa6934f0b72afc56d2"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
- "enumset",
  "raw-cpuid",
  "serde",
  "serde_bytes",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "target-lexicon 0.11.1",
  "thiserror",
  "wasmer-types",
  "wasmer-vm",
+ "wasmer_enumset",
  "wasmparser 0.65.0",
 ]
 
 [[package]]
 name = "wasmer-compiler-cranelift"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60d68fb05dbe908724901b680070560944d99d04c52c763e98124aa988ac6dd0"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
  "cranelift-codegen 0.68.0",
  "cranelift-frontend 0.68.0",
@@ -6382,7 +6433,7 @@ dependencies = [
  "more-asserts",
  "rayon",
  "serde",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "tracing",
  "wasmer-compiler",
  "wasmer-types",
@@ -6391,9 +6442,8 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-singlepass"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81f91c9471113efc731fdd9f54f6fb82fab4c00498281966fcc4a87cdf360ea5"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
  "byteorder",
  "dynasm 1.0.0",
@@ -6402,7 +6452,7 @@ dependencies = [
  "more-asserts",
  "rayon",
  "serde",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "wasmer-compiler",
  "wasmer-types",
  "wasmer-vm",
@@ -6410,9 +6460,8 @@ dependencies = [
 
 [[package]]
 name = "wasmer-derive"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca24205ffdf2d3b1a9c01219f4f3f0a1382658680abe73bc5b146f941adeeb8e"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
  "proc-macro-error",
  "proc-macro2 1.0.24",
@@ -6422,9 +6471,8 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d91ed16436a9813d92f434e1d40fdf91b45ca30f351a799f793015359acca86b"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
  "backtrace",
  "bincode",
@@ -6443,9 +6491,8 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-jit"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df1e3ca5e34eacd4ab6d9d32edd41b51d2e39cf3d75453611c9c57cee3a64691"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
  "bincode",
  "cfg-if 0.1.10",
@@ -6461,9 +6508,8 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-native"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a21d6c5ae0c384ba2f01f598c95b01d4da2eaec3376fb96de2ded38c54143a0"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
  "bincode",
  "cfg-if 0.1.10",
@@ -6482,9 +6528,8 @@ dependencies = [
 
 [[package]]
 name = "wasmer-object"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06e007e73ec7775aecc61045092dabfcff1e9f228129cd129e76a3e6aae26454"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
  "object 0.22.0",
  "thiserror",
@@ -6515,7 +6560,7 @@ dependencies = [
  "serde-bench",
  "serde_bytes",
  "serde_derive",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "target-lexicon 0.10.0",
  "wasmparser 0.51.4",
  "winapi 0.3.9",
@@ -6550,15 +6595,14 @@ dependencies = [
  "nix",
  "serde",
  "serde_derive",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "wasmer-runtime-core-near",
 ]
 
 [[package]]
 name = "wasmer-types"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dbba7a95edb61b40daa43079979fc3212234e1645a15b8c527c36decad59fc6"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
  "cranelift-entity 0.68.0",
  "serde",
@@ -6567,9 +6611,8 @@ dependencies = [
 
 [[package]]
 name = "wasmer-vm"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cd9acd4d53c004a11fcaff17f2a2528ae8f1748c6d5c4aea7d8bed2d9236f0f"
+version = "1.0.1"
+source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
 dependencies = [
  "backtrace",
  "cc",
@@ -6583,6 +6626,28 @@ dependencies = [
  "thiserror",
  "wasmer-types",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "wasmer_enumset"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf088cc1f7d247fd96dff0df46fb1bbb747d8a69ae1ecd71aed55c55e354b2d8"
+dependencies = [
+ "num-traits",
+ "wasmer_enumset_derive",
+]
+
+[[package]]
+name = "wasmer_enumset_derive"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8d1b32d98e11194200baf6d3f85eb2d6cfe56f6d9af0dd617f90ca48f958a88"
+dependencies = [
+ "darling",
+ "proc-macro2 1.0.24",
+ "quote 1.0.7",
+ "syn 1.0.57",
 ]
 
 [[package]]
@@ -6625,7 +6690,7 @@ dependencies = [
  "region",
  "rustc-demangle",
  "serde",
- "smallvec 1.5.1",
+ "smallvec 1.6.1",
  "target-lexicon 0.11.1",
  "wasmparser 0.59.0",
  "wasmtime-environ",

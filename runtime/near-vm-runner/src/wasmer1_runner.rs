@@ -8,7 +8,8 @@ use near_vm_errors::{
 };
 use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
-use wasmer::{Bytes, Instance, Memory, MemoryType, Module, Pages, Singlepass, Store, JIT};
+use wasmer::{Bytes, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
+use wasmer_compiler_singlepass::Singlepass;
 
 pub struct Wasmer1Memory(Memory);
 
