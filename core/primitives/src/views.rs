@@ -417,7 +417,7 @@ pub struct BlockHeaderView {
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
     #[cfg(feature = "protocol_feature_block_ordinal")]
-    pub block_ordinal: NumBlocks,
+    pub block_ordinal: Option<NumBlocks>,
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
     /// TODO(2271): deprecated.
@@ -463,7 +463,11 @@ impl From<BlockHeader> for BlockHeaderView {
                 .collect(),
             chunk_mask: header.chunk_mask().to_vec(),
             #[cfg(feature = "protocol_feature_block_ordinal")]
-            block_ordinal: header.block_ordinal(),
+            block_ordinal: if header.block_ordinal() != 0 {
+                Some(header.block_ordinal())
+            } else {
+                None
+            },
             gas_price: header.gas_price(),
             rent_paid: 0,
             validator_reward: 0,
@@ -573,7 +577,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         .collect(),
                     chunk_mask: view.chunk_mask,
                     #[cfg(feature = "protocol_feature_block_ordinal")]
-                    block_ordinal: view.block_ordinal,
+                    block_ordinal: match view.block_ordinal { Some(value) => value, None => 0},
                     #[cfg(not(feature = "protocol_feature_block_ordinal"))]
                     // Unreachable because of `checked_feature!` above and needed for compilation only.
                     // Using `block_ordinal: unreachable!()` creates Rust warning.

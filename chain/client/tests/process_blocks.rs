@@ -192,7 +192,7 @@ fn receive_network_block() {
             let next_block_ordinal = {
                 #[cfg(feature = "protocol_feature_block_ordinal")]
                 {
-                    last_block.header.block_ordinal + 1
+                    last_block.header.block_ordinal.unwrap() + 1
                 }
                 #[cfg(not(feature = "protocol_feature_block_ordinal"))]
                 0
@@ -271,7 +271,7 @@ fn produce_block_with_approvals() {
             let next_block_ordinal = {
                 #[cfg(feature = "protocol_feature_block_ordinal")]
                 {
-                    last_block.header.block_ordinal + 1
+                    last_block.header.block_ordinal.unwrap() + 1
                 }
                 #[cfg(not(feature = "protocol_feature_block_ordinal"))]
                 0
@@ -442,7 +442,7 @@ fn invalid_blocks_common(is_requested: bool) {
             let next_block_ordinal = {
                 #[cfg(feature = "protocol_feature_block_ordinal")]
                 {
-                    last_block.header.block_ordinal + 1
+                    last_block.header.block_ordinal.unwrap() + 1
                 }
                 #[cfg(not(feature = "protocol_feature_block_ordinal"))]
                 0

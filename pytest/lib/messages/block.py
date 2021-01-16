@@ -287,7 +287,7 @@ block_schema = [
         }
     ],
     [
-        BlockHeaderInnerRestV2, {
+        BlockHeaderInnerRestV3, {
             'kind': 'struct',
             'fields': [
                 ['chunk_receipts_root', [32]],
