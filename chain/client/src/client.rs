@@ -32,7 +32,9 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{
+    AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId,
+};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -400,6 +402,9 @@ impl Client {
             self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
         block_merkle_tree.insert(prev_hash);
         let block_merkle_root = block_merkle_tree.root();
+        // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
+        // The ordinal of the next Block will be equal to this amount plus one.
+        let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunks: Vec<_> = prev_block.chunks().iter().cloned().collect();
@@ -431,6 +436,7 @@ impl Client {
             protocol_version,
             &prev_header,
             next_height,
+            block_ordinal,
             chunks,
             epoch_id,
             next_epoch_id,
