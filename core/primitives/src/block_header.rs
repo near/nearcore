@@ -552,7 +552,7 @@ impl BlockHeader {
                 random_value: CryptoHash::default(),
                 validator_proposals: vec![],
                 chunk_mask: vec![true; chunks_included as usize],
-                block_ordinal: 1, // TODO MOO Bowen please make sure genesis is block #1 in terms of Merkle Proofs
+                block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
                 gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],

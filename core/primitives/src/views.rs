@@ -416,6 +416,7 @@ pub struct BlockHeaderView {
     pub random_value: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
+    #[cfg(feature = "protocol_feature_block_ordinal")]
     pub block_ordinal: NumBlocks,
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
@@ -461,6 +462,7 @@ impl From<BlockHeader> for BlockHeaderView {
                 .map(|v| v.clone().into())
                 .collect(),
             chunk_mask: header.chunk_mask().to_vec(),
+            #[cfg(feature = "protocol_feature_block_ordinal")]
             block_ordinal: header.block_ordinal(),
             gas_price: header.gas_price(),
             rent_paid: 0,
@@ -570,7 +572,12 @@ impl From<BlockHeaderView> for BlockHeader {
                         .map(|v| v.into())
                         .collect(),
                     chunk_mask: view.chunk_mask,
+                    #[cfg(feature = "protocol_feature_block_ordinal")]
                     block_ordinal: view.block_ordinal,
+                    #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                    // Unreachable because of `checked_feature!` above and needed for compilation only.
+                    // Using `block_ordinal: unreachable!()` creates Rust warning.
+                    block_ordinal: 0,
                     gas_price: view.gas_price,
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
