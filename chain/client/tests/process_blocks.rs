@@ -189,11 +189,19 @@ fn receive_network_block() {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
             block_merkle_tree.insert(last_block.header.hash);
+            let next_block_ordinal = {
+                #[cfg(feature = "protocol_feature_block_ordinal")]
+                {
+                    last_block.header.block_ordinal + 1
+                }
+                #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                0
+            };
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
-                last_block.header.block_ordinal + 1,
+                next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -260,11 +268,19 @@ fn produce_block_with_approvals() {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer1 = InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
             block_merkle_tree.insert(last_block.header.hash);
+            let next_block_ordinal = {
+                #[cfg(feature = "protocol_feature_block_ordinal")]
+                {
+                    last_block.header.block_ordinal + 1
+                }
+                #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                0
+            };
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
-                last_block.header.block_ordinal + 1,
+                next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -423,11 +439,19 @@ fn invalid_blocks_common(is_requested: bool) {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             block_merkle_tree.insert(last_block.header.hash);
+            let next_block_ordinal = {
+                #[cfg(feature = "protocol_feature_block_ordinal")]
+                {
+                    last_block.header.block_ordinal + 1
+                }
+                #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                0
+            };
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
-                last_block.header.block_ordinal + 1,
+                next_block_ordinal,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {

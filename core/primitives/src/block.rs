@@ -249,6 +249,7 @@ impl Block {
                 prev.last_final_block()
             };
 
+        #[cfg(feature = "protocol_feature_block_ordinal")]
         match prev {
             BlockHeader::BlockHeaderV1(_) => debug_assert_eq!(prev.block_ordinal(), 0),
             BlockHeader::BlockHeaderV2(_) => debug_assert_eq!(prev.block_ordinal(), 0),
