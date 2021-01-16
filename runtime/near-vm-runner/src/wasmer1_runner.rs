@@ -87,12 +87,23 @@ impl IntoVMError for wasmer::InstantiationError {
 
 impl IntoVMError for wasmer::RuntimeError {
     fn into_vm_error(self) -> VMError {
+        // These vars are not used in every cases, however, downcast below use Arc::try_unwrap
+        // so we cannot clone self
         let error_msg = self.message();
+        let trap_code = self.clone().to_trap();
         match self.downcast::<VMLogicError>() {
             Ok(e) => e.into_vm_error(),
-            // Either a Trap or Generic error of wasmer::RuntimeError
-            // We only know it's message
-            _ => VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(error_msg)),
+            _ => {
+                if let Some(trap_code) = trap_code {
+                    // A trap
+                    VMError::FunctionCallError(FunctionCallError::Wasmer1Trap(
+                        trap_code.to_string(),
+                    ))
+                } else {
+                    // A general error
+                    VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(error_msg))
+                }
+            }
         }
     }
 }

@@ -292,7 +292,7 @@ fn test_stack_overflow() {
                 make_simple_contract_call_vm(&stack_overflow(), b"hello", vm_kind),
                 (
                     Some(vm_outcome_with_gas(63226248177)),
-                    Some(VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(
+                    Some(VMError::FunctionCallError(FunctionCallError::Wasmer1Trap(
                         "unreachable".to_string()
                     )))
                 )

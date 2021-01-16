@@ -38,6 +38,10 @@ pub enum FunctionCallError {
     EvmError(EvmError),
     /// An error message when wasmer 1.0 returns a wasmer::RuntimeError
     WasmerRuntimeError(String),
+    /// A trap in Wasmer 1.0, not same as WasmTrap above, String is a machine readable form like "stk_ovf"
+    /// String is used instead of wasmer internal enum is because of BorshSerializable.
+    /// It can be convert back by wasmer_vm::TrapCode::from_str
+    Wasmer1Trap(String),
 }
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
@@ -347,6 +351,7 @@ impl fmt::Display for FunctionCallError {
             }
             FunctionCallError::EvmError(e) => write!(f, "EVM: {:?}", e),
             FunctionCallError::WasmerRuntimeError(e) => write!(f, "Wasmer Runtime: {}", e),
+            FunctionCallError::Wasmer1Trap(e) => write!(f, "Wasmer 1.0 trap: {}", e),
         }
     }
 }
