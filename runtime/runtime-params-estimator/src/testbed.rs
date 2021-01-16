@@ -94,6 +94,10 @@ impl RuntimeTestbed {
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            transaction_validity_period: 0,
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            prev_block_height: 0,
         };
         Self {
             workdir,

@@ -17,7 +17,9 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::test_utils::{create_chunk_on_height, setup_mock_all_validators};
+use near_client::test_utils::{
+    create_chunk_on_height, create_chunk_with_transactions, setup_mock_all_validators,
+};
 use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
@@ -42,6 +44,7 @@ use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ValidatorStake};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -50,6 +53,7 @@ use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::NEAR_BASE;
+use rand::thread_rng;
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
@@ -2406,4 +2410,246 @@ fn test_node_shutdown_with_old_protocol_version() {
         env.produce_block(0, i);
     }
     env.produce_block(0, 11);
+}
+
+/// Test that duplicate transactions are properly rejected.
+#[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+#[test]
+fn test_transaction_hash_collision() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+    let signer0 = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let signer1 = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let send_money_tx = SignedTransaction::send_money(
+        1,
+        "test1".to_string(),
+        "test0".to_string(),
+        &signer1,
+        100,
+        *genesis_block.hash(),
+    );
+    let delete_account_tx = SignedTransaction::delete_account(
+        2,
+        "test1".to_string(),
+        "test1".to_string(),
+        "test0".to_string(),
+        &signer1,
+        *genesis_block.hash(),
+    );
+
+    env.clients[0].process_tx(send_money_tx.clone(), false, false);
+    env.clients[0].process_tx(delete_account_tx, false, false);
+
+    for i in 1..4 {
+        env.produce_block(0, i);
+    }
+
+    let create_account_tx = SignedTransaction::create_account(
+        1,
+        "test0".to_string(),
+        "test1".to_string(),
+        NEAR_BASE,
+        signer1.public_key(),
+        &signer0,
+        *genesis_block.hash(),
+    );
+    let res = env.clients[0].process_tx(create_account_tx, false, false);
+    assert!(matches!(res, NetworkClientResponses::ValidTx));
+    for i in 4..8 {
+        env.produce_block(0, i);
+    }
+
+    let res = env.clients[0].process_tx(send_money_tx, false, false);
+    assert!(matches!(res, NetworkClientResponses::InvalidTx(_)));
+}
+
+/// Test that chunks with transactions that have expired are considered invalid.
+#[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+#[test]
+fn test_chunk_transaction_validity() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let tx = SignedTransaction::send_money(
+        1,
+        "test1".to_string(),
+        "test0".to_string(),
+        &signer,
+        100,
+        *genesis_block.hash(),
+    );
+    for i in 1..200 {
+        env.produce_block(0, i);
+    }
+    let (encoded_shard_chunk, merkle_path, receipts, block) =
+        create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+    let mut chain_store = ChainStore::new(
+        env.clients[0].chain.store().owned_store(),
+        genesis_block.header().height(),
+    );
+    env.clients[0]
+        .shards_mgr
+        .distribute_encoded_chunk(encoded_shard_chunk, merkle_path, receipts, &mut chain_store)
+        .unwrap();
+    let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidTransactions));
+}
+
+/// Test that transaction hashes stored in state is consistent in the presence of forks:
+/// 1. Assert that for a transaction that has happened in the past, if it is within the
+/// validity period, resubmitting such transaction leads to `InvalidTx::DuplicateTransaction`;
+/// if it is outside of validity period, resubmitting such transaction leads to `InvalidTx::Expired`.
+/// 2. Assert that transaction hashes stored in state under `BlockTransactionHashes` is consistent
+/// with transactions in the corresponding block.
+/// 3. Assert that transaction hashes stored under `BlockTransactionHashes` is consistent with what is
+/// stored under `AccountTransactionHash`.
+#[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+#[test]
+fn test_transaction_hashes_with_forks() {
+    init_test_logger();
+    use near_store::get;
+    use rand::seq::{IteratorRandom, SliceRandom};
+    use std::collections::HashMap;
+    let accounts: Vec<AccountId> = (0..10).map(|i| format!("test{}", i)).collect();
+    let mut genesis = Genesis::test(accounts.iter().map(|x| x.as_str()).collect(), 1);
+    let epoch_length = 50;
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.block_producer_kickout_threshold = 10;
+    genesis.config.chunk_producer_kickout_threshold = 10;
+    let transaction_validity_period = genesis.config.transaction_validity_period;
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let mut last_block_hash = *genesis_block.hash();
+
+    let mut transactions: HashMap<CryptoHash, SignedTransaction> = HashMap::new();
+    let mut nonces = HashMap::new();
+    let mut rng = thread_rng();
+    let mut height = 1;
+    while height <= 200 {
+        if let Some(transaction) = transactions.values().choose(&mut rng) {
+            let res = env.clients[0].process_tx(transaction.clone(), false, false);
+            let base_block_height = env.clients[0]
+                .chain
+                .get_block_header(&transaction.transaction.block_hash)
+                .unwrap()
+                .height();
+            let head = env.clients[0].chain.head().unwrap();
+            if base_block_height + transaction_validity_period >= head.height {
+                assert!(matches!(
+                    res,
+                    NetworkClientResponses::InvalidTx(InvalidTxError::DuplicateTransaction)
+                ));
+            } else {
+                assert!(matches!(res, NetworkClientResponses::InvalidTx(InvalidTxError::Expired)));
+            }
+        }
+        let create_fork = height % 5 == 0;
+        for account in accounts.iter() {
+            let cur_nonce = *nonces.get(account).unwrap_or(&0) + 1;
+            let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
+            let to_account = accounts.choose(&mut rng).unwrap();
+            let tx = SignedTransaction::send_money(
+                cur_nonce,
+                account.to_string(),
+                to_account.to_string(),
+                &signer,
+                100,
+                last_block_hash,
+            );
+            let res = env.clients[0].process_tx(tx.clone(), false, false);
+            assert!(matches!(res, NetworkClientResponses::ValidTx));
+            nonces.insert(account.to_string(), cur_nonce);
+        }
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
+        if create_fork {
+            let chunks = block
+                .chunks()
+                .iter()
+                .map(|c| {
+                    let mut header = c.clone();
+                    *header.height_included_mut() = height + 1;
+                    header
+                })
+                .collect::<Vec<_>>();
+            let mut block1 = env.clients[0].produce_block(height + 1).unwrap().unwrap();
+            let prev_state_root = Block::compute_state_root(&chunks);
+            let chunk_receipts_root = Block::compute_chunk_receipts_root(&chunks);
+            let chunk_headers_root = Block::compute_chunk_headers_root(&chunks).0;
+            let chunk_tx_root = Block::compute_chunk_tx_root(&chunks);
+            let outcome_root = Block::compute_outcome_root(&chunks);
+            block1.set_chunks(chunks);
+            block1.mut_header().get_mut().inner_lite.outcome_root = outcome_root;
+            block1.mut_header().get_mut().inner_lite.prev_state_root = prev_state_root;
+            block1.mut_header().get_mut().inner_rest.chunk_receipts_root = chunk_receipts_root;
+            block1.mut_header().get_mut().inner_rest.chunk_headers_root = chunk_headers_root;
+            block1.mut_header().get_mut().inner_rest.chunk_tx_root = chunk_tx_root;
+            block1.mut_header().get_mut().inner_rest.chunk_mask =
+                block.header().chunk_mask().to_vec();
+            block1.mut_header().resign(&validator_signer);
+            env.process_block(0, block, Provenance::NONE);
+            env.process_block(0, block1, Provenance::NONE);
+            height += 2;
+        } else {
+            last_block_hash = *block.hash();
+            let chunk_hash = block.chunks()[0].chunk_hash();
+            env.process_block(0, block, Provenance::NONE);
+            let chunk = env.clients[0].chain.get_chunk(&chunk_hash).unwrap();
+            for tx in chunk.transactions() {
+                transactions.insert(tx.get_hash(), tx.clone());
+            }
+            height += 1;
+        }
+        let shard_tries = env.clients[0].runtime_adapter.get_tries();
+        let head = env.clients[0].chain.head().unwrap();
+        let chunk_extra = env.clients[0].chain.get_chunk_extra(&head.last_block_hash, 0).unwrap();
+        let state_update = shard_tries.new_trie_update(0, chunk_extra.state_root);
+        for h in 1..=head.height {
+            let transaction_hashes_in_state = get::<Vec<(AccountId, CryptoHash)>>(
+                &state_update,
+                &TrieKey::BlockTransactionHashes { height: h },
+            )
+            .unwrap()
+            .unwrap_or_default();
+            if h + transaction_validity_period < head.height {
+                assert!(transaction_hashes_in_state.is_empty());
+                continue;
+            }
+            let mut tx_hashes_state = HashSet::new();
+            for (account_id, hash) in transaction_hashes_in_state {
+                let trie_key = TrieKey::AccountTransactionHash { account_id, hash };
+                assert!(get::<()>(&state_update, &trie_key).unwrap().is_some());
+                tx_hashes_state.insert(hash);
+            }
+            let mut tx_hashes_block = HashSet::new();
+            if let Ok(block) = env.clients[0].chain.get_block_by_height(h) {
+                let chunk_hash = block.chunks()[0].chunk_hash();
+                let chunk = env.clients[0].chain.get_chunk(&chunk_hash).unwrap();
+                for tx in chunk.transactions() {
+                    tx_hashes_block.insert(tx.get_hash());
+                }
+            }
+            assert_eq!(tx_hashes_state, tx_hashes_block, "different on height {}", h);
+        }
+    }
 }

@@ -329,6 +329,7 @@ fn validate_chunk_state_challenge(
             block_header.height(),
             block_header.raw_timestamp(),
             &block_header.prev_hash(),
+            prev_block_header.height(),
             &block_header.hash(),
             &chunk_state.prev_chunk.receipts(),
             &chunk_state.prev_chunk.transactions(),

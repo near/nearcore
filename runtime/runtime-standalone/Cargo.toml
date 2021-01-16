@@ -16,4 +16,5 @@ node-runtime = { path = "../runtime" }
 [features]
 default = []
 protocol_feature_evm = ["near-primitives/protocol_feature_evm", "node-runtime/protocol_feature_evm"]
+protocol_feature_transaction_hashes_in_state = ["near-primitives/protocol_feature_transaction_hashes_in_state", "node-runtime/protocol_feature_transaction_hashes_in_state"]
 no_cache = ["near-store/no_cache", "node-runtime/no_cache"]

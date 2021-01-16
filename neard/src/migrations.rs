@@ -52,6 +52,7 @@ fn apply_block_at_height(
             block_height,
             block.header().raw_timestamp(),
             block.header().prev_hash(),
+            prev_block.header().height(),
             block.hash(),
             &receipts,
             &chunk.transactions,

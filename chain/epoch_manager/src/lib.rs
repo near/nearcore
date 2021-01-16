@@ -369,27 +369,6 @@ impl EpochManager {
             self.genesis_protocol_version,
         );
 
-        //        let (validator_reward, minted_amount) = checked_feature!("protocol_feature_rectify_inflation", RectifyInflation, epoch_protocol_version, {
-        //          let epoch_first_block = self.get_block_info(&block_info.epoch_first_block)?;
-        //          assert!(block_info.timestamp >= epoch_first_block.timestamp);
-        //          let time_diff = block_info.timestamp - epoch_first_block.timestamp;
-        //          self.reward_calculator.calculate_reward(
-        //                validator_block_chunk_stats,
-        //                &validator_stake,
-        //                block_info.total_supply,
-        //                epoch_protocol_version,
-        //                self.genesis_protocol_version,
-        //                time_diff
-        //          )
-        //        }, {
-        //            self.reward_calculator.calculate_reward(
-        //                validator_block_chunk_stats,
-        //                &validator_stake,
-        //                block_info.total_supply,
-        //                epoch_protocol_version,
-        //                self.genesis_protocol_version,
-        //            )
-        //        });
         let next_next_epoch_info = match proposals_to_epoch_info(
             &self.config,
             rng_seed,

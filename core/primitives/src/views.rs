@@ -1324,13 +1324,25 @@ pub type StateChangesKindsView = Vec<StateChangeKindView>;
 pub enum StateChangeCauseView {
     NotWritableToDisk,
     InitialState,
-    TransactionProcessing { tx_hash: CryptoHash },
-    ActionReceiptProcessingStarted { receipt_hash: CryptoHash },
-    ActionReceiptGasReward { receipt_hash: CryptoHash },
-    ReceiptProcessing { receipt_hash: CryptoHash },
-    PostponedReceipt { receipt_hash: CryptoHash },
+    TransactionProcessing {
+        tx_hash: CryptoHash,
+    },
+    ActionReceiptProcessingStarted {
+        receipt_hash: CryptoHash,
+    },
+    ActionReceiptGasReward {
+        receipt_hash: CryptoHash,
+    },
+    ReceiptProcessing {
+        receipt_hash: CryptoHash,
+    },
+    PostponedReceipt {
+        receipt_hash: CryptoHash,
+    },
     UpdatedDelayedReceipts,
     ValidatorAccountsUpdate,
+    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+    StoreTransactionHashes,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -1355,6 +1367,8 @@ impl From<StateChangeCause> for StateChangeCauseView {
             }
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            StateChangeCause::StoreTransactionHashes => Self::StoreTransactionHashes,
         }
     }
 }

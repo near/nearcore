@@ -4,6 +4,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use std::mem::size_of;
 
+#[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+use crate::types::BlockHeight;
+
 pub(crate) const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 
 /// Type identifiers used for DB key generation to store values in the key-value storage.
@@ -35,6 +38,12 @@ pub(crate) mod col {
     pub const DELAYED_RECEIPT: &[u8] = &[8];
     /// This column id is used when storing Key-Value data from a contract on an `account_id`.
     pub const CONTRACT_DATA: &[u8] = &[9];
+    /// This column id is used when storing hashes of transactions in a given block.
+    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+    pub const BLOCK_TRANSACTION_HASH: &[u8] = &[10];
+    /// This column id is used when storing transaction hashes for an account.
+    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+    pub const ACCOUNT_TRANSACTION_HASH: &[u8] = &[11];
 }
 
 /// Describes the key of a specific key-value record in a state trie.
@@ -72,6 +81,12 @@ pub enum TrieKey {
     /// Used to store a key-value record `Vec<u8>` within a contract deployed on a given `AccountId`
     /// and a given key.
     ContractData { account_id: AccountId, key: Vec<u8> },
+    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+    /// Used to store transaction hashes for a given block.
+    BlockTransactionHashes { height: BlockHeight },
+    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+    /// Hash of transactions originated from `account_id`.
+    AccountTransactionHash { account_id: AccountId, hash: CryptoHash },
 }
 
 impl TrieKey {
@@ -113,6 +128,14 @@ impl TrieKey {
                     + account_id.len()
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + key.len()
+            }
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            TrieKey::BlockTransactionHashes { .. } => {
+                col::BLOCK_TRANSACTION_HASH.len() + size_of::<BlockHeight>()
+            }
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            TrieKey::AccountTransactionHash { account_id, hash } => {
+                col::ACCOUNT_TRANSACTION_HASH.len() + account_id.len() + hash.as_ref().len()
             }
         }
     }
@@ -171,6 +194,17 @@ impl TrieKey {
                 res.extend(account_id.as_bytes());
                 res.extend(ACCOUNT_DATA_SEPARATOR);
                 res.extend(key);
+            }
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            TrieKey::BlockTransactionHashes { height } => {
+                res.extend(col::BLOCK_TRANSACTION_HASH);
+                res.extend(&height.to_le_bytes());
+            }
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            TrieKey::AccountTransactionHash { account_id, hash } => {
+                res.extend(col::ACCOUNT_TRANSACTION_HASH);
+                res.extend(hash.as_ref());
+                res.extend(account_id.as_bytes());
             }
         };
         debug_assert_eq!(res.len(), expected_len);

@@ -141,6 +141,8 @@ pub enum InvalidTxError {
     Expired,
     /// An error occurred while validating actions of a Transaction.
     ActionsValidation(ActionsValidationError),
+    /// This transaction already exists
+    DuplicateTransaction,
 }
 
 #[derive(
@@ -436,6 +438,7 @@ impl Display for InvalidTxError {
             InvalidTxError::ActionsValidation(error) => {
                 write!(f, "Transaction actions validation error: {}", error)
             }
+            InvalidTxError::DuplicateTransaction => { write!(f, "Transaction already exists") }
         }
     }
 }

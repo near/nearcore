@@ -187,6 +187,11 @@ fn convert_block_changes_to_transactions(
                     "State Change 'NotWritableToDisk' should never be observed".to_string(),
                 ));
             }
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            StateChangeCauseView::StoreTransactionHashes => {
+                // TODO: is any action required here?
+                unimplemented!()
+            }
         };
 
         let current_transaction =

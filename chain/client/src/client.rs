@@ -587,11 +587,7 @@ impl Client {
                 &mut |tx: &SignedTransaction| -> bool {
                     chain
                         .mut_store()
-                        .check_transaction_validity_period(
-                            &prev_block_header,
-                            &tx.transaction.block_hash,
-                            transaction_validity_period,
-                        )
+                        .validate_transaction(&prev_block_header, &tx, transaction_validity_period)
                         .is_ok()
                 },
                 protocol_version,
@@ -1389,9 +1385,9 @@ impl Client {
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
         // `cur_block_header`.
-        if let Err(e) = self.chain.mut_store().check_transaction_validity_period(
+        if let Err(e) = self.chain.mut_store().validate_transaction(
             &cur_block_header,
-            &tx.transaction.block_hash,
+            &tx,
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);

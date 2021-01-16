@@ -43,7 +43,7 @@ use near_primitives::views::{
 use near_store::{
     get_access_key_raw, get_genesis_hash, get_genesis_state_roots, set_genesis_hash,
     set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store,
-    StoreCompiledContractCache, Trie, WrappedTrieChanges,
+    StoreCompiledContractCache, Trie, TrieUpdate, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -54,6 +54,9 @@ use node_runtime::{
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_runtime_configs::RuntimeConfig;
+
+#[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+use {near_primitives::trie_key::TrieKey, near_store::get};
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use near_epoch_manager::NUM_SECONDS_IN_A_YEAR;
@@ -353,6 +356,7 @@ impl NightshadeRuntime {
     }
 
     /// Processes state update.
+    #[allow(unused_variables)]
     fn process_state_update(
         &self,
         trie: Trie,
@@ -362,6 +366,7 @@ impl NightshadeRuntime {
         block_hash: &CryptoHash,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
@@ -457,6 +462,10 @@ impl NightshadeRuntime {
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            transaction_validity_period: self.genesis_config.transaction_validity_period,
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            prev_block_height,
         };
 
         let apply_result = self
@@ -522,6 +531,30 @@ impl NightshadeRuntime {
         };
 
         Ok(result)
+    }
+
+    #[allow(unused_variables)]
+    fn check_duplicate_transaction(
+        &self,
+        state_update: &TrieUpdate,
+        tx: &SignedTransaction,
+    ) -> Result<bool, Error> {
+        #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+        {
+            get::<()>(
+                &state_update,
+                &TrieKey::AccountTransactionHash {
+                    account_id: tx.transaction.signer_id.to_string(),
+                    hash: tx.get_hash(),
+                },
+            )
+            .map(|x| x.is_some())
+            .map_err(|e| Error::from(ErrorKind::StorageError(e)))
+        }
+        #[cfg(not(feature = "protocol_feature_transaction_hashes_in_state"))]
+        {
+            Ok(false)
+        }
     }
 }
 
@@ -592,6 +625,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         if let Some(state_root) = state_root {
             let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
             let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            if self.check_duplicate_transaction(&state_update, transaction)? {
+                return Ok(Some(InvalidTxError::DuplicateTransaction));
+            }
 
             match verify_and_charge_transaction(
                 &runtime_config,
@@ -662,8 +699,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
                     // Verifying the transaction is on the same chain and hasn't expired yet.
-                    if chain_validate(&tx) {
+                    if chain_validate(&tx)
+                        && !self.check_duplicate_transaction(&state_update, &tx)?
+                    {
                         // Verifying the validity of the transaction based on the current state.
+
                         match verify_and_charge_transaction(
                             &runtime_config,
                             &mut state_update,
@@ -1042,6 +1082,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
@@ -1062,6 +1103,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_hash,
             block_timestamp,
             prev_block_hash,
+            prev_block_height,
             receipts,
             transactions,
             last_validator_proposals,
@@ -1088,6 +1130,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
@@ -1106,6 +1149,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_hash,
             block_timestamp,
             prev_block_hash,
+            prev_block_height,
             receipts,
             transactions,
             last_validator_proposals,
@@ -1565,6 +1609,7 @@ mod test {
             height: BlockHeight,
             block_timestamp: u64,
             prev_block_hash: &CryptoHash,
+            prev_block_height: BlockHeight,
             block_hash: &CryptoHash,
             receipts: &[Receipt],
             transactions: &[SignedTransaction],
@@ -1580,6 +1625,7 @@ mod test {
                     height,
                     block_timestamp,
                     prev_block_hash,
+                    prev_block_height,
                     block_hash,
                     receipts,
                     transactions,
@@ -1702,6 +1748,7 @@ mod test {
                     self.head.height + 1,
                     0,
                     &self.head.last_block_hash,
+                    self.head.height,
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],

@@ -6,6 +6,7 @@ use log::debug;
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
@@ -92,6 +93,11 @@ pub struct ApplyState {
     /// Ethereum chain id.
     #[cfg(feature = "protocol_feature_evm")]
     pub evm_chain_id: u128,
+    /// Transaction validity period
+    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+    pub transaction_validity_period: BlockHeight,
+    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+    pub prev_block_height: BlockHeight,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -250,6 +256,7 @@ impl Runtime {
                 state_update.commit(StateChangeCause::TransactionProcessing {
                     tx_hash: signed_transaction.get_hash(),
                 });
+
                 let transaction = &signed_transaction.transaction;
                 let receipt_id = create_receipt_id_from_transaction(
                     apply_state.current_protocol_version,
@@ -307,7 +314,6 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
-        // println!("enter apply_action");
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(
             &apply_state.config.transaction_costs,
@@ -1113,8 +1119,10 @@ impl Runtime {
         let mut outgoing_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
-        let mut outcomes = vec![];
+        let mut outcomes = Vec::with_capacity(transactions.len());
         let mut total_gas_burnt = 0;
+        #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+        let mut transaction_hash_keys = Vec::with_capacity(transactions.len());
 
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
@@ -1132,6 +1140,23 @@ impl Runtime {
             total_gas_burnt += outcome_with_id.outcome.gas_burnt;
 
             outcomes.push(outcome_with_id);
+
+            checked_feature!(
+                "protocol_feature_transaction_hashes_in_state",
+                TransactionHashesInState,
+                apply_state.current_protocol_version,
+                {
+                    let account_id = signed_transaction.transaction.signer_id.to_string();
+                    let hash = signed_transaction.get_hash();
+                    transaction_hash_keys.push((account_id.clone(), hash));
+                    set(
+                        &mut state_update,
+                        TrieKey::AccountTransactionHash { account_id, hash },
+                        &(),
+                    );
+                    state_update.commit(StateChangeCause::StoreTransactionHashes);
+                }
+            );
         }
 
         let mut delayed_receipts_indices: DelayedReceiptIndices =
@@ -1235,6 +1260,36 @@ impl Runtime {
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
+
+        checked_feature!(
+            "protocol_feature_transaction_hashes_in_state",
+            TransactionHashesInState,
+            apply_state.current_protocol_version,
+            {
+                set(
+                    &mut state_update,
+                    TrieKey::BlockTransactionHashes { height: apply_state.block_index },
+                    &transaction_hash_keys,
+                );
+                for height in apply_state
+                    .prev_block_height
+                    .saturating_sub(apply_state.transaction_validity_period)
+                    ..apply_state
+                        .block_index
+                        .saturating_sub(apply_state.transaction_validity_period)
+                {
+                    let trie_key = TrieKey::BlockTransactionHashes { height };
+                    let transaction_hash_keys =
+                        get::<Vec<(AccountId, CryptoHash)>>(&state_update, &trie_key)?
+                            .unwrap_or_default();
+                    for (account_id, hash) in transaction_hash_keys {
+                        state_update.remove(TrieKey::AccountTransactionHash { account_id, hash });
+                    }
+                    state_update.remove(trie_key);
+                }
+                state_update.commit(StateChangeCause::StoreTransactionHashes);
+            }
+        );
 
         let (trie_changes, state_changes) = state_update.finalize()?;
 
@@ -1542,6 +1597,10 @@ mod tests {
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            transaction_validity_period: 0,
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            prev_block_height: 0,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

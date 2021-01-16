@@ -29,6 +29,7 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, SlashedValidator,
 };
+use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
     combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
@@ -286,6 +287,7 @@ impl Chain {
                     // Reset header head and "sync" head to be consistent with current block head.
                     store_update.save_header_head_if_not_challenged(&head)?;
                 }
+
                 // TODO: perform validation that latest state in runtime matches the stored chain.
             }
             Err(err) => match err.kind() {
@@ -914,6 +916,7 @@ impl Chain {
             store_update.delete(ColState, key.as_ref());
             chain_store_update.inc_gc_col_state();
         }
+
         chain_store_update.merge(store_update);
 
         // The reason to reset tail here is not to allow Tail be greater than Head
@@ -2044,6 +2047,7 @@ impl Chain {
             &self.block_economics_config,
             self.doomslug_threshold_mode,
             &self.genesis,
+            self.transaction_validity_period,
         )
     }
 
@@ -2437,6 +2441,7 @@ impl Chain {
 /// and decide to accept it or reject it.
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
+#[allow(unused)]
 pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
@@ -2446,6 +2451,7 @@ pub struct ChainUpdate<'a> {
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
     genesis: &'a Block,
+    transaction_validity_period: BlockHeight,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -2458,6 +2464,7 @@ impl<'a> ChainUpdate<'a> {
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
         genesis: &'a Block,
+        transaction_validity_period: BlockHeight,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
@@ -2469,6 +2476,7 @@ impl<'a> ChainUpdate<'a> {
             block_economics_config,
             doomslug_threshold_mode,
             genesis,
+            transaction_validity_period,
         }
     }
 
@@ -2659,6 +2667,7 @@ impl<'a> ChainUpdate<'a> {
                 prev_chunk.height_included(),
                 prev_block.header().raw_timestamp(),
                 &prev_chunk_inner.prev_block_hash,
+                prev_block.header().height(),
                 &prev_block.hash(),
                 &receipts,
                 prev_chunk.transactions(),
@@ -2696,6 +2705,9 @@ impl<'a> ChainUpdate<'a> {
             Some(&block.hash()),
         )?;
         self.chain_store_update.save_block_extra(&block.hash(), BlockExtra { challenges_result });
+
+        let protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
         for (shard_id, (chunk_header, prev_chunk_header)) in
             (block.chunks().iter().zip(prev_block.chunks().iter())).enumerate()
@@ -2765,7 +2777,8 @@ impl<'a> ChainUpdate<'a> {
                         .chain_store_update
                         .get_chunk_clone_from_header(&chunk_header.clone())?;
 
-                    if !validate_transactions_order(chunk.transactions()) {
+                    let transactions = chunk.transactions();
+                    if !validate_transactions_order(transactions) {
                         let merkle_paths =
                             Block::compute_chunk_headers_root(block.chunks().iter()).1;
                         let chunk_proof = ChunkProofs {
@@ -2777,6 +2790,25 @@ impl<'a> ChainUpdate<'a> {
                             chunk_proof,
                         ))));
                     }
+
+                    checked_feature!(
+                        "protocol_feature_transaction_hashes_in_state",
+                        TransactionHashesInState,
+                        protocol_version,
+                        {
+                            let transaction_validity_period = self.transaction_validity_period;
+                            for transaction in transactions {
+                                self.chain_store_update
+                                    .get_chain_store()
+                                    .validate_transaction(
+                                        prev_block.header(),
+                                        &transaction,
+                                        transaction_validity_period,
+                                    )
+                                    .map_err(|_| Error::from(ErrorKind::InvalidTransactions))?;
+                            }
+                        }
+                    );
 
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit;
@@ -2790,6 +2822,7 @@ impl<'a> ChainUpdate<'a> {
                             chunk_header.height_included(),
                             block.header().raw_timestamp(),
                             &chunk_header.prev_block_hash(),
+                            prev_block.header().height(),
                             &block.hash(),
                             &receipts,
                             chunk.transactions(),
@@ -2844,6 +2877,7 @@ impl<'a> ChainUpdate<'a> {
                             block.header().height(),
                             block.header().raw_timestamp(),
                             &prev_block.hash(),
+                            prev_block.header().height(),
                             &block.hash(),
                             &[],
                             &[],
@@ -3472,11 +3506,13 @@ impl<'a> ChainUpdate<'a> {
             }
         }
         let receipts = collect_receipts_from_response(&receipt_proof_response);
+        let prev_block_header =
+            self.chain_store_update.get_block_header(block_header.prev_hash())?.clone();
         // Prev block header should be present during state sync, since headers have been synced at this point.
         let gas_price = if block_header.height() == self.chain_store_update.get_genesis_height() {
             block_header.gas_price()
         } else {
-            self.chain_store_update.get_block_header(block_header.prev_hash())?.gas_price()
+            prev_block_header.gas_price()
         };
 
         let chunk_header = chunk.cloned_header();
@@ -3487,6 +3523,7 @@ impl<'a> ChainUpdate<'a> {
             chunk_header.height_included(),
             block_header.raw_timestamp(),
             &chunk_header.prev_block_hash(),
+            prev_block_header.height(),
             block_header.hash(),
             &receipts,
             chunk.transactions(),
@@ -3565,6 +3602,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.height(),
             block_header.raw_timestamp(),
             &prev_block_header.hash(),
+            prev_block_header.height(),
             &block_header.hash(),
             &[],
             &[],

@@ -33,3 +33,6 @@ near-runtime-configs = { path = "../../core/runtime-configs" }
 
 [dev-dependencies]
 insta = "1"
+
+[features]
+protocol_feature_transaction_hashes_in_state = ["near-primitives/protocol_feature_transaction_hashes_in_state"]

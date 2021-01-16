@@ -182,6 +182,9 @@ pub enum StateChangeCause {
     /// State change that happens when we update validator accounts. Not associated with with any
     /// specific transaction or receipt.
     ValidatorAccountsUpdate,
+    /// Store transaction hashes in some block in state. Used to avoid transaction hash collisions
+    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+    StoreTransactionHashes,
 }
 
 /// This represents the committed changes in the Trie with a change cause.
@@ -319,6 +322,10 @@ impl StateChanges {
                 TrieKey::PostponedReceipt { .. } => {}
                 TrieKey::DelayedReceiptIndices => {}
                 TrieKey::DelayedReceipt { .. } => {}
+                #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+                TrieKey::BlockTransactionHashes { .. } => {}
+                #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+                TrieKey::AccountTransactionHash { .. } => {}
             }
         }
 

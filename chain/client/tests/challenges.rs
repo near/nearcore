@@ -383,6 +383,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &economics_config,
             DoomslugThresholdMode::NoApprovals,
             &genesis_block,
+            genesis.config.transaction_validity_period,
         );
 
         chain_update.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap()

@@ -473,9 +473,22 @@ impl ChainStore {
         }
     }
 
+    pub fn validate_transaction(
+        &mut self,
+        prev_block_header: &BlockHeader,
+        transaction: &SignedTransaction,
+        validity_period: BlockHeight,
+    ) -> Result<(), InvalidTxError> {
+        self.check_transaction_validity_period(
+            prev_block_header,
+            &transaction.transaction.block_hash,
+            validity_period,
+        )
+    }
+
     /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
     /// ahead of the block that has `base_block_hash`.
-    pub fn check_transaction_validity_period(
+    fn check_transaction_validity_period(
         &mut self,
         prev_block_header: &BlockHeader,
         base_block_hash: &CryptoHash,
@@ -2887,7 +2900,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         self.chain_store.head = self.head;
         self.chain_store.tail = self.tail;
-
         Ok(())
     }
 }
