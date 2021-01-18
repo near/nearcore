@@ -168,3 +168,7 @@ expensive nearcore test_simple test::test_7_10_multiple_nodes
 
 expensive nearcore test_rejoin test::test_4_20_kill1
 expensive nearcore test_rejoin test::test_4_20_kill1_two_shards
+
+# evm tests
+pytest --timeout=3600 evm/balancer_localnode.py
+pytest --timeout=1800 evm/balancer_betanet.py

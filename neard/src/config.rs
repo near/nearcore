@@ -130,7 +130,7 @@ pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
 
 #[cfg(feature = "protocol_feature_evm")]
-pub const TEST_EVM_CHAIN_ID: u128 = 0x99;
+pub const TESTNET_EVM_CHAIN_ID: u64 = 0x99;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -1011,9 +1011,9 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
         // In case where the genesis is bigger than the specified limit Overflow Error is thrown
         let body = response
             .body()
-            .limit(2_500_000_000)
+            .limit(10_000_000_000)
             .await
-            .expect("Genesis file is bigger than 2.5GB. Please make the limit higher.");
+            .expect("Genesis file is bigger than 10GB. Please make the limit higher.");
 
         std::fs::write(&path, &body).expect("Failed to create / write a config file.");
 

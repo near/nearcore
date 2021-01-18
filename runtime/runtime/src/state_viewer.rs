@@ -1,10 +1,12 @@
 use std::str;
+use std::sync::Arc;
 use std::time::Instant;
 
 use log::debug;
 
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ActionReceipt;
 use near_primitives::serialize::to_base64;
@@ -14,13 +16,12 @@ use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives::views::{StateItem, ViewApplyState, ViewStateResult};
 use near_runtime_configs::RuntimeConfig;
 use near_runtime_utils::is_valid_account_id;
-use near_store::{get_access_key, get_account, TrieUpdate};
+use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_logic::ReturnData;
 
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
 use crate::ApplyState;
-use std::sync::Arc;
 
 pub struct TrieViewer {}
 
@@ -40,6 +41,17 @@ impl TrieViewer {
 
         get_account(state_update, &account_id)?
             .ok_or_else(|| format!("account {} does not exist while viewing", account_id).into())
+    }
+
+    pub fn view_contract_code(
+        &self,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+    ) -> Result<ContractCode, Box<dyn std::error::Error>> {
+        let account = self.view_account(state_update, account_id)?;
+        get_code(state_update, account_id, Some(account.code_hash))?.ok_or_else(|| {
+            format!("contract code of account {} does not exist while viewing", account_id).into()
+        })
     }
 
     pub fn view_access_key(
@@ -133,6 +145,8 @@ impl TrieViewer {
             cache: view_state.cache,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
+            #[cfg(feature = "costs_counting")]
+            profile: None,
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
@@ -188,10 +202,8 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[cfg(feature = "protocol_feature_evm")]
-    use near_chain_configs::TEST_EVM_CHAIN_ID;
+    use near_chain_configs::TESTNET_EVM_CHAIN_ID;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
@@ -199,6 +211,8 @@ mod tests {
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
+
+    use super::*;
 
     #[test]
     fn test_view_call() {
@@ -214,7 +228,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
             root,
@@ -243,7 +257,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
             root,

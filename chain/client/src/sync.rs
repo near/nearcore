@@ -33,7 +33,7 @@ pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 const BLOCK_REQUEST_TIMEOUT: i64 = 2;
 
 /// Sync state download timeout in seconds.
-pub const STATE_SYNC_TIMEOUT: i64 = 10;
+pub const STATE_SYNC_TIMEOUT: i64 = 60;
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
 /// Number of state parts already requested stored as pending.
@@ -853,7 +853,10 @@ impl StateSync {
                 new_shard_sync_download.downloads[0].state_requests_count += 1;
                 new_shard_sync_download.downloads[0].last_target = Some(target.clone());
                 let run_me = new_shard_sync_download.downloads[0].run_me.clone();
-                actix::spawn(
+                near_performance_metrics::actix::spawn(
+                    std::any::type_name::<Self>(),
+                    file!(),
+                    line!(),
                     self.network_adapter
                         .send(NetworkRequests::StateRequestHeader { shard_id, sync_hash, target })
                         .then(move |result| {
@@ -886,7 +889,10 @@ impl StateSync {
                     download.last_target = Some(target.clone());
                     let run_me = download.run_me.clone();
 
-                    actix::spawn(
+                    near_performance_metrics::actix::spawn(
+                        std::any::type_name::<Self>(),
+                        file!(),
+                        line!(),
                         self.network_adapter
                             .send(NetworkRequests::StateRequestPart {
                                 shard_id,
@@ -1208,6 +1214,7 @@ mod test {
                 PROTOCOL_VERSION,
                 &last_block.header(),
                 current_height,
+                last_block.header().block_ordinal() + 1,
                 last_block.chunks().iter().cloned().collect(),
                 epoch_id,
                 next_epoch_id,

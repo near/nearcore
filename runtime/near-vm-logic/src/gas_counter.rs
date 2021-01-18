@@ -123,7 +123,7 @@ impl GasCounter {
     #[inline]
     fn update_profile_host(&mut self, cost: ExtCosts, value: u64) {
         match &self.profile {
-            Some(profile) => *profile.borrow_mut().get_mut(cost as usize).unwrap() += value,
+            Some(profile) => profile.add_ext_cost(cost, value),
             None => {}
         };
     }
@@ -136,9 +136,7 @@ impl GasCounter {
     #[inline]
     fn update_profile_action(&mut self, action: ActionCosts, value: u64) {
         match &self.profile {
-            Some(profile) => {
-                *profile.borrow_mut().get_mut(action as usize + ExtCosts::count()).unwrap() += value
-            }
+            Some(profile) => profile.add_action_cost(action, value),
             None => {}
         };
     }

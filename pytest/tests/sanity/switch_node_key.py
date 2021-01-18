@@ -5,7 +5,8 @@ import sys, time, base58, nacl.bindings
 
 sys.path.append('lib')
 
-from cluster import start_cluster, Key
+from cluster import start_cluster
+from key import Key
 
 EPOCH_LENGTH = 40
 STOP_HEIGHT1 = 35

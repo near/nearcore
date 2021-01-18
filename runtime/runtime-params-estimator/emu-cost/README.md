@@ -32,7 +32,7 @@ Start container and build estimator with:
     docker> cargo run --release --package neard --features protocol_feature_evm,nightly_protocol_features --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
     docker> cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
     docker> cd /host/nearcore/runtime/runtime-params-estimator
-    docker> cargo build --release --package runtime-params-estimator
+    docker> cargo build --release --package runtime-params-estimator --features required
 
 Now start the estimator under QEMU with the counter plugin enabled (note, that Rust compiler produces SSE4, so specify recent CPU):
 
@@ -44,9 +44,9 @@ Note that it may take some time, as we execute instrumented code under the binar
 
 ## IO cost calibration
 
-We got to calibrate IO operations cost to instruction counts. Technically instructions and IO are absolutely orthogonal,
+We need to calibrate IO operations cost to instruction counts. Technically instruction count and IO costs are orthogonal,
 however, as we measure our gas in instructions, we have to compute abstract scaling coefficients binding
-number of bytes read/written in IO to instructions executed.
+the number of bytes read/written in IO to instructions executed.
 We do that by computing following operation:
 
     ./emu-cost/counter_plugin/qemu-x86_64  -d plugin -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so \

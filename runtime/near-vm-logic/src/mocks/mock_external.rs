@@ -4,7 +4,7 @@ use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 /// Emulates the trie and the mock handling code.
 pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,

@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
 use serde::{Deserialize, Serialize};
 
-use near_crypto::{PublicKey, Signature};
+use near_crypto::PublicKey;
 
 use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
@@ -10,7 +10,6 @@ use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::u128_dec_format;
 use crate::trie_key::TrieKey;
-use std::cmp::Ordering;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -604,18 +603,4 @@ pub trait EpochInfoProvider {
     ) -> Result<Balance, EpochError>;
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
-
-    fn verify_validator_signature(
-        &self,
-        epoch_id: &EpochId,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, EpochError>;
-
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, EpochError>;
 }
