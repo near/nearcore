@@ -13,6 +13,7 @@ serde = { version = "1", features = ["derive"] }
 strum = { version = "0.18", features = ["derive"] }
 
 near-chain = { path = "../chain" }
+near-chain-primitives = { path = "../chain-primitives" }
 near-chunks = { path = "../chunks" }
 near-network = { path = "../network" }
 near-primitives = { path = "../../core/primitives" }

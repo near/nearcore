@@ -29,7 +29,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]
 pub enum Error {
-    Chain(near_chain::Error),
+    Chain(near_chain_primitives::Error),
     Chunk(near_chunks::Error),
     BlockProducer(String),
     ChunkProducer(String),
@@ -50,7 +50,7 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-impl From<near_chain::Error> for Error {
+impl From<near_chain_primitives::Error> for Error {
     fn from(e: near_chain::Error) -> Self {
         Error::Chain(e)
     }
@@ -151,10 +151,25 @@ impl SyncStatus {
 pub struct GetBlock(pub BlockReference);
 
 pub enum GetBlockError {
-    ChainError(near_chain::Error),
-    ViewClientError(Error),
+    IOError(String),
+    BlockNotFound(CryptoHash),
     InvalidParams(String),
     Other(String),
+    Unknown,
+}
+
+impl From<near_chain_primitives::Error> for GetBlockError {
+    fn from(error: near_chain_primitives::Error) -> GetBlockError {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(s) => GetBlockError::IOError(s),
+            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => GetBlockError::IOError(s),
+            near_chain_primitives::ErrorKind::BlockMissing(hash) => {
+                GetBlockError::BlockNotFound(hash)
+            }
+            // TODO: add metrics here
+            _ => GetBlockError::Unknown,
+        }
+    }
 }
 
 impl GetBlock {
