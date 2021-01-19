@@ -189,10 +189,19 @@ fn receive_network_block() {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
             block_merkle_tree.insert(last_block.header.hash);
+            let next_block_ordinal = {
+                #[cfg(feature = "protocol_feature_block_ordinal")]
+                {
+                    last_block.header.block_ordinal.unwrap() + 1
+                }
+                #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                0
+            };
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
+                next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -259,10 +268,19 @@ fn produce_block_with_approvals() {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer1 = InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
             block_merkle_tree.insert(last_block.header.hash);
+            let next_block_ordinal = {
+                #[cfg(feature = "protocol_feature_block_ordinal")]
+                {
+                    last_block.header.block_ordinal.unwrap() + 1
+                }
+                #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                0
+            };
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
+                next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -421,10 +439,19 @@ fn invalid_blocks_common(is_requested: bool) {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             block_merkle_tree.insert(last_block.header.hash);
+            let next_block_ordinal = {
+                #[cfg(feature = "protocol_feature_block_ordinal")]
+                {
+                    last_block.header.block_ordinal.unwrap() + 1
+                }
+                #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                0
+            };
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
+                next_block_ordinal,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -2406,4 +2433,56 @@ fn test_node_shutdown_with_old_protocol_version() {
         env.produce_block(0, i);
     }
     env.produce_block(0, 11);
+}
+
+#[cfg(feature = "protocol_feature_block_ordinal")]
+#[test]
+fn test_block_ordinal() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    assert_eq!(genesis_block.header().block_ordinal(), 1);
+    let mut ordinal = 1;
+
+    // Test no skips
+    for i in 1..=5 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        ordinal += 1;
+        assert_eq!(block.header().block_ordinal(), ordinal);
+    }
+
+    // Test skips
+    for i in 1..=5 {
+        let block = env.clients[0].produce_block(i * 10).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        ordinal += 1;
+        assert_eq!(block.header().block_ordinal(), ordinal);
+    }
+
+    // Test forks
+    let last_block = env.clients[0].produce_block(99).unwrap().unwrap();
+    env.process_block(0, last_block.clone(), Provenance::PRODUCED);
+    ordinal += 1;
+    assert_eq!(last_block.header().block_ordinal(), ordinal);
+    let fork1_block = env.clients[0].produce_block(100).unwrap().unwrap();
+    env.clients[0]
+        .chain
+        .mut_store()
+        .save_latest_known(LatestKnown {
+            height: last_block.header().height(),
+            seen: last_block.header().raw_timestamp(),
+        })
+        .unwrap();
+    let fork2_block = env.clients[0].produce_block(101).unwrap().unwrap();
+    assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
+    env.process_block(0, fork1_block.clone(), Provenance::NONE);
+    env.process_block(0, fork2_block.clone(), Provenance::NONE);
+    ordinal += 1;
+    assert_eq!(fork1_block.header().block_ordinal(), ordinal);
+    assert_eq!(fork2_block.header().block_ordinal(), ordinal);
+    // Next block on top of fork
+    let next_block = env.clients[0].produce_block(102).unwrap().unwrap();
+    env.process_block(0, next_block.clone(), Provenance::PRODUCED);
+    ordinal += 1;
+    assert_eq!(next_block.header().block_ordinal(), ordinal);
 }
