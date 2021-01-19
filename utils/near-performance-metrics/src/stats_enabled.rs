@@ -227,7 +227,7 @@ where
 
 pub fn print_performance_stats(sleep_time: Duration) {
     STATS.lock().unwrap().print_stats(sleep_time);
-    info!("Futures waiting for completition {}", REF_COUNTER.lock().unwrap().len());
+    info!("Futures waiting for completition");
     for entry in REF_COUNTER.lock().unwrap().iter() {
         if *entry.1 > 0 {
             info!("    future {}:{} {}", (entry.0).0, (entry.0).1, entry.1);
