@@ -14,6 +14,7 @@ pub struct Basic {
 impl Basic {
     pub fn ping(&mut self) -> String {
         self.pings = self.pings + 1;
+        env::syscall(2, 0, 1, 2, 3, 4, 5, 6, 7);
         format!("PONG {}: {}", env::current_account_id(), self.pings)
     }
 }

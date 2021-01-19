@@ -2326,6 +2326,25 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per_byte(contract_compile_bytes, code_len)?;
         self.gas_counter.pay_base(contract_compile_base)
     }
+
+    pub fn syscall(&mut self, syscall: u32,
+                   arg0: u64, arg1: u64, _arg2: u64, _arg3: u64,
+                   _arg4: u64, _arg5: u64, _arg6: u64, _arg7: u64) -> Result<u64> {
+        match syscall {
+            1 => {
+                println!("syscall #1: {}", arg0);
+                Ok(0)
+            },
+            2 => {
+                println!("syscall #2: {} {}", arg0, arg1);
+                Ok(1)
+            },
+            _ => {
+                println!("else {}", syscall);
+                Err(VMLogicError::HostError(HostError::InvalidMethodName))
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]

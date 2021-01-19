@@ -264,4 +264,18 @@ wrapped_imports! {
     // ###############
     validator_stake<[account_id_len: u64, account_id_ptr: u64, stake_ptr: u64] -> []>,
     validator_total_stake<[stake_ptr: u64] -> []>,
+    // #################################
+    // # Universal extension mechanism #
+    // #################################
+    syscall<[
+        syscall: u32,
+        arg0: u64,
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        arg6: u64,
+        arg7: u64
+    ] -> [u64]>,
 }
