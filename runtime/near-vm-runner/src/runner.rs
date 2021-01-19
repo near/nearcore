@@ -28,7 +28,39 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
+    #[cfg(feature = "costs_counting")] profile: &Option<ProfileData>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    #[cfg(feature = "costs_counting")]
+    match profile {
+        Some(profile) => run_vm_profiled(
+            code_hash,
+            code,
+            method_name,
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            VMKind::default(),
+            profile.clone(),
+            current_protocol_version,
+            cache,
+        ),
+        _ => run_vm(
+            code_hash,
+            code,
+            method_name,
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            VMKind::default(),
+            current_protocol_version,
+            cache,
+        ),
+    }
+    #[cfg(not(feature = "costs_counting"))]
     run_vm(
         code_hash,
         code,
@@ -111,7 +143,7 @@ pub fn run_vm_profiled<'a>(
     use crate::wasmer_runner::run_wasmer;
     #[cfg(feature = "wasmtime_vm")]
     use crate::wasmtime_runner::wasmtime_runner::run_wasmtime;
-    match vm_kind {
+    let (outcome, error) = match vm_kind {
         VMKind::Wasmer => run_wasmer(
             code_hash,
             code,
@@ -121,7 +153,7 @@ pub fn run_vm_profiled<'a>(
             wasm_config,
             fees_config,
             promise_results,
-            Some(profile),
+            Some(profile.clone()),
             current_protocol_version,
             cache,
         ),
@@ -135,7 +167,7 @@ pub fn run_vm_profiled<'a>(
             wasm_config,
             fees_config,
             promise_results,
-            Some(profile),
+            Some(profile.clone()),
             current_protocol_version,
             cache,
         ),
@@ -143,7 +175,12 @@ pub fn run_vm_profiled<'a>(
         VMKind::Wasmtime => {
             panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
         }
-    }
+    };
+    match &outcome {
+        Some(VMOutcome { burnt_gas, .. }) => profile.set_burnt_gas(*burnt_gas),
+        _ => (),
+    };
+    (outcome, error)
 }
 /// `precompile` compiles WASM contract to a VM specific format and stores result into the `cache`.
 /// Further execution with the same cache will result in compilation avoidance and reusing cached

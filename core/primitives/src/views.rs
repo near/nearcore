@@ -5,6 +5,7 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
@@ -15,10 +16,11 @@ use near_crypto::{PublicKey, Signature};
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader};
 use crate::block_header::{
-    BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderV1,
-    BlockHeaderV2,
+    BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
+    BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
 use crate::challenge::{Challenge, ChallengesResult};
+use crate::checked_feature;
 use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -44,7 +46,6 @@ use crate::types::{
     StoreValue, ValidatorKickoutReason, ValidatorStake,
 };
 use crate::version::{ProtocolVersion, Version};
-use std::sync::Arc;
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -87,7 +88,7 @@ pub struct ViewApplyState {
     pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// EVM chain ID
     #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u128,
+    pub evm_chain_id: u64,
 }
 
 impl From<&Account> for AccountView {
@@ -415,6 +416,8 @@ pub struct BlockHeaderView {
     pub random_value: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
+    #[cfg(feature = "protocol_feature_block_ordinal")]
+    pub block_ordinal: Option<NumBlocks>,
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
     /// TODO(2271): deprecated.
@@ -459,6 +462,12 @@ impl From<BlockHeader> for BlockHeaderView {
                 .map(|v| v.clone().into())
                 .collect(),
             chunk_mask: header.chunk_mask().to_vec(),
+            #[cfg(feature = "protocol_feature_block_ordinal")]
+            block_ordinal: if header.block_ordinal() != 0 {
+                Some(header.block_ordinal())
+            } else {
+                None
+            },
             gas_price: header.gas_price(),
             rent_paid: 0,
             validator_reward: 0,
@@ -487,6 +496,11 @@ impl From<BlockHeaderView> for BlockHeader {
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
         };
+        let is_block_ordinal_enabled = checked_feature!(
+            "protocol_feature_block_ordinal",
+            BlockOrdinal,
+            view.latest_protocol_version
+        );
         if view.latest_protocol_version <= 29 {
             let mut header = BlockHeaderV1 {
                 prev_hash: view.prev_hash,
@@ -517,7 +531,7 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV1(Box::new(header))
-        } else {
+        } else if !is_block_ordinal_enabled {
             let mut header = BlockHeaderV2 {
                 prev_hash: view.prev_hash,
                 inner_lite,
@@ -546,6 +560,41 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV2(Box::new(header))
+        } else {
+            let mut header = BlockHeaderV3 {
+                prev_hash: view.prev_hash,
+                inner_lite,
+                inner_rest: BlockHeaderInnerRestV3 {
+                    chunk_receipts_root: view.chunk_receipts_root,
+                    chunk_headers_root: view.chunk_headers_root,
+                    chunk_tx_root: view.chunk_tx_root,
+                    challenges_root: view.challenges_root,
+                    random_value: view.random_value,
+                    validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(|v| v.into())
+                        .collect(),
+                    chunk_mask: view.chunk_mask,
+                    #[cfg(feature = "protocol_feature_block_ordinal")]
+                    block_ordinal: match view.block_ordinal { Some(value) => value, None => 0},
+                    #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                    // Unreachable because of `checked_feature!` above and needed for compilation only.
+                    // Using `block_ordinal: unreachable!()` creates Rust warning.
+                    block_ordinal: 0,
+                    gas_price: view.gas_price,
+                    total_supply: view.total_supply,
+                    challenges_result: view.challenges_result,
+                    last_final_block: view.last_final_block,
+                    last_ds_final_block: view.last_ds_final_block,
+                    approvals: view.approvals.clone(),
+                    latest_protocol_version: view.latest_protocol_version,
+                },
+                signature: view.signature,
+                hash: CryptoHash::default(),
+            };
+            header.init();
+            BlockHeader::BlockHeaderV3(Box::new(header))
         }
     }
 }
@@ -580,6 +629,17 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
                 block_merkle_root: header.inner_lite.block_merkle_root,
             },
             BlockHeader::BlockHeaderV2(header) => BlockHeaderInnerLiteView {
+                height: header.inner_lite.height,
+                epoch_id: header.inner_lite.epoch_id.0,
+                next_epoch_id: header.inner_lite.next_epoch_id.0,
+                prev_state_root: header.inner_lite.prev_state_root,
+                outcome_root: header.inner_lite.outcome_root,
+                timestamp: header.inner_lite.timestamp,
+                timestamp_nanosec: header.inner_lite.timestamp,
+                next_bp_hash: header.inner_lite.next_bp_hash,
+                block_merkle_root: header.inner_lite.block_merkle_root,
+            },
+            BlockHeader::BlockHeaderV3(header) => BlockHeaderInnerLiteView {
                 height: header.inner_lite.height,
                 epoch_id: header.inner_lite.epoch_id.0,
                 next_epoch_id: header.inner_lite.next_epoch_id.0,

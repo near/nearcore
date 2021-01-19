@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use num_rational::Rational;
@@ -7,7 +6,10 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
+#[cfg(not(feature = "protocol_feature_block_ordinal"))]
 use crate::block_header::{BlockHeader, BlockHeaderV2};
+#[cfg(feature = "protocol_feature_block_ordinal")]
+use crate::block_header::{BlockHeader, BlockHeaderV3};
 use crate::errors::{EpochError, TxExecutionError};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
@@ -249,10 +251,21 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
+    #[cfg(feature = "protocol_feature_block_ordinal")]
+    pub fn get_mut(&mut self) -> &mut BlockHeaderV3 {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => panic!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => panic!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(header) => header,
+        }
+    }
+
+    #[cfg(not(feature = "protocol_feature_block_ordinal"))]
     pub fn get_mut(&mut self) -> &mut BlockHeaderV2 {
         match self {
             BlockHeader::BlockHeaderV1(_) => panic!("old header should not appear in tests"),
             BlockHeader::BlockHeaderV2(header) => header,
+            BlockHeader::BlockHeaderV3(_) => panic!("new header should not appear in tests with `--features nightly_protocol_features` disabled"),
         }
     }
 
@@ -385,6 +398,7 @@ impl Block {
             PROTOCOL_VERSION,
             prev.header(),
             height,
+            prev.header().block_ordinal() + 1,
             prev.chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
@@ -433,28 +447,6 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         Ok(0)
-    }
-
-    fn verify_validator_signature(
-        &self,
-        _epoch_id: &EpochId,
-        _account_id: &String,
-        _data: &[u8],
-        _signature: &Signature,
-    ) -> Result<bool, EpochError> {
-        Ok(true)
-    }
-
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, EpochError> {
-        if epoch_id == other_epoch_id {
-            Ok(Ordering::Equal)
-        } else {
-            Ok(Ordering::Greater)
-        }
     }
 }
 
