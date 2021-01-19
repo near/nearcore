@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 ## Take runtime_config.json output from runtime-param-estimator, and apply
-## safety mutiplier to some costs, output is used as genesis.runtime_config
+## safety multiplier to some costs, output is used as genesis.runtime_config
 
 import json
 import sys

@@ -215,7 +215,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
             cost_to_compile(config.metric, config.vm_kind, true);
         let contract_byte_cost = ratio_to_gas(config.metric, contract_compile_cost);
         println!(
-            "{}, {}",
+            "contract_byte_cost = {}, contract_compile_base_cost = {}",
             contract_byte_cost,
             ratio_to_gas(config.metric, contract_compile_base_cost)
         );

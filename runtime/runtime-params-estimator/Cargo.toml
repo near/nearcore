@@ -50,7 +50,7 @@ costs_counting = ["near-vm-logic/costs_counting",
                   "testlib/costs_counting",
                   "near-evm-runner/costs_counting"]
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
-required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache", "near-store/single_thread_rocksdb"]
+required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
