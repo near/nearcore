@@ -1,4 +1,3 @@
-use near_primitives::checked_feature;
 use near_primitives::version::ProtocolVersion;
 use near_vm_logic::VMLogic;
 
@@ -79,6 +78,7 @@ macro_rules! wrapped_imports {
                 )*
             }
 
+            #[allow(unused_variables)]
             pub(crate) fn build_wasmer(
                 memory: wasmer_runtime::memory::Memory,
                 logic: &mut VMLogic<'_>,
@@ -94,7 +94,7 @@ macro_rules! wrapped_imports {
                 let mut ns = wasmer_runtime_core::import::Namespace::new();
                 ns.insert("memory", memory);
                 $({
-                    if true $(&& checked_feature!($feature_name, $feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
                         ns.insert(stringify!($func), wasmer_runtime::func!(wasmer_ext::$func));
                     }
                 })*
@@ -104,6 +104,7 @@ macro_rules! wrapped_imports {
             }
 
             #[cfg(feature = "wasmtime_vm")]
+            #[allow(unused_variables)]
             pub(crate) fn link_wasmtime(
                 linker: &mut wasmtime::Linker,
                 memory: wasmtime::Memory,
@@ -117,7 +118,7 @@ macro_rules! wrapped_imports {
                 });
                 linker.define("env", "memory", memory).expect("cannot define memory");
                 $({
-                    if true $(&& checked_feature!($feature_name, $feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
                         linker.func("env", stringify!($func), wasmtime_ext::$func).expect("cannot link external");
                     }
                 })*
