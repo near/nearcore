@@ -94,6 +94,7 @@ macro_rules! wrapped_imports {
                 let mut ns = wasmer_runtime_core::import::Namespace::new();
                 ns.insert("memory", memory);
                 $({
+                    $(#[cfg(feature = $feature_name)])*
                     if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
                         ns.insert(stringify!($func), wasmer_runtime::func!(wasmer_ext::$func));
                     }
@@ -118,6 +119,7 @@ macro_rules! wrapped_imports {
                 });
                 linker.define("env", "memory", memory).expect("cannot define memory");
                 $({
+                    $(#[cfg(feature = $feature_name)])*
                     if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
                         linker.func("env", stringify!($func), wasmtime_ext::$func).expect("cannot link external");
                     }
