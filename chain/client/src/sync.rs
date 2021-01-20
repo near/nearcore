@@ -1214,6 +1214,7 @@ mod test {
                 PROTOCOL_VERSION,
                 &last_block.header(),
                 current_height,
+                last_block.header().block_ordinal() + 1,
                 last_block.chunks().iter().cloned().collect(),
                 epoch_id,
                 next_epoch_id,
