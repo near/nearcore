@@ -1,5 +1,5 @@
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::FunctionCallError;
+use near_vm_errors::{FunctionCallError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::{Balance, ReturnData};
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
@@ -245,5 +245,5 @@ pub fn test_out_of_memory() {
         LATEST_PROTOCOL_VERSION,
         None,
     );
-    assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)));
+    assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))));
 }

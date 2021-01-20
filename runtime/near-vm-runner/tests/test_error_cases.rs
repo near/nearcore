@@ -1,4 +1,4 @@
-use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, PrepareError};
+use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, PrepareError, WasmTrap};
 use near_vm_logic::{HostError, ReturnData, VMKind, VMOutcome};
 use near_vm_runner::{with_vm_variants, VMError};
 
@@ -152,7 +152,7 @@ fn test_trap_contract() {
         make_simple_contract_call_vm(&trap_contract(), b"hello", VMKind::Wasmer),
         (
             Some(vm_outcome_with_gas(47105334)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable)))
         )
     );
 }
@@ -177,7 +177,7 @@ fn test_trap_initializer() {
         make_simple_contract_call_vm(&trap_initializer(), b"hello", VMKind::Wasmer),
         (
             Some(vm_outcome_with_gas(47755584)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable)))
         )
     );
 }
@@ -279,11 +279,13 @@ fn stack_overflow() -> Vec<u8> {
 fn test_stack_overflow() {
     // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
     // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
+    // Unreachable instead of stackoverflow would be triggered, because we inject pwasm_util's protection
+    // code, which would lead to a unreachable trap when stackoverflow happened
     assert_eq!(
         make_simple_contract_call_vm(&stack_overflow(), b"hello", VMKind::Wasmer),
         (
             Some(vm_outcome_with_gas(63226248177)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable)))
         )
     );
 }

@@ -8,6 +8,7 @@ use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VM
 use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::Module;
+use wasmer_runtime::ExceptionCode;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
@@ -88,7 +89,7 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
-        use near_vm_errors::WasmTrap::BreakpointTrap;
+        use near_vm_errors::WasmTrap;
         use wasmer_runtime::error::InvokeError;
         use wasmer_runtime::error::RuntimeError;
         match &self {
@@ -111,8 +112,15 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 }
                 // A trap that Wasmer knows about occurred.
                 // As of 0.17.1, can be thrown on C signals caught, for example OOM.
-                InvokeError::TrapCode { code: _, srcloc: _ } => {
-                    VMError::FunctionCallError(WasmUnknownError)
+                InvokeError::TrapCode { code, srcloc: _ } => {
+                    match code {
+                        ExceptionCode::Unreachable => VMError::FunctionCallError(WasmTrap(WasmTrap::Unreachable)),
+                        ExceptionCode::IncorrectCallIndirectSignature => VMError::FunctionCallError(WasmTrap(WasmTrap::IncorrectCallIndirectSignature)),
+                        ExceptionCode::MemoryOutOfBounds => VMError::FunctionCallError(WasmTrap(WasmTrap::MemoryOutOfBounds)),
+                        ExceptionCode::CallIndirectOOB => VMError::FunctionCallError(WasmTrap(WasmTrap::CallIndirectOOB)),
+                        ExceptionCode::IllegalArithmetic => VMError::FunctionCallError(WasmTrap(WasmTrap::IllegalArithmetic)),
+                        ExceptionCode::MisalignedAtomicAccess => VMError::FunctionCallError(WasmTrap(WasmTrap::MisalignedAtomicAccess)),
+                    }
                 }
                 // A trap occurred that Wasmer knows about but it had a trap code that
                 // we weren't expecting or that we do not handle.
@@ -132,7 +140,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 // upon the middleware or backend being used.
                 // As of 0.17.0, thrown only from Singlepass BE and wraps RuntimeError
                 // instance.
-                InvokeError::Breakpoint(_) => VMError::FunctionCallError(WasmTrap(BreakpointTrap)),
+                InvokeError::Breakpoint(_) => VMError::FunctionCallError(WasmTrap(WasmTrap::BreakpointTrap)),
             },
             // A metering triggered error value.
             // As of 0.17.0, thrown only from Singlepass BE, and as we do not rely
