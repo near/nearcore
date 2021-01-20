@@ -2326,6 +2326,16 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per_byte(contract_compile_bytes, code_len)?;
         self.gas_counter.pay_base(contract_compile_base)
     }
+
+    /// The current amount of tokens locked due to staking.
+    ///
+    /// # Cost
+    ///
+    /// `base + memory_write_base + memory_write_size * 16`
+    pub fn test_api(&mut self, balance_ptr: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        self.memory_set_u128(balance_ptr, self.current_account_locked_balance)
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
