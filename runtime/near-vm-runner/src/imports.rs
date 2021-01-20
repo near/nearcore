@@ -9,7 +9,7 @@ unsafe impl Sync for ImportReference {}
 
 use wasmer::{Memory, WasmerEnv};
 #[derive(WasmerEnv, Clone)]
-pub struct MyEnv {
+pub struct NearWasmerEnv {
     pub memory: Memory,
     pub logic: ImportReference,
 }
@@ -49,12 +49,12 @@ macro_rules! wrapped_imports {
             #[cfg(feature = "wasmer1_vm")]
             pub mod wasmer1_ext {
             use near_vm_logic::VMLogic;
-            use crate::imports::MyEnv;
+            use crate::imports::NearWasmerEnv;
 
             type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
             $(
                 #[allow(unused_parens)]
-                pub fn $func(env: &MyEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
+                pub fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
                     let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
@@ -120,7 +120,7 @@ macro_rules! wrapped_imports {
             #[cfg(feature = "wasmer1_vm")]
             pub(crate) fn build_wasmer1(store: &wasmer::Store, memory: wasmer::Memory, logic: &mut VMLogic<'_>) ->
                 wasmer::ImportObject {
-                let env = MyEnv {logic: ImportReference(logic as * mut _ as * mut c_void), memory: memory.clone()};
+                let env = NearWasmerEnv {logic: ImportReference(logic as * mut _ as * mut c_void), memory: memory.clone()};
                 wasmer::imports! {
                     "env" => {
                         "memory" => memory,
