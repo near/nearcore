@@ -65,14 +65,6 @@ impl<'a> ContractModule<'a> {
         Ok(Self { module, config })
     }
 
-    fn inject_stack_height_metering(self) -> Result<Self, PrepareError> {
-        let Self { module, config } = self;
-        let module =
-            pwasm_utils::stack_height::inject_limiter(module, config.limit_config.max_stack_height)
-                .map_err(|_| PrepareError::StackHeightInstrumentation)?;
-        Ok(Self { module, config })
-    }
-
     /// Scan an import section if any.
     ///
     /// This accomplishes two tasks:
@@ -150,11 +142,10 @@ impl<'a> ContractModule<'a> {
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
 pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
-    ContractModule::init(original_code, config)?
+    code = ContractModule::init(original_code, config)?
         .standardize_mem()
         .ensure_no_internal_memory()?
         .inject_gas_metering()?
-        .inject_stack_height_metering()?
         .scan_imports()?
         .into_wasm_code()
 }

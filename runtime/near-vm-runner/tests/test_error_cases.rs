@@ -284,16 +284,16 @@ fn test_stack_overflow() {
             VMKind::Wasmer0 => assert_eq!(
                 make_simple_contract_call_vm(&stack_overflow(), b"hello", vm_kind),
                 (
-                    Some(vm_outcome_with_gas(63226248177)),
+                    Some(vm_outcome_with_gas(124530977964)),
                     Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
                 )
             ),
             VMKind::Wasmer1 => assert_eq!(
                 make_simple_contract_call_vm(&stack_overflow(), b"hello", vm_kind),
                 (
-                    Some(vm_outcome_with_gas(63226248177)),
+                    Some(vm_outcome_with_gas(124685232804)),
                     Some(VMError::FunctionCallError(FunctionCallError::Wasmer1Trap(
-                        "unreachable".to_string()
+                        "stk_ovf".to_string()
                     )))
                 )
             ),
