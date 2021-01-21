@@ -51,14 +51,14 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 impl From<near_chain_primitives::Error> for Error {
-    fn from(e: near_chain::Error) -> Self {
+    fn from(e: near_chain_primitives::Error) -> Self {
         Error::Chain(e)
     }
 }
 
-impl From<near_chain::ErrorKind> for Error {
-    fn from(e: near_chain::ErrorKind) -> Self {
-        let error: near_chain::Error = e.into();
+impl From<near_chain_primitives::ErrorKind> for Error {
+    fn from(e: near_chain_primitives::ErrorKind) -> Self {
+        let error: near_chain_primitives::Error = e.into();
         Error::Chain(error)
     }
 }
@@ -150,24 +150,30 @@ impl SyncStatus {
 /// Actor message requesting block by id or hash.
 pub struct GetBlock(pub BlockReference);
 
+#[derive(thiserror::Error, Debug)]
 pub enum GetBlockError {
+    #[error("IO Error: {0}")]
     IOError(String),
-    BlockNotFound(CryptoHash),
-    InvalidParams(String),
-    Other(String),
-    Unknown,
+    #[error("Block `{0}` is missing")]
+    BlockMissing(CryptoHash),
+    #[error("Block not found")]
+    BlockNotFound(String),
+    #[error("There are no fully synchronized blocks yet")]
+    NotSyncedYet,
+    #[error("Unexpected error occurred: {0}")]
+    Unexpected(String),
 }
 
 impl From<near_chain_primitives::Error> for GetBlockError {
     fn from(error: near_chain_primitives::Error) -> GetBlockError {
         match error.kind() {
             near_chain_primitives::ErrorKind::IOErr(s) => GetBlockError::IOError(s),
-            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => GetBlockError::IOError(s),
+            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => GetBlockError::BlockNotFound(s),
             near_chain_primitives::ErrorKind::BlockMissing(hash) => {
-                GetBlockError::BlockNotFound(hash)
+                GetBlockError::BlockMissing(hash)
             }
             // TODO: add metrics here
-            _ => GetBlockError::Unknown,
+            _ => GetBlockError::Unexpected(error.to_string()),
         }
     }
 }
@@ -276,7 +282,7 @@ pub struct TxStatus {
 
 #[derive(Debug)]
 pub enum TxStatusError {
-    ChainError(near_chain::Error),
+    ChainError(near_chain_primitives::Error),
     MissingTransaction(CryptoHash),
     InvalidTx(InvalidTxError),
     InternalError,

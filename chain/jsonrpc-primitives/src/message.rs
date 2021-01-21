@@ -130,33 +130,36 @@ impl std::string::ToString for RpcError {
     }
 }
 
-impl From<near_client_primitives::types::GetBlockError> for RpcError {
-    fn from(error: near_client_primitives::types::GetBlockError) -> RpcError {
+impl From<crate::blocks::RpcBlockError> for RpcError {
+    fn from(error: crate::blocks::RpcBlockError) -> Self {
         let error_data = match error {
-            near_client_primitives::types::GetBlockError::IOError(s) => Some(Value::String(s)),
-            near_client_primitives::types::GetBlockError::BlockNotFound(hash) => {
-                Some(Value::String(hash.to_string()))
+            crate::blocks::RpcBlockError::BlockMissing(hash) => Some(Value::String(format!(
+                "Block Missing (unavailable on the node): {} \n Cause: Unknown",
+                hash.to_string()
+            ))),
+            crate::blocks::RpcBlockError::BlockNotFound(s) => {
+                Some(Value::String(format!("DB Not Found Error: {} \n Cause: Unknown", s)))
             }
-            // near_client_primitives::types::GetBlockError::ChainError(err) => {
-            //     Some(Value::String(err.to_string()))
-            // }
-            // near_client_primitives::types::GetBlockError::ViewClientError(err) => {
-            //     Some(Value::String(err.to_string()))
-            // }
-            near_client_primitives::types::GetBlockError::InvalidParams(s)
-            | near_client_primitives::types::GetBlockError::Other(s) => Some(Value::String(s)),
-            near_client_primitives::types::GetBlockError::Unknown => {
-                Some(Value::String("Unknown error".to_string()))
+            crate::blocks::RpcBlockError::Unexpected(s) => Some(Value::String(s)),
+            crate::blocks::RpcBlockError::NotSyncedYet
+            | crate::blocks::RpcBlockError::TooManyRequests(_) => {
+                Some(Value::String(error.to_string()))
             }
         };
 
-        RpcError::new(-32_000, "Server error".to_string(), error_data)
+        Self::new(-32_000, "Server error".to_string(), error_data)
     }
 }
 
 impl From<actix::MailboxError> for RpcError {
-    fn from(error: actix::MailboxError) -> RpcError {
-        RpcError::new(-32_000, "Server error".to_string(), Some(Value::String(error.to_string())))
+    fn from(error: actix::MailboxError) -> Self {
+        Self::new(-32_000, "Server error".to_string(), Some(Value::String(error.to_string())))
+    }
+}
+
+impl From<near_primitives::rpc::RpcParseError> for RpcError {
+    fn from(parse_error: near_primitives::rpc::RpcParseError) -> Self {
+        Self::invalid_params(parse_error.0)
     }
 }
 

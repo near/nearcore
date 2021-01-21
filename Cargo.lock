@@ -3130,13 +3130,13 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "chrono",
- "near-chain",
  "near-chain-primitives",
  "near-chunks",
  "near-network",
  "near-primitives",
  "serde",
  "strum",
+ "thiserror",
 ]
 
 [[package]]
@@ -3287,9 +3287,13 @@ name = "near-jsonrpc-primitives"
 version = "0.1.0"
 dependencies = [
  "actix",
+ "lazy_static",
  "near-client-primitives",
+ "near-metrics",
+ "near-primitives",
  "serde",
  "serde_json",
+ "thiserror",
  "uuid",
 ]
 

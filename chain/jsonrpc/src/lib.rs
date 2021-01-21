@@ -22,6 +22,7 @@ use near_client::{
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::ChunkId;
+use near_jsonrpc_primitives::blocks::RpcBlockError;
 use near_jsonrpc_primitives::message::{Message, Request, RpcError};
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
@@ -240,9 +241,12 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
             "tx" => self.tx_status_common(request.params, false).await,
             "EXPERIMENTAL_tx_status" => self.tx_status_common(request.params, true).await,
-            "block" => self.block(request.params).await.and_then(|value| {
-                serde_json::to_value(value).map_err(|err| RpcError::parse_error(err.to_string()))
-            }),
+            "block" => {
+                let rpc_block_request =
+                    near_primitives::rpc::RpcBlockRequest::parse(request.params)?;
+                let block = self.block(rpc_block_request).await?;
+                serde_json::to_value(block).map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "chunk" => self.chunk(request.params).await,
             "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
             "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
@@ -255,10 +259,6 @@ impl JsonRpcHandler {
             "gas_price" => self.gas_price(request.params).await,
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
-
-        // let response = response.and_then(|value| {
-        //     serde_json::to_value(value).map_err(|err| RpcError::parse_error(err.to_string()))
-        // });
 
         if let Err(err) = &response {
             near_metrics::inc_counter_vec(
@@ -627,13 +627,11 @@ impl JsonRpcHandler {
             .map_err(|err| err.into())))
     }
 
-    async fn block(&self, params: Option<Value>) -> Result<BlockView, RpcError> {
-        let block_reference = if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
-            BlockReference::BlockId(block_id)
-        } else {
-            parse_params::<BlockReference>(params)?
-        };
-        Ok(self.view_client_addr.send(GetBlock(block_reference)).await??)
+    async fn block(
+        &self,
+        request_data: near_primitives::rpc::RpcBlockRequest,
+    ) -> Result<BlockView, RpcBlockError> {
+        Ok(self.view_client_addr.send(GetBlock(request_data.block_reference)).await??)
     }
 
     async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -655,7 +653,14 @@ impl JsonRpcHandler {
 
     async fn changes_in_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let RpcStateChangesInBlockRequest { block_reference } = parse_params(params)?;
-        let block = self.view_client_addr.send(GetBlock(block_reference)).await??;
+        // TODO refactor it. Changed to keep it working before refactoring
+        let result = self.view_client_addr.send(GetBlock(block_reference)).await?;
+
+        if result.is_err() {
+            return Err(RpcError::from(RpcBlockError::from(result.err().unwrap())));
+        }
+
+        let block = result.unwrap();
 
         let block_hash = block.header.hash.clone();
         jsonify(self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await.map(|v| {
@@ -669,7 +674,13 @@ impl JsonRpcHandler {
     async fn changes_in_block_by_type(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let RpcStateChangesRequest { block_reference, state_changes_request } =
             parse_params(params)?;
-        let block = self.view_client_addr.send(GetBlock(block_reference)).await??;
+        // TODO refactor it. Changed to keep it working before refactoring
+        let result = self.view_client_addr.send(GetBlock(block_reference)).await?;
+        if result.is_err() {
+            return Err(RpcError::from(RpcBlockError::from(result.err().unwrap())));
+        }
+
+        let block = result.unwrap();
 
         let block_hash = block.header.hash.clone();
         jsonify(

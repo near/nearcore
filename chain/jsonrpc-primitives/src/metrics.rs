@@ -1,0 +1,11 @@
+use lazy_static::lazy_static;
+use near_metrics::IntCounterVec;
+
+lazy_static! {
+    pub static ref RPC_UNEXPECTED_ERROR_COUNT: near_metrics::Result<IntCounterVec> =
+        near_metrics::try_create_int_counter_vec(
+            "near_rpc_unexpected_errors_total",
+            "Total count of Unexpected RPC errors returned, by method",
+            &["method"]
+        );
+}

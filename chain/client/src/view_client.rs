@@ -181,7 +181,7 @@ impl ViewClientActor {
 
         match synchronization_checkpoint {
             SyncCheckpoint::Genesis => Ok(Some(self.chain.genesis().hash().clone())),
-            SyncCheckpoint::EarliestAvailable => Ok(self.chain.get_earliest_block_hash()?),
+            SyncCheckpoint::EarliestAvailable => self.chain.get_earliest_block_hash(),
         }
     }
 
@@ -458,7 +458,7 @@ impl Handler<GetBlock> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetBlock, _: &mut Self::Context) -> Self::Result {
-        match msg.0 {
+        let block = match msg.0 {
             BlockReference::Finality(finality) => {
                 let block_hash = self.get_block_hash_by_finality(&finality)?;
                 self.chain.get_block(&block_hash).map(Clone::clone)
@@ -475,18 +475,16 @@ impl Handler<GetBlock> for ViewClientActor {
                 {
                     self.chain.get_block(&block_hash).map(Clone::clone)
                 } else {
-                    return Err(GetBlockError::Other(
-                        "There are no fully synchronized blocks yet".to_string(),
-                    ));
+                    return Err(GetBlockError::NotSyncedYet);
                 }
             }
-        }
-        .and_then(|block| {
-            self.runtime_adapter
-                .get_block_producer(&block.header().epoch_id(), block.header().height())
-                .map(|author| BlockView::from_author_block(author, block))
-        })
-        .map_err(|err| err.into())
+        }?;
+
+        let block_author = self
+            .runtime_adapter
+            .get_block_producer(&block.header().epoch_id(), block.header().height())?;
+
+        Ok(BlockView::from_author_block(block_author, block))
     }
 }
 
