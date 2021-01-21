@@ -17,3 +17,6 @@ near-chain-primitives = { path = "../chain-primitives" }
 near-chunks = { path = "../chunks" }
 near-network = { path = "../network" }
 near-primitives = { path = "../../core/primitives" }
+
+[features]
+metric_recorder = []
