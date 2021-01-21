@@ -153,14 +153,13 @@ pub fn create_action_hash(
 pub fn create_data_id(
     protocol_version: ProtocolVersion,
     action_hash: &CryptoHash,
-    prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     data_index: usize,
 ) -> CryptoHash {
     create_hash_upgradable(
         protocol_version,
         &action_hash,
-        &prev_block_hash,
+        &block_hash,
         &block_hash,
         data_index as u64,
     )
