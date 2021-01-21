@@ -9,7 +9,7 @@ byteorder = "1.2"
 derive_more = "0.99.3"
 elastic-array = "0.11"
 lazy_static = "1.4"
-rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread", optional = true}
+rocksdb = { version = "0.15.0",  optional = true }
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
 cached = "0.12"
