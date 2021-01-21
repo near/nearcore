@@ -1,11 +1,11 @@
 use crate::runtime::fees::RuntimeFeesConfig;
+use crate::serialize::u128_dec_format;
 use crate::{
     config::VMConfig,
     types::{AccountId, Balance},
     version::ProtocolVersion,
 };
 use serde::{Deserialize, Serialize};
-use crate::serialize::u128_dec_format;
 use std::sync::Arc;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
@@ -76,8 +76,6 @@ impl Default for AccountCreationConfig {
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

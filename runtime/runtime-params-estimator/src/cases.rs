@@ -26,12 +26,12 @@ use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
 use crate::vm_estimator::{cost_per_op, cost_to_compile, load_and_compile};
 
+use near_primitives::runtime::config::RuntimeConfig;
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
 };
 use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
-use near_primitives::runtime::config::RuntimeConfig;
 
 /// How much gas there is in a nanosecond worth of computation.
 const GAS_IN_MEASURE_UNIT: u128 = 1_000_000u128;

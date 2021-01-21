@@ -4,13 +4,13 @@ use std::hash::{Hash, Hasher};
 use wabt::Wat2Wasm;
 
 use near_primitives::types::CompiledContractCache;
+use near_primitives::version::ProtocolVersion;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, VMError};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use near_primitives::version::ProtocolVersion;
 
 pub const CURRENT_ACCOUNT_ID: &str = "alice";
 pub const SIGNER_ACCOUNT_ID: &str = "bob";

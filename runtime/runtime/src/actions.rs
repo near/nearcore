@@ -7,6 +7,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
+use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
@@ -17,7 +18,6 @@ use near_primitives::version::{
     ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
     IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
 };
-use near_primitives::runtime::config::AccountCreationConfig;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::{
     is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
@@ -626,9 +626,7 @@ pub(crate) fn check_account_existence(
                     // new account.
                     Ok(())
                 } else {
-                    Err(ActionErrorKind::AccountDoesNotExist {
-                        account_id: account_id.clone(),
-                    }
+                    Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }
                         .into())
                 };
             }
