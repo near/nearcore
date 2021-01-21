@@ -306,7 +306,7 @@ mod test {
         test_smart_contract_free(node);
     }
 
-    // cargo test --package nearcore --test test_cases_runtime test::test_evm_deploy_call_runtime --features protocol_feature_evm,nightly_protocol_features -- --exact --nocapture
+    // cargo test --test test_cases_runtime test::test_evm_deploy_call_runtime --features nightly_protocol_features -- --exact --nocapture
     #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_evm_deploy_call_runtime() {
@@ -314,7 +314,7 @@ mod test {
         test_evm_deploy_call(node);
     }
 
-    // cargo test --package nearcore --test test_cases_runtime test::test_evm_fibonacci_gas_limit_runtime --features protocol_feature_evm,nightly_protocol_features -- --exact --nocapture
+    // cargo test --test test_cases_runtime test::test_evm_fibonacci_gas_limit_runtime --features nightly_protocol_features -- --exact --nocapture
     #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_evm_fibonacci_gas_limit_runtime() {
@@ -322,7 +322,7 @@ mod test {
         test_evm_fibonacci_gas_limit(node);
     }
 
-    // cargo test --package nearcore --test test_cases_runtime test::test_evm_infinite_loop_gas_limit_runtime --features protocol_feature_evm,nightly_protocol_features -- --exact --nocapture
+    // cargo test --test test_cases_runtime test::test_evm_infinite_loop_gas_limit_runtime --features nightly_protocol_features -- --exact --nocapture
     #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_evm_infinite_loop_gas_limit_runtime() {
@@ -330,7 +330,7 @@ mod test {
         test_evm_infinite_loop_gas_limit(node);
     }
 
-    // cargo test --package nearcore --test test_cases_runtime test::test_evm_fibonacci_16_runtime --features protocol_feature_evm,nightly_protocol_features -- --exact --nocapture
+    // cargo test --test test_cases_runtime test::test_evm_fibonacci_16_runtime --features nightly_protocol_features -- --exact --nocapture
     #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_evm_fibonacci_16_runtime() {
@@ -338,7 +338,7 @@ mod test {
         test_evm_fibonacci_16(node);
     }
 
-    // cargo test --package nearcore --test test_cases_runtime test::test_evm_crypto_zombies_contract_ownership_transfer_runtime --features protocol_feature_evm,nightly_protocol_features -- --exact --nocapture
+    // cargo test --test test_cases_runtime test::test_evm_crypto_zombies_contract_ownership_transfer_runtime --features nightly_protocol_features -- --exact --nocapture
     #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_evm_crypto_zombies_contract_ownership_transfer_runtime() {
@@ -346,7 +346,7 @@ mod test {
         test_evm_crypto_zombies_contract_ownership_transfer(node);
     }
 
-    // cargo test --package nearcore --test test_cases_runtime test::test_evm_crypto_zombies_contract_level_up_runtime --features protocol_feature_evm,nightly_protocol_features -- --exact --nocapture
+    // cargo test --test test_cases_runtime test::test_evm_crypto_zombies_contract_level_up_runtime --features nightly_protocol_features -- --exact --nocapture
     #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_evm_crypto_zombies_contract_level_up_runtime() {
@@ -354,7 +354,7 @@ mod test {
         test_evm_crypto_zombies_contract_level_up(node);
     }
 
-    // cargo test --package nearcore --test test_cases_runtime test::test_evm_call_standard_precompiles_runtime --features protocol_feature_evm,nightly_protocol_features -- --exact --nocapture
+    // cargo test --test test_cases_runtime test::test_evm_call_standard_precompiles_runtime --features nightly_protocol_features -- --exact --nocapture
     #[cfg(feature = "protocol_feature_evm")]
     #[test]
     fn test_evm_call_standard_precompiles_runtime() {
