@@ -1755,7 +1755,7 @@ mod test {
             let result = client.process_partial_encoded_chunk_forward(mock_forward);
             assert!(matches!(
                 result,
-                Err(crate::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+                Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
             ));
         }
     }
