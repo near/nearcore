@@ -128,7 +128,7 @@ impl RuntimeUser {
     fn apply_state(&self) -> ApplyState {
         ApplyState {
             block_index: 0,
-            last_block_hash: Default::default(),
+            prev_block_hash: Default::default(),
             block_hash: Default::default(),
             block_timestamp: 0,
             epoch_height: 0,
@@ -241,6 +241,7 @@ impl User for RuntimeUser {
         let mut result = CallResult::default();
         let view_state = ViewApplyState {
             block_height: apply_state.block_index,
+            prev_block_hash: apply_state.prev_block_hash,
             block_hash: apply_state.block_hash,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,

@@ -442,7 +442,7 @@ impl NightshadeRuntime {
 
         let apply_state = ApplyState {
             block_index: block_height,
-            last_block_hash: *prev_block_hash,
+            prev_block_hash: *prev_block_hash,
             block_hash: *block_hash,
             epoch_id,
             epoch_height,
@@ -1125,6 +1125,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
@@ -1164,6 +1165,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     *state_root,
                     block_height,
                     block_timestamp,
+                    prev_block_hash,
                     block_hash,
                     epoch_height,
                     epoch_id,
@@ -1431,6 +1433,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         height: BlockHeight,
         block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
@@ -1445,6 +1448,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let view_state = ViewApplyState {
             block_height: height,
+            prev_block_hash: *prev_block_hash,
             block_hash: *block_hash,
             epoch_id: epoch_id.clone(),
             epoch_height,

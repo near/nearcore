@@ -126,6 +126,7 @@ impl TrieViewer {
             0,
             &empty_hash,
             &view_state.epoch_id,
+            &view_state.prev_block_hash,
             &view_state.block_hash,
             epoch_info_provider,
             view_state.current_protocol_version,
@@ -134,7 +135,7 @@ impl TrieViewer {
         let apply_state = ApplyState {
             block_index: view_state.block_height,
             // Used for legacy reasons
-            last_block_hash: view_state.block_hash,
+            prev_block_hash: view_state.prev_block_hash,
             block_hash: view_state.block_hash,
             epoch_id: view_state.epoch_id.clone(),
             epoch_height: view_state.epoch_height,
@@ -223,6 +224,7 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
+            prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
@@ -252,6 +254,7 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
+            prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
@@ -285,6 +288,7 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
+            prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
@@ -317,6 +321,7 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
+            prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
@@ -400,6 +405,7 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
         let view_state = ViewApplyState {
             block_height: 1,
+            prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,

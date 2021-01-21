@@ -74,6 +74,8 @@ pub struct ContractCodeView {
 pub struct ViewApplyState {
     /// Currently building block height.
     pub block_height: BlockHeight,
+    /// Prev block hash
+    pub prev_block_hash: CryptoHash,
     /// Currently building block hash
     pub block_hash: CryptoHash,
     /// Current epoch id
