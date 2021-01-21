@@ -505,7 +505,7 @@ mod tests {
             near_network::test_utils::wait_or_panic(if rotate_validators {
                 1000 * 60 * 80
             } else {
-                1000 * 60 * 45
+                1000 * 60 * 90
             });
         })
         .unwrap();
@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(64, false, false, false, 80, Some(2.4), None);
+        test_cross_shard_tx_common(40, false, false, false, 200, Some(2.4), None);
     }
 
     #[test]
