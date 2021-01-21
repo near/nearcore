@@ -1,8 +1,7 @@
-use log::info;
+use log::{info, warn};
 use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
@@ -13,11 +12,11 @@ use futures;
 use futures::task::Context;
 use once_cell::sync::Lazy;
 use std::pin::Pin;
+use strum::AsStaticRef;
 
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
 const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.02;
-const MESSAGE_LIMIT: usize = 250;
 
 pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::new(Stats::new())));
 pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
@@ -66,7 +65,7 @@ impl ThreadStats {
 
         if ratio > MIN_OCCUPANCY_RATIO_THRESHOLD {
             let class_name = format!("{:?}", self.classes);
-            info!(
+            warn!(
                 "    Thread:{} ratio: {:.4} {}:{} ",
                 tid,
                 ratio,
@@ -77,7 +76,7 @@ impl ThreadStats {
             s.sort_by(|x, y| (*x).0.cmp(&(*y).0));
 
             for entry in s {
-                info!(
+                warn!(
                     "        func {} {}:{} cnt: {} total: {}ms max: {}ms",
                     TID.with(|x| *x.borrow()),
                     (entry.0).0,
@@ -137,56 +136,46 @@ pub fn measure_performance<F, Message, Result>(
 where
     F: FnOnce(Message) -> Result,
 {
-    let now = Instant::now();
-    let result = f(msg);
-
-    let took = now.elapsed();
-    if took > SLOW_CALL_THRESHOLD {
-        info!(
-            "Function exceeded time limit {}:{} {:?} took: {}ms",
-            class_name,
-            TID.with(|x| *x.borrow()),
-            std::any::type_name::<Message>(),
-            took.as_millis(),
-        );
-    }
-
-    STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
-    result
+    measure_performance_internal(class_name, msg, f, None)
 }
 
-#[allow(unused_variables)]
-pub fn performance_with_debug<F, Message, Result>(
+pub fn measure_performance_with_debug<F, Message, Result>(
     class_name: &'static str,
     msg: Message,
     f: F,
 ) -> Result
 where
     F: FnOnce(Message) -> Result,
-    Message: Debug,
+    Message: AsStaticRef<str>,
+{
+    let msg_text: &'static str = msg.as_static();
+    measure_performance_internal(class_name, msg, f, Some(msg_text))
+}
+
+pub fn measure_performance_internal<F, Message, Result>(
+    class_name: &'static str,
+    msg: Message,
+    f: F,
+    msg_text: Option<&'static str>,
+) -> Result
+where
+    F: FnOnce(Message) -> Result,
 {
     let now = Instant::now();
-    let msg_test = format!("{:?}", msg);
     let result = f(msg);
 
     let took = now.elapsed();
     if took > SLOW_CALL_THRESHOLD {
-        let msg_length = msg_test.len();
-        let mut msg_test = msg_test;
-        if msg_length >= MESSAGE_LIMIT {
-            msg_test = msg_test.as_str()[..MESSAGE_LIMIT].to_string();
-        }
-        info!(
-            "Function exceeded time limit {}:{} {:?} took: {}ms len: {} {}",
+        let text_field = msg_text.map(|x| format!(" msg: {}", x)).unwrap_or(format!(""));
+        warn!(
+            "Function exceeded time limit {}:{} {:?} took: {}ms {}",
             class_name,
             TID.with(|x| *x.borrow()),
             std::any::type_name::<Message>(),
             took.as_millis(),
-            msg_length,
-            msg_test
+            text_field
         );
     }
-
     STATS.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took);
     result
 }
@@ -216,7 +205,7 @@ where
         STATS.lock().unwrap().log(this.class_name, this.file, this.line, took);
 
         if took > SLOW_CALL_THRESHOLD {
-            info!(
+            warn!(
                 "Function exceeded time limit {}:{} {}:{} took: {}ms",
                 this.class_name,
                 TID.with(|x| *x.borrow()),
@@ -238,7 +227,7 @@ where
 
 pub fn print_performance_stats(sleep_time: Duration) {
     STATS.lock().unwrap().print_stats(sleep_time);
-    info!("Futures waiting for completition {}", REF_COUNTER.lock().unwrap().len());
+    info!("Futures waiting for completion");
     for entry in REF_COUNTER.lock().unwrap().iter() {
         if *entry.1 > 0 {
             info!("    future {}:{} {}", (entry.0).0, (entry.0).1, entry.1);

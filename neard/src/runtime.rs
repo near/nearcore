@@ -15,7 +15,7 @@ use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::{Genesis, GenesisConfig};
 #[cfg(feature = "protocol_feature_evm")]
-use near_chain_configs::{MAINNET_EVM_CHAIN_ID, TEST_EVM_CHAIN_ID};
+use near_chain_configs::{BETANET_EVM_CHAIN_ID, MAINNET_EVM_CHAIN_ID, TESTNET_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -457,6 +457,8 @@ impl NightshadeRuntime {
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
+            #[cfg(feature = "costs_counting")]
+            profile: None,
         };
 
         let apply_result = self
@@ -1392,10 +1394,11 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     #[cfg(feature = "protocol_feature_evm")]
     /// ID of the EVM chain: https://github.com/ethereum-lists/chains
-    fn evm_chain_id(&self) -> u128 {
+    fn evm_chain_id(&self) -> u64 {
         match self.genesis_config.chain_id.as_str() {
             "mainnet" => MAINNET_EVM_CHAIN_ID,
-            _ => TEST_EVM_CHAIN_ID,
+            "testnet" => TESTNET_EVM_CHAIN_ID,
+            _ => BETANET_EVM_CHAIN_ID,
         }
     }
 }
@@ -1436,7 +1439,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-        #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u128,
+        #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u64,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let view_state = ViewApplyState {
