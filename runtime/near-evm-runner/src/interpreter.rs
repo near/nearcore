@@ -23,10 +23,11 @@ pub fn deploy_code<T: EvmState>(
     call_stack_depth: usize,
     address_type: CreateContractAddress,
     recreate: bool,
+    should_commit: bool,
     code: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<ContractCreateResult> {
     let mut nonce = U256::zero();
     if address_type == CreateContractAddress::FromSenderAndNonce {
@@ -66,8 +67,10 @@ pub fn deploy_code<T: EvmState>(
     };
 
     if apply {
-        state.commit_changes(&state_updates.unwrap())?;
-        state.set_code(&address, &return_data.to_vec())?;
+        if should_commit {
+            state.commit_changes(&state_updates.unwrap())?;
+            state.set_code(&address, &return_data.to_vec())?;
+        }
         Ok(ContractCreateResult::Created(address, gas_left))
     } else {
         Ok(ContractCreateResult::Reverted(gas_left, return_data))
@@ -84,7 +87,7 @@ pub fn _create<T: EvmState>(
     code: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let mut store = StateStore::default();
     let mut sub_state = SubState::new(sender, &mut store, state);
@@ -138,7 +141,7 @@ pub fn call<T: EvmState>(
     should_commit: bool,
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -168,7 +171,7 @@ pub fn delegate_call<T: EvmState>(
     input: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -197,7 +200,7 @@ pub fn static_call<T: EvmState>(
     input: &[u8],
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<MessageCallResult> {
     run_and_commit_if_success(
         state,
@@ -232,7 +235,7 @@ fn run_and_commit_if_success<T: EvmState>(
     should_commit: bool,
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<MessageCallResult> {
     // run the interpreter and
     let (result, state_updates) = run_against_state(
@@ -292,7 +295,7 @@ fn run_against_state<T: EvmState>(
     is_static: bool,
     gas: &U256,
     evm_gas_config: &EvmCostConfig,
-    chain_id: u128,
+    chain_id: u64,
 ) -> Result<(ExecTrapResult<GasLeft>, Option<StateStore>)> {
     let code = state.code_at(code_address)?.unwrap_or_else(Vec::new);
 

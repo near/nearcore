@@ -60,6 +60,7 @@ pub mod ext;
 mod metrics;
 pub mod state_viewer;
 mod verifier;
+pub use near_vm_logic::types::ProfileData;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
@@ -91,7 +92,10 @@ pub struct ApplyState {
     pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// Ethereum chain id.
     #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u128,
+    pub evm_chain_id: u64,
+    /// Data collected from making a contract call
+    #[cfg(feature = "costs_counting")]
+    pub profile: Option<ProfileData>,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -1457,6 +1461,7 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
+    use near_vm_logic::types::ProfileData;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -1541,7 +1546,9 @@ mod tests {
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
+            evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
+            #[cfg(feature = "costs_counting")]
+            profile: Some(ProfileData::new()),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

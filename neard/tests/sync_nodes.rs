@@ -50,6 +50,7 @@ fn add_blocks(
             PROTOCOL_VERSION,
             &prev.header(),
             prev.header().height() + 1,
+            prev.header().block_ordinal() + 1,
             blocks[0].chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,

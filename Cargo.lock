@@ -1572,30 +1572,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "error-chain"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d2f06b9cac1506ece98fe3231e3cc9c4410ec3d5b1f24ae1c8946f0742cdefc"
-dependencies = [
- "version_check",
-]
-
-[[package]]
-name = "ethabi"
-version = "9.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "965126c64662832991f5a748893577630b558e47fa94e7f35aefcd20d737cef7"
-dependencies = [
- "error-chain",
- "ethereum-types",
- "rustc-hex 2.1.0",
- "serde",
- "serde_derive",
- "serde_json",
- "tiny-keccak",
-]
-
-[[package]]
 name = "ethabi"
 version = "11.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1611,28 +1587,9 @@ dependencies = [
 
 [[package]]
 name = "ethabi-contract"
-version = "9.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf407dce0290374bfbb1528493bc14320e663f75856b73a5b76262d8e2cec3c9"
-
-[[package]]
-name = "ethabi-contract"
 version = "11.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88d4002f1f77d8233685dafd8589efe1c9dfa63e21ca6c11134372acc7f68032"
-
-[[package]]
-name = "ethabi-derive"
-version = "9.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd0753d4f9e1dba99450da5f2400b20527702ae8ce0309a5f7c239d305539884"
-dependencies = [
- "ethabi 9.0.1",
- "heck",
- "proc-macro2 0.4.30",
- "quote 0.6.13",
- "syn 0.15.44",
-]
 
 [[package]]
 name = "ethabi-derive"
@@ -1640,7 +1597,7 @@ version = "11.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "587a3ff9748b24f38caecfec9654ae1aa5916ac2e7db2d15f2ab8f59b2fdc70a"
 dependencies = [
- "ethabi 11.0.0",
+ "ethabi",
  "heck",
  "proc-macro2 1.0.24",
  "quote 1.0.7",
@@ -3191,9 +3148,9 @@ dependencies = [
  "criterion",
  "derivative",
  "enum-primitive-derive",
- "ethabi 11.0.0",
- "ethabi-contract 11.0.0",
- "ethabi-derive 11.0.0",
+ "ethabi",
+ "ethabi-contract",
+ "ethabi-derive",
  "ethereum-types",
  "evm",
  "hex",
@@ -3351,6 +3308,7 @@ dependencies = [
  "futures",
  "log",
  "once_cell",
+ "strum",
 ]
 
 [[package]]
@@ -3470,18 +3428,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-runtime-standalone"
-version = "2.3.0"
-dependencies = [
- "near-crypto",
- "near-pool",
- "near-primitives",
- "near-runtime-configs",
- "near-store",
- "node-runtime",
-]
-
-[[package]]
 name = "near-runtime-utils"
 version = "2.3.0"
 dependencies = [
@@ -3549,6 +3495,7 @@ dependencies = [
  "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
+ "num-rational 0.2.4",
  "serde",
  "serde_json",
  "sha2 0.9.2",
@@ -3608,7 +3555,6 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
- "near-runtime-standalone",
  "near-store",
  "neard",
  "node-runtime",
@@ -4802,9 +4748,9 @@ dependencies = [
  "borsh",
  "clap 2.33.3",
  "csv",
- "ethabi 9.0.1",
- "ethabi-contract 9.0.0",
- "ethabi-derive 9.0.1",
+ "ethabi",
+ "ethabi-contract",
+ "ethabi-derive",
  "ethereum-types",
  "glob 0.3.0",
  "gnuplot",
@@ -5439,9 +5385,9 @@ dependencies = [
  "borsh",
  "byteorder",
  "clap 2.33.3",
- "ethabi 9.0.1",
- "ethabi-contract 9.0.0",
- "ethabi-derive 9.0.1",
+ "ethabi",
+ "ethabi-contract",
+ "ethabi-derive",
  "ethereum-types",
  "futures",
  "hex",
