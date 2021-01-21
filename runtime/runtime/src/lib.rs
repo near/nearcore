@@ -261,7 +261,7 @@ impl Runtime {
                     apply_state.current_protocol_version,
                     &signed_transaction,
                     &apply_state.prev_block_hash,
-                    &apply_state.block_hash
+                    &apply_state.block_hash,
                 );
                 let receipt = Receipt {
                     predecessor_id: transaction.signer_id.clone(),
