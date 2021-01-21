@@ -5,14 +5,14 @@
 //!   receiver it might or might not be a cross-shard communication.
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
-use crate::types::{Gas, Balance};
+use crate::types::Gas;
 
 #[cfg(feature = "protocol_feature_evm")]
 pub type EvmGas = u64;
 
 /// The amount is 1000 * 10e24 = 1000 NEAR.
 #[cfg(feature = "protocol_feature_evm")]
-const EVM_DEPOSIT: Balance = 1_000_000_000_000_000_000_000_000_000;
+const EVM_DEPOSIT: crate::types::Balance = 1_000_000_000_000_000_000_000_000_000;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
@@ -79,7 +79,7 @@ pub struct RuntimeFeesConfig {
     /// Fee to create new EVM account.
     #[cfg(feature = "protocol_feature_evm")]
     #[serde(with = "u128_dec_format")]
-    pub evm_deposit: Balance,
+    pub evm_deposit: crate::types::Balance,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.

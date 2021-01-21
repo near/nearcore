@@ -36,7 +36,6 @@ harness = false
 default = ["rocksdb"]
 no_cache = []
 adversarial = []
-single_thread_rocksdb = []
 protocol_feature_rectify_inflation = []
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_rectify_inflation"]
