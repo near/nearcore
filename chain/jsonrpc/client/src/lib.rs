@@ -6,10 +6,10 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use near_jsonrpc_primitives::message::{from_slice, Message, RpcError};
-use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{
+use near_jsonrpc_primitives::rpc::{
     RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
 };
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,

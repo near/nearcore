@@ -140,9 +140,9 @@ impl From<crate::blocks::RpcBlockError> for RpcError {
             crate::blocks::RpcBlockError::BlockNotFound(s) => {
                 Some(Value::String(format!("DB Not Found Error: {} \n Cause: Unknown", s)))
             }
-            crate::blocks::RpcBlockError::Unexpected(s) => Some(Value::String(s)),
+            crate::blocks::RpcBlockError::Unreachable(s) => Some(Value::String(s)),
             crate::blocks::RpcBlockError::NotSyncedYet
-            | crate::blocks::RpcBlockError::TooManyRequests(_) => {
+            | crate::blocks::RpcBlockError::InternalError(_) => {
                 Some(Value::String(error.to_string()))
             }
         };
@@ -157,8 +157,8 @@ impl From<actix::MailboxError> for RpcError {
     }
 }
 
-impl From<near_primitives::rpc::RpcParseError> for RpcError {
-    fn from(parse_error: near_primitives::rpc::RpcParseError) -> Self {
+impl From<crate::errors::RpcParseError> for RpcError {
+    fn from(parse_error: crate::errors::RpcParseError) -> Self {
         Self::invalid_params(parse_error.0)
     }
 }

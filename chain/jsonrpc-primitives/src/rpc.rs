@@ -4,46 +4,14 @@
 //! should not leak these types anywhere else.
 use serde::{Deserialize, Serialize};
 
-use crate::hash::CryptoHash;
-use crate::merkle::MerklePath;
-use crate::transaction::SignedTransaction;
-use crate::types::{AccountId, BlockReference, MaybeBlockId, TransactionOrReceiptId};
-use crate::views::{
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockReference, MaybeBlockId, TransactionOrReceiptId};
+use near_primitives::views::{
     ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangeWithCauseView,
     StateChangesKindsView, StateChangesRequestView,
 };
-use serde::de::DeserializeOwned;
-use serde_json::Value;
-
-#[derive(Serialize)]
-pub struct RpcParseError(pub String);
-
-fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcParseError> {
-    if let Some(value) = value {
-        serde_json::from_value(value)
-            .map_err(|err| RpcParseError(format!("Failed parsing args: {}", err)))
-    } else {
-        Err(RpcParseError("Require at least one parameter".to_owned()))
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct RpcBlockRequest {
-    #[serde(flatten)]
-    pub block_reference: BlockReference,
-}
-
-impl RpcBlockRequest {
-    pub fn parse(value: Option<Value>) -> Result<RpcBlockRequest, RpcParseError> {
-        let block_reference =
-            if let Ok((block_id,)) = parse_params::<(crate::types::BlockId,)>(value.clone()) {
-                BlockReference::BlockId(block_id)
-            } else {
-                parse_params::<BlockReference>(value)?
-            };
-        Ok(RpcBlockRequest { block_reference })
-    }
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct RpcQueryRequest {

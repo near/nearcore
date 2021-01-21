@@ -172,7 +172,6 @@ impl From<near_chain_primitives::Error> for GetBlockError {
             near_chain_primitives::ErrorKind::BlockMissing(hash) => {
                 GetBlockError::BlockMissing(hash)
             }
-            // TODO: add metrics here
             _ => GetBlockError::Unexpected(error.to_string()),
         }
     }
