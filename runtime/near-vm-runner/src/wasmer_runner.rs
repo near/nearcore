@@ -98,8 +98,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 // As of 0.17.0, thrown when stack unwinder fails, or when
                 // invoke returns false and doesn't fill error info what Singlepass BE doesn't.
                 // Failed unwinder may happen in the case of deep recursion/stack overflow.
-                // Also can be thrown on unreachable instruction, which is quite unfortunate.
-                InvokeError::FailedWithNoError => VMError::FunctionCallError(WasmUnknownError),
+                InvokeError::FailedWithNoError => VMError::FunctionCallError(WasmUnknownError)
                 // Indicates that a trap occurred that is not known to Wasmer.
                 // As of 0.17.0, thrown only from Cranelift BE.
                 InvokeError::UnknownTrap { address, signal } => {
@@ -110,8 +109,8 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                     );
                 }
                 // A trap that Wasmer knows about occurred.
-                // As of 0.17.1, can be thrown on C signals caught, for example OOM.
-                InvokeError::TrapCode { code: _, srcloc: _ } => {
+                // As of 0.17.1, can be thrown on C signals caught, for example OOM and stack overflow
+                InvokeError::TrapCode { code, srcloc: _ } => {
                     VMError::FunctionCallError(WasmUnknownError)
                 }
                 // A trap occurred that Wasmer knows about but it had a trap code that
