@@ -31,7 +31,7 @@ num-rational = { version = "0.2.4" }
 serde_json = {version= "1", features= ["preserve_order"]}
 
 [features]
-default = ["costs_counting"]
+default = []
 protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm"]
 wasmtime_default = []
 
