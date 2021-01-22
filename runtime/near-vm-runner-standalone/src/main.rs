@@ -89,6 +89,11 @@ fn default_vm_context() -> VMContext {
     };
 }
 
+
+fn save_contract_to_cache(code: &[u8], file: String) {
+    println!("cache contract {}", file);
+}
+
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
@@ -106,6 +111,20 @@ fn main() {
                 .long("context-file")
                 .value_name("CONTEXT_FILE")
                 .help("Reads the context from the file.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("save-cached-contract")
+                .long("save-cached-contract")
+                .value_name("SAVE_CONTRACT")
+                .help("Save cached contract to file.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("restore-cached-contract")
+                .long("restore-cached-contract")
+                .value_name("RESTORE_CONTRACT")
+                .help("Restore cached contract from file.")
                 .takes_value(true),
         )
         .arg(
@@ -239,8 +258,22 @@ fn main() {
         .map(|s| s.parse().unwrap())
         .unwrap_or(ProtocolVersion::MAX);
 
+    match matches.value_of("restore-cached-contract") {
+        Some(cache_file) => {
+            restore_contract_from_cache(cache_file);
+            return;
+        }
+    };
+
     let code =
         fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
+
+    match matches.value_of("save-cached-contract") {
+        Some(cache_file) => {
+            save_contract_to_cache(code, cache_file);
+            return;
+        }
+    };
 
     let fees = RuntimeFeesConfig::default();
     let profile_data = ProfileData::new();
