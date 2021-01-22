@@ -115,16 +115,16 @@ fn save_contract_to_cache(code: &Vec<u8>, file: &str) {
     println!("save cache to {}", file);
     let start = Instant::now();
     let module = wasmer_runtime::compile(code).unwrap();
-    println!("compiled {} μs", start.elapsed().as_micros());
+    println!("wasmer_runtime::compile {} μs", start.elapsed().as_micros());
     let start = Instant::now();
     let artifact = match module.cache() {
         Ok(artifact) => artifact,
         Err(err) => panic!("Cannot compile: {:?}", err),
     };
-    println!("cached {} ns", start.elapsed().as_micros());
+    println!("module.cache {} μs", start.elapsed().as_micros());
     let start = Instant::now();
     let code = artifact.serialize().unwrap();
-    println!("serialized {} μs", start.elapsed().as_micros());
+    println!("artifact.serialize {} μs", start.elapsed().as_micros());
     write_file(file, &code).unwrap();
 }
 
@@ -133,12 +133,12 @@ fn restore_contract_from_cache(file: &str) {
     let bytes = read_file(file).unwrap();
     let start = Instant::now();
     let artifact = Artifact::deserialize(&bytes).unwrap();
-    println!("deserialized {} μs", start.elapsed().as_micros());
+    println!("Artifact::deserialize {} μs", start.elapsed().as_micros());
     unsafe {
         let compiler = compiler_for_backend(Backend::Singlepass).unwrap();
         let start = Instant::now();
         match load_cache_with(artifact, compiler.as_ref()) {
-            Ok(_) => println!("loaded {} μs", start.elapsed().as_micros()),
+            Ok(_) => println!("load_cache_with {} μs", start.elapsed().as_micros()),
             Err(err) => panic!("Load error: {:?}", err),
         }
     }
