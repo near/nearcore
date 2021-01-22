@@ -260,13 +260,9 @@ pub fn test_evm_crypto_zombies_contract_ownership_transfer(node: impl Node) {
     assert_eq!(res, bob_address);
 }
 
-/// Test the level up functionality of the "CryptoZombies" contract.
-pub fn test_evm_crypto_zombies_contract_level_up(node: impl Node) {
-    let node_user = node.user();
-    let contract_id = deploy_zombie_attack_contract(node);
-
-    // create a zombie
-    let (input, _decoder) = cryptozombies::functions::create_random_zombie::call("test");
+/// Create zombie.
+fn create_zombie(node_user: &Box<dyn User>, contract_id: Address, name: &str) {
+    let (input, _decoder) = cryptozombies::functions::create_random_zombie::call(name);
     let args = encode_call_function_args(contract_id, input);
     assert_eq!(
         node_user
@@ -277,6 +273,15 @@ pub fn test_evm_crypto_zombies_contract_level_up(node: impl Node) {
             .unwrap(),
         Vec::<u8>::new()
     );
+}
+
+/// Test the level up functionality of the "CryptoZombies" contract.
+pub fn test_evm_crypto_zombies_contract_level_up(node: impl Node) {
+    let node_user = node.user();
+    let contract_id = deploy_zombie_attack_contract(node);
+
+    // create zombie
+    create_zombie(&node_user, contract_id, "test");
 
     // level up the zombie
     let (input, _decoder) = cryptozombies::functions::level_up::call(U256::zero());
@@ -317,19 +322,8 @@ pub fn test_evm_crypto_zombies_contract_transfer_erc721(node: impl Node) {
     let node_user = node.user();
     let contract_id = deploy_zombie_attack_contract(node);
 
-    // create a zombie
-    // TODO: factor out
-    let (input, _decoder) = cryptozombies::functions::create_random_zombie::call("test");
-    let args = encode_call_function_args(contract_id, input);
-    assert_eq!(
-        node_user
-            .function_call(alice_account(), evm_account(), "call", args, 10u64.pow(14), 0)
-            .unwrap()
-            .status
-            .as_success_decoded()
-            .unwrap(),
-        Vec::<u8>::new()
-    );
+    // create zombie
+    create_zombie(&node_user, contract_id, "test");
 
     // transfer the zombie token ownership from Alice to Bob
     let alice_address = near_evm_runner::utils::near_account_id_to_evm_address(&alice_account());
