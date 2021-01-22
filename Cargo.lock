@@ -3537,6 +3537,8 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
+ "wasmer-runtime-core-near",
+ "wasmer-runtime-near",
 ]
 
 [[package]]

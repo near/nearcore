@@ -17,6 +17,12 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::{fmt, fs};
+use wasmer_runtime::{compiler_for_backend, Backend};
+use wasmer_runtime_core::cache::Artifact;
+use wasmer_runtime_core::load_cache_with;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 struct State(HashMap<Vec<u8>, Vec<u8>>);
@@ -89,9 +95,53 @@ fn default_vm_context() -> VMContext {
     };
 }
 
+fn read_file(name: &str) -> std::io::Result<Vec<u8>> {
+    let mut file = File::open(name)?;
 
-fn save_contract_to_cache(code: &[u8], file: String) {
-    println!("cache contract {}", file);
+    let mut data = Vec::new();
+    file.read_to_end(&mut data)?;
+
+    return Ok(data);
+}
+
+fn write_file(name: &str, data: &Vec<u8>) -> std::io::Result<()> {
+    let mut file = File::create(name)?;
+    file.write(data)?;
+
+    return Ok(());
+}
+
+fn save_contract_to_cache(code: &Vec<u8>, file: &str) {
+    println!("save cache to {}", file);
+    let start = Instant::now();
+    let module = wasmer_runtime::compile(code).unwrap();
+    println!("compiled {} ns", start.elapsed().as_nanos());
+    let start = Instant::now();
+    let artifact = match module.cache() {
+        Ok(artifact) => artifact,
+        Err(err) => panic!("Cannot compile: {:?}", err),
+    };
+    println!("cached {} ns", start.elapsed().as_nanos());
+    let start = Instant::now();
+    let code = artifact.serialize().unwrap();
+    println!("serialized {} ns", start.elapsed().as_nanos());
+    write_file(file, &code).unwrap();
+}
+
+fn restore_contract_from_cache(file: &str) {
+    println!("restore cache from {}", file);
+    let bytes = read_file(file).unwrap();
+    let start = Instant::now();
+    let artifact = Artifact::deserialize(&bytes).unwrap();
+    println!("deserialized {} ns", start.elapsed().as_nanos());
+    unsafe {
+        let compiler = compiler_for_backend(Backend::Singlepass).unwrap();
+        let start = Instant::now();
+        match load_cache_with(artifact, compiler.as_ref()) {
+            Ok(_) => println!("loaded {} ns", start.elapsed().as_nanos()),
+            Err(err) => panic!("Load error: {:?}", err),
+        }
+    }
 }
 
 fn main() {
@@ -117,7 +167,7 @@ fn main() {
             Arg::with_name("save-cached-contract")
                 .long("save-cached-contract")
                 .value_name("SAVE_CONTRACT")
-                .help("Save cached contract to file.")
+                .help("Save contract to file.")
                 .takes_value(true),
         )
         .arg(
@@ -231,10 +281,7 @@ fn main() {
     }
 
     let method_name = matches
-        .value_of("method-name")
-        .expect("Name of the method must be specified")
-        .as_bytes()
-        .to_vec();
+        .value_of("method-name");
 
     let promise_results: Vec<PromiseResult> = matches
         .values_of("promise-results")
@@ -263,6 +310,7 @@ fn main() {
             restore_contract_from_cache(cache_file);
             return;
         }
+        _ => {}
     };
 
     let code =
@@ -270,10 +318,16 @@ fn main() {
 
     match matches.value_of("save-cached-contract") {
         Some(cache_file) => {
-            save_contract_to_cache(code, cache_file);
+            save_contract_to_cache(&code, cache_file);
             return;
         }
+        _ => {}
     };
+
+    let method_name = method_name
+        .expect("Name of the method must be specified")
+        .as_bytes()
+        .to_vec();
 
     let fees = RuntimeFeesConfig::default();
     let profile_data = ProfileData::new();
