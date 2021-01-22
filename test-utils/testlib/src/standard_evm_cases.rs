@@ -312,6 +312,55 @@ pub fn test_evm_crypto_zombies_contract_level_up(node: impl Node) {
     );
 }
 
+/// Test transfering a ERC-721 token of the "CryptoZombies" contract.
+pub fn test_evm_crypto_zombies_contract_transfer_erc721(node: impl Node) {
+    let node_user = node.user();
+    let contract_id = deploy_zombie_attack_contract(node);
+
+    // create a zombie
+    // TODO: factor out
+    let (input, _decoder) = cryptozombies::functions::create_random_zombie::call("test");
+    let args = encode_call_function_args(contract_id, input);
+    assert_eq!(
+        node_user
+            .function_call(alice_account(), evm_account(), "call", args, 10u64.pow(14), 0)
+            .unwrap()
+            .status
+            .as_success_decoded()
+            .unwrap(),
+        Vec::<u8>::new()
+    );
+
+    // transfer the zombie token ownership from Alice to Bob
+    let alice_address = near_evm_runner::utils::near_account_id_to_evm_address(&alice_account());
+    let bob_address = near_evm_runner::utils::near_account_id_to_evm_address(&bob_account());
+    let (input, _decoder) =
+        cryptozombies::functions::transfer_from::call(alice_address, bob_address, U256::zero());
+    let args = encode_call_function_args(contract_id, input);
+    assert_eq!(
+        node_user
+            .function_call(alice_account(), evm_account(), "call", args, 10u64.pow(14), 0)
+            .unwrap()
+            .status
+            .as_success_decoded()
+            .unwrap(),
+        Vec::<u8>::new()
+    );
+
+    // verify Bob is the new zombie token owner now
+    let (input, _decoder) = cryptozombies::functions::owner_of::call(U256::zero());
+    let alice_address = near_evm_runner::utils::near_account_id_to_evm_address(&alice_account());
+    let args = encode_view_call_function_args(alice_address, contract_id, U256::zero(), input);
+    let bytes = node_user
+        .function_call(alice_account(), evm_account(), "view", args.clone(), 10u64.pow(14), 0)
+        .unwrap()
+        .status
+        .as_success_decoded()
+        .unwrap();
+    let res = cryptozombies::functions::owner::decode_output(&bytes).unwrap();
+    assert_eq!(res, bob_address);
+}
+
 pub fn test_evm_call_standard_precompiles(node: impl Node) {
     let node_user = node.user();
     let bytes = hex::decode(

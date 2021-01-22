@@ -354,6 +354,14 @@ mod test {
         test_evm_crypto_zombies_contract_level_up(node);
     }
 
+    // cargo test --test test_cases_runtime test::test_evm_crypto_zombies_contract_transfer_erc721_runtime --features nightly_protocol_features -- --exact --nocapture
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_crypto_zombies_contract_transfer_erc721_runtime() {
+        let node = create_runtime_node();
+        test_evm_crypto_zombies_contract_transfer_erc721(node);
+    }
+
     // cargo test --test test_cases_runtime test::test_evm_call_standard_precompiles_runtime --features nightly_protocol_features -- --exact --nocapture
     #[cfg(feature = "protocol_feature_evm")]
     #[test]
