@@ -12,7 +12,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_errors::{EvmError, FunctionCallError};
 
-use_contract!(cryptozombies, "../../runtime/near-evm-runner/tests/build/zombieAttack.abi");
+use_contract!(cryptozombies, "../../runtime/near-evm-runner/tests/build/ZombieAttack.abi");
 use_contract!(precompiles, "../../runtime/near-evm-runner/tests/build/StandardPrecompiles.abi");
 use_contract!(fibonacci, "../../runtime/near-evm-runner/tests/build/Fibonacci.abi");
 use_contract!(inf_loop, "../../runtime/near-evm-runner/tests/build/Loop.abi");
@@ -22,7 +22,7 @@ use_contract!(inf_loop, "../../runtime/near-evm-runner/tests/build/Loop.abi");
 fn deploy_zombie_attack_contract(node: impl Node) -> Address {
     let node_user = node.user();
     let bytes = hex::decode(
-        include_bytes!("../../../runtime/near-evm-runner/tests/build/zombieAttack.bin").to_vec(),
+        include_bytes!("../../../runtime/near-evm-runner/tests/build/ZombieAttack.bin").to_vec(),
     )
     .unwrap();
     let contract_id = node_user
@@ -307,9 +307,8 @@ pub fn test_evm_crypto_zombies_contract_level_up(node: impl Node) {
             .function_call(alice_account(), evm_account(), "call", args, 10u64.pow(14), 0)
             .unwrap()
             .status
-            .as_success_decoded()
-            .unwrap(),
-        Vec::<u8>::new()
+            .as_success_decoded(),
+        None
     );
 }
 
