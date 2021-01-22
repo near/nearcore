@@ -3,13 +3,14 @@ use ethabi_contract::use_contract;
 use near_evm_runner::utils::{address_from_arr, encode_call_function_args};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 
-use_contract!(cryptozombies, "tests/build/ZombieAttack.abi");
+use_contract!(cryptozombies, "tests/build/ZombieOwnership.abi");
 
 use super::evm_call;
 
 pub fn create_random(c: &mut Criterion) {
     let mut ext = MockedExternal::new();
-    let bytes = hex::decode(include_bytes!("../../tests/build/ZombieAttack.bin").to_vec()).unwrap();
+    let bytes =
+        hex::decode(include_bytes!("../../tests/build/ZombieOwnership.bin").to_vec()).unwrap();
     let outcome = evm_call(&mut ext, "alice", "deploy_code", bytes, false).0.unwrap();
     let contract_id = address_from_arr(&outcome.return_data.as_value().unwrap());
 
@@ -25,7 +26,8 @@ pub fn create_random(c: &mut Criterion) {
 }
 
 pub fn deploy_code(c: &mut Criterion) {
-    let bytes = hex::decode(include_bytes!("../../tests/build/ZombieAttack.bin").to_vec()).unwrap();
+    let bytes =
+        hex::decode(include_bytes!("../../tests/build/ZombieOwnership.bin").to_vec()).unwrap();
     let ext = MockedExternal::new();
     c.bench_function("deploy_code", |b| {
         b.iter(|| {
