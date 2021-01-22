@@ -10,6 +10,7 @@ use std::convert::TryFrom;
 use wasmer_runtime::{compiler_for_backend, Backend};
 use wasmer_runtime_core::cache::Artifact;
 use wasmer_runtime_core::load_cache_with;
+use delay_detector::DelayDetector;
 
 pub(crate) fn compile_module(
     code: &[u8],
@@ -81,15 +82,19 @@ fn deserialize_wasmer(
         CacheRecord::Error(err) => return Ok(Err(err)),
         CacheRecord::Code(code) => code,
     };
+    let mut d = DelayDetector::new("in deserialize_wasmer get cache".into());
     let artifact = Artifact::deserialize(serialized_artifact.as_slice())
         .map_err(|_e| CacheError::DeserializationError)?;
-    unsafe {
+    d.snapshot("after deserialize artifact");
+    let r = unsafe {
         let compiler = compiler_for_backend(Backend::Singlepass).unwrap();
         match load_cache_with(artifact, compiler.as_ref()) {
             Ok(module) => Ok(Ok(module)),
             Err(_) => Err(CacheError::DeserializationError),
         }
-    }
+    };
+    d.snapshot("after load_cache_with");
+    r
 }
 
 pub(crate) fn compile_module_cached_wasmer(

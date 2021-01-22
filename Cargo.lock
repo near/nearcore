@@ -3445,6 +3445,7 @@ dependencies = [
  "assert_matches",
  "bencher",
  "borsh",
+ "delay-detector",
  "log",
  "near-evm-runner",
  "near-primitives",
