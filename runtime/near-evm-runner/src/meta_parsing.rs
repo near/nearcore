@@ -1,15 +1,17 @@
+use std::collections::HashMap;
+
+use borsh::BorshDeserialize;
 use ethabi::{encode, Token as ABIToken};
 use ethereum_types::{Address, U256};
 use keccak_hash::keccak;
 use lunarity_lexer::{Lexer, Token};
-use near_vm_errors::{EvmError, VMLogicError};
-use near_vm_logic::types::AccountId;
 use rlp::{Decodable, DecoderError, Rlp};
 
-use crate::types::{MetaCallArgs, RawU256, Result};
-use crate::utils::{address_from_arr, ecrecover_address, u256_to_arr};
+use near_vm_errors::{EvmError, VMLogicError};
+use near_vm_logic::types::AccountId;
 
-use std::collections::HashMap;
+use crate::types::{InternalMetaCallArgs, MetaCallArgs, RawU256, Result};
+use crate::utils::{address_from_arr, ecrecover_address, u256_to_arr};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArgType {
@@ -446,6 +448,7 @@ pub fn prepare_meta_call_args(
     fee_amount: U256,
     fee_address: Address,
     contract_address: Address,
+    value: U256,
     method_def: &str,
     args: &[u8],
 ) -> Result<(RawU256, Vec<u8>)> {
@@ -459,13 +462,14 @@ pub fn prepare_meta_call_args(
     // MUST have no space after `,`. EIP-712 requires hashStruct start by packing the typeHash,
     // See "Rationale for typeHash" in https://eips.ethereum.org/EIPS/eip-712#definition-of-hashstruct
     // method_def is used here for typeHash
-    let types = "NearTx(string evmId,uint256 nonce,uint256 feeAmount,address feeAddress,address contractAddress,string contractMethod,Arguments arguments)".to_string() + &arguments;
+    let types = "NearTx(string evmId,uint256 nonce,uint256 feeAmount,address feeAddress,address contractAddress,uint256 value,string contractMethod,Arguments arguments)".to_string() + &arguments;
     bytes.extend_from_slice(&keccak(types.as_bytes()).as_bytes());
     bytes.extend_from_slice(&keccak(account_id.as_bytes()).as_bytes());
     bytes.extend_from_slice(&u256_to_arr(&nonce));
     bytes.extend_from_slice(&u256_to_arr(&fee_amount));
     bytes.extend_from_slice(&encode_address(fee_address));
     bytes.extend_from_slice(&encode_address(contract_address));
+    bytes.extend_from_slice(&u256_to_arr(&value));
 
     let methods = MethodAndTypes::parse(method_def)?;
     let method_sig = method_signature(&methods);
@@ -502,38 +506,39 @@ pub fn prepare_meta_call_args(
     Ok((keccak(&bytes).into(), input))
 }
 
-/// Format
-/// [0..65): signature: v - 1 byte, s - 32 bytes, r - 32 bytes
-/// [65..97): nonce: nonce of the `signer` account of the `signature`.
-/// [97, 129): fee_amount
-/// [129, 149): fee_address
-/// [149..169): contract_id: address for contract to call
-/// [169]: method_def_length
-/// [170, 170+method_def_length): method_def
-/// [170+method_def_length, ..]: RLP encoded rest of arguments.
 pub fn parse_meta_call(
     domain_separator: &RawU256,
     account_id: &AccountId,
     args: Vec<u8>,
-) -> Result<MetaCallArgs> {
-    if args.len() <= 169 {
-        return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
-    }
-    let mut signature: [u8; 65] = [0; 65];
-    // Signatures coming from outside are srv but ecrecover takes vsr, so move last byte to first position.
-    signature[0] = args[64];
-    signature[1..].copy_from_slice(&args[..64]);
-    let nonce = U256::from_big_endian(&args[65..97]);
-    let fee_amount = U256::from_big_endian(&args[97..129]);
-    let fee_address = Address::from_slice(&args[129..149]);
-    let contract_address = Address::from_slice(&args[149..169]);
-    let method_def_len = args[169] as usize;
-    if args.len() < method_def_len + 170 {
-        return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
-    }
-    let method_def = String::from_utf8(args[170..170 + method_def_len].to_vec())
+) -> Result<InternalMetaCallArgs> {
+    let meta_tx = MetaCallArgs::try_from_slice(&args)
         .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
-    let args = &args[170 + method_def_len..];
+    // if args.len() <= 202 {
+    //     return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
+    // }
+    // let mut signature: [u8; 65] = [0; 65];
+    // // Signatures coming from outside are srv but ecrecover takes vsr, so move last byte to first position.
+    // signature[0] = args[64];
+    // signature[1..].copy_from_slice(&args[..64]);
+    // let nonce = U256::from_big_endian(&args[65..97]);
+    // let fee_amount = U256::from_big_endian(&args[97..129]);
+    // let fee_address = Address::from_slice(&args[129..149]);
+    // let contract_address = Address::from_slice(&args[149..169]);
+    // let value = U256::from_big_endian(&args[169..201]);
+    // let mut method_def_len_buf = [0u8; 2];
+    // method_def_len_buf.copy_from_slice(&args[201..203]);
+    // let method_def_len = u16::from_be_bytes(method_def_len_buf) as usize;
+    // if args.len() < method_def_len + 203 {
+    //     return Err(VMLogicError::EvmError(EvmError::ArgumentParseError));
+    // }
+    // let method_def = String::from_utf8(args[203..203 + method_def_len].to_vec())
+    //     .map_err(|_| VMLogicError::EvmError(EvmError::ArgumentParseError))?;
+    // let args = &args[203 + method_def_len..];
+    let nonce = U256::from(meta_tx.nonce);
+    let fee_amount = U256::from(meta_tx.fee_amount);
+    let fee_address = Address::from(meta_tx.fee_address);
+    let contract_address = Address::from(meta_tx.contract_address);
+    let value = U256::from(meta_tx.value);
 
     let (msg, input) = prepare_meta_call_args(
         domain_separator,
@@ -542,13 +547,23 @@ pub fn parse_meta_call(
         fee_amount,
         fee_address,
         contract_address,
-        &method_def,
-        args,
+        value,
+        &meta_tx.method_def,
+        &meta_tx.args,
     )?;
+    let mut signature: [u8; 65] = [0; 65];
+    signature[0] = meta_tx.v;
+    signature[1..].copy_from_slice(&meta_tx.signature);
     match ecrecover_address(&msg, &signature) {
-        Some(sender) => {
-            Ok(MetaCallArgs { sender, nonce, fee_amount, fee_address, contract_address, input })
-        }
+        Some(sender) => Ok(InternalMetaCallArgs {
+            sender,
+            nonce,
+            fee_amount,
+            fee_address,
+            contract_address,
+            value,
+            input,
+        }),
         None => Err(VMLogicError::EvmError(EvmError::InvalidEcRecoverSignature)),
     }
 }
