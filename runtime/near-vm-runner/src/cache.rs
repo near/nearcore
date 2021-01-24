@@ -53,7 +53,7 @@ fn cache_error(error: VMError, key: &CryptoHash, cache: &dyn CompiledContractCac
     }
 }
 
-fn compile_and_serialize_wasmer(
+pub(crate) fn compile_and_serialize_wasmer(
     wasm_code: &[u8],
     config: &VMConfig,
     key: &CryptoHash,
