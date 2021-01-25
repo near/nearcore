@@ -5,7 +5,8 @@ use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde::Deserialize;
 use serde::Serialize;
 
-use near_jsonrpc_primitives::message::{from_slice, Message, RpcError};
+use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_jsonrpc_primitives::rpc::{
     RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
 };

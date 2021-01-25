@@ -22,14 +22,15 @@ use near_client::{
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::ChunkId;
-use near_jsonrpc_primitives::blocks::RpcBlockError;
-use near_jsonrpc_primitives::message::{Message, Request, RpcError};
+use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::rpc::{
     RpcBroadcastTxSyncResponse, RpcLightClientExecutionProofRequest,
     RpcLightClientExecutionProofResponse, RpcQueryRequest, RpcStateChangesInBlockRequest,
     RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
     RpcValidatorsOrderedRequest, TransactionInfo,
 };
+use near_jsonrpc_primitives::types::blocks::RpcBlockError;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
@@ -40,7 +41,7 @@ use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId};
 use near_primitives::views::{
-    BlockView, FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest,
 };
 use near_runtime_utils::is_valid_account_id;
 
@@ -243,7 +244,7 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_tx_status" => self.tx_status_common(request.params, true).await,
             "block" => {
                 let rpc_block_request =
-                    near_jsonrpc_primitives::blocks::RpcBlockRequest::parse(request.params)?;
+                    near_jsonrpc_primitives::types::blocks::RpcBlockRequest::parse(request.params)?;
                 let block = self.block(rpc_block_request).await?;
                 serde_json::to_value(block).map_err(|err| RpcError::parse_error(err.to_string()))
             }
@@ -629,9 +630,9 @@ impl JsonRpcHandler {
 
     async fn block(
         &self,
-        request_data: near_jsonrpc_primitives::blocks::RpcBlockRequest,
-    ) -> Result<BlockView, RpcBlockError> {
-        Ok(self.view_client_addr.send(GetBlock(request_data.block_reference)).await??)
+        request_data: near_jsonrpc_primitives::types::blocks::RpcBlockRequest,
+    ) -> Result<near_jsonrpc_primitives::types::blocks::RpcBlockResponse, RpcBlockError> {
+        Ok(self.view_client_addr.send(GetBlock(request_data.block_reference)).await??.into())
     }
 
     async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {

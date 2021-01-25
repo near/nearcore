@@ -10,7 +10,7 @@ pub enum RpcBlockError {
     #[error("There are no fully synchronized blocks yet")]
     NotSyncedYet,
     #[error("The node reached its limits. Try again later. More details: {0}")]
-    InternalError(actix::MailboxError),
+    InternalError(String),
     #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
     Unreachable(String),
 }
@@ -19,6 +19,12 @@ pub enum RpcBlockError {
 pub struct RpcBlockRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RpcBlockResponse {
+    #[serde(flatten)]
+    pub block_view: near_primitives::views::BlockView,
 }
 
 impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
@@ -34,7 +40,7 @@ impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
                 RpcBlockError::NotSyncedYet
             }
             near_client_primitives::types::GetBlockError::IOError(s) => {
-                RpcBlockError::Unreachable(s)
+                RpcBlockError::InternalError(s)
             }
             near_client_primitives::types::GetBlockError::Unexpected(s) => {
                 near_metrics::inc_counter_vec(
@@ -49,7 +55,27 @@ impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
 
 impl From<actix::MailboxError> for RpcBlockError {
     fn from(error: actix::MailboxError) -> RpcBlockError {
-        RpcBlockError::InternalError(error)
+        RpcBlockError::InternalError(error.to_string())
+    }
+}
+
+impl From<RpcBlockError> for crate::errors::RpcError {
+    fn from(error: RpcBlockError) -> Self {
+        let error_data = match error {
+            RpcBlockError::BlockMissing(hash) => Some(Value::String(format!(
+                "Block Missing (unavailable on the node): {} \n Cause: Unknown",
+                hash.to_string()
+            ))),
+            RpcBlockError::BlockNotFound(s) => {
+                Some(Value::String(format!("DB Not Found Error: {} \n Cause: Unknown", s)))
+            }
+            RpcBlockError::Unreachable(s) => Some(Value::String(s)),
+            RpcBlockError::NotSyncedYet | RpcBlockError::InternalError(_) => {
+                Some(Value::String(error.to_string()))
+            }
+        };
+
+        Self::new(-32_000, "Server error".to_string(), error_data)
     }
 }
 
@@ -63,5 +89,11 @@ impl RpcBlockRequest {
             crate::utils::parse_params::<near_primitives::types::BlockReference>(value)?
         };
         Ok(RpcBlockRequest { block_reference })
+    }
+}
+
+impl From<near_primitives::views::BlockView> for RpcBlockResponse {
+    fn from(block_view: near_primitives::views::BlockView) -> RpcBlockResponse {
+        RpcBlockResponse { block_view }
     }
 }
