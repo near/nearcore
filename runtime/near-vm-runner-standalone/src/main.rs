@@ -95,20 +95,31 @@ fn default_vm_context() -> VMContext {
     };
 }
 
-fn read_file(name: &str) -> std::io::Result<Vec<u8>> {
+fn read_file(name: &str, decompress: bool) -> std::io::Result<Vec<u8>> {
     let mut file = File::open(name)?;
-
     let mut data = Vec::new();
     file.read_to_end(&mut data)?;
-
-    return Ok(data);
+    if decompress {
+        let mut decoder = libflate::gzip::Decoder::new(&*data)?;
+        let mut decoded_data = Vec::new();
+        decoder.read_to_end(&mut decoded_data)?;
+        Ok(decoded_data)
+    } else {
+        Ok(data)
+    }
 }
 
-fn write_file(name: &str, data: &Vec<u8>) -> std::io::Result<()> {
+fn write_file(name: &str, data: &Vec<u8>, compress: bool) -> std::io::Result<()> {
     let mut file = File::create(name)?;
-    file.write(data)?;
-
-    return Ok(());
+    if compress {
+        let mut encoder = libflate::gzip::Encoder::new(Vec::new())?;
+        encoder.write(data)?;
+        let encoded_data = encoder.finish().into_result()?;
+        file.write(&encoded_data)?;
+    } else {
+        file.write(data)?;
+    };
+    Ok(())
 }
 
 fn save_contract_to_cache(code: &Vec<u8>, file: &str) {
@@ -125,12 +136,13 @@ fn save_contract_to_cache(code: &Vec<u8>, file: &str) {
     let start = Instant::now();
     let code = artifact.serialize().unwrap();
     println!("artifact.serialize {} μs", start.elapsed().as_micros());
-    write_file(file, &code).unwrap();
+    write_file(file, &code, true).unwrap();
 }
 
 fn restore_contract_from_cache(file: &str) {
     println!("restore cache from {}", file);
-    let bytes = read_file(file).unwrap();
+    let bytes = read_file(file, true).unwrap();
+
     let start = Instant::now();
     let artifact = Artifact::deserialize(&bytes).unwrap();
     println!("Artifact::deserialize {} μs", start.elapsed().as_micros());
