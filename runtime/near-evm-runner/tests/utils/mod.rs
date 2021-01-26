@@ -1,15 +1,19 @@
 use ethereum_types::{Address, U256};
 use keccak_hash::keccak;
-use near_crypto::{PublicKey, Signature, Signer};
-use near_evm_runner::utils::{near_erc721_domain, prepare_meta_call_args, u256_to_arr};
+
+use borsh::BorshSerialize;
+use near_crypto::{InMemorySigner, PublicKey, Signature, Signer};
+use near_evm_runner::types::{EthSignedTransaction, EthTransaction};
+use near_evm_runner::utils::{near_erc712_domain, prepare_meta_call_args, u256_to_arr};
 use near_evm_runner::EvmContext;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::Balance;
 use near_vm_logic::VMConfig;
+use rlp::RlpStream;
 
 /// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
-pub const CHAIN_ID: u128 = 1313161555;
+pub const CHAIN_ID: u64 = 1313161555;
 
 pub fn accounts(num: usize) -> String {
     ["evm", "alice", "bob", "chad"][num].to_string()
@@ -71,37 +75,72 @@ pub fn public_key_to_address(public_key: PublicKey) -> Address {
 #[allow(dead_code)]
 pub fn encode_meta_call_function_args(
     signer: &dyn Signer,
-    chain_id: u128,
+    chain_id: u64,
     nonce: U256,
     fee_amount: U256,
     fee_token: Address,
     address: Address,
-    method_name: &str,
+    method_def: &str,
     args: Vec<u8>,
 ) -> Vec<u8> {
-    let domain_separator = near_erc721_domain(U256::from(chain_id));
-    let msg = prepare_meta_call_args(
+    let domain_separator = near_erc712_domain(U256::from(chain_id));
+    let (msg, _) = prepare_meta_call_args(
         &domain_separator,
         &"evm".to_string(),
         nonce,
         fee_amount,
         fee_token,
         address,
-        method_name,
+        method_def,
         &args,
-    );
+    )
+    .unwrap();
     match signer.sign(&msg) {
         Signature::ED25519(_) => panic!("Wrong Signer"),
-        Signature::SECP256K1(sig) => [
-            Into::<[u8; 65]>::into(sig).to_vec(),
-            u256_to_arr(&nonce).to_vec(),
-            u256_to_arr(&fee_amount).to_vec(),
-            fee_token.0.to_vec(),
-            address.0.to_vec(),
-            vec![method_name.len() as u8],
-            method_name.as_bytes().to_vec(),
-            args,
-        ]
-        .concat(),
+        Signature::SECP256K1(sig) => {
+            let mut signature = Into::<[u8; 65]>::into(sig.clone()).to_vec();
+            // Add 27 to align eth-sig-util signature format
+            signature[64] += 27;
+            [
+                signature,
+                u256_to_arr(&nonce).to_vec(),
+                u256_to_arr(&fee_amount).to_vec(),
+                fee_token.0.to_vec(),
+                address.0.to_vec(),
+                vec![method_def.len() as u8],
+                method_def.as_bytes().to_vec(),
+                args,
+            ]
+            .concat()
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub fn sign_eth_transaction(
+    signer: &InMemorySigner,
+    chain_id: u64,
+    nonce: U256,
+    gas_price: U256,
+    gas: U256,
+    to: Option<Address>,
+    value: U256,
+    data: Vec<u8>,
+) -> EthSignedTransaction {
+    let transaction = EthTransaction { nonce, gas_price, gas, to, value, data };
+    let mut rlp_stream = RlpStream::new();
+    transaction.rlp_append_unsigned(&mut rlp_stream, Some(chain_id));
+    let message_hash = keccak(rlp_stream.as_raw());
+    let signature = signer.sign(&message_hash.0).try_to_vec().unwrap();
+    let mut r = [0u8; 32];
+    let mut s = [0u8; 32];
+    r.copy_from_slice(&signature[1..33]);
+    s.copy_from_slice(&signature[33..65]);
+    let v = signature[65] as u64;
+    EthSignedTransaction {
+        transaction,
+        r: U256::from(r),
+        s: U256::from(s),
+        v: 35 + chain_id * 2 + v,
     }
 }

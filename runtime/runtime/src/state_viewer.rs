@@ -1,4 +1,5 @@
 use std::str;
+use std::sync::Arc;
 use std::time::Instant;
 
 use log::debug;
@@ -21,7 +22,6 @@ use near_vm_logic::ReturnData;
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
 use crate::ApplyState;
-use std::sync::Arc;
 
 pub struct TrieViewer {}
 
@@ -145,6 +145,8 @@ impl TrieViewer {
             cache: view_state.cache,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
+            #[cfg(feature = "costs_counting")]
+            profile: None,
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
@@ -200,10 +202,8 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[cfg(feature = "protocol_feature_evm")]
-    use near_chain_configs::TEST_EVM_CHAIN_ID;
+    use near_chain_configs::TESTNET_EVM_CHAIN_ID;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
@@ -211,6 +211,8 @@ mod tests {
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
+
+    use super::*;
 
     #[test]
     fn test_view_call() {
@@ -226,7 +228,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
             root,
@@ -255,7 +257,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
             root,
