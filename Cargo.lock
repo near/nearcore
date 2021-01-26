@@ -681,7 +681,7 @@ dependencies = [
 [[package]]
 name = "borsh"
 version = "0.8.1"
-source = "git+https://github.com/near/borsh-rs?rev=69cb28ce0ccdc94a0ab3809f7a279993d0156e33#69cb28ce0ccdc94a0ab3809f7a279993d0156e33"
+source = "git+https://github.com/near/borsh-rs?rev=c62cdfbd10d4a17fc877809eba4ccb65e866d5f8#c62cdfbd10d4a17fc877809eba4ccb65e866d5f8"
 dependencies = [
  "borsh-derive 0.8.1",
  "hashbrown 0.9.1",
@@ -702,7 +702,7 @@ dependencies = [
 [[package]]
 name = "borsh-derive"
 version = "0.8.1"
-source = "git+https://github.com/near/borsh-rs?rev=69cb28ce0ccdc94a0ab3809f7a279993d0156e33#69cb28ce0ccdc94a0ab3809f7a279993d0156e33"
+source = "git+https://github.com/near/borsh-rs?rev=c62cdfbd10d4a17fc877809eba4ccb65e866d5f8#c62cdfbd10d4a17fc877809eba4ccb65e866d5f8"
 dependencies = [
  "borsh-derive-internal 0.8.1",
  "borsh-schema-derive-internal 0.8.1",
@@ -725,7 +725,7 @@ dependencies = [
 [[package]]
 name = "borsh-derive-internal"
 version = "0.8.1"
-source = "git+https://github.com/near/borsh-rs?rev=69cb28ce0ccdc94a0ab3809f7a279993d0156e33#69cb28ce0ccdc94a0ab3809f7a279993d0156e33"
+source = "git+https://github.com/near/borsh-rs?rev=c62cdfbd10d4a17fc877809eba4ccb65e866d5f8#c62cdfbd10d4a17fc877809eba4ccb65e866d5f8"
 dependencies = [
  "proc-macro2 1.0.24",
  "quote 1.0.7",
@@ -746,7 +746,7 @@ dependencies = [
 [[package]]
 name = "borsh-schema-derive-internal"
 version = "0.8.1"
-source = "git+https://github.com/near/borsh-rs?rev=69cb28ce0ccdc94a0ab3809f7a279993d0156e33#69cb28ce0ccdc94a0ab3809f7a279993d0156e33"
+source = "git+https://github.com/near/borsh-rs?rev=c62cdfbd10d4a17fc877809eba4ccb65e866d5f8#c62cdfbd10d4a17fc877809eba4ccb65e866d5f8"
 dependencies = [
  "proc-macro2 1.0.24",
  "quote 1.0.7",
@@ -6220,7 +6220,7 @@ dependencies = [
 [[package]]
 name = "wasmer-runtime"
 version = "0.17.1"
-source = "git+https://github.com/near/wasmer.git?rev=c35a77b676f81d5e05af7580d08afc0c6fa0cd0e#c35a77b676f81d5e05af7580d08afc0c6fa0cd0e"
+source = "git+https://github.com/near/wasmer.git?rev=141a5d0c5dc3b5aff5fc23b29abcc1d85a1e53c9#141a5d0c5dc3b5aff5fc23b29abcc1d85a1e53c9"
 dependencies = [
  "lazy_static",
  "memmap",
@@ -6233,7 +6233,7 @@ dependencies = [
 [[package]]
 name = "wasmer-runtime-core"
 version = "0.17.1"
-source = "git+https://github.com/near/wasmer.git?rev=c35a77b676f81d5e05af7580d08afc0c6fa0cd0e#c35a77b676f81d5e05af7580d08afc0c6fa0cd0e"
+source = "git+https://github.com/near/wasmer.git?rev=141a5d0c5dc3b5aff5fc23b29abcc1d85a1e53c9#141a5d0c5dc3b5aff5fc23b29abcc1d85a1e53c9"
 dependencies = [
  "bincode",
  "blake3",
@@ -6262,7 +6262,7 @@ dependencies = [
 [[package]]
 name = "wasmer-singlepass-backend"
 version = "0.17.1"
-source = "git+https://github.com/near/wasmer.git?rev=c35a77b676f81d5e05af7580d08afc0c6fa0cd0e#c35a77b676f81d5e05af7580d08afc0c6fa0cd0e"
+source = "git+https://github.com/near/wasmer.git?rev=141a5d0c5dc3b5aff5fc23b29abcc1d85a1e53c9#141a5d0c5dc3b5aff5fc23b29abcc1d85a1e53c9"
 dependencies = [
  "bincode",
  "borsh 0.8.1",
