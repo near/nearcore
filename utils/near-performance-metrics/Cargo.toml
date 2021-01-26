@@ -16,6 +16,16 @@ strum = "0.18"
 near-rust-allocator-proxy = { git = "https://github.com/near/near-memory-tracker.git", tag="0.2.4" }
 nix = "0.15.0"
 
+tokio = { version = "0.2", features = ["full"] }
+tokio-util = { version = "0.2", features = ["codec"] }
+
 [features]
 performance_stats = []
 memory_stats = []
+
+[dependencies.bytes]
+version = "0.5.0"
+
+
+[dependencies.bitflags]
+version = "1.2"

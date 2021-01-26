@@ -31,6 +31,7 @@ near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
+near-tokio-util = { path = "../../utils/near-tokio-util", package = "tokio-util" }
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
 

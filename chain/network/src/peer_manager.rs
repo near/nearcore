@@ -8,7 +8,6 @@ use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::{Duration, Instant};
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
-use actix::io::FramedWrite;
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, SyncContext, SystemService, WrapFuture,
@@ -16,8 +15,8 @@ use actix::{
 use chrono::Utc;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
+use near_tokio_util::codec::FramedRead;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
 
 use near_primitives::hash::CryptoHash;
@@ -48,6 +47,7 @@ use crate::types::{
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
+use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use rand::thread_rng;
 
@@ -441,6 +441,7 @@ impl PeerManagerActor {
 
             // TODO: check if peer is banned or known based on IP address and port.
             Peer::add_stream(
+                //    FramedRead::new(NearReadHalf { inner: read }, Codec::new())
                 FramedRead::new(read, Codec::new())
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
@@ -452,12 +453,13 @@ impl PeerManagerActor {
                     .map(Result::unwrap),
                 ctx,
             );
-
+            // let write2 = NearWriteHalf { inner: write };
             Peer::new(
                 PeerInfo { id: peer_id, addr: Some(server_addr), account_id },
                 remote_addr,
                 peer_info,
                 peer_type,
+                //  FramedWrite::new(write2, Codec::new(), ctx),
                 FramedWrite::new(write, Codec::new(), ctx),
                 handshake_timeout,
                 recipient,

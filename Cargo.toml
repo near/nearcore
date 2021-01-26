@@ -45,7 +45,8 @@ members = [
     "genesis-tools/keypair-generator",
     "tools/restaked",
     "tools/indexer/example",
-    "tools/delay_detector"
+    "tools/delay_detector",
+    "utils/near-tokio-util",
 ]
 
 [dependencies]
@@ -71,6 +72,7 @@ near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
 runtime-params-estimator = { path = "./runtime/runtime-params-estimator", default_features = false }
 near-chain = { path = "./chain/chain" }
+near-tokio-util = { path = "utils/near-tokio-util", package = "tokio-util" }
 
 node-runtime = { path = "./runtime/runtime" }
 

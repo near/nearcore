@@ -7,7 +7,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use actix::io::{FramedWrite, WriteHandler};
+use actix::io::WriteHandler;
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
@@ -44,9 +44,11 @@ use crate::{metrics, NetworkResponses};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
+// use near_performance_metrics::stats::NearWriteHalf;
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::PartialEncodedChunk;
 
+// type WriteHalf = NearWriteHalf<tokio::net::TcpStream>;
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
 /// Maximum number of requests and responses to track.
@@ -157,7 +159,7 @@ pub struct Peer {
     /// Protocol version to communicate with this peer.
     pub protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: FramedWrite<WriteHalf, Codec>,
+    framed: near_performance_metrics::framed_write::FramedWrite<WriteHalf, Codec>,
     /// Handshake timeout.
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
@@ -190,7 +192,7 @@ impl Peer {
         peer_addr: SocketAddr,
         peer_info: Option<PeerInfo>,
         peer_type: PeerType,
-        framed: FramedWrite<WriteHalf, Codec>,
+        framed: near_performance_metrics::framed_write::FramedWrite<WriteHalf, Codec>,
         handshake_timeout: Duration,
         peer_manager_addr: Addr<PeerManagerActor>,
         client_addr: Recipient<NetworkClientMessages>,
@@ -663,6 +665,7 @@ impl Actor for Peer {
 }
 
 impl WriteHandler<io::Error> for Peer {}
+impl near_performance_metrics::framed_write::WriteHandler<io::Error> for Peer {}
 
 impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
     #[perf]

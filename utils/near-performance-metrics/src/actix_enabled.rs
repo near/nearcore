@@ -28,11 +28,15 @@ where
 {
     *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
     let f2 = move |a: &mut A, b: &mut A::Context| {
+        let stat = STATS.lock().unwrap().get_entry();
         let now = Instant::now();
+        stat.lock().unwrap().pre_log(now);
+
         f(a, b);
 
-        let took = now.elapsed();
-        STATS.lock().unwrap().log("run_later", file, line, took);
+        let ended = Instant::now();
+        let took = ended - now;
+        stat.lock().unwrap().log("run_later", file, line, took, ended);
         if took > SLOW_CALL_THRESHOLD {
             warn!(
                 "Slow function call {}:{} {}:{} took: {}ms",

@@ -36,6 +36,36 @@ impl Encoder for Codec {
     }
 }
 
+impl near_tokio_util::codec::Decoder for Codec {
+    type Item = Result<Vec<u8>, ReasonForBan>;
+    type Error = Error;
+
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if buf.len() < 4 {
+            // not enough bytes to start decoding
+            return Ok(None);
+        }
+
+        let mut len_bytes: [u8; 4] = [0; 4];
+        len_bytes.copy_from_slice(&buf[0..4]);
+        let len = u32::from_le_bytes(len_bytes);
+
+        if len > self.max_length {
+            // If this point is reached, abusive peer is banned.
+            return Ok(Some(Err(ReasonForBan::Abusive)));
+        }
+
+        if buf.len() < 4 + len as usize {
+            // not enough bytes, keep waiting
+            Ok(None)
+        } else {
+            let res = Some(Ok(buf[4..4 + len as usize].to_vec()));
+            buf.advance(4 + len as usize);
+            Ok(res)
+        }
+    }
+}
+
 impl Decoder for Codec {
     type Item = Result<Vec<u8>, ReasonForBan>;
     type Error = Error;
