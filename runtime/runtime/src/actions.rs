@@ -11,7 +11,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
+use near_primitives::types::{AccountId, CompiledContractCache, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
@@ -29,12 +29,14 @@ use near_store::{
 };
 use near_vm_errors::{CacheError, CompilationError, FunctionCallError, InconsistentStateError};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMContext, VMOutcome};
-use near_vm_runner::VMError;
+use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_runner::{precompile, VMError};
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use std::ops::Deref;
+use std::sync::Arc;
 
 /// Runs given function call with given context / apply state.
 /// Precompiles:
@@ -424,6 +426,8 @@ pub(crate) fn action_deploy_contract(
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
+    cache: Option<Arc<dyn CompiledContractCache>>,
+    vm_config: &VMConfig,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash))?;
@@ -438,6 +442,18 @@ pub(crate) fn action_deploy_contract(
         })?;
     account.code_hash = code.get_hash();
     set_code(state_update, account_id.clone(), &code);
+    if let Some(cache) = cache {
+        // We only precompile contract for Wasmer VM at the moment.
+        if let Some(err) =
+            precompile(code.get_code(), &code.get_hash(), vm_config, cache.deref(), VMKind::Wasmer)
+        {
+            return Err(StorageError::DataProcessingError(format!(
+                "Cannot precompile contract {}: {:?}",
+                code.get_hash(),
+                err
+            )));
+        }
+    }
     Ok(())
 }
 

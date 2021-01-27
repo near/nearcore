@@ -90,6 +90,10 @@ pub enum StorageError {
     /// panic in every place that produces this error.
     /// We can check if db is corrupted by verifying everything in the state trie.
     StorageInconsistentState(String),
+    /// Data processing error.
+    /// When storing value we perform an additional operation, and this operation failed
+    /// for some reason. Reason is recorded as string.
+    DataProcessingError(String),
 }
 
 impl std::fmt::Display for StorageError {
