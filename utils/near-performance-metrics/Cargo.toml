@@ -13,7 +13,7 @@ futures = "0.3.5"
 log = "0.4"
 once_cell = "1.5.2"
 strum = "0.18"
-near-rust-allocator-proxy = { git = "https://github.com/pmnoxx/near-memory-tracker.git", tag="v0.2.1" }
+near-rust-allocator-proxy = { git = "https://github.com/near/near-memory-tracker.git", tag="v0.2.1" }
 
 [features]
 performance_stats = []
