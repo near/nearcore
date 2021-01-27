@@ -46,7 +46,7 @@ impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
             near_client_primitives::types::GetBlockError::IOError(s) => {
                 RpcBlockError::InternalError(s)
             }
-            near_client_primitives::types::GetBlockError::Unexpected(s) => {
+            near_client_primitives::types::GetBlockError::Unreachable(s) => {
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcBlockError", &s],

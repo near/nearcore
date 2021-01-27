@@ -160,8 +160,9 @@ pub enum GetBlockError {
     BlockNotFound(String),
     #[error("There are no fully synchronized blocks yet")]
     NotSyncedYet,
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
     #[error("Unexpected error occurred: {0}")]
-    Unexpected(String),
+    Unreachable(String),
 }
 
 impl From<near_chain_primitives::Error> for GetBlockError {
@@ -172,7 +173,7 @@ impl From<near_chain_primitives::Error> for GetBlockError {
             near_chain_primitives::ErrorKind::BlockMissing(hash) => {
                 GetBlockError::BlockMissing(hash)
             }
-            _ => GetBlockError::Unexpected(error.to_string()),
+            _ => GetBlockError::Unreachable(error.to_string()),
         }
     }
 }
