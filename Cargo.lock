@@ -2699,6 +2699,7 @@ dependencies = [
  "log",
  "near-crypto",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-primitives",
  "near-store",
  "neard",
@@ -3016,6 +3017,7 @@ dependencies = [
  "lazy_static",
  "log",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
@@ -3047,6 +3049,17 @@ dependencies = [
  "serde_json",
  "sha2 0.9.2",
  "smart-default",
+]
+
+[[package]]
+name = "near-chain-primitives"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "failure",
+ "failure_derive",
+ "log",
+ "near-primitives",
 ]
 
 [[package]]
@@ -3088,6 +3101,7 @@ dependencies = [
  "near-chain",
  "near-chain-configs",
  "near-chunks",
+ "near-client-primitives",
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
@@ -3108,6 +3122,21 @@ dependencies = [
  "strum",
  "sysinfo",
  "testlib",
+]
+
+[[package]]
+name = "near-client-primitives"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "chrono",
+ "near-chain-primitives",
+ "near-chunks",
+ "near-network",
+ "near-primitives",
+ "serde",
+ "strum",
+ "thiserror",
 ]
 
 [[package]]
@@ -3225,6 +3254,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-jsonrpc-client",
+ "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-metrics",
  "near-network",
@@ -3245,9 +3275,25 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "futures",
+ "near-jsonrpc-primitives",
  "near-primitives",
  "serde",
  "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "near-jsonrpc-primitives"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "lazy_static",
+ "near-client-primitives",
+ "near-metrics",
+ "near-primitives",
+ "serde",
+ "serde_json",
+ "thiserror",
  "uuid",
 ]
 

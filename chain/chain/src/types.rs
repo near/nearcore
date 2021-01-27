@@ -5,6 +5,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
 
+use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
@@ -26,7 +27,6 @@ use near_primitives::version::{
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 
-use crate::error::Error;
 use chrono::{DateTime, Utc};
 use near_chain_configs::GenesisConfig;
 use num_rational::Rational;
