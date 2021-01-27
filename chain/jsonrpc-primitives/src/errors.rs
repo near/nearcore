@@ -4,7 +4,6 @@ use serde_json::{to_value, Value};
 #[derive(Serialize)]
 pub struct RpcParseError(pub String);
 
-/// An error code.
 /// This struct may be returned from JSON RPC server in case of error
 /// It is expected that that this struct has impls From<_> all other RPC errors
 /// like [RpcBlockError](crate::types::blocks::RpcBlockError)
