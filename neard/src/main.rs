@@ -17,10 +17,10 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
-#[cfg(feature = "memory_profiling")]
-use near_rust_allocator_proxy::allocator::MyAllocator;
 use near_performance_metrics;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
+#[cfg(feature = "memory_profiling")]
+use near_rust_allocator_proxy::allocator::MyAllocator;
 use neard::config::init_testnet_configs;
 use neard::genesis_validate::validate_genesis;
 use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
