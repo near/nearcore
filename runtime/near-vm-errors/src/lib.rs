@@ -94,6 +94,7 @@ pub enum CompilationError {
     CodeDoesNotExist { account_id: String },
     PrepareError(PrepareError),
     WasmerCompileError { msg: String },
+    UnsupportedCompiler { msg: String },
 }
 
 #[derive(
@@ -385,6 +386,9 @@ impl fmt::Display for CompilationError {
             CompilationError::PrepareError(p) => write!(f, "PrepareError: {}", p),
             CompilationError::WasmerCompileError { msg } => {
                 write!(f, "Wasmer compilation error: {}", msg)
+            }
+            CompilationError::UnsupportedCompiler { msg } => {
+                write!(f, "Unsupported compiler: {}", msg)
             }
         }
     }
