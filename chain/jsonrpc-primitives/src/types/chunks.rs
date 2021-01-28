@@ -25,13 +25,13 @@ pub enum RpcChunkError {
     #[error("The node reached its limits. Try again later. More details: {0}")]
     InternalError(String),
     #[error("Block not found")]
-    BlockNotFound(String),
+    UnknownBlock(String),
     #[error("Block `{0}` is unavailable on the node")]
     UnavailableBlock(near_primitives::hash::CryptoHash),
     #[error("Shard id {0} does not exist")]
     InvalidShardId(u64),
     #[error("Chunk {0:?} is missing")]
-    ChunkMissing(near_primitives::sharding::ChunkHash),
+    UnknownChunk(near_primitives::sharding::ChunkHash),
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
@@ -77,7 +77,7 @@ impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
     fn from(error: near_client_primitives::types::GetChunkError) -> Self {
         match error {
             near_client_primitives::types::GetChunkError::IOError(s) => Self::InternalError(s),
-            near_client_primitives::types::GetChunkError::UnknownBlock(s) => Self::BlockNotFound(s),
+            near_client_primitives::types::GetChunkError::UnknownBlock(s) => Self::UnknownBlock(s),
             near_client_primitives::types::GetChunkError::UnavailableBlock(hash) => {
                 Self::UnavailableBlock(hash)
             }
@@ -85,7 +85,7 @@ impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
                 Self::InvalidShardId(shard_id)
             }
             near_client_primitives::types::GetChunkError::UnknownChunk(hash) => {
-                Self::ChunkMissing(hash)
+                Self::UnknownChunk(hash)
             }
             near_client_primitives::types::GetChunkError::Unreachable(s) => {
                 near_metrics::inc_counter_vec(
@@ -112,11 +112,11 @@ impl From<RpcChunkError> for crate::errors::RpcError {
                 "DB Not Found Error: {} \n Cause: Unknown",
                 hash.to_string()
             ))),
-            RpcChunkError::BlockNotFound(s) => {
+            RpcChunkError::UnknownBlock(s) => {
                 Some(Value::String(format!("DB Not Found Error: {} \n Cause: Unknown", s)))
             }
             RpcChunkError::InvalidShardId(_) => Some(Value::String(error.to_string())),
-            RpcChunkError::ChunkMissing(hash) => Some(Value::String(format!(
+            RpcChunkError::UnknownChunk(hash) => Some(Value::String(format!(
                 "Chunk Missing (unavailable on the node): ChunkHash(`{}`) \n Cause: Unknown",
                 hash.0.to_string()
             ))),
