@@ -22,7 +22,7 @@ pub struct RpcChunkResponse {
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcChunkError {
-    #[error("Invalid shardId {0}")]
+    #[error("Shard id {0} does not exist")]
     InvalidShardId(u64),
     #[error("{0}")]
     MismatchedVersion(String),

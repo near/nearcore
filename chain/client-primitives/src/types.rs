@@ -215,7 +215,7 @@ impl Message for GetChunk {
 
 #[derive(thiserror::Error, Debug)]
 pub enum GetChunkError {
-    #[error("Invalid shardId {0}")]
+    #[error("Shard id {0} does not exist")]
     InvalidShardId(u64),
     #[error("{0}")]
     MismatchedVersion(String),
