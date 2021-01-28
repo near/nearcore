@@ -191,11 +191,11 @@ fn receive_network_block() {
             let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
             block_merkle_tree.insert(last_block.header.hash);
             let next_block_ordinal = {
-                #[cfg(feature = "protocol_feature_block_ordinal")]
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 {
                     last_block.header.block_ordinal.unwrap() + 1
                 }
-                #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                 0
             };
             let block = Block::produce(
@@ -270,11 +270,11 @@ fn produce_block_with_approvals() {
             let signer1 = InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
             block_merkle_tree.insert(last_block.header.hash);
             let next_block_ordinal = {
-                #[cfg(feature = "protocol_feature_block_ordinal")]
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 {
                     last_block.header.block_ordinal.unwrap() + 1
                 }
-                #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                 0
             };
             let block = Block::produce(
@@ -441,11 +441,11 @@ fn invalid_blocks_common(is_requested: bool) {
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             block_merkle_tree.insert(last_block.header.hash);
             let next_block_ordinal = {
-                #[cfg(feature = "protocol_feature_block_ordinal")]
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 {
                     last_block.header.block_ordinal.unwrap() + 1
                 }
-                #[cfg(not(feature = "protocol_feature_block_ordinal"))]
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                 0
             };
             let valid_block = Block::produce(
