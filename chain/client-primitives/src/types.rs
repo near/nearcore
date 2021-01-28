@@ -215,16 +215,16 @@ impl Message for GetChunk {
 
 #[derive(thiserror::Error, Debug)]
 pub enum GetChunkError {
-    #[error("Shard id {0} does not exist")]
-    InvalidShardId(u64),
-    #[error("{0}")]
-    MismatchedVersion(String),
-    #[error("Chunk {0:?} is missing")]
-    ChunkMissing(ChunkHash),
     #[error("IO Error: {0}")]
     IOError(String),
-    #[error("Block not found")]
-    BlockNotFound(String),
+    #[error("Block has never been observed: {0}")]
+    UnknownBlock(String),
+    #[error("Block with hash `{0}` is unavailable on the node")]
+    UnavailableBlock(CryptoHash),
+    #[error("Shard ID {0} is invalid")]
+    InvalidShardId(u64),
+    #[error("Chunk {0:?} is missing")]
+    UnknownChunk(ChunkHash),
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
@@ -236,13 +236,13 @@ pub enum GetChunkError {
 impl From<near_chain_primitives::Error> for GetChunkError {
     fn from(error: near_chain_primitives::Error) -> Self {
         match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
+            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => Self::UnknownBlock(s),
+            near_chain_primitives::ErrorKind::BlockMissing(hash) => Self::UnavailableBlock(hash),
             near_chain_primitives::ErrorKind::InvalidShardId(shard_id) => {
                 Self::InvalidShardId(shard_id)
             }
-            near_chain_primitives::ErrorKind::Other(s) => Self::MismatchedVersion(s),
-            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
-            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => Self::BlockNotFound(s),
-            near_chain_primitives::ErrorKind::ChunkMissing(hash) => Self::ChunkMissing(hash),
+            near_chain_primitives::ErrorKind::ChunkMissing(hash) => Self::UnknownChunk(hash),
             _ => Self::Unreachable(error.to_string()),
         }
     }

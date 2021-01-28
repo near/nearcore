@@ -29,7 +29,6 @@ use near_jsonrpc_primitives::rpc::{
     RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
     RpcValidatorsOrderedRequest, TransactionInfo,
 };
-use near_jsonrpc_primitives::types::blocks::RpcBlockError;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
@@ -636,7 +635,10 @@ impl JsonRpcHandler {
     async fn block(
         &self,
         request_data: near_jsonrpc_primitives::types::blocks::RpcBlockRequest,
-    ) -> Result<near_jsonrpc_primitives::types::blocks::RpcBlockResponse, RpcBlockError> {
+    ) -> Result<
+        near_jsonrpc_primitives::types::blocks::RpcBlockResponse,
+        near_jsonrpc_primitives::types::blocks::RpcBlockError,
+    > {
         Ok(self.view_client_addr.send(GetBlock(request_data.block_reference.into())).await??.into())
     }
 
@@ -656,7 +658,11 @@ impl JsonRpcHandler {
         let result = self.view_client_addr.send(GetBlock(block_reference)).await?;
         let block = match result {
             Ok(block) => block,
-            Err(err) => return Err(RpcError::from(RpcBlockError::from(err))),
+            Err(err) => {
+                return Err(RpcError::from(
+                    near_jsonrpc_primitives::types::blocks::RpcBlockError::from(err),
+                ))
+            }
         };
 
         let block_hash = block.header.hash.clone();
@@ -675,7 +681,11 @@ impl JsonRpcHandler {
         let result = self.view_client_addr.send(GetBlock(block_reference)).await?;
         let block = match result {
             Ok(block) => block,
-            Err(err) => return Err(RpcError::from(RpcBlockError::from(err))),
+            Err(err) => {
+                return Err(RpcError::from(
+                    near_jsonrpc_primitives::types::blocks::RpcBlockError::from(err),
+                ))
+            }
         };
 
         let block_hash = block.header.hash.clone();

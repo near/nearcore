@@ -22,16 +22,16 @@ pub struct RpcChunkResponse {
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcChunkError {
-    #[error("Shard id {0} does not exist")]
-    InvalidShardId(u64),
-    #[error("{0}")]
-    MismatchedVersion(String),
-    #[error("Chunk {0:?} is missing")]
-    ChunkMissing(near_primitives::sharding::ChunkHash),
-    #[error("Block not found")]
-    BlockNotFound(String),
     #[error("The node reached its limits. Try again later. More details: {0}")]
     InternalError(String),
+    #[error("Block not found")]
+    BlockNotFound(String),
+    #[error("Block `{0}` is unavailable on the node")]
+    UnavailableBlock(near_primitives::hash::CryptoHash),
+    #[error("Shard id {0} does not exist")]
+    InvalidShardId(u64),
+    #[error("Chunk {0:?} is missing")]
+    ChunkMissing(near_primitives::sharding::ChunkHash),
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
@@ -76,21 +76,18 @@ impl From<near_primitives::views::ChunkView> for RpcChunkResponse {
 impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
     fn from(error: near_client_primitives::types::GetChunkError) -> Self {
         match error {
-            near_client_primitives::types::GetChunkError::MismatchedVersion(s) => {
-                Self::MismatchedVersion(s)
+            near_client_primitives::types::GetChunkError::IOError(s) => Self::InternalError(s),
+            near_client_primitives::types::GetChunkError::UnknownBlock(s) => Self::BlockNotFound(s),
+            near_client_primitives::types::GetChunkError::UnavailableBlock(hash) => {
+                Self::UnavailableBlock(hash)
             }
             near_client_primitives::types::GetChunkError::InvalidShardId(shard_id) => {
                 Self::InvalidShardId(shard_id)
             }
-            near_client_primitives::types::GetChunkError::ChunkMissing(hash) => {
+            near_client_primitives::types::GetChunkError::UnknownChunk(hash) => {
                 Self::ChunkMissing(hash)
             }
-            near_client_primitives::types::GetChunkError::BlockNotFound(s) => {
-                Self::BlockNotFound(s)
-            }
-            near_client_primitives::types::GetChunkError::IOError(s) => Self::InternalError(s),
             near_client_primitives::types::GetChunkError::Unreachable(s) => {
-                println!("{}", &s);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcChunkError", &s],
@@ -110,17 +107,20 @@ impl From<actix::MailboxError> for RpcChunkError {
 impl From<RpcChunkError> for crate::errors::RpcError {
     fn from(error: RpcChunkError) -> Self {
         let error_data = match error {
+            RpcChunkError::InternalError(_) => Some(Value::String(error.to_string())),
+            RpcChunkError::UnavailableBlock(hash) => Some(Value::String(format!(
+                "DB Not Found Error: {} \n Cause: Unknown",
+                hash.to_string()
+            ))),
             RpcChunkError::BlockNotFound(s) => {
                 Some(Value::String(format!("DB Not Found Error: {} \n Cause: Unknown", s)))
             }
+            RpcChunkError::InvalidShardId(_) => Some(Value::String(error.to_string())),
             RpcChunkError::ChunkMissing(hash) => Some(Value::String(format!(
                 "Chunk Missing (unavailable on the node): ChunkHash(`{}`) \n Cause: Unknown",
                 hash.0.to_string()
             ))),
             RpcChunkError::Unreachable(s) => Some(Value::String(s)),
-            RpcChunkError::InternalError(_) => Some(Value::String(error.to_string())),
-            RpcChunkError::InvalidShardId(_) => Some(Value::String(error.to_string())),
-            RpcChunkError::MismatchedVersion(_) => Some(Value::String(error.to_string())),
         };
 
         Self::new(-32_000, "Server error".to_string(), error_data)
