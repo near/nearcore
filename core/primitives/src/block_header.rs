@@ -343,7 +343,7 @@ impl BlockHeader {
         random_value: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
-        block_ordinal: NumBlocks,
+        #[allow(dead_code)] block_ordinal: NumBlocks,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         gas_price: Balance,

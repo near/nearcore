@@ -404,6 +404,9 @@ impl Chain {
     }
 
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
+        if self.store.get_block(block.hash()).is_ok() {
+            return Ok(());
+        }
         if let Err(e) =
             Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
         {
@@ -421,12 +424,22 @@ impl Chain {
         Ok(())
     }
 
-    pub fn save_orphan(&mut self, block: &Block) {
+    pub fn save_orphan(&mut self, block: &Block) -> Result<(), Error> {
+        if self.orphans.contains(block.hash()) {
+            return Ok(());
+        }
+        if let Err(e) =
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
+        {
+            byzantine_assert!(false);
+            return Err(e.into());
+        }
         self.orphans.add(Orphan {
             block: block.clone(),
             provenance: Provenance::NONE,
             added: Instant::now(),
         });
+        Ok(())
     }
 
     fn save_block_height_processed(&mut self, block_height: BlockHeight) -> Result<(), Error> {
@@ -2919,7 +2932,9 @@ impl<'a> ChainUpdate<'a> {
                 return Err(ErrorKind::InvalidSignature.into());
             }
             block.check_validity()?;
-            self.verify_orphan_header_approvals(&block.header())?;
+            // TODO: enable after #3729 and #3863
+            // #[cfg(feature = "protocol_feature_block_header_v3")]
+            // self.verify_orphan_header_approvals(&block.header())?;
             return Err(ErrorKind::Orphan.into());
         }
 
@@ -3280,12 +3295,8 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-    fn verify_orphan_header_approvals(&mut self, _header: &BlockHeader) -> Result<(), Error> {
-        Ok(())
-    }
-
     #[cfg(feature = "protocol_feature_block_header_v3")]
+    #[allow(dead_code)]
     fn verify_orphan_header_approvals(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let prev_hash = header.prev_hash();
         let prev_height = match header.prev_height() {
