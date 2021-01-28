@@ -26,7 +26,7 @@ impl<'a> DelayDetector<'a> {
 impl<'a> Drop for DelayDetector<'a> {
     fn drop(&mut self) {
         let elapsed = Instant::now() - self.started;
-        if elapsed > Duration::from_millis(5) && elapsed <= Duration::from_millis(500) {
+        if elapsed > Duration::from_millis(50) && elapsed <= Duration::from_millis(500) {
             info!(target: "delay_detector", "Took {:?} processing {}", elapsed, self.msg);
         }
         if elapsed > Duration::from_millis(500) {

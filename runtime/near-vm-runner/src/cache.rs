@@ -77,29 +77,20 @@ pub(crate) fn compile_and_serialize_wasmer(
 fn deserialize_wasmer(
     serialized: &[u8],
 ) -> Result<Result<wasmer_runtime::Module, VMError>, CacheError> {
-    println!("=== start");
     let record = CacheRecord::try_from_slice(serialized).map_err(|_e| DeserializationError)?;
-    println!("=== ok0");
     let serialized_artifact = match record {
         CacheRecord::Error(err) => return Ok(Err(err)),
         CacheRecord::Code(code) => code,
     };
-    println!("=== ok1");
-    let mut d = DelayDetector::new("in deserialize_wasmer get cache".into());
     let artifact = Artifact::deserialize(serialized_artifact.as_slice())
         .map_err(|_e| CacheError::DeserializationError)?;
-    println!("=== ok2");
-    d.snapshot("after deserialize artifact");
-    let r = unsafe {
+    unsafe {
         let compiler = compiler_for_backend(Backend::Singlepass).unwrap();
         match load_cache_with(artifact, compiler.as_ref()) {
             Ok(module) => Ok(Ok(module)),
             Err(_) => Err(CacheError::DeserializationError),
         }
-    };
-    println!("=== ok3");
-    d.snapshot("after load_cache_with");
-    r
+    }
 }
 
 pub(crate) fn compile_module_cached_wasmer(
