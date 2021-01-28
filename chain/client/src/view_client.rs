@@ -49,7 +49,7 @@ use crate::{
 };
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt,
+    GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt,
     GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
 };
 use near_performance_metrics_macros::perf;
@@ -503,7 +503,7 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
 }
 
 impl Handler<GetChunk> for ViewClientActor {
-    type Result = Result<ChunkView, String>;
+    type Result = Result<ChunkView, GetChunkError>;
 
     #[perf]
     fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
@@ -527,26 +527,31 @@ impl Handler<GetChunk> for ViewClientActor {
                 ))
             })
         };
-        match msg {
-            GetChunk::ChunkHash(chunk_hash) => self.chain.get_chunk(&chunk_hash).map(Clone::clone),
+
+        let chunk = match msg {
+            GetChunk::ChunkHash(chunk_hash) => {
+                self.chain.get_chunk(&chunk_hash).map(Clone::clone)?
+            }
             GetChunk::BlockHash(block_hash, shard_id) => {
                 let block = self.chain.get_block(&block_hash).map(Clone::clone);
-                get_chunk_from_block(block, shard_id, &mut self.chain)
+                get_chunk_from_block(block, shard_id, &mut self.chain)?
             }
             GetChunk::Height(height, shard_id) => {
                 let block = self.chain.get_block_by_height(height).map(Clone::clone);
-                get_chunk_from_block(block, shard_id, &mut self.chain)
+                get_chunk_from_block(block, shard_id, &mut self.chain)?
             }
-        }
-        .and_then(|chunk| {
-            let chunk_inner = chunk.cloned_header().take_inner();
-            let epoch_id =
-                self.runtime_adapter.get_epoch_id_from_prev_block(&chunk_inner.prev_block_hash)?;
-            self.runtime_adapter
-                .get_chunk_producer(&epoch_id, chunk_inner.height_created, chunk_inner.shard_id)
-                .map(|author| ChunkView::from_author_chunk(author, chunk))
-        })
-        .map_err(|err| err.to_string())
+        };
+
+        let chunk_inner = chunk.cloned_header().take_inner();
+        let epoch_id =
+            self.runtime_adapter.get_epoch_id_from_prev_block(&chunk_inner.prev_block_hash)?;
+        let author = self.runtime_adapter.get_chunk_producer(
+            &epoch_id,
+            chunk_inner.height_created,
+            chunk_inner.shard_id,
+        )?;
+
+        Ok(ChunkView::from_author_chunk(author, chunk))
     }
 }
 
