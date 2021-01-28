@@ -92,7 +92,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 41;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 45;
+pub const PROTOCOL_VERSION: ProtocolVersion = 47;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
@@ -121,9 +121,9 @@ lazy_static! {
             #[cfg(feature = "protocol_feature_rectify_inflation")]
             (ProtocolFeature::RectifyInflation, 43),
             #[cfg(feature = "protocol_feature_evm")]
-            (ProtocolFeature::EVM, 44),
+            (ProtocolFeature::EVM, 46),
             #[cfg(feature = "protocol_feature_block_header_v3")]
-            (ProtocolFeature::BlockHeaderV3, 45),
+            (ProtocolFeature::BlockHeaderV3, 47),
         ]
         .into_iter()
         .collect();
@@ -143,8 +143,8 @@ lazy_static! {
 macro_rules! checked_feature {
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
         #[cfg(feature = $feature_name)]
-        let is_feature_enabled = near_primitives::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-            [&near_primitives::version::ProtocolFeature::$feature]
+        let is_feature_enabled = $crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
+            [&$crate::version::ProtocolFeature::$feature]
             <= $current_protocol_version;
         #[cfg(not(feature = $feature_name))]
         let is_feature_enabled = {

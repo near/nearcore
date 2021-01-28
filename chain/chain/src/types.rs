@@ -1,9 +1,14 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use chrono::{DateTime, Utc};
+use num_rational::Rational;
 use serde::Serialize;
 
+use near_chain_configs::GenesisConfig;
+use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
@@ -25,12 +30,8 @@ use near_primitives::version::{
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 
-use crate::error::Error;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
-use chrono::{DateTime, Utc};
-use near_chain_configs::GenesisConfig;
-use num_rational::Rational;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -587,6 +588,12 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error>;
+
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         chunk_prev_block_hash: &CryptoHash,
@@ -594,7 +601,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<bool, Error>;
 
     #[cfg(feature = "protocol_feature_evm")]
-    fn evm_chain_id(&self) -> u128;
+    fn evm_chain_id(&self) -> u64;
 
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`

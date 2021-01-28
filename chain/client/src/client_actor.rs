@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
+use actix::{Actor, Addr, Arbiter, Context, Handler};
 use chrono::Duration as OldDuration;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
@@ -32,6 +32,8 @@ use near_network::types::{NetworkInfo, ReasonForBan};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
+use near_performance_metrics;
+use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, EpochId};
@@ -47,13 +49,13 @@ use near_telemetry::TelemetryActor;
 use crate::client::Client;
 use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
-use crate::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusSyncInfo, SyncStatus,
-};
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
+use near_client_primitives::types::{
+    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
+    StatusSyncInfo, SyncStatus,
+};
 use near_primitives::block_header::ApprovalType;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -190,6 +192,7 @@ impl Actor for ClientActor {
 impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
+    #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(format!("NetworkClientMessage {}", msg.as_ref()).into());
@@ -352,7 +355,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
                     shard_id,
                     hash,
-                    state_response.part().as_ref().map(|(part_id,data)|(part_id, data.len()))
+                    state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
                 );
                 // Get the download that matches the shard_id and hash
                 let download = {
@@ -518,6 +521,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, String>;
 
+    #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client status".to_string().into());
@@ -592,7 +596,8 @@ impl Handler<Status> for ClientActor {
 impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
-    fn handle(&mut self, _: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+    #[perf]
+    fn handle(&mut self, msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client get network info".into());
         self.check_triggers(ctx);
@@ -729,7 +734,7 @@ impl ClientActor {
     fn schedule_triggers(&mut self, ctx: &mut Context<Self>) {
         let wait = self.check_triggers(ctx);
 
-        ctx.run_later(wait, move |act, ctx| {
+        near_performance_metrics::actix::run_later(ctx, file!(), line!(), wait, move |act, ctx| {
             act.schedule_triggers(ctx);
         });
     }
@@ -1109,9 +1114,15 @@ impl ClientActor {
         if self.network_info.num_active_peers < self.client.config.min_num_peers
             && !self.client.config.skip_sync_wait
         {
-            ctx.run_later(self.client.config.sync_step_period, move |act, ctx| {
-                act.start_sync(ctx);
-            });
+            near_performance_metrics::actix::run_later(
+                ctx,
+                file!(),
+                line!(),
+                self.client.config.sync_step_period,
+                move |act, ctx| {
+                    act.start_sync(ctx);
+                },
+            );
             return;
         }
         self.sync_started = true;
@@ -1165,9 +1176,15 @@ impl ClientActor {
             }
         }
 
-        ctx.run_later(self.client.config.catchup_step_period, move |act, ctx| {
-            act.catchup(ctx);
-        });
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.client.config.catchup_step_period,
+            move |act, ctx| {
+                act.catchup(ctx);
+            },
+        );
     }
 
     fn run_timer<F>(
@@ -1199,7 +1216,12 @@ impl ClientActor {
             Ok(v) => v,
             Err(err) => {
                 error!(target: "sync", "Sync: Unexpected error: {}", err);
-                ctx.run_later(self.client.config.sync_step_period, move |act, ctx| {
+
+            near_performance_metrics::actix::run_later(
+                ctx,
+                file!(),
+                line!(),
+                self.client.config.sync_step_period, move |act, ctx| {
                     act.sync(ctx);
                 });
                 return;
@@ -1355,55 +1377,68 @@ impl ClientActor {
             }
         }
 
-        ctx.run_later(wait_period, move |act, ctx| {
-            act.sync(ctx);
-        });
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            wait_period,
+            move |act, ctx| {
+                act.sync(ctx);
+            },
+        );
     }
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
-        ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
-            #[cfg(feature = "delay_detector")]
-            let _d = DelayDetector::new("client log summary".into());
-            let is_syncing = act.client.sync_status.is_syncing();
-            let head = unwrap_or_return!(act.client.chain.head(), act.log_summary(ctx));
-            let validator_info = if !is_syncing {
-                let validators = unwrap_or_return!(
-                    act.client
-                        .runtime_adapter
-                        .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash),
-                    act.log_summary(ctx)
-                );
-                let num_validators = validators.len();
-                let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
-                let is_validator = if let Some(ref account_id) = account_id {
-                    match act.client.runtime_adapter.get_validator_by_account_id(
-                        &head.epoch_id,
-                        &head.last_block_hash,
-                        account_id,
-                    ) {
-                        Ok((_, is_slashed)) => !is_slashed,
-                        Err(_) => false,
-                    }
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.client.config.log_summary_period,
+            move |act, ctx| {
+                #[cfg(feature = "delay_detector")]
+                let _d = DelayDetector::new("client log summary".into());
+                let is_syncing = act.client.sync_status.is_syncing();
+                let head = unwrap_or_return!(act.client.chain.head(), act.log_summary(ctx));
+                let validator_info = if !is_syncing {
+                    let validators = unwrap_or_return!(
+                        act.client.runtime_adapter.get_epoch_block_producers_ordered(
+                            &head.epoch_id,
+                            &head.last_block_hash
+                        ),
+                        act.log_summary(ctx)
+                    );
+                    let num_validators = validators.len();
+                    let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
+                    let is_validator = if let Some(ref account_id) = account_id {
+                        match act.client.runtime_adapter.get_validator_by_account_id(
+                            &head.epoch_id,
+                            &head.last_block_hash,
+                            account_id,
+                        ) {
+                            Ok((_, is_slashed)) => !is_slashed,
+                            Err(_) => false,
+                        }
+                    } else {
+                        false
+                    };
+                    Some(ValidatorInfoHelper { is_validator, num_validators })
                 } else {
-                    false
+                    None
                 };
-                Some(ValidatorInfoHelper { is_validator, num_validators })
-            } else {
-                None
-            };
 
-            act.info_helper.info(
-                act.client.chain.store().get_genesis_height(),
-                &head,
-                &act.client.sync_status,
-                &act.node_id,
-                &act.network_info,
-                validator_info,
-            );
+                act.info_helper.info(
+                    act.client.chain.store().get_genesis_height(),
+                    &head,
+                    &act.client.sync_status,
+                    &act.node_id,
+                    &act.network_info,
+                    validator_info,
+                );
 
-            act.log_summary(ctx);
-        });
+                act.log_summary(ctx);
+            },
+        );
     }
 }
 

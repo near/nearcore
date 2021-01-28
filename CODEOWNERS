@@ -2,12 +2,13 @@
 
 /chain/ @SkidanovAlex @bowenwang1996
 /chain/network/ @mfornet @bowenwang1996
-/chain/jsonrpc/ @frol @evgenykuzyakov
+/chain/jsonrpc/ @frol @bowenwang1996
 /chain/indexer/ @khorolets @frol
 /chain/rosetta-rpc/ @frol
 
 /runtime/ @evgenykuzyakov
 /runtime/runtime-params-estimator/ @olonho @willemneal
+/runtime/near-evm-runner/ @ailisp @artob @frankbraun
 /runtime/near-vm-runner/ @olonho @ailisp
 
 /genesis-tools/ @evgenykuzyakov @ailisp

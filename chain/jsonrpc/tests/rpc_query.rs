@@ -6,12 +6,12 @@ use futures::{future, FutureExt};
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
+use near_jsonrpc_primitives::rpc::RpcQueryRequest;
+use near_jsonrpc_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::RpcQueryRequest;
-use near_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
@@ -340,6 +340,28 @@ fn test_query_call_function() {
         };
         assert_eq!(call_result.result.len(), 0);
         assert_eq!(call_result.logs.len(), 0);
+    });
+}
+
+/// query contract code
+#[test]
+fn test_query_contract_code() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let query_response = client
+            .query(RpcQueryRequest {
+                block_reference: BlockReference::latest(),
+                request: QueryRequest::ViewCode { account_id: "test".to_string() },
+            })
+            .await
+            .unwrap();
+        assert_eq!(query_response.block_height, 0);
+        let code = if let QueryResponseKind::ViewCode(code) = query_response.kind {
+            code
+        } else {
+            panic!("queried code, but received something else: {:?}", query_response.kind);
+        };
+        assert_eq!(code.code, Vec::<u8>::new());
+        assert_eq!(code.hash.to_string(), "11111111111111111111111111111111");
     });
 }
 

@@ -5,6 +5,7 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
@@ -14,13 +15,14 @@ use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader};
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use crate::block_header::BlockHeaderInnerRestV3;
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderV1,
     BlockHeaderV2,
 };
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::block_header::{BlockHeaderInnerRestV3, BlockHeaderV3};
 use crate::challenge::{Challenge, ChallengesResult};
+use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
@@ -45,10 +47,6 @@ use crate::types::{
     StoreValue, ValidatorKickoutReason, ValidatorStake,
 };
 use crate::version::{ProtocolVersion, Version};
-use std::sync::Arc;
-
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use crate::block_header::BlockHeaderV3;
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -63,6 +61,15 @@ pub struct AccountView {
     #[serde(default)]
     pub storage_paid_at: BlockHeight,
 }
+
+/// A view of the contract code.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct ContractCodeView {
+    #[serde(rename = "code_base64", with = "base64_format")]
+    pub code: Vec<u8>,
+    pub hash: CryptoHash,
+}
+
 /// State for the view call.
 #[derive(Debug)]
 pub struct ViewApplyState {
@@ -82,7 +89,7 @@ pub struct ViewApplyState {
     pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// EVM chain ID
     #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u128,
+    pub evm_chain_id: u64,
 }
 
 impl From<&Account> for AccountView {
@@ -117,6 +124,18 @@ impl From<&AccountView> for Account {
 impl From<AccountView> for Account {
     fn from(view: AccountView) -> Self {
         (&view).into()
+    }
+}
+
+impl From<ContractCode> for ContractCodeView {
+    fn from(contract_code: ContractCode) -> Self {
+        ContractCodeView { code: contract_code.code, hash: contract_code.hash }
+    }
+}
+
+impl From<ContractCodeView> for ContractCode {
+    fn from(contract_code: ContractCodeView) -> Self {
+        ContractCode { code: contract_code.code, hash: contract_code.hash }
     }
 }
 
@@ -229,6 +248,7 @@ impl std::iter::FromIterator<AccessKeyInfoView> for AccessKeyList {
 #[serde(untagged)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
+    ViewCode(ContractCodeView),
     ViewState(ViewStateResult),
     CallResult(CallResult),
     Error(QueryError),
@@ -240,6 +260,9 @@ pub enum QueryResponseKind {
 #[serde(tag = "request_type", rename_all = "snake_case")]
 pub enum QueryRequest {
     ViewAccount {
+        account_id: AccountId,
+    },
+    ViewCode {
         account_id: AccountId,
     },
     ViewState {
@@ -351,6 +374,17 @@ impl TryFrom<QueryResponse> for AccessKeyView {
     }
 }
 
+impl TryFrom<QueryResponse> for ContractCodeView {
+    type Error = String;
+
+    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
+        match query_response.kind {
+            QueryResponseKind::ViewCode(contract_code) => Ok(contract_code),
+            _ => Err("Invalid type of response".into()),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChallengeView {
     // TODO: decide how to represent challenges in json.
@@ -387,6 +421,8 @@ pub struct BlockHeaderView {
     pub chunk_mask: Vec<bool>,
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    pub block_ordinal: Option<NumBlocks>,
     /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
@@ -431,6 +467,12 @@ impl From<BlockHeader> for BlockHeaderView {
                 .map(|v| v.clone().into())
                 .collect(),
             chunk_mask: header.chunk_mask().to_vec(),
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            block_ordinal: if header.block_ordinal() != 0 {
+                Some(header.block_ordinal())
+            } else {
+                None
+            },
             gas_price: header.gas_price(),
             rent_paid: 0,
             validator_reward: 0,
@@ -551,6 +593,10 @@ impl From<BlockHeaderView> for BlockHeader {
                             .collect(),
                         chunk_mask: view.chunk_mask,
                         gas_price: view.gas_price,
+                        block_ordinal: match view.block_ordinal {
+                            Some(value) => value,
+                            None => 0,
+                        },
                         total_supply: view.total_supply,
                         challenges_result: view.challenges_result,
                         last_final_block: view.last_final_block,

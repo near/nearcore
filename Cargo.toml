@@ -19,18 +19,19 @@ members = [
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
     "runtime/runtime",
-    "runtime/runtime-standalone",
     "runtime/runtime-params-estimator",
     "chain/chain",
     "chain/chunks",
     "chain/epoch_manager",
     "chain/pool",
     "chain/client",
+    "chain/client-primitives",
     "chain/network",
     "chain/indexer",
     "chain/jsonrpc",
     "chain/jsonrpc/client",
     "chain/jsonrpc/test-utils",
+    "chain/jsonrpc-primitives",
     "chain/rosetta-rpc",
     "test-utils/testlib",
     "test-utils/loadtester",
@@ -51,6 +52,8 @@ members = [
 # pins this version to fix https://github.com/actix/actix-net/issues/129
 actix-rt = "=1.1.1"
 openssl-probe = { version = "0.1.2" }
+# pin syn to fix https://github.com/nushell/nushell/pull/2868
+syn = "=1.0.57"
 
 [dev-dependencies]
 actix = "0.9"
@@ -66,8 +69,7 @@ near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
-near-runtime-standalone = { path = "./runtime/runtime-standalone" }
-runtime-params-estimator = { path = "./runtime/runtime-params-estimator" }
+runtime-params-estimator = { path = "./runtime/runtime-params-estimator", default_features = false }
 near-chain = { path = "./chain/chain" }
 
 node-runtime = { path = "./runtime/runtime" }
@@ -102,6 +104,7 @@ opt-level = 3 # BLS library is too slow to use in debug
 opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]
+performance_stats = ["neard/performance_stats"]
 expensive_tests = ["neard/expensive_tests"]
 regression_tests = []
 old_tests = []
@@ -113,5 +116,6 @@ rosetta_rpc = ["neard/rosetta_rpc"]
 protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_parts"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3"]
-protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "near-runtime-standalone/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
+protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
+costs_counting = ["neard/costs_counting", "testlib/costs_counting", "node-runtime/costs_counting"]

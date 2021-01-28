@@ -32,15 +32,17 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{
+    AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId,
+};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
-use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use near_client_primitives::types::{Error, ShardSyncDownload};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
@@ -404,6 +406,9 @@ impl Client {
             self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
         block_merkle_tree.insert(prev_hash);
         let block_merkle_root = block_merkle_tree.root();
+        // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
+        // The ordinal of the next Block will be equal to this amount plus one.
+        let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunks: Vec<_> = prev_block.chunks().iter().cloned().collect();
@@ -435,6 +440,7 @@ impl Client {
             protocol_version,
             &prev_header,
             next_height,
+            block_ordinal,
             chunks,
             epoch_id,
             next_epoch_id,
@@ -951,6 +957,15 @@ impl Client {
                     debug_assert!(false);
                 };
                 near_metrics::stop_timer(timer);
+            }
+
+            if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
+                let next_epoch_protocol_version = unwrap_or_return!(self
+                    .runtime_adapter
+                    .get_epoch_protocol_version(block.header().next_epoch_id()));
+                if next_epoch_protocol_version > PROTOCOL_VERSION {
+                    panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
+                }
             }
         }
 
@@ -1744,7 +1759,7 @@ mod test {
             let result = client.process_partial_encoded_chunk_forward(mock_forward);
             assert!(matches!(
                 result,
-                Err(crate::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+                Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
             ));
         }
     }

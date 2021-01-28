@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::sync::Arc;
 
 use ethereum_types::{Address, H256, U256};
@@ -27,7 +26,7 @@ pub struct NearExt<'a> {
     pub static_flag: bool,
     pub depth: usize,
     pub evm_gas_config: &'a EvmCostConfig,
-    pub chain_id: u128,
+    pub chain_id: u64,
 }
 
 impl std::fmt::Debug for NearExt<'_> {
@@ -51,7 +50,7 @@ impl<'a> NearExt<'a> {
         depth: usize,
         static_flag: bool,
         evm_gas_config: &'a EvmCostConfig,
-        chain_id: u128,
+        chain_id: u64,
     ) -> Self {
         Self {
             info: Default::default(),
@@ -72,7 +71,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     /// EIP-1344: Returns the current chain's EIP-155 unique identifier.
     /// See https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1344.md
     fn chain_id(&self) -> u64 {
-        self.chain_id.try_into().unwrap()
+        self.chain_id
     }
 
     /// Returns the storage value for a given key if reversion happens on the current transaction.
@@ -158,6 +157,7 @@ impl<'a> vm::Ext for NearExt<'a> {
             *value,
             self.depth,
             address_type,
+            true,
             true,
             &code.to_vec(),
             gas,

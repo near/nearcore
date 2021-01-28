@@ -8,7 +8,9 @@ use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, ValidatorStake};
+use crate::types::{
+    AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ValidatorStake,
+};
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -107,6 +109,7 @@ pub struct BlockHeaderInnerRestV2 {
 }
 
 /// Add `prev_height`
+/// Add `block_ordinal`
 #[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRestV3 {
@@ -126,6 +129,8 @@ pub struct BlockHeaderInnerRestV3 {
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
+    /// The ordinal of the Block on the Canonical Chain
+    pub block_ordinal: NumBlocks,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -260,6 +265,7 @@ pub struct BlockHeaderV2 {
 }
 
 /// V2 -> V3: Add `prev_height` to `inner_rest`
+// Add `block_ordinal` to `inner_rest`
 #[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 #[borsh_init(init)]
@@ -337,6 +343,7 @@ impl BlockHeader {
         random_value: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
+        block_ordinal: NumBlocks,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         gas_price: Balance,
@@ -446,6 +453,7 @@ impl BlockHeader {
                     validator_proposals,
                     chunk_mask,
                     gas_price,
+                    block_ordinal,
                     total_supply,
                     challenges_result,
                     last_final_block,
@@ -579,6 +587,7 @@ impl BlockHeader {
                     random_value: CryptoHash::default(),
                     validator_proposals: vec![],
                     chunk_mask: vec![true; chunks_included as usize],
+                    block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
                     gas_price: initial_gas_price,
                     total_supply: initial_total_supply,
                     challenges_result: vec![],
@@ -774,6 +783,16 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_mask,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.chunk_mask,
+        }
+    }
+
+    #[inline]
+    pub fn block_ordinal(&self) -> NumBlocks {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => 0, // not applicable
+            BlockHeader::BlockHeaderV2(_) => 0, // not applicable
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            BlockHeader::BlockHeaderV3(header) => header.inner_rest.block_ordinal,
         }
     }
 

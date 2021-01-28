@@ -216,7 +216,7 @@ lazy_static_include_str!(
     "../near-evm-runner/tests/build/PrecompiledFunction.bin"
 );
 
-const CHAIN_ID: u128 = 0x99;
+const CHAIN_ID: u64 = 0x99;
 
 pub fn create_evm_context<'a>(
     external: &'a mut MockedExternal,

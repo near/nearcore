@@ -42,6 +42,7 @@ fn build_chain_with_orhpans() {
         PROTOCOL_VERSION,
         &last_block.header(),
         10,
+        last_block.header().block_ordinal() + 1,
         last_block.chunks().iter().cloned().collect(),
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),

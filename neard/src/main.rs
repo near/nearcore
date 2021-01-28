@@ -13,6 +13,7 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
+use near_performance_metrics;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
 use neard::config::init_testnet_configs;
 use neard::genesis_validate::validate_genesis;
@@ -20,7 +21,7 @@ use neard::{get_default_home, get_store_path, init_configs, load_config, start_w
 
 fn init_logging(verbose: Option<&str>) {
     let mut env_filter = EnvFilter::new(
-        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info",
+        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,near-performance-metrics=info",
     );
 
     if let Some(module) = verbose {
@@ -63,6 +64,7 @@ fn main() {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
+    near_performance_metrics::process::schedule_printing_performance_stats(60);
 
     let default_home = get_default_home();
     let version = Version {
