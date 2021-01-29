@@ -23,5 +23,6 @@ near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
+near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
 neard = { path = "../../neard" }
 testlib = { path = "../testlib" }

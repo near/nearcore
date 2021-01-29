@@ -4,11 +4,11 @@
 //! should not leak these types anywhere else.
 use serde::{Deserialize, Serialize};
 
-use crate::hash::CryptoHash;
-use crate::merkle::MerklePath;
-use crate::transaction::SignedTransaction;
-use crate::types::{AccountId, BlockReference, MaybeBlockId, TransactionOrReceiptId};
-use crate::views::{
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockReference, MaybeBlockId, TransactionOrReceiptId};
+use near_primitives::views::{
     ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangeWithCauseView,
     StateChangesKindsView, StateChangesRequestView,
 };

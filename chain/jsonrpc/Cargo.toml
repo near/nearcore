@@ -24,6 +24,7 @@ near-metrics = { path = "../../core/metrics" }
 near-client = { path = "../client" }
 near-network = { path = "../network" }
 near-jsonrpc-client = { path = "client" }
+near-jsonrpc-primitives = { path = "../jsonrpc-primitives" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }

@@ -9,6 +9,7 @@ use log::debug;
 use num_rational::Rational;
 use serde::Serialize;
 
+use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -38,7 +39,6 @@ use near_store::{
 };
 
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
-use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
