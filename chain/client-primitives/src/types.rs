@@ -223,7 +223,7 @@ pub enum GetChunkError {
     UnavailableBlock(CryptoHash),
     #[error("Shard ID {0} is invalid")]
     InvalidShardId(u64),
-    #[error("Chunk {0:?} is missing")]
+    #[error("Chunk with hash {0:?} has never been observed on this node")]
     UnknownChunk(ChunkHash),
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
