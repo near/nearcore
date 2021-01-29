@@ -85,7 +85,8 @@ pub(crate) fn compile_and_serialize_wasmer(
     key: &CryptoHash,
     cache: &dyn CompiledContractCache,
 ) -> Result<wasmer_runtime::Module, VMError> {
-    let module = compile_module(key.into(), wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
+    let module =
+        compile_module(key.into(), wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
     let artifact =
         module.cache().map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
     let code = artifact

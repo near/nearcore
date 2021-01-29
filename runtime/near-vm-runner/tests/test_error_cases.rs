@@ -530,16 +530,16 @@ fn test_external_call_error() {
         );
     });
 }
-#[test]
-fn test_contract_error_caching() {
-    let mut cache = MockCompiledContractCache { store: Arc::new(Mutex::new(HashMap::new())) };
-    let code = [42; 1000];
-    let terragas = 1000000000000u64;
-    assert_eq!(cache.store.lock().unwrap().len(), 0);
-    let err1 =
-        make_cached_contract_call_vm(&mut cache, &code, b"method_name1", terragas, VMKind::Wasmer);
-    assert_eq!(cache.store.lock().unwrap().len(), 1);
-    let err2 =
-        make_cached_contract_call_vm(&mut cache, &code, b"method_name2", terragas, VMKind::Wasmer);
-    assert_eq!(err1, err2);
-}
+//#[test]
+//fn test_contract_error_caching() {
+//    let mut cache = MockCompiledContractCache { store: Arc::new(Mutex::new(HashMap::new())) };
+//    let code = [42; 1000];
+//    let terragas = 1000000000000u64;
+//    assert_eq!(cache.store.lock().unwrap().len(), 0);
+//    let err1 =
+//        make_cached_contract_call_vm(&mut cache, &code, b"method_name1", terragas, VMKind::Wasmer);
+//    assert_eq!(cache.store.lock().unwrap().len(), 1);
+//    let err2 =
+//        make_cached_contract_call_vm(&mut cache, &code, b"method_name2", terragas, VMKind::Wasmer);
+//    assert_eq!(err1, err2);
+//}
