@@ -2313,38 +2313,61 @@ fn test_query_final_state() {
 }
 
 #[test]
-fn test_fork_execution_outcome() {
-    let epoch_length = 5;
-    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(
-        ChainGenesis::test(),
-        1,
-        1,
-        create_nightshade_runtimes(&genesis, 1),
-    );
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+fn test_fork_receipt_ids() {
+    let (mut env, tx_hash) = prepare_env_with_transaction();
 
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-    let tx = SignedTransaction::send_money(
-        1,
-        "test0".to_string(),
-        "test1".to_string(),
-        &signer,
-        100,
-        *genesis_block.hash(),
-    );
-    let tx_hash = tx.get_hash();
-    env.clients[0].process_tx(tx, false, false);
-    let mut last_block = genesis_block;
+    let produced_block = env.clients[0].produce_block(1).unwrap().unwrap();
+    env.process_block(0, produced_block.clone(), Provenance::PRODUCED);
+
+    // Construct two blocks that contain the same chunk and make the chunk unavailable.
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    let next_height = produced_block.header().height() + 1;
+    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
+    let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
+    let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
+
+    // Process two blocks on two different forks that contain the same chunk.
+    for (i, block) in vec![&mut block2, &mut block1].into_iter().enumerate() {
+        let mut chunk_header = encoded_chunk.cloned_header();
+        *chunk_header.height_included_mut() = next_height - i as BlockHeight + 1;
+        let chunk_headers = vec![chunk_header];
+        block.set_chunks(chunk_headers.clone());
+        block.mut_header().get_mut().inner_rest.chunk_headers_root =
+            Block::compute_chunk_headers_root(&chunk_headers).0;
+        block.mut_header().get_mut().inner_rest.chunk_tx_root =
+            Block::compute_chunk_tx_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.chunk_receipts_root =
+            Block::compute_chunk_receipts_root(&chunk_headers);
+        block.mut_header().get_mut().inner_lite.prev_state_root =
+            Block::compute_state_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
+        block.mut_header().resign(&validator_signer);
+        let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
+        assert!(res.is_ok());
+    }
+
+    let transaction_execution_outcome =
+        env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
+    assert_eq!(transaction_execution_outcome.len(), 2);
+    let receipt_id0 = transaction_execution_outcome[0].outcome_with_id.outcome.receipt_ids[0];
+    let receipt_id1 = transaction_execution_outcome[1].outcome_with_id.outcome.receipt_ids[0];
+    assert_ne!(receipt_id0, receipt_id1);
+}
+
+#[test]
+fn test_fork_execution_outcome() {
+    let (mut env, tx_hash) = prepare_env_with_transaction();
+
+    let mut last_height = 0;
     for i in 1..3 {
-        last_block = env.clients[0].produce_block(i).unwrap().unwrap();
+        let last_block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, last_block.clone(), Provenance::PRODUCED);
+        last_height = last_block.header().height();
     }
 
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
-    let next_height = last_block.header().height() + 1;
+    let next_height = last_height + 1;
     let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
@@ -2389,6 +2412,32 @@ fn test_fork_execution_outcome() {
     let receipt_execution_outcomes =
         env.clients[0].chain.store().get_outcomes_by_id(&receipt_id).unwrap();
     assert!(receipt_execution_outcomes.is_empty());
+}
+
+fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".to_string(),
+        "test1".to_string(),
+        &signer,
+        100,
+        *genesis_block.hash(),
+    );
+    let tx_hash = tx.get_hash();
+    env.clients[0].process_tx(tx, false, false);
+    (env, tx_hash)
 }
 
 #[test]
