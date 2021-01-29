@@ -41,8 +41,8 @@ use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
-use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use near_client_primitives::types::{Error, ShardSyncDownload};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
@@ -1755,7 +1755,7 @@ mod test {
             let result = client.process_partial_encoded_chunk_forward(mock_forward);
             assert!(matches!(
                 result,
-                Err(crate::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+                Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
             ));
         }
     }

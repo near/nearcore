@@ -21,7 +21,6 @@ pub mod merkle;
 pub mod network;
 pub mod profile;
 pub mod receipt;
-pub mod rpc;
 pub mod runtime;
 pub mod serialize;
 pub mod sharding;

@@ -242,7 +242,7 @@ pub fn run_wasmer<'a>(
         );
     }
 
-    let import_object = imports::build_wasmer(memory_copy, &mut logic);
+    let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
 
     let method_name = match std::str::from_utf8(method_name) {
         Ok(x) => x,
