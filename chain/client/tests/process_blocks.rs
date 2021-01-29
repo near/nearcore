@@ -2412,7 +2412,7 @@ fn test_not_broadcast_block_on_accept() {
 
 #[test]
 #[should_panic]
-// TODO: reject header version downgrade
+// TODO (#3729): reject header version downgrade
 fn test_header_version_downgrade() {
     use borsh::ser::BorshSerialize;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
