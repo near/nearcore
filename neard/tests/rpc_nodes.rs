@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use actix::clock::delay_for;
+use actix::clock::sleep;
 use actix::{Actor, System};
 use borsh::BorshSerialize;
 use futures::future::join_all;
@@ -546,7 +546,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                         Ok(outcome) => outcome,
                         Err(_) => return future::ready(()),
                     };
-                    actix::spawn(delay_for(Duration::from_secs(1)).then(move |_| {
+                    actix::spawn(sleep(Duration::from_secs(1)).then(move |_| {
                         let mut futures = vec![];
                         for id in vec![TransactionOrReceiptId::Transaction {
                             transaction_hash: final_transaction_outcome.transaction_outcome.id,

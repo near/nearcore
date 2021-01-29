@@ -128,7 +128,7 @@ fn test_execution_outcome_for_chunk() {
                 .unwrap();
             assert!(matches!(res, NetworkClientResponses::ValidTx));
 
-            actix::clock::delay_for(Duration::from_millis(500)).await;
+            actix::clock::sleep(Duration::from_millis(500)).await;
 
             let execution_outcome = view_client
                 .send(TxStatus {

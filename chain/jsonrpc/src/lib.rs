@@ -3,7 +3,7 @@ use std::string::FromUtf8Error;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
-use actix_cors::{Cors, CorsFactory};
+use actix_cors::Cors;
 use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use borsh::BorshDeserialize;
 use futures::Future;
@@ -12,7 +12,7 @@ use prometheus;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::time::{delay_for, timeout};
+use tokio::time::{sleep, timeout};
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
@@ -309,7 +309,7 @@ impl JsonRpcHandler {
                     Err(_) => return Err(ServerError::InternalError),
                     _ => {}
                 }
-                delay_for(self.polling_config.polling_interval).await;
+                sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -354,7 +354,7 @@ impl JsonRpcHandler {
                     Ok(Err(err)) => break Err(err),
                     Err(_) => break Err(TxStatusError::InternalError),
                 }
-                let _ = delay_for(self.polling_config.polling_interval).await;
+                let _ = sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -376,7 +376,7 @@ impl JsonRpcHandler {
                         break jsonify::<FinalExecutionOutcomeView>(Ok(Err(err.into())));
                     }
                 }
-                let _ = delay_for(self.polling_config.polling_interval).await;
+                let _ = sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -593,7 +593,7 @@ impl JsonRpcHandler {
                     },
                     Err(e) => break Err(RpcError::server_error(Some(e.to_string()))),
                 }
-                delay_for(self.polling_config.polling_interval).await;
+                sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -935,8 +935,8 @@ fn prometheus_handler(
     response.boxed()
 }
 
-fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
-    let mut cors = Cors::new();
+fn get_cors(cors_allowed_origins: &[String]) -> Cors {
+    let mut cors = Cors::default();
     if cors_allowed_origins != ["*".to_string()] {
         for origin in cors_allowed_origins {
             cors = cors.allowed_origin(&origin);
@@ -946,7 +946,6 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
         .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
         .allowed_header(http::header::CONTENT_TYPE)
         .max_age(3600)
-        .finish()
 }
 
 pub fn start_http(

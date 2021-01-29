@@ -49,14 +49,10 @@ members = [
 ]
 
 [dependencies]
-# pins this version to fix https://github.com/actix/actix-net/issues/129
-actix-rt = "=1.1.1"
 openssl-probe = { version = "0.1.2" }
-# pin syn to fix https://github.com/nushell/nushell/pull/2868
-syn = "=1.0.57"
 
 [dev-dependencies]
-actix = "0.9"
+actix = "0.11.0-beta.1"
 lazy_static = "1.4"
 log = "^0.4.6"
 rand = "0.7"

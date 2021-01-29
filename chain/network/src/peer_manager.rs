@@ -7,7 +7,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::{Duration, Instant};
 
-use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -1147,7 +1146,7 @@ impl PeerManagerActor {
 
 // TODO Incoming needs someone to own TcpListener, temporary workaround until there is a better way
 pub struct IncomingCrutch {
-    listener: TcpListener,
+    listener: tokio_stream::wrappers::TcpListenerStream,
 }
 
 impl Stream for IncomingCrutch {
@@ -1157,7 +1156,7 @@ impl Stream for IncomingCrutch {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        Stream::poll_next(std::pin::Pin::new(&mut self.listener.incoming()), cx)
+        Stream::poll_next(std::pin::Pin::new(&mut self.listener), cx)
     }
 }
 
@@ -1177,7 +1176,9 @@ impl Actor for PeerManagerActor {
             ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
                 move |listener, act, ctx| {
                     let listener = listener.unwrap();
-                    let incoming = IncomingCrutch { listener };
+                    let incoming = IncomingCrutch {
+                        listener: tokio_stream::wrappers::TcpListenerStream::new(listener),
+                    };
                     info!(target: "stats", "Server listening at {}@{}", act.peer_id, server_addr);
 
                     ctx.add_message_stream(incoming.filter_map(move |conn| {
@@ -1636,8 +1637,10 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
         let _d = DelayDetector::new("outbound tcp connect".into());
         debug!(target: "network", "Trying to connect to {}", msg.peer_info);
         if let Some(addr) = msg.peer_info.addr {
-            Resolver::from_registry()
-                .send(ConnectAddr(addr))
+            #[allow(deprecated)]
+            // There is not clear migration path at the moment: https://github.com/actix/actix/issues/451
+            actix::actors::resolver::Resolver::from_registry()
+                .send(actix::actors::resolver::ConnectAddr(addr))
                 .into_actor(self)
                 .then(move |res, act, ctx| match res {
                     Ok(res) => match res {
