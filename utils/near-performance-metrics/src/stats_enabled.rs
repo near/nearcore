@@ -47,14 +47,10 @@ struct ThreadStats {
     classes: HashSet<&'static str>,
 }
 
-extern "C" {
-    pub fn gettid() -> u32;
-}
-
 pub fn get_tid() -> usize {
     let res = TID.with(|t| {
-        if *t.borrow() == usize::max_value() {
-            *t.borrow_mut() = unsafe { gettid() as usize };
+        if *t.borrow() == 0 {
+            *t.borrow_mut() = nix::unistd::gettid().as_raw() as usize;
         }
         *t.borrow()
     });
