@@ -1,3 +1,6 @@
+#[cfg(not(feature = "no_cache"))]
+use cached::{cached_key, SizedCache};
+
 use crate::errors::IntoVMError;
 use crate::prepare;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -11,7 +14,29 @@ use wasmer_runtime::{compiler_for_backend, Backend};
 use wasmer_runtime_core::cache::Artifact;
 use wasmer_runtime_core::load_cache_with;
 
+/// Cache size in number of cached modules to hold.
+#[cfg(not(feature = "no_cache"))]
+const CACHE_SIZE: usize = 128;
+// TODO: store a larger on-disk cache
+
+#[cfg(not(feature = "no_cache"))]
+cached_key! {
+    MODULES: SizedCache<(Vec<u8>, u64), Result<wasmer_runtime::Module, VMError>>
+        = SizedCache::with_size(CACHE_SIZE);
+    Key = {
+        (code_hash, config.non_crypto_hash())
+    };
+
+    fn compile_module(code_hash: Vec<u8>, code: &[u8], config: &VMConfig
+        ) -> Result<wasmer_runtime::Module, VMError> = {
+        let prepared_code = prepare::prepare_contract(code, config)?;
+        wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error())
+    }
+}
+
+#[cfg(feature = "no_cache")]
 pub(crate) fn compile_module(
+    _code_hash: Vec<u8>,
     code: &[u8],
     config: &VMConfig,
 ) -> Result<wasmer_runtime::Module, VMError> {
@@ -30,6 +55,7 @@ enum CacheRecord {
     Code(Vec<u8>),
 }
 
+#[allow(dead_code)]
 fn get_key(code_hash: &[u8], code: &[u8], vm_kind: VMKind, config: &VMConfig) -> CryptoHash {
     let hash = match CryptoHash::try_from(code_hash) {
         Ok(hash) => hash,
@@ -59,7 +85,7 @@ pub(crate) fn compile_and_serialize_wasmer(
     key: &CryptoHash,
     cache: &dyn CompiledContractCache,
 ) -> Result<wasmer_runtime::Module, VMError> {
-    let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
+    let module = compile_module(key.into(), wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
     let artifact =
         module.cache().map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
     let code = artifact
@@ -73,6 +99,7 @@ pub(crate) fn compile_and_serialize_wasmer(
 /// Deserializes contract or error from the binary data. Signature means that we could either
 /// return module or cached error, which both considered to be `Ok()`, or encounter an error during
 /// the deserialization process.
+#[allow(dead_code)]
 fn deserialize_wasmer(
     serialized: &[u8],
 ) -> Result<Result<wasmer_runtime::Module, VMError>, CacheError> {
@@ -92,6 +119,7 @@ fn deserialize_wasmer(
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn compile_module_cached_wasmer(
     wasm_code_hash: &[u8],
     wasm_code: &[u8],
@@ -100,7 +128,7 @@ pub(crate) fn compile_module_cached_wasmer(
 ) -> Result<wasmer_runtime::Module, VMError> {
     /* Consider adding `|| cfg!(feature = "no_cache")` */
     if cache.is_none() {
-        return compile_module(wasm_code, config);
+        return compile_module(wasm_code_hash.into(), wasm_code, config);
     }
     let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer, config);
     let cache = cache.unwrap();
