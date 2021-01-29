@@ -4,12 +4,7 @@ use near_vm_runner::{with_vm_variants, VMError};
 
 pub mod test_utils;
 
-use self::test_utils::{
-    make_cached_contract_call_vm, make_simple_contract_call_vm,
-    make_simple_contract_call_with_gas_vm, MockCompiledContractCache,
-};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use self::test_utils::{make_simple_contract_call_vm, make_simple_contract_call_with_gas_vm};
 
 fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
     VMOutcome {
