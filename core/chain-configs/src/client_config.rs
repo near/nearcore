@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats, ShardId};
 use near_primitives::version::Version;
 
+const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
+
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum LogSummaryStyle {
     #[serde(rename = "plain")]
@@ -49,6 +51,8 @@ pub struct ClientConfig {
     pub header_sync_stall_ban_timeout: Duration,
     /// Expected increase of header head weight per second during header sync
     pub header_sync_expected_height_per_second: u64,
+    /// How long to wait for a response during state sync
+    pub state_sync_timeout: Duration,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
@@ -116,6 +120,7 @@ impl ClientConfig {
             header_sync_initial_timeout: Duration::from_secs(10),
             header_sync_progress_timeout: Duration::from_secs(2),
             header_sync_stall_ban_timeout: Duration::from_secs(30),
+            state_sync_timeout: Duration::from_secs(TEST_STATE_SYNC_TIMEOUT),
             header_sync_expected_height_per_second: 1,
             min_num_peers: 1,
             log_summary_period: Duration::from_secs(10),
