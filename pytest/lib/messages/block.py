@@ -15,7 +15,14 @@ class BlockV2:
 
 
 class BlockHeader:
-    pass
+    def inner_lite(self):
+        if self.enum == 'BlockHeaderV3':
+            return self.BlockHeaderV3.inner_lite
+        elif self.enum == 'BlockHeaderV2':
+            return self.BlockHeaderV2.inner_lite
+        elif self.enum == 'BlockHeaderV1':
+            return self.BlockHeaderV1.inner_lite
+        assert False, "inner_lite is called on BlockHeader, but the enum variant `%s` is unknown" % self.enum
 
 
 class BlockHeaderV1:
