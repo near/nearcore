@@ -5,7 +5,20 @@ use serde_json::Value;
 #[serde(untagged)]
 pub enum ChunkReference {
     BlockShardId(near_primitives::types::BlockId, near_primitives::types::ShardId),
+    BlockIdShardIdStruct(BlockShardId),
     Hash(near_primitives::hash::CryptoHash),
+    HashStruct(ChunkId),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockShardId {
+    pub block_id: near_primitives::types::BlockId,
+    pub shard_id: near_primitives::types::ShardId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkId {
+    pub chunk_id: near_primitives::hash::CryptoHash,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -50,6 +63,17 @@ impl From<ChunkReference> for near_client_primitives::types::GetChunk {
                 }
             },
             ChunkReference::Hash(chunk_hash) => Self::ChunkHash(chunk_hash.into()),
+            ChunkReference::BlockIdShardIdStruct(block_shard_struct) => {
+                match block_shard_struct.block_id {
+                    near_primitives::types::BlockId::Height(height) => {
+                        Self::Height(height, block_shard_struct.shard_id)
+                    }
+                    near_primitives::types::BlockId::Hash(block_hash) => {
+                        Self::BlockHash(block_hash.into(), block_shard_struct.shard_id)
+                    }
+                }
+            }
+            ChunkReference::HashStruct(chunk_id) => Self::ChunkHash(chunk_id.chunk_id.into()),
         }
     }
 }
