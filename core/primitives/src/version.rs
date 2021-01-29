@@ -92,7 +92,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 41;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 47;
+pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
@@ -123,7 +123,7 @@ lazy_static! {
             #[cfg(feature = "protocol_feature_evm")]
             (ProtocolFeature::EVM, 46),
             #[cfg(feature = "protocol_feature_block_header_v3")]
-            (ProtocolFeature::BlockHeaderV3, 47),
+            (ProtocolFeature::BlockHeaderV3, 48),
         ]
         .into_iter()
         .collect();
