@@ -35,6 +35,7 @@ ethabi = "11.0.0"
 
 near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }
+near-primitives = { path = "../../core/primitives" }
 near-runtime-utils = { path = "../near-runtime-utils" }
 near-runtime-fees = { path = "../near-runtime-fees" }
 
