@@ -3329,7 +3329,7 @@ dependencies = [
  "futures",
  "log",
  "near-rust-allocator-proxy",
- "nix 0.19.1",
+ "nix",
  "once_cell",
  "strum",
 ]
@@ -3675,18 +3675,6 @@ dependencies = [
  "cfg-if 0.1.10",
  "libc",
  "void",
-]
-
-[[package]]
-name = "nix"
-version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2ccba0cfe4fdf15982d1674c69b1fd80bad427d293849982668dfe454bd61f2"
-dependencies = [
- "bitflags",
- "cc",
- "cfg-if 1.0.0",
- "libc",
 ]
 
 [[package]]
@@ -6213,7 +6201,7 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "libc",
- "nix 0.15.0",
+ "nix",
  "page_size",
  "parking_lot 0.10.2",
  "rustc_version",
@@ -6253,7 +6241,7 @@ dependencies = [
  "dynasmrt 1.0.0",
  "lazy_static",
  "libc",
- "nix 0.15.0",
+ "nix",
  "serde",
  "serde_derive",
  "smallvec 1.5.1",
