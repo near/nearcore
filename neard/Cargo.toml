@@ -57,6 +57,7 @@ primitive-types = "0.7.2"
 
 [features]
 performance_stats = ["near-performance-metrics/performance_stats"]
+memory_stats = ["near-performance-metrics/memory_stats"]
 adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-store/adversarial"]
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
@@ -70,7 +71,6 @@ protocol_feature_block_ordinal = ["near-primitives/protocol_feature_block_ordina
 nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 costs_counting = ["node-runtime/costs_counting"]
-memory_profiling = ["near-performance-metrics/memory_profiling"]
 
 [[bin]]
 path = "src/main.rs"

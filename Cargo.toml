@@ -102,6 +102,7 @@ opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]
 performance_stats = ["neard/performance_stats"]
+memory_stats = ["neard/memory_stats"]
 expensive_tests = ["neard/expensive_tests"]
 regression_tests = []
 old_tests = []
@@ -116,4 +117,3 @@ nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_feature
 protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
 protocol_feature_block_ordinal = ["neard/protocol_feature_block_ordinal", "near-primitives/protocol_feature_block_ordinal"]
 costs_counting = ["neard/costs_counting", "testlib/costs_counting", "node-runtime/costs_counting"]
-memory_profiling = ["neard/memory_profiling"]
