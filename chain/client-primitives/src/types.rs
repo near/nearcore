@@ -29,7 +29,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]
 pub enum Error {
-    Chain(near_chain::Error),
+    Chain(near_chain_primitives::Error),
     Chunk(near_chunks::Error),
     BlockProducer(String),
     ChunkProducer(String),
@@ -50,15 +50,15 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-impl From<near_chain::Error> for Error {
-    fn from(e: near_chain::Error) -> Self {
+impl From<near_chain_primitives::Error> for Error {
+    fn from(e: near_chain_primitives::Error) -> Self {
         Error::Chain(e)
     }
 }
 
-impl From<near_chain::ErrorKind> for Error {
-    fn from(e: near_chain::ErrorKind) -> Self {
-        let error: near_chain::Error = e.into();
+impl From<near_chain_primitives::ErrorKind> for Error {
+    fn from(e: near_chain_primitives::ErrorKind) -> Self {
+        let error: near_chain_primitives::Error = e.into();
         Error::Chain(error)
     }
 }
@@ -150,6 +150,37 @@ impl SyncStatus {
 /// Actor message requesting block by id or hash.
 pub struct GetBlock(pub BlockReference);
 
+#[derive(thiserror::Error, Debug)]
+pub enum GetBlockError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    #[error("Block `{0}` is missing")]
+    BlockMissing(CryptoHash),
+    #[error("Block not found")]
+    BlockNotFound(String),
+    #[error("There are no fully synchronized blocks yet")]
+    NotSyncedYet,
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetBlockError {
+    fn from(error: near_chain_primitives::Error) -> GetBlockError {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(s) => GetBlockError::IOError(s),
+            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => GetBlockError::BlockNotFound(s),
+            near_chain_primitives::ErrorKind::BlockMissing(hash) => {
+                GetBlockError::BlockMissing(hash)
+            }
+            _ => GetBlockError::Unreachable(error.to_string()),
+        }
+    }
+}
+
 impl GetBlock {
     pub fn latest() -> Self {
         Self(BlockReference::latest())
@@ -157,7 +188,7 @@ impl GetBlock {
 }
 
 impl Message for GetBlock {
-    type Result = Result<BlockView, String>;
+    type Result = Result<BlockView, GetBlockError>;
 }
 
 /// Get block with the block merkle tree. Used for testing
@@ -170,7 +201,7 @@ impl GetBlockWithMerkleTree {
 }
 
 impl Message for GetBlockWithMerkleTree {
-    type Result = Result<(BlockView, PartialMerkleTree), String>;
+    type Result = Result<(BlockView, PartialMerkleTree), GetBlockError>;
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
@@ -254,7 +285,7 @@ pub struct TxStatus {
 
 #[derive(Debug)]
 pub enum TxStatusError {
-    ChainError(near_chain::Error),
+    ChainError(near_chain_primitives::Error),
     MissingTransaction(CryptoHash),
     InvalidTx(InvalidTxError),
     InternalError,

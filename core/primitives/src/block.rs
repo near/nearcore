@@ -249,7 +249,7 @@ impl Block {
                 prev.last_final_block()
             };
 
-        #[cfg(feature = "protocol_feature_block_ordinal")]
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         match prev {
             BlockHeader::BlockHeaderV1(_) => debug_assert_eq!(prev.block_ordinal(), 0),
             BlockHeader::BlockHeaderV2(_) => debug_assert_eq!(prev.block_ordinal(), 0),
@@ -284,6 +284,8 @@ impl Block {
             approvals,
             next_bp_hash,
             block_merkle_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            prev.height(),
         );
 
         Self::block_from_protocol_version(

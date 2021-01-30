@@ -22,8 +22,8 @@ use near_primitives::version::Version;
 use near_telemetry::{telemetry, TelemetryActor};
 
 use crate::metrics;
-use crate::types::ShardSyncStatus;
 use crate::SyncStatus;
+use near_client_primitives::types::ShardSyncStatus;
 
 pub struct ValidatorInfoHelper {
     pub is_validator: bool,
