@@ -30,6 +30,7 @@ near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain = { path = "../chain" }
+near-client-primitives = { path = "../client-primitives" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }
 near-chunks = { path = "../chunks" }
@@ -49,9 +50,9 @@ neard = { path = "../../neard" }
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
 adversarial = ["near-network/adversarial", "near-chain/adversarial"]
-metric_recorder = []
+metric_recorder = ["near-client-primitives/metric_recorder"]
 delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "delay-detector"]
 protocol_feature_forward_chunk_parts = ["near-primitives/protocol_feature_forward_chunk_parts", "near-network/protocol_feature_forward_chunk_parts", "near-chunks/protocol_feature_forward_chunk_parts"]
-protocol_feature_block_ordinal = ["near-primitives/protocol_feature_block_ordinal"]
+protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3"]
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_block_ordinal"]
+nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_block_header_v3"]

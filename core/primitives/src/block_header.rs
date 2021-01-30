@@ -5,7 +5,6 @@ use serde::Serialize;
 use near_crypto::{KeyType, PublicKey, Signature};
 
 use crate::challenge::ChallengesResult;
-use crate::checked_feature;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
@@ -109,7 +108,9 @@ pub struct BlockHeaderInnerRestV2 {
     pub latest_protocol_version: ProtocolVersion,
 }
 
-/// Add `block_ordinal` to V2
+/// Add `prev_height`
+/// Add `block_ordinal`
+#[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRestV3 {
     /// Root hash of the chunk receipts in the given block.
@@ -126,10 +127,10 @@ pub struct BlockHeaderInnerRestV3 {
     pub validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// The ordinal of the Block on the Canonical Chain
-    pub block_ordinal: NumBlocks,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
+    /// The ordinal of the Block on the Canonical Chain
+    pub block_ordinal: NumBlocks,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -139,6 +140,8 @@ pub struct BlockHeaderInnerRestV3 {
     pub last_final_block: CryptoHash,
     /// Last block that has doomslug finality
     pub last_ds_final_block: CryptoHash,
+
+    pub prev_height: BlockHeight,
 
     /// All the approvals included in this block
     pub approvals: Vec<Option<Signature>>,
@@ -261,17 +264,9 @@ pub struct BlockHeaderV2 {
     pub hash: CryptoHash,
 }
 
-impl BlockHeaderV2 {
-    pub fn init(&mut self) {
-        self.hash = BlockHeader::compute_hash(
-            self.prev_hash,
-            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
-            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
-        );
-    }
-}
-
-/// V2 -> V3: Add `block_ordinal` to `inner_reset`
+/// V2 -> V3: Add `prev_height` to `inner_rest`
+// Add `block_ordinal` to `inner_rest`
+#[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 #[borsh_init(init)]
 pub struct BlockHeaderV3 {
@@ -290,6 +285,17 @@ pub struct BlockHeaderV3 {
     pub hash: CryptoHash,
 }
 
+impl BlockHeaderV2 {
+    pub fn init(&mut self) {
+        self.hash = BlockHeader::compute_hash(
+            self.prev_hash,
+            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
+            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
+        );
+    }
+}
+
+#[cfg(feature = "protocol_feature_block_header_v3")]
 impl BlockHeaderV3 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
@@ -306,6 +312,7 @@ impl BlockHeaderV3 {
 pub enum BlockHeader {
     BlockHeaderV1(Box<BlockHeaderV1>),
     BlockHeaderV2(Box<BlockHeaderV2>),
+    #[cfg(feature = "protocol_feature_block_header_v3")]
     BlockHeaderV3(Box<BlockHeaderV3>),
 }
 
@@ -348,6 +355,7 @@ impl BlockHeader {
         approvals: Vec<Option<Signature>>,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
+        #[cfg(feature = "protocol_feature_block_header_v3")] prev_height: BlockHeight,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite {
             height,
@@ -359,8 +367,16 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root,
         };
-        let is_block_ordinal_enabled =
-            checked_feature!("protocol_feature_block_ordinal", BlockOrdinal, protocol_version);
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        let last_header_v2_version = None;
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        let last_header_v2_version = Some(
+            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
+                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
+                .unwrap()
+                .clone()
+                - 1,
+        );
         if protocol_version <= 29 {
             let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
@@ -392,7 +408,9 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
-        } else if !is_block_ordinal_enabled {
+        } else if last_header_v2_version.is_none()
+            || protocol_version <= last_header_v2_version.unwrap()
+        {
             let inner_rest = BlockHeaderInnerRestV2 {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -422,35 +440,41 @@ impl BlockHeader {
                 hash,
             }))
         } else {
-            let inner_rest = BlockHeaderInnerRestV3 {
-                chunk_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value,
-                validator_proposals,
-                chunk_mask,
-                block_ordinal,
-                gas_price,
-                total_supply,
-                challenges_result,
-                last_final_block,
-                last_ds_final_block,
-                approvals,
-                latest_protocol_version: PROTOCOL_VERSION,
-            };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &inner_lite.try_to_vec().expect("Failed to serialize"),
-                &inner_rest.try_to_vec().expect("Failed to serialize"),
-            );
-            Self::BlockHeaderV3(Box::new(BlockHeaderV3 {
-                prev_hash,
-                inner_lite,
-                inner_rest,
-                signature,
-                hash,
-            }))
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            unreachable!();
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            {
+                let inner_rest = BlockHeaderInnerRestV3 {
+                    chunk_receipts_root,
+                    chunk_headers_root,
+                    chunk_tx_root,
+                    challenges_root,
+                    random_value,
+                    validator_proposals,
+                    chunk_mask,
+                    gas_price,
+                    block_ordinal,
+                    total_supply,
+                    challenges_result,
+                    last_final_block,
+                    last_ds_final_block,
+                    prev_height,
+                    approvals,
+                    latest_protocol_version: PROTOCOL_VERSION,
+                };
+                let (hash, signature) = signer.sign_block_header_parts(
+                    prev_hash,
+                    &inner_lite.try_to_vec().expect("Failed to serialize"),
+                    &inner_rest.try_to_vec().expect("Failed to serialize"),
+                );
+                Self::BlockHeaderV3(Box::new(BlockHeaderV3 {
+                    prev_hash,
+                    inner_lite,
+                    inner_rest,
+                    signature,
+                    hash,
+                }))
+            }
         }
     }
 
@@ -479,10 +503,15 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root: CryptoHash::default(),
         };
-        let is_block_ordinal_enabled = checked_feature!(
-            "protocol_feature_block_ordinal",
-            BlockOrdinal,
-            genesis_protocol_version
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        let last_header_v2_version = None;
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        let last_header_v2_version = Some(
+            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
+                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
+                .unwrap()
+                .clone()
+                - 1,
         );
         if genesis_protocol_version <= 29 {
             let inner_rest = BlockHeaderInnerRest {
@@ -514,7 +543,9 @@ impl BlockHeader {
                 signature: Signature::empty(KeyType::ED25519),
                 hash,
             }))
-        } else if !is_block_ordinal_enabled {
+        } else if last_header_v2_version.is_none()
+            || genesis_protocol_version <= last_header_v2_version.unwrap()
+        {
             let inner_rest = BlockHeaderInnerRestV2 {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -544,35 +575,41 @@ impl BlockHeader {
                 hash,
             }))
         } else {
-            let inner_rest = BlockHeaderInnerRestV3 {
-                chunk_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value: CryptoHash::default(),
-                validator_proposals: vec![],
-                chunk_mask: vec![true; chunks_included as usize],
-                block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
-                gas_price: initial_gas_price,
-                total_supply: initial_total_supply,
-                challenges_result: vec![],
-                last_final_block: CryptoHash::default(),
-                last_ds_final_block: CryptoHash::default(),
-                approvals: vec![],
-                latest_protocol_version: genesis_protocol_version,
-            };
-            let hash = BlockHeader::compute_hash(
-                CryptoHash::default(),
-                &inner_lite.try_to_vec().expect("Failed to serialize"),
-                &inner_rest.try_to_vec().expect("Failed to serialize"),
-            );
-            Self::BlockHeaderV3(Box::new(BlockHeaderV3 {
-                prev_hash: CryptoHash::default(),
-                inner_lite,
-                inner_rest,
-                signature: Signature::empty(KeyType::ED25519),
-                hash,
-            }))
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            unreachable!();
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            {
+                let inner_rest = BlockHeaderInnerRestV3 {
+                    chunk_receipts_root,
+                    chunk_headers_root,
+                    chunk_tx_root,
+                    challenges_root,
+                    random_value: CryptoHash::default(),
+                    validator_proposals: vec![],
+                    chunk_mask: vec![true; chunks_included as usize],
+                    block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
+                    gas_price: initial_gas_price,
+                    total_supply: initial_total_supply,
+                    challenges_result: vec![],
+                    last_final_block: CryptoHash::default(),
+                    last_ds_final_block: CryptoHash::default(),
+                    prev_height: 0,
+                    approvals: vec![],
+                    latest_protocol_version: genesis_protocol_version,
+                };
+                let hash = BlockHeader::compute_hash(
+                    CryptoHash::default(),
+                    &inner_lite.try_to_vec().expect("Failed to serialize"),
+                    &inner_rest.try_to_vec().expect("Failed to serialize"),
+                );
+                Self::BlockHeaderV3(Box::new(BlockHeaderV3 {
+                    prev_hash: CryptoHash::default(),
+                    inner_lite,
+                    inner_rest,
+                    signature: Signature::empty(KeyType::ED25519),
+                    hash,
+                }))
+            }
         }
     }
 
@@ -581,6 +618,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.hash,
             BlockHeader::BlockHeaderV2(header) => &header.hash,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.hash,
         }
     }
@@ -590,6 +628,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.prev_hash,
             BlockHeader::BlockHeaderV2(header) => &header.prev_hash,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.prev_hash,
         }
     }
@@ -599,6 +638,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.signature,
             BlockHeader::BlockHeaderV2(header) => &header.signature,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.signature,
         }
     }
@@ -608,7 +648,18 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_lite.height,
             BlockHeader::BlockHeaderV2(header) => header.inner_lite.height,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => header.inner_lite.height,
+        }
+    }
+
+    #[inline]
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    pub fn prev_height(&self) -> Option<BlockHeight> {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => None,
+            BlockHeader::BlockHeaderV2(_) => None,
+            BlockHeader::BlockHeaderV3(header) => Some(header.inner_rest.prev_height),
         }
     }
 
@@ -617,6 +668,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.epoch_id,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.epoch_id,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.epoch_id,
         }
     }
@@ -626,6 +678,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.next_epoch_id,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.next_epoch_id,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.next_epoch_id,
         }
     }
@@ -635,6 +688,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.prev_state_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.prev_state_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.prev_state_root,
         }
     }
@@ -644,6 +698,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_receipts_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_receipts_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.chunk_receipts_root,
         }
     }
@@ -653,6 +708,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_headers_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_headers_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.chunk_headers_root,
         }
     }
@@ -662,6 +718,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_tx_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_tx_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.chunk_tx_root,
         }
     }
@@ -672,6 +729,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV2(header) => {
                 header.inner_rest.chunk_mask.iter().map(|&x| u64::from(x)).sum::<u64>()
             }
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => {
                 header.inner_rest.chunk_mask.iter().map(|&x| u64::from(x)).sum::<u64>()
             }
@@ -683,6 +741,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.challenges_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.challenges_root,
         }
     }
@@ -692,6 +751,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.outcome_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.outcome_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.outcome_root,
         }
     }
@@ -701,6 +761,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_lite.timestamp,
             BlockHeader::BlockHeaderV2(header) => header.inner_lite.timestamp,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => header.inner_lite.timestamp,
         }
     }
@@ -710,6 +771,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.validator_proposals,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.validator_proposals,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.validator_proposals,
         }
     }
@@ -719,6 +781,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_mask,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_mask,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.chunk_mask,
         }
     }
@@ -728,6 +791,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(_) => 0, // not applicable
             BlockHeader::BlockHeaderV2(_) => 0, // not applicable
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => header.inner_rest.block_ordinal,
         }
     }
@@ -737,6 +801,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.gas_price,
             BlockHeader::BlockHeaderV2(header) => header.inner_rest.gas_price,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => header.inner_rest.gas_price,
         }
     }
@@ -746,6 +811,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.total_supply,
             BlockHeader::BlockHeaderV2(header) => header.inner_rest.total_supply,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => header.inner_rest.total_supply,
         }
     }
@@ -755,6 +821,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.random_value,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.random_value,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.random_value,
         }
     }
@@ -764,6 +831,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.last_final_block,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.last_final_block,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.last_final_block,
         }
     }
@@ -773,6 +841,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.last_ds_final_block,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.last_ds_final_block,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.last_ds_final_block,
         }
     }
@@ -782,6 +851,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_result,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.challenges_result,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.challenges_result,
         }
     }
@@ -791,6 +861,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.next_bp_hash,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.next_bp_hash,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.next_bp_hash,
         }
     }
@@ -800,6 +871,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.block_merkle_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.block_merkle_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.block_merkle_root,
         }
     }
@@ -809,6 +881,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.approvals,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.approvals,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.approvals,
         }
     }
@@ -833,6 +906,7 @@ impl BlockHeader {
                     == header.inner_rest.chunks_included
             }
             BlockHeader::BlockHeaderV2(_header) => true,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(_header) => true,
         }
     }
@@ -842,6 +916,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.latest_protocol_version,
             BlockHeader::BlockHeaderV2(header) => header.inner_rest.latest_protocol_version,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => header.inner_rest.latest_protocol_version,
         }
     }
@@ -854,6 +929,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV2(header) => {
                 header.inner_lite.try_to_vec().expect("Failed to serialize")
             }
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => {
                 header.inner_lite.try_to_vec().expect("Failed to serialize")
             }
@@ -868,6 +944,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV2(header) => {
                 header.inner_rest.try_to_vec().expect("Failed to serialize")
             }
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => {
                 header.inner_rest.try_to_vec().expect("Failed to serialize")
             }

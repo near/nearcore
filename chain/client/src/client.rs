@@ -41,8 +41,8 @@ use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
-use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use near_client_primitives::types::{Error, ShardSyncDownload};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
@@ -373,8 +373,12 @@ impl Client {
             .runtime_adapter
             .get_epoch_block_approvers_ordered(&prev_hash)?
             .into_iter()
-            .map(|ApprovalStake { account_id, .. }| {
-                approvals_map.remove(&account_id).map(|x| x.signature)
+            .map(|(ApprovalStake { account_id, .. }, is_slashed)| {
+                if is_slashed {
+                    None
+                } else {
+                    approvals_map.remove(&account_id).map(|x| x.signature)
+                }
             })
             .collect();
 
@@ -1755,7 +1759,7 @@ mod test {
             let result = client.process_partial_encoded_chunk_forward(mock_forward);
             assert!(matches!(
                 result,
-                Err(crate::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+                Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
             ));
         }
     }

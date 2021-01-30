@@ -12,7 +12,6 @@ pub mod logging;
 pub mod merkle;
 pub mod network;
 pub mod receipt;
-pub mod rpc;
 pub mod serialize;
 pub mod sharding;
 pub mod state_record;

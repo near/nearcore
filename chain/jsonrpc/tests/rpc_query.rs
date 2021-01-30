@@ -6,12 +6,12 @@ use futures::{future, FutureExt};
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
+use near_jsonrpc_primitives::rpc::RpcQueryRequest;
+use near_jsonrpc_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::RpcQueryRequest;
-use near_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
