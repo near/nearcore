@@ -1,7 +1,3 @@
-#[cfg(not(feature = "memory_profiling"))]
-#[cfg(jemallocator)]
-extern crate jemallocator;
-
 use std::convert::TryInto;
 use std::env;
 use std::fs;
