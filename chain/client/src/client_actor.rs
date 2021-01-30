@@ -310,7 +310,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 }
                                 return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                self.client.chain.save_orphan(&block);
+                                if let Err(_) = self.client.chain.save_orphan(&block) {
+                                    error!(target: "client", "Received an invalid block during state sync");
+                                }
                                 return NetworkClientResponses::NoResponse;
                             }
                         }
