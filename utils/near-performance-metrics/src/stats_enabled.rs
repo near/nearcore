@@ -1,5 +1,4 @@
 use log::{info, warn};
-use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicUsize;
@@ -11,7 +10,7 @@ use std::time::Instant;
 use futures;
 use futures::task::Context;
 use near_rust_allocator_proxy::allocator::{
-    current_thread_memory_usage, current_thread_peak_memory_usage, reset_memory_usage_max,
+    current_thread_memory_usage, current_thread_peak_memory_usage, get_tid, reset_memory_usage_max,
     thread_memory_usage,
 };
 use once_cell::sync::Lazy;
@@ -29,10 +28,6 @@ pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::
 pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-thread_local! {
-    pub(crate) static TID: RefCell<usize> = RefCell::new(0);
-}
-
 #[derive(Default)]
 struct Entry {
     cnt: u128,
@@ -45,16 +40,6 @@ struct ThreadStats {
     cnt: u128,
     time: Duration,
     classes: HashSet<&'static str>,
-}
-
-pub fn get_tid() -> usize {
-    let res = TID.with(|t| {
-        if *t.borrow() == 0 {
-            *t.borrow_mut() = nix::unistd::gettid().as_raw() as usize;
-        }
-        *t.borrow()
-    });
-    res
 }
 
 impl ThreadStats {
