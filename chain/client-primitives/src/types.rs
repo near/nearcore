@@ -169,14 +169,12 @@ pub enum GetBlockError {
 }
 
 impl From<near_chain_primitives::Error> for GetBlockError {
-    fn from(error: near_chain_primitives::Error) -> GetBlockError {
+    fn from(error: near_chain_primitives::Error) -> Self {
         match error.kind() {
-            near_chain_primitives::ErrorKind::IOErr(s) => GetBlockError::IOError(s),
-            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => GetBlockError::BlockNotFound(s),
-            near_chain_primitives::ErrorKind::BlockMissing(hash) => {
-                GetBlockError::BlockMissing(hash)
-            }
-            _ => GetBlockError::Unreachable(error.to_string()),
+            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
+            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => Self::BlockNotFound(s),
+            near_chain_primitives::ErrorKind::BlockMissing(hash) => Self::BlockMissing(hash),
+            _ => Self::Unreachable(error.to_string()),
         }
     }
 }
@@ -212,11 +210,46 @@ pub enum GetChunk {
 }
 
 impl Message for GetChunk {
-    type Result = Result<ChunkView, String>;
+    type Result = Result<ChunkView, GetChunkError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetChunkError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    #[error("Block has never been observed: {0}")]
+    UnknownBlock(String),
+    #[error("Block with hash `{0}` is unavailable on the node")]
+    UnavailableBlock(CryptoHash),
+    #[error("Shard ID {0} is invalid")]
+    InvalidShardId(u64),
+    #[error("Chunk with hash {0:?} has never been observed on this node")]
+    UnknownChunk(ChunkHash),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetChunkError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
+            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => Self::UnknownBlock(s),
+            near_chain_primitives::ErrorKind::BlockMissing(hash) => Self::UnavailableBlock(hash),
+            near_chain_primitives::ErrorKind::InvalidShardId(shard_id) => {
+                Self::InvalidShardId(shard_id)
+            }
+            near_chain_primitives::ErrorKind::ChunkMissing(hash) => Self::UnknownChunk(hash),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
 }
 
 /// Queries client for given path / data.
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Query {
     pub query_id: String,
     pub block_reference: BlockReference,
