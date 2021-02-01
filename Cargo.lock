@@ -3593,6 +3593,7 @@ dependencies = [
  "assert_matches",
  "bencher",
  "borsh",
+ "cached",
  "log",
  "near-evm-runner",
  "near-primitives",
