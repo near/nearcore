@@ -66,10 +66,10 @@ impl RpcChunkRequest {
             crate::utils::parse_params::<(near_primitives::hash::CryptoHash,)>(value.clone())
         {
             ChunkReference::ChunkHash { chunk_id }
-        } else if let Ok((block_id, shard_id)) = crate::utils::parse_params::<(
+        } else if let Ok(((block_id, shard_id),)) = crate::utils::parse_params::<((
             near_primitives::types::BlockId,
             near_primitives::types::ShardId,
-        )>(value.clone())
+        ),)>(value.clone())
         {
             ChunkReference::BlockShardId { block_id, shard_id }
         } else {
