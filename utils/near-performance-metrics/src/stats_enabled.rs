@@ -1,5 +1,4 @@
 use log::{info, warn};
-use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicUsize;
@@ -11,8 +10,8 @@ use std::time::Instant;
 use futures;
 use futures::task::Context;
 use near_rust_allocator_proxy::allocator::{
-    current_thread_memory_usage, current_thread_peak_memory_usage, reset_memory_usage_max,
-    thread_memory_usage, get_tid
+    current_thread_memory_usage, current_thread_peak_memory_usage, get_tid, reset_memory_usage_max,
+    thread_memory_usage,
 };
 use once_cell::sync::Lazy;
 use std::pin::Pin;
@@ -28,10 +27,6 @@ const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.02;
 pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::new(Stats::new())));
 pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-
-thread_local! {
-    pub(crate) static TID: RefCell<usize> = RefCell::new(0);
-}
 
 #[derive(Default)]
 struct Entry {
