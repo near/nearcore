@@ -1,7 +1,7 @@
+use cpu_time::ProcessTime;
 use log::{info, warn};
 use std::borrow::Cow;
 use std::time::{Duration, Instant};
-use cpu_time::ProcessTime;
 
 struct Snapshot {
     real_time: Duration,
@@ -10,7 +10,7 @@ struct Snapshot {
 
 struct SnapshotInstant {
     real_time: Instant,
-    cpu_time: ProcessTime
+    cpu_time: ProcessTime,
 }
 
 pub struct DelayDetector<'a> {
@@ -23,14 +23,26 @@ pub struct DelayDetector<'a> {
 
 impl<'a> DelayDetector<'a> {
     pub fn new(msg: Cow<'a, str>) -> Self {
-        Self { msg, started: Instant::now(), started_cpu_time: ProcessTime::now(), snapshots: vec![], last_snapshot: None }
+        Self {
+            msg,
+            started: Instant::now(),
+            started_cpu_time: ProcessTime::now(),
+            snapshots: vec![],
+            last_snapshot: None,
+        }
     }
 
     pub fn snapshot(&mut self, msg: &str) {
         let now = Instant::now();
         let cpu_time = ProcessTime::now();
         if let Some((s, started)) = self.last_snapshot.take() {
-            self.snapshots.push(((s, msg.to_string()), Snapshot { real_time: now - started.real_time, cpu_time: started.cpu_time.elapsed() }));
+            self.snapshots.push((
+                (s, msg.to_string()),
+                Snapshot {
+                    real_time: now - started.real_time,
+                    cpu_time: started.cpu_time.elapsed(),
+                },
+            ));
         }
         self.last_snapshot = Some((msg.to_string(), SnapshotInstant { real_time: now, cpu_time }));
     }
@@ -49,7 +61,7 @@ impl<'a> Drop for DelayDetector<'a> {
                 self.snapshot("end");
             }
             self.snapshots.sort_by(|a, b| b.1.cpu_time.cmp(&a.1.cpu_time));
-            for ((s1, s2), Snapshot { cpu_time, real_time}) in self.snapshots.drain(..) {
+            for ((s1, s2), Snapshot { cpu_time, real_time }) in self.snapshots.drain(..) {
                 info!(target: "delay_detector", "Took {:?} cpu_time, {:?} real_time between {} and {}", cpu_time, real_time, s1, s2);
             }
         }
