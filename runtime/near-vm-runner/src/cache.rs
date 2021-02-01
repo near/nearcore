@@ -10,7 +10,6 @@ use std::convert::TryFrom;
 use wasmer_runtime::{compiler_for_backend, Backend};
 use wasmer_runtime_core::cache::Artifact;
 use wasmer_runtime_core::load_cache_with;
-use delay_detector::DelayDetector;
 
 pub(crate) fn compile_module(
     code: &[u8],
