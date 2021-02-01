@@ -373,8 +373,12 @@ impl Client {
             .runtime_adapter
             .get_epoch_block_approvers_ordered(&prev_hash)?
             .into_iter()
-            .map(|ApprovalStake { account_id, .. }| {
-                approvals_map.remove(&account_id).map(|x| x.signature)
+            .map(|(ApprovalStake { account_id, .. }, is_slashed)| {
+                if is_slashed {
+                    None
+                } else {
+                    approvals_map.remove(&account_id).map(|x| x.signature)
+                }
             })
             .collect();
 
