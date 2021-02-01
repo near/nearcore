@@ -7,9 +7,7 @@ use near_primitives::types::StateRoot;
 
 use crate::trie::iterator::CrumbStatus;
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{
-    NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize, ValueHandle, POISONED_LOCK_ERR,
-};
+use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize, ValueHandle};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 
 impl Trie {
@@ -169,7 +167,7 @@ impl Trie {
         trie.visit_nodes_for_size_range(&state_root, size_start, size_end)?;
         let storage = trie.storage.as_partial_storage().unwrap();
 
-        if storage.visited_nodes.lock().expect(POISONED_LOCK_ERR).len() != trie_nodes.0.len() {
+        if storage.visited_nodes.borrow().len() != trie_nodes.0.len() {
             // TODO #1603 not actually TrieNodeMissing.
             // The error is that the proof has more nodes than needed.
             return Err(StorageError::TrieNodeMissing);
