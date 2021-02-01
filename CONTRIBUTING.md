@@ -58,7 +58,9 @@ You should expect someone to comment on the issue within 48 hours after it is cr
 
 # Setting up the environment
 
-We use nightly Rust features, so you will need nightly rust installed. See [this document](https://doc.rust-lang.org/1.2.0/book/nightly-rust.html) for details.
+We use nightly Rust features, so you will need nightly rust installed. If you use [rustup](https://rust-lang.github.io/rustup/index.html) the appropriate nightly is picked automatically from the `rust-toolchain` file.
+
+Building `nearcore` requires `libclang`, see [`bindgen` documentation](https://rust-lang.github.io/rust-bindgen/requirements.html#clang) for installation instructions.
 
 Majority of NEAR developers use CLion with Rust plugin as their primary IDE.
 
