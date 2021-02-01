@@ -237,10 +237,15 @@ pub fn precompile<'a>(
 ) -> Option<VMError> {
     use crate::cache::compile_and_serialize_wasmer;
     match vm_kind {
-        VMKind::Wasmer => {
+        VMKind::Wasmer0 => {
             let result = compile_and_serialize_wasmer(code, wasm_config, code_hash, cache);
             result.err()
         }
+        VMKind::Wasmer1 => Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+            CompilationError::UnsupportedCompiler {
+                msg: "Precompilation not supported in Wasmer 1.x yet".to_string(),
+            },
+        ))),
         VMKind::Wasmtime => Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
             CompilationError::UnsupportedCompiler {
                 msg: "Precompilation not supported in Wasmtime yet".to_string(),
