@@ -2,7 +2,7 @@ use log::warn;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::stats_enabled::{MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD, STATS};
+use crate::stats_enabled::{MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD, get_entry};
 
 use near_rust_allocator_proxy::allocator::get_tid;
 
@@ -28,7 +28,7 @@ where
 {
     *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
     let f2 = move |a: &mut A, b: &mut A::Context| {
-        let stat = STATS.lock().unwrap().get_entry();
+        let stat = get_entry();
         let now = Instant::now();
         stat.lock().unwrap().pre_log(now);
 

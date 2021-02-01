@@ -34,6 +34,11 @@ pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::
 pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+thread_local! {
+    pub static INITIALIZED: RefCell<u32> = RefCell::new(0);
+    pub(crate) static LOCAL_STATS: Lazy<Arc<Mutex<ThreadStats>>> = Lazy::new(|| Arc::new(Mutex::new(ThreadStats::new())));
+}
+
 #[derive(Default)]
 struct Entry {
     cnt: u128,
@@ -146,16 +151,26 @@ pub(crate) struct Stats {
     stats: HashMap<usize, Arc<Mutex<ThreadStats>>>,
 }
 
+pub(crate) fn get_entry() -> Arc<Mutex<ThreadStats>> {
+    INITIALIZED.with(|x| {
+        if *x.borrow() == 0 {
+            *x.borrow_mut() = 1;
+            STATS.lock().unwrap().add_entry();
+        }
+    });
+
+    LOCAL_STATS.with(|x|(*x).clone())
+}
+
+
 impl Stats {
     fn new() -> Self {
         Self { stats: HashMap::new() }
     }
 
-    pub(crate) fn get_entry(&mut self) -> Arc<Mutex<ThreadStats>> {
+    pub(crate) fn add_entry(&mut self) {
         let tid = get_tid();
-        let entry =
-            self.stats.entry(tid).or_insert_with(|| Arc::new(Mutex::new(ThreadStats::new())));
-        entry.clone()
+        self.stats.entry(tid).or_insert_with(|| LOCAL_STATS.with(|x|(*x).clone()));
     }
 
     fn print_stats(&mut self, sleep_time: Duration) {
@@ -214,7 +229,7 @@ pub fn measure_performance_internal<F, Message, Result>(
 where
     F: FnOnce(Message) -> Result,
 {
-    let stat = STATS.lock().unwrap().get_entry();
+    let stat = get_entry();
 
     reset_memory_usage_max();
     let initial_memory_usage = current_thread_memory_usage();
@@ -285,7 +300,7 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = unsafe { self.get_unchecked_mut() };
 
-        let stat = STATS.lock().unwrap().get_entry();
+        let stat = get_entry();
         let now = Instant::now();
         stat.lock().unwrap().pre_log(now);
 
@@ -439,7 +454,7 @@ pub struct MeasurePerf {
 
 impl MeasurePerf {
     pub fn new(class_name: &'static str, msg: &'static str) -> Self {
-        let stat = STATS.lock().unwrap().get_entry();
+        let stat = get_entry();
         let now = Instant::now();
         stat.lock().unwrap().pre_log(now);
         Self { class_name, msg, started: now, stat }
