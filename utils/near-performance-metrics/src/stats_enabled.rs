@@ -12,7 +12,7 @@ use futures;
 use futures::task::Context;
 use near_rust_allocator_proxy::allocator::{
     current_thread_memory_usage, current_thread_peak_memory_usage, reset_memory_usage_max,
-    thread_memory_usage,
+    thread_memory_usage, get_tid
 };
 use once_cell::sync::Lazy;
 use std::pin::Pin;
@@ -45,16 +45,6 @@ struct ThreadStats {
     cnt: u128,
     time: Duration,
     classes: HashSet<&'static str>,
-}
-
-pub fn get_tid() -> usize {
-    let res = TID.with(|t| {
-        if *t.borrow() == 0 {
-            *t.borrow_mut() = nix::unistd::gettid().as_raw() as usize;
-        }
-        *t.borrow()
-    });
-    res
 }
 
 impl ThreadStats {
