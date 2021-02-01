@@ -25,8 +25,8 @@ keccak-hash = "0.7.0"
 ripemd160 = "0.9.0"
 libsecp256k1 = "0.3.5"
 
-evm = { git = "https://github.com/openethereum/openethereum", rev = "v2.7.2" }
-vm = { git = "https://github.com/openethereum/openethereum", rev = "v2.7.2" }
+evm = { git = "https://github.com/near/openethereum", branch = "v2.7.2-updated-dependencies" }
+vm = { git = "https://github.com/near/openethereum", branch = "v2.7.2-updated-dependencies" }
 lunarity-lexer = "0.2"
 bn = { git = "https://github.com/near/bn", rev = "43953916ed1a314b78320771734f36af77993dd9" }
 parity-bytes = "0.1.0"

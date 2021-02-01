@@ -210,11 +210,10 @@ pub fn measure_evm_deploy(
 use_contract!(soltest, "../near-evm-runner/tests/build/SolTests.abi");
 use_contract!(precompiled_function, "../near-evm-runner/tests/build/PrecompiledFunction.abi");
 
-lazy_static_include_str!(TEST, "../near-evm-runner/tests/build/SolTests.bin");
-lazy_static_include_str!(
-    PRECOMPILED_TEST,
-    "../near-evm-runner/tests/build/PrecompiledFunction.bin"
-);
+lazy_static_include_str! {
+    TEST => "../near-evm-runner/tests/build/SolTests.bin",
+    PRECOMPILED_TEST => "../near-evm-runner/tests/build/PrecompiledFunction.bin",
+}
 
 const CHAIN_ID: u64 = 0x99;
 
