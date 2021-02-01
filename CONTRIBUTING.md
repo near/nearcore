@@ -1,7 +1,7 @@
 Thank you for considering contributing to the NEAR reference client!
 
-We welcome all external contributions. This document outlines the process of contributing to nearcore. 
-For contributing to other repositories, see `CONTRIBUTING.md` in the corresponding repository. 
+We welcome all external contributions. This document outlines the process of contributing to nearcore.
+For contributing to other repositories, see `CONTRIBUTING.md` in the corresponding repository.
 For non-technical contributions, such as e.g. content or events, see [this document](https://docs.nearprotocol.com/docs/contribution/contribution-overview).
 
 # Pull Requests and Issues
@@ -74,6 +74,6 @@ Refer to [this document](https://docs.nearprotocol.com/docs/contribution/nearcor
 
 Once your change ends up in master, it will be released with the rest of the changes by other contributors on the regular release schedules.
 
-You should expect the changes from `master` to get merged into `beta` branch the next time `nightly` test run completes, assuming it passes. 
+You should expect the changes from `master` to get merged into `beta` branch the next time `nightly` test run completes, assuming it passes.
 Releases to the `stable` branch are manual, but generally contain a contiguous prefix of commits from `beta` branch.
 Note, that the goal is to maintain `beta` as stable as possible and `stable` completely stable. Hence if your change is breaking something that gets detected down the line - it will rolled back and requested to address the issue with additional test coverage.
