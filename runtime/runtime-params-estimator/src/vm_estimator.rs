@@ -64,7 +64,7 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
         PROTOCOL_VERSION,
         None,
         #[cfg(feature = "costs_counting")]
-        &None,
+        None,
     )
 }
 

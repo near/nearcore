@@ -28,7 +28,7 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
-    #[cfg(feature = "costs_counting")] profile: &Option<ProfileData>,
+    #[cfg(feature = "costs_counting")] profile: Option<&ProfileData>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     #[cfg(feature = "costs_counting")]
     match profile {
@@ -46,7 +46,7 @@ pub fn run<'a>(
             current_protocol_version,
             cache,
         ),
-        _ => run_vm(
+        None => run_vm(
             code_hash,
             code,
             method_name,
