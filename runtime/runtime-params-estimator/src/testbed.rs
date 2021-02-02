@@ -37,16 +37,14 @@ impl RuntimeTestbed {
     /// Copies dump from another directory and loads the state from it.
     pub fn from_state_dump(dump_dir: &Path) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        println!("workdir {}", workdir.path().to_str().unwrap());
+        println!("workdir {}", workdir.path().display());
         let store = create_store(&get_store_path(workdir.path()));
         let tries = ShardTries::new(store.clone(), 1);
 
         let genesis = Genesis::from_file(dump_dir.join("genesis.json"));
-        let mut state_file = dump_dir.to_path_buf();
-        state_file.push(STATE_DUMP_FILE);
+        let state_file = dump_dir.join(STATE_DUMP_FILE);
         store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
-        let mut roots_files = dump_dir.to_path_buf();
-        roots_files.push(GENESIS_ROOTS_FILE);
+        let roots_files = dump_dir.join(GENESIS_ROOTS_FILE);
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
