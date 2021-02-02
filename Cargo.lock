@@ -2909,13 +2909,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-actix-utils"
-version = "0.1.0"
-dependencies = [
- "actix",
-]
-
-[[package]]
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
@@ -3224,7 +3217,6 @@ dependencies = [
 name = "near-logger-utils"
 version = "0.1.0"
 dependencies = [
- "near-actix-utils",
  "tracing-subscriber",
 ]
 
@@ -3517,7 +3509,6 @@ name = "nearcore"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
- "near-actix-utils",
  "near-chain-configs",
  "near-crypto",
  "near-jsonrpc",
@@ -3549,7 +3540,6 @@ dependencies = [
  "git-version",
  "lazy_static",
  "log",
- "near-actix-utils",
  "near-chain",
  "near-chain-configs",
  "near-chunks",

@@ -27,7 +27,6 @@ tracing-subscriber = "0.2.4"
 num-rational = { version = "0.3", features = ["serde"] }
 openssl-probe = { version = "0.1.2" }
 
-near-actix-utils = { path = "../utils/actix" }
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }

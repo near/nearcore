@@ -14,10 +14,14 @@ impl ShutdownableThread {
     {
         let (tx, rx) = mpsc::channel();
         let join = std::thread::spawn(move || {
-            let system = System::new(name);
-            f();
-            tx.send(System::current()).unwrap();
-            system.run().unwrap();
+            System::builder()
+                .name(name)
+                .stop_on_panic(true)
+                .run(move || {
+                    f();
+                    tx.send(System::current()).unwrap();
+                })
+                .unwrap();
         });
 
         let actix_system = rx.recv().unwrap();

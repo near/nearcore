@@ -12,7 +12,6 @@ members = [
     "core/runtime-configs",
     "core/store",
     "core/metrics",
-    "utils/actix",
     "runtime/near-evm-runner",
     "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
@@ -55,7 +54,6 @@ actix-rt = "=2.0.0-beta.2"
 rand = "0.7"
 
 near-logger-utils = { path = "./test-utils/logger" }
-near-actix-utils = { path = "./utils/actix" }
 near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
