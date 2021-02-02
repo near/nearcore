@@ -148,4 +148,18 @@ mod tests {
             "The maximum desired depth of receipts should be at most 63"
         );
     }
+
+    #[test]
+    fn test_lower_cost() {
+        let config = Arc::new(RuntimeConfig::default());
+        let config_same = RuntimeConfig::from_protocol_version(&config, 0);
+        assert_eq!(
+            config_same.as_ref().storage_amount_per_byte,
+            config.as_ref().storage_amount_per_byte
+        );
+        let config_lower = RuntimeConfig::from_protocol_version(&config, ProtocolVersion::MAX);
+        assert!(
+            config_lower.as_ref().storage_amount_per_byte < config.as_ref().storage_amount_per_byte
+        );
+    }
 }
