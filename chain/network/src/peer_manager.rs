@@ -152,6 +152,7 @@ pub struct PeerManagerActor {
     txns_since_last_block: Arc<AtomicUsize>,
     pending_incoming_connections_counter: Arc<AtomicUsize>,
     peer_counter: Arc<AtomicUsize>,
+    scheduled_routing_table_update: bool,
 }
 
 impl PeerManagerActor {
@@ -194,6 +195,7 @@ impl PeerManagerActor {
             txns_since_last_block,
             pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
             peer_counter: Arc::new(AtomicUsize::new(0)),
+            scheduled_routing_table_update: false,
         })
     }
 
@@ -568,18 +570,22 @@ impl PeerManagerActor {
         let ProcessEdgeResult { new_edge, schedule_computation } =
             self.routing_table.process_edges(edges);
 
-        if let Some(duration) = schedule_computation {
-            near_performance_metrics::actix::run_later(
-                ctx,
-                file!(),
-                line!(),
-                duration,
-                |act, _ctx| {
-                    act.routing_table.update();
-                    #[cfg(feature = "metric_recorder")]
-                    act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
-                },
-            );
+        if self.scheduled_routing_table_update == false {
+            if let Some(duration) = schedule_computation {
+                self.scheduled_routing_table_update = true;
+                near_performance_metrics::actix::run_later(
+                    ctx,
+                    file!(),
+                    line!(),
+                    duration,
+                    |act, _ctx| {
+                        act.scheduled_routing_table_update = false;
+                        act.routing_table.update();
+                        #[cfg(feature = "metric_recorder")]
+                        act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
+                    },
+                );
+            }
         }
 
         new_edge
