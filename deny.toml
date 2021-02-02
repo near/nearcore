@@ -77,7 +77,7 @@ skip = [
     { name = "proc-macro2", version = "=0.4.30" },
     { name = "quote", version = "=0.6.13" },
     { name = "rustc-hex", version = "=1.0.0" },
-    { name = "smallvec", version = "=0.6.14" },
+    { name = "smallvec", version = "=0.6.13" },
     { name = "syn", version = "=0.15.44" },
     { name = "unicode-xid", version = "=0.1.0" },
     { name = "primitive-types", version = "=0.6.2" },
@@ -96,7 +96,7 @@ skip = [
     { name = "miniz_oxide", version = "=0.4.3" },
 
    # Wasmtime and actix-http
-    { name = "object", version = "=0.23.0" },
+    { name = "object", version = "=0.22.0" },
 
    # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.11.1" },
@@ -136,24 +136,5 @@ skip = [
     { name = "hashbrown", version = "=0.6.3" },
 
     { name = "parking_lot", version = "=0.9.0" },
-
-    # actix and bytestring
-    { name = "bytes", version = "=1.0.1" },
-
-    # needed by criterion and criterion-plot
-    { name = "itertools", version = "=0.9.0" },
-
-    # actix and tempfile
-    { name = "getrandom", version = "=0.2.2" },
-
-    # actix-http and tempfile
-    { name = "rand", version = "=0.8.3" },
-
-    # actix-http and tempfile
-    { name = "rand_chacha", version = "=0.3.0" },
-
-    # curve25519-dalek and tempfile
-    { name = "rand_core", version = "=0.6.1" }
-
 
 ]
