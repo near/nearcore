@@ -15,13 +15,23 @@ use tracing_subscriber::EnvFilter;
 use git_version::git_version;
 use near_performance_metrics;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
+#[cfg(feature = "memory_stats")]
+use near_rust_allocator_proxy::allocator::MyAllocator;
 use neard::config::init_testnet_configs;
 use neard::genesis_validate::validate_genesis;
 use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 
+#[cfg(feature = "memory_stats")]
+#[global_allocator]
+static ALLOC: MyAllocator = MyAllocator;
+
+#[cfg(all(not(feature = "memory_stats"), jemallocator))]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 fn init_logging(verbose: Option<&str>) {
     let mut env_filter = EnvFilter::new(
-        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,near-performance-metrics=info",
+        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,\
+         near-performance-metrics=info,near-rust-allocator-proxy=info",
     );
 
     if let Some(module) = verbose {

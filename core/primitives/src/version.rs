@@ -82,8 +82,8 @@ pub enum ProtocolFeature {
     RectifyInflation,
     #[cfg(feature = "protocol_feature_evm")]
     EVM,
-    #[cfg(feature = "protocol_feature_block_ordinal")]
-    BlockOrdinal,
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    BlockHeaderV3,
 }
 
 /// Current latest stable version of the protocol.
@@ -92,7 +92,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 41;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 47;
+pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
@@ -122,8 +122,8 @@ lazy_static! {
             (ProtocolFeature::RectifyInflation, 43),
             #[cfg(feature = "protocol_feature_evm")]
             (ProtocolFeature::EVM, 46),
-            #[cfg(feature = "protocol_feature_block_ordinal")]
-            (ProtocolFeature::BlockOrdinal, 47),
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            (ProtocolFeature::BlockHeaderV3, 48),
         ]
         .into_iter()
         .collect();

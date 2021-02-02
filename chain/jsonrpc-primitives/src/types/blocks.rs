@@ -1,6 +1,14 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockReference {
+    BlockId(near_primitives::types::BlockId),
+    Finality(near_primitives::types::Finality),
+    SyncCheckpoint(near_primitives::types::SyncCheckpoint),
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum RpcBlockError {
     #[error("Block `{0}` is missing")]
@@ -22,7 +30,7 @@ pub enum RpcBlockError {
 #[derive(Serialize, Deserialize)]
 pub struct RpcBlockRequest {
     #[serde(flatten)]
-    pub block_reference: near_primitives::types::BlockReference,
+    pub block_reference: BlockReference,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -31,35 +39,45 @@ pub struct RpcBlockResponse {
     pub block_view: near_primitives::views::BlockView,
 }
 
+// near_client_primitives::types::GetBlock wants BlockReference from near_primitives
+// that's why this impl exists
+impl From<BlockReference> for near_primitives::types::BlockReference {
+    fn from(block_reference: BlockReference) -> Self {
+        match block_reference {
+            BlockReference::BlockId(block_id) => Self::BlockId(block_id),
+            BlockReference::Finality(finality) => Self::Finality(finality),
+            BlockReference::SyncCheckpoint(sync_checkpoint) => {
+                Self::SyncCheckpoint(sync_checkpoint)
+            }
+        }
+    }
+}
+
 impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
-    fn from(error: near_client_primitives::types::GetBlockError) -> RpcBlockError {
+    fn from(error: near_client_primitives::types::GetBlockError) -> Self {
         match error {
             near_client_primitives::types::GetBlockError::BlockMissing(block_hash) => {
-                RpcBlockError::BlockMissing(block_hash)
+                Self::BlockMissing(block_hash)
             }
             near_client_primitives::types::GetBlockError::BlockNotFound(s) => {
-                RpcBlockError::BlockNotFound(s)
+                Self::BlockNotFound(s)
             }
-            near_client_primitives::types::GetBlockError::NotSyncedYet => {
-                RpcBlockError::NotSyncedYet
-            }
-            near_client_primitives::types::GetBlockError::IOError(s) => {
-                RpcBlockError::InternalError(s)
-            }
+            near_client_primitives::types::GetBlockError::NotSyncedYet => Self::NotSyncedYet,
+            near_client_primitives::types::GetBlockError::IOError(s) => Self::InternalError(s),
             near_client_primitives::types::GetBlockError::Unreachable(s) => {
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcBlockError", &s],
                 );
-                RpcBlockError::Unreachable(s)
+                Self::Unreachable(s)
             }
         }
     }
 }
 
 impl From<actix::MailboxError> for RpcBlockError {
-    fn from(error: actix::MailboxError) -> RpcBlockError {
-        RpcBlockError::InternalError(error.to_string())
+    fn from(error: actix::MailboxError) -> Self {
+        Self::InternalError(error.to_string())
     }
 }
 
@@ -88,16 +106,16 @@ impl RpcBlockRequest {
         let block_reference = if let Ok((block_id,)) =
             crate::utils::parse_params::<(near_primitives::types::BlockId,)>(value.clone())
         {
-            near_primitives::types::BlockReference::BlockId(block_id)
+            BlockReference::BlockId(block_id)
         } else {
-            crate::utils::parse_params::<near_primitives::types::BlockReference>(value)?
+            crate::utils::parse_params::<BlockReference>(value)?
         };
         Ok(RpcBlockRequest { block_reference })
     }
 }
 
 impl From<near_primitives::views::BlockView> for RpcBlockResponse {
-    fn from(block_view: near_primitives::views::BlockView) -> RpcBlockResponse {
-        RpcBlockResponse { block_view }
+    fn from(block_view: near_primitives::views::BlockView) -> Self {
+        Self { block_view }
     }
 }
