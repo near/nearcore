@@ -3482,6 +3482,7 @@ dependencies = [
 name = "near-runtime-configs"
 version = "0.1.0"
 dependencies = [
+ "lazy_static",
  "near-primitives",
  "near-runtime-fees",
  "near-vm-logic",

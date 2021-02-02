@@ -2,12 +2,14 @@
 use serde::{Deserialize, Serialize};
 
 use near_primitives::account::Account;
+use near_primitives::checked_feature;
 use near_primitives::serialize::u128_dec_format;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::ProtocolVersion;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::VMConfig;
-use std::sync::Arc;
+use std::ops::DerefMut;
+use std::sync::{Arc, Mutex};
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -38,6 +40,10 @@ impl Default for RuntimeConfig {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref LOWER_STORAGE_COST_CONFIG: Mutex<Option<Arc<RuntimeConfig>>> = Mutex::new(None);
+}
+
 impl RuntimeConfig {
     pub fn free() -> Self {
         Self {
@@ -49,13 +55,35 @@ impl RuntimeConfig {
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
-    /// It uses `genesis_runtime_config` to keep the unchanged fees.
-    /// TODO: https://github.com/nearprotocol/NEPs/issues/120
+    /// It uses `genesis_runtime_config` to identify the original
+    /// config and `protocol_version` for the current protocol version.
     pub fn from_protocol_version(
         genesis_runtime_config: &Arc<RuntimeConfig>,
-        _protocol_version: ProtocolVersion,
+        protocol_version: ProtocolVersion,
     ) -> Arc<Self> {
-        genesis_runtime_config.clone()
+        if checked_feature!(
+            "protocol_feature_lower_storage_cost",
+            LowerStorageCost,
+            protocol_version
+        ) {
+            let mut config = LOWER_STORAGE_COST_CONFIG.lock().unwrap();
+            if let Some(config) = config.deref_mut() {
+                config.clone()
+            } else {
+                let upgraded_config = Arc::new(genesis_runtime_config.decrease_storage_cost());
+                *config = Some(upgraded_config.clone());
+                upgraded_config
+            }
+        } else {
+            genesis_runtime_config.clone()
+        }
+    }
+
+    /// Returns a new config with decreased storage cost.
+    fn decrease_storage_cost(&self) -> Self {
+        let mut config = self.clone();
+        config.storage_amount_per_byte = 10u128.pow(19);
+        config
     }
 }
 

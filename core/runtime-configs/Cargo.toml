@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+lazy_static = "1.4"
 
 near-primitives = { path = "../primitives" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
