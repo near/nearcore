@@ -60,27 +60,23 @@ pub fn transfer_erc721(c: &mut Criterion) {
     let bob_address = near_evm_runner::utils::near_account_id_to_evm_address(&bob_account());
 
     c.bench_function("transfer_erc721", |b| {
-        // first zombie ID
-        let mut zombie_id = U256::zero();
         b.iter(|| {
             // create zombie
-            //let mut ext_copy = ext.clone();
-            evm_call(&mut ext, "alice", "call", args_create.clone(), false).0.unwrap();
+            let mut ext_copy = ext.clone();
+            evm_call(&mut ext_copy, "alice", "call", args_create.clone(), false).0.unwrap();
 
             // transfer ERC-721 zombie token
             let (input, _decoder) = cryptozombies::functions::transfer_from::call(
                 alice_address,
                 bob_address,
-                zombie_id,
+                U256::zero(),
             );
             let args_transfer = encode_call_function_args(contract_id, input);
-            let (_outcome, err) = evm_call(&mut ext, "alice", "call", args_transfer.clone(), false);
+            let (_outcome, err) =
+                evm_call(&mut ext_copy, "alice", "call", args_transfer.clone(), false);
             if let Some(vm_err) = err {
                 panic!("Problem transfering ERC-721 token: {:?}", vm_err);
             }
-
-            // increase zombie ID
-            zombie_id += U256::one();
         })
     });
 }
