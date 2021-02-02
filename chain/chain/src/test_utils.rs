@@ -937,6 +937,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_sync_data_hash(
         &self,
+        _prev_block_hash: &CryptoHash,
         _prev_epoch_id: &EpochId,
         _epoch_id: &EpochId,
     ) -> Result<CryptoHash, Error> {

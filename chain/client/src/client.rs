@@ -435,7 +435,11 @@ impl Client {
         #[cfg(feature = "protocol_feature_block_header_v3")]
         let epoch_sync_data_hash =
             if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-                Some(self.runtime_adapter.get_epoch_sync_data_hash(&prev_epoch_id, &epoch_id)?)
+                Some(self.runtime_adapter.get_epoch_sync_data_hash(
+                    prev_block.hash(),
+                    &prev_epoch_id,
+                    &epoch_id,
+                )?)
             } else {
                 None
             };

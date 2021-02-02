@@ -1050,11 +1050,13 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_epoch_sync_data_hash(
         &self,
+        prev_block_hash: &CryptoHash,
         prev_epoch_id: &EpochId,
         epoch_id: &EpochId,
     ) -> Result<CryptoHash, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let mut data = epoch_manager.get_epoch_info(prev_epoch_id)?.try_to_vec().unwrap();
+        let mut data = epoch_manager.get_block_info(prev_block_hash)?.try_to_vec().unwrap();
+        data.extend(epoch_manager.get_epoch_info(prev_epoch_id)?.try_to_vec().unwrap());
         data.extend(epoch_manager.get_epoch_info(epoch_id)?.try_to_vec().unwrap());
         Ok(hash(data.as_slice()))
     }

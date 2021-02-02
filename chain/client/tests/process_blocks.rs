@@ -2546,6 +2546,7 @@ fn test_epoch_sync_data_hash() {
                 assert_eq!(
                     runtimes[0]
                         .get_epoch_sync_data_hash(
+                            block.header().prev_hash(),
                             blocks.last().unwrap().header().epoch_id(),
                             blocks.last().unwrap().header().next_epoch_id()
                         )

@@ -456,6 +456,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Hash that is necessary for proof EpochInfo in Epoch Sync.
     fn get_epoch_sync_data_hash(
         &self,
+        prev_block_hash: &CryptoHash,
         prev_epoch_id: &EpochId,
         epoch_id: &EpochId,
     ) -> Result<CryptoHash, Error>;
