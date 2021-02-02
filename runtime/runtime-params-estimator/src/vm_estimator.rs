@@ -136,10 +136,7 @@ pub fn load_and_compile(
     }
 }
 
-#[cfg(feature = "lightbeam")]
-const USING_LIGHTBEAM: bool = true;
-#[cfg(not(feature = "lightbeam"))]
-const USING_LIGHTBEAM: bool = false;
+const USING_LIGHTBEAM: bool = cfg!(feature = "lightbeam");
 
 /// Cost of the compile contract with vm_kind
 pub fn cost_to_compile(
