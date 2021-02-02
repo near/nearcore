@@ -2,7 +2,9 @@ use log::warn;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::stats_enabled::{MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD, STATS, TID};
+use crate::stats_enabled::{MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD, STATS};
+
+use near_rust_allocator_proxy::allocator::get_tid;
 
 pub fn spawn<F>(class_name: &'static str, file: &'static str, line: u32, f: F)
 where
@@ -35,7 +37,7 @@ where
             warn!(
                 "Slow function call {}:{} {}:{} took: {}ms",
                 "run_later",
-                TID.with(|x| *x.borrow()),
+                get_tid(),
                 file,
                 line,
                 took.as_millis()
