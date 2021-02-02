@@ -453,6 +453,13 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 
+    /// Hash that is necessary for proof EpochInfo in Epoch Sync.
+    fn get_epoch_sync_data_hash(
+        &self,
+        prev_epoch_id: &EpochId,
+        epoch_id: &EpochId,
+    ) -> Result<CryptoHash, Error>;
+
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;
 

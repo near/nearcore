@@ -436,6 +436,8 @@ pub struct BlockHeaderView {
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    pub epoch_sync_data_hash: Option<CryptoHash>,
     pub approvals: Vec<Option<Signature>>,
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
@@ -482,6 +484,8 @@ impl From<BlockHeader> for BlockHeaderView {
             last_ds_final_block: header.last_ds_final_block().clone(),
             next_bp_hash: header.next_bp_hash().clone(),
             block_merkle_root: header.block_merkle_root().clone(),
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            epoch_sync_data_hash: header.epoch_sync_data_hash(),
             approvals: header.approvals().to_vec(),
             signature: header.signature().clone(),
             latest_protocol_version: header.latest_protocol_version(),
@@ -602,6 +606,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         last_final_block: view.last_final_block,
                         last_ds_final_block: view.last_ds_final_block,
                         prev_height: view.prev_height.unwrap_or_default(),
+                        epoch_sync_data_hash: view.epoch_sync_data_hash,
                         approvals: view.approvals.clone(),
                         latest_protocol_version: view.latest_protocol_version,
                     },

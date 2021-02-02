@@ -1186,10 +1186,13 @@ pub fn create_chunk(
         PROTOCOL_VERSION,
         &last_block.header(),
         2,
-        last_block.header().block_ordinal() + 1,
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        (last_block.header().block_ordinal() + 1),
         vec![chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        None,
         vec![],
         Rational::from_integer(0),
         0,

@@ -1216,10 +1216,13 @@ mod test {
                 PROTOCOL_VERSION,
                 &last_block.header(),
                 current_height,
-                last_block.header().block_ordinal() + 1,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                (last_block.header().block_ordinal() + 1),
                 last_block.chunks().iter().cloned().collect(),
                 epoch_id,
                 next_epoch_id,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                None,
                 approvals,
                 Ratio::new(0, 1),
                 0,

@@ -1048,6 +1048,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount)
     }
 
+    fn get_epoch_sync_data_hash(
+        &self,
+        prev_epoch_id: &EpochId,
+        epoch_id: &EpochId,
+    ) -> Result<CryptoHash, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let mut data = epoch_manager.get_epoch_info(prev_epoch_id)?.try_to_vec().unwrap();
+        data.extend(epoch_manager.get_epoch_info(epoch_id)?.try_to_vec().unwrap());
+        Ok(hash(data.as_slice()))
+    }
+
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version)
