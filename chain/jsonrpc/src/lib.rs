@@ -17,7 +17,7 @@ use tokio::time::{delay_for, timeout};
 use near_chain_configs::GenesisConfig;
 use near_client::{
     ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
-    GetNetworkInfo, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
+    GetNetworkInfo, GetNextLightClientBlock, GetReceipt, GetStateChanges, GetStateChangesInBlock,
     GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus, TxStatusError, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
@@ -250,6 +250,14 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
             "EXPERIMENTAL_light_client_proof" => {
                 self.light_client_execution_outcome_proof(request.params).await
+            }
+            "EXPERIMENTAL_receipt" => {
+                let rpc_receipt_request =
+                    near_jsonrpc_primitives::types::receipts::RpcReceiptRequest::parse(
+                        request.params,
+                    )?;
+                let receipt = self.receipt(rpc_receipt_request).await?;
+                serde_json::to_value(receipt).map_err(|err| RpcError::parse_error(err.to_string()))
             }
             "EXPERIMENTAL_tx_status" => self.tx_status_common(request.params, true).await,
             "EXPERIMENTAL_validators_ordered" => self.validators_ordered(request.params).await,
@@ -650,6 +658,20 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::chunks::RpcChunkError,
     > {
         Ok(self.view_client_addr.send(GetChunk::from(request_data.chunk_reference)).await??.into())
+    }
+
+    async fn receipt(
+        &self,
+        request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::receipts::RpcReceiptResponse,
+        near_jsonrpc_primitives::types::receipts::RpcReceiptError,
+    > {
+        Ok(self
+            .view_client_addr
+            .send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
+            .await??
+            .into())
     }
 
     async fn changes_in_block(&self, params: Option<Value>) -> Result<Value, RpcError> {

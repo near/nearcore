@@ -423,6 +423,27 @@ pub struct GetReceipt {
     pub receipt_id: CryptoHash,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum GetReceiptError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetReceiptError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
 impl Message for GetReceipt {
-    type Result = Result<Option<ReceiptView>, String>;
+    type Result = Result<Option<ReceiptView>, GetReceiptError>;
 }

@@ -1,10 +1,11 @@
 use std::convert::TryFrom;
 
 use actix::{Actor, System};
+use borsh::BorshSerialize;
 use futures::{future, FutureExt};
 use serde_json::json;
 
-use near_crypto::{KeyType, PublicKey, Signature};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
 use near_jsonrpc_primitives::rpc::RpcQueryRequest;
@@ -13,8 +14,10 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::to_base64;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 
 #[macro_use]
 pub mod test_utils;
@@ -719,5 +722,26 @@ fn test_get_chunk_with_object_in_params() {
         assert_eq!(chunk.header.validator_reward, 0);
         let same_chunk = client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).await.unwrap();
         assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
+    });
+}
+
+#[test]
+fn test_get_receipt_by_id() {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
+        let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test2".to_string(),
+            &signer,
+            100,
+            block_hash,
+        );
+        let bytes = tx.try_to_vec().unwrap();
+        let result = client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
+        assert_eq!(result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+        assert!(result.receipts_outcome.len() > 0);
+        // TODO: fetch receipt and assert it is ReceiptView and add other possible assertions
     });
 }
