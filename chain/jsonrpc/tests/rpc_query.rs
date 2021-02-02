@@ -2,6 +2,7 @@ use std::convert::TryFrom;
 
 use actix::{Actor, System};
 use futures::{future, FutureExt};
+use serde_json::json;
 
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
@@ -681,5 +682,42 @@ fn test_validators_non_existing_block_hash() {
             validators_response.is_err(),
             "validators for non exsiting block hash, but received success instead of error"
         );
+    });
+}
+
+#[test]
+fn test_get_chunk_with_object_in_params() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let chunk: near_primitives::views::ChunkView = test_utils::call_method(
+            &client.client,
+            &client.server_addr,
+            "chunk",
+            json!({
+                "block_id": 0u64,
+                "shard_id": 0u64,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(chunk.author, "test2");
+        assert_eq!(chunk.header.balance_burnt, 0);
+        assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
+        assert_eq!(chunk.header.encoded_length, 8);
+        assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
+        assert_eq!(chunk.header.gas_limit, 1000000);
+        assert_eq!(chunk.header.gas_used, 0);
+        assert_eq!(chunk.header.height_created, 0);
+        assert_eq!(chunk.header.height_included, 0);
+        assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
+        assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
+        assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
+        assert_eq!(chunk.header.rent_paid, 0);
+        assert_eq!(chunk.header.shard_id, 0);
+        assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
+        assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
+        assert_eq!(chunk.header.validator_proposals, vec![]);
+        assert_eq!(chunk.header.validator_reward, 0);
+        let same_chunk = client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).await.unwrap();
+        assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
     });
 }
