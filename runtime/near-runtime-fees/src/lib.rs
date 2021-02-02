@@ -1,1 +1,1 @@
-pub use near_primitives::runtime::fees::*;
+pub use near_primitives_core::runtime::fees::*;

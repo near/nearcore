@@ -3,7 +3,7 @@ use near_primitives::{
     config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
 };
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::VMError;
+use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
 

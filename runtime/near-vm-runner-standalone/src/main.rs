@@ -8,13 +8,10 @@
 //! to provide custom context and VM config.
 use clap::{App, Arg};
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::{
-    mocks::mock_external::{MockedExternal, Receipt},
-    profile::ProfileData,
-    types::PromiseResult,
-    version::ProtocolVersion,
-    VMConfig, VMContext, VMKind, VMOutcome,
-};
+use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
+use near_vm_logic::profile::ProfileData;
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, run_vm_profiled, VMError};
 use serde::{
     de::{MapAccess, Visitor},

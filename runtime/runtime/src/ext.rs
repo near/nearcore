@@ -18,8 +18,8 @@ use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
-use near_vm_errors::InconsistentStateError;
-use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
+use near_vm_errors::{HostError, InconsistentStateError, VMLogicError};
+use near_vm_logic::{External, ValuePtr};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,

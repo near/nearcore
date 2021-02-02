@@ -4,8 +4,8 @@ use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::VMContext;
 use near_vm_logic::{VMConfig, VMLogic};
 
-use near_primitives::version::ProtocolVersion;
 use near_vm_logic::types::PromiseResult;
+use near_vm_logic::ProtocolVersion;
 
 pub(crate) const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 

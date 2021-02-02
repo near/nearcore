@@ -6,10 +6,11 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 
 use near_primitives::version::ProtocolVersion;
 use near_runtime_fees::RuntimeFeesConfig;
+use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{ReturnData, VMConfig, VMContext, VMOutcome};
-use near_vm_runner::{run, VMError};
+use near_vm_runner::run;
 
 const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 

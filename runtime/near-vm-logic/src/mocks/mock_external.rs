@@ -1,5 +1,5 @@
 use crate::{External, ValuePtr};
-use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

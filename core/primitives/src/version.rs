@@ -19,7 +19,7 @@ pub type DbVersion = u32;
 pub const DB_VERSION: DbVersion = 16;
 
 /// Protocol version type.
-pub type ProtocolVersion = u32;
+pub use near_primitives_core::types::ProtocolVersion;
 
 /// Oldest supported version by this client.
 pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;

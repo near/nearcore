@@ -27,10 +27,11 @@ use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
 };
-use near_vm_errors::{CacheError, CompilationError, FunctionCallError, InconsistentStateError};
+use near_vm_errors::{
+    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
+};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
-use near_vm_runner::VMError;
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;

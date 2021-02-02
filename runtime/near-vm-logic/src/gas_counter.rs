@@ -1,5 +1,5 @@
 use crate::{HostError, VMLogicError};
-use near_primitives::{
+use near_primitives_core::{
     config::{ActionCosts, ExtCosts, ExtCostsConfig},
     profile::ProfileData,
     types::Gas,
@@ -248,7 +248,7 @@ impl GasCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_primitives::config::ExtCostsConfig;
+    use near_primitives_core::config::ExtCostsConfig;
 
     #[test]
     fn test_deduct_gas() {

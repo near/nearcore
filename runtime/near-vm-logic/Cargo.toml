@@ -21,10 +21,10 @@ serde = { version = "1", features = ["derive"] }
 sha2 = ">=0.8,<0.10"
 sha3 = ">=0.8,<0.10"
 
+near-primitives-core = { path = "../../core/primitives-core" }
 near-runtime-fees = { path = "../near-runtime-fees", version = "2.3.0" }
 near-vm-errors = { path = "../near-vm-errors", version = "2.3.0" }
 near-runtime-utils = { path = "../near-runtime-utils", version = "2.3.0" }
-near-primitives = { path = "../../core/primitives", version = "0.1.0"}
 num-rational = { version = "0.2.4" }
 
 [dev-dependencies]
@@ -37,7 +37,7 @@ wasmtime_default = []
 
 
 # Use this feature to enable counting of fees and costs applied.
-costs_counting = ["near-primitives/costs_counting"]
+costs_counting = ["near-primitives-core/costs_counting"]
 
 [[test]]
 name = "test_storage_read_write"

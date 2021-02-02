@@ -3390,6 +3390,7 @@ dependencies = [
  "jemallocator",
  "lazy_static",
  "near-crypto",
+ "near-primitives-core",
  "near-rpc-error-macro",
  "near-vm-errors",
  "num-rational 0.2.4",
@@ -3403,6 +3404,22 @@ dependencies = [
  "smart-default",
  "validator",
  "validator_derive",
+]
+
+[[package]]
+name = "near-primitives-core"
+version = "0.1.0"
+dependencies = [
+ "base64 0.11.0",
+ "borsh",
+ "bs58",
+ "derive_more",
+ "hex",
+ "lazy_static",
+ "num-rational 0.2.4",
+ "serde",
+ "serde_json",
+ "sha2 0.8.2",
 ]
 
 [[package]]
@@ -3457,7 +3474,7 @@ dependencies = [
 name = "near-runtime-fees"
 version = "2.3.0"
 dependencies = [
- "near-primitives",
+ "near-primitives-core",
  "num-rational 0.2.4",
  "serde",
 ]
@@ -3527,7 +3544,7 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
- "near-primitives",
+ "near-primitives-core",
  "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
