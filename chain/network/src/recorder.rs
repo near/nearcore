@@ -109,7 +109,7 @@ impl MetricRecorder {
         self
     }
 
-    pub fn set_graph(&mut self, graph: &HashMap<PeerId, HashSet<PeerId>>) {
+    pub fn set_graph(&mut self, graph: HashMap<PeerId, HashSet<PeerId>>) {
         self.graph.clear();
         for (u, u_adj) in graph.iter() {
             for v in u_adj {
