@@ -21,33 +21,8 @@ dependencies = [
  "smallvec 1.6.1",
  "tokio",
  "tokio-util 0.2.0",
- "trust-dns-proto 0.18.0-alpha.2",
- "trust-dns-resolver 0.18.0-alpha.2",
-]
-
-[[package]]
-name = "actix"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1be241f88f3b1e7e9a3fbe3b5a8a0f6915b5a1d7ee0d9a248d3376d01068cc60"
-dependencies = [
- "actix-rt",
- "actix_derive",
- "bitflags",
- "bytes",
- "crossbeam-channel 0.4.4",
- "derive_more",
- "futures-channel",
- "futures-util",
- "log",
- "once_cell",
- "parking_lot 0.11.1",
- "pin-project 0.4.27",
- "smallvec 1.6.1",
- "tokio",
- "tokio-util 0.3.1",
- "trust-dns-proto 0.19.6",
- "trust-dns-resolver 0.19.6",
+ "trust-dns-proto",
+ "trust-dns-resolver",
 ]
 
 [[package]]
@@ -98,8 +73,8 @@ dependencies = [
  "log",
  "openssl",
  "tokio-openssl",
- "trust-dns-proto 0.18.0-alpha.2",
- "trust-dns-resolver 0.18.0-alpha.2",
+ "trust-dns-proto",
+ "trust-dns-resolver",
 ]
 
 [[package]]
@@ -2491,7 +2466,7 @@ dependencies = [
 name = "indexer-example"
 version = "0.1.0"
 dependencies = [
- "actix 0.10.0",
+ "actix",
  "clap 3.0.0-beta.2",
  "near-indexer",
  "openssl-probe",
@@ -3161,7 +3136,7 @@ dependencies = [
 name = "near-actix-utils"
 version = "0.1.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
 ]
 
 [[package]]
@@ -3214,7 +3189,7 @@ dependencies = [
 name = "near-chunks"
 version = "0.1.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "borsh",
  "cached",
  "chrono",
@@ -3236,7 +3211,7 @@ dependencies = [
 name = "near-client"
 version = "0.1.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "ansi_term 0.11.0",
  "borsh",
  "cached",
@@ -3360,7 +3335,7 @@ dependencies = [
 name = "near-indexer"
 version = "0.7.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "futures",
  "near-client",
  "near-crypto",
@@ -3376,7 +3351,7 @@ dependencies = [
 name = "near-jsonrpc"
 version = "0.2.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "actix-cors",
  "actix-web",
  "borsh",
@@ -3416,7 +3391,7 @@ dependencies = [
 name = "near-jsonrpc-test-utils"
 version = "0.1.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "lazy_static",
  "near-chain-configs",
  "near-client",
@@ -3446,7 +3421,7 @@ dependencies = [
 name = "near-network"
 version = "0.1.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "bencher",
  "borsh",
  "byteorder",
@@ -3482,7 +3457,7 @@ dependencies = [
 name = "near-performance-metrics"
 version = "0.1.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "actix-rt",
  "futures",
  "log",
@@ -3543,7 +3518,7 @@ dependencies = [
 name = "near-rosetta-rpc"
 version = "0.1.1"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "actix-cors",
  "actix-web",
  "derive_more",
@@ -3641,7 +3616,7 @@ dependencies = [
 name = "near-telemetry"
 version = "0.1.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "actix-web",
  "futures",
  "near-performance-metrics",
@@ -3726,7 +3701,7 @@ dependencies = [
 name = "nearcore"
 version = "0.1.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "actix-rt",
  "futures",
  "lazy_static",
@@ -3753,7 +3728,7 @@ dependencies = [
 name = "neard"
 version = "1.2.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "actix-web",
  "borsh",
  "byteorder",
@@ -4882,16 +4857,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "resolv-conf"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52e44394d2086d010551b14b53b1f24e31647570cd1deb0379e2c21b329aba00"
-dependencies = [
- "hostname",
- "quick-error",
-]
-
-[[package]]
 name = "restaked"
 version = "0.1.0"
 dependencies = [
@@ -5606,7 +5571,7 @@ dependencies = [
 name = "testlib"
 version = "0.1.0"
 dependencies = [
- "actix 0.9.0",
+ "actix",
  "assert_matches",
  "borsh",
  "byteorder",
@@ -5830,7 +5795,6 @@ checksum = "be8242891f2b6cbef26a2d7e8605133c2c554cd35b3e4948ea892d6d68436499"
 dependencies = [
  "bytes",
  "futures-core",
- "futures-io",
  "futures-sink",
  "log",
  "pin-project-lite 0.1.11",
@@ -5978,26 +5942,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "trust-dns-proto"
-version = "0.19.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53861fcb288a166aae4c508ae558ed18b53838db728d4d310aad08270a7d4c2b"
-dependencies = [
- "async-trait",
- "backtrace",
- "enum-as-inner",
- "futures",
- "idna 0.2.0",
- "lazy_static",
- "log",
- "rand 0.7.3",
- "smallvec 1.6.1",
- "thiserror",
- "tokio",
- "url 2.2.0",
-]
-
-[[package]]
 name = "trust-dns-resolver"
 version = "0.18.0-alpha.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6010,30 +5954,10 @@ dependencies = [
  "lazy_static",
  "log",
  "lru-cache",
- "resolv-conf 0.6.3",
+ "resolv-conf",
  "smallvec 1.6.1",
  "tokio",
- "trust-dns-proto 0.18.0-alpha.2",
-]
-
-[[package]]
-name = "trust-dns-resolver"
-version = "0.19.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6759e8efc40465547b0dfce9500d733c65f969a4cbbfbe3ccf68daaa46ef179e"
-dependencies = [
- "backtrace",
- "cfg-if 0.1.10",
- "futures",
- "ipconfig",
- "lazy_static",
- "log",
- "lru-cache",
- "resolv-conf 0.7.0",
- "smallvec 1.6.1",
- "thiserror",
- "tokio",
- "trust-dns-proto 0.19.6",
+ "trust-dns-proto",
 ]
 
 [[package]]
