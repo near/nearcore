@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Cursor, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -22,6 +22,7 @@ use crate::trie::trie_storage::{
 };
 pub(crate) use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::StorageError;
+use std::cell::RefCell;
 
 mod insert_delete;
 pub mod iterator;
@@ -446,12 +447,9 @@ impl Trie {
         let storage =
             self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
         let storage = TrieRecordingStorage {
-            storage: TrieCachingStorage {
-                store: Arc::clone(&storage.store),
-                cache: storage.cache.clone(),
-                shard_id: storage.shard_id,
-            },
-            recorded: Arc::new(Mutex::new(Default::default())),
+            store: Arc::clone(&storage.store),
+            shard_id: storage.shard_id,
+            recorded: RefCell::new(Default::default()),
         };
         Trie { storage: Box::new(storage), counter: TouchedNodesCounter::default() }
     }
@@ -462,8 +460,8 @@ impl Trie {
 
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
         let storage = self.storage.as_recording_storage()?;
-        let mut guard = storage.recorded.lock().expect(POISONED_LOCK_ERR);
-        let mut nodes: Vec<_> = guard.drain().map(|(_key, value)| value).collect();
+        let mut nodes: Vec<_> =
+            storage.recorded.borrow_mut().drain().map(|(_key, value)| value).collect();
         nodes.sort();
         Some(PartialStorage { nodes: PartialState(nodes) })
     }
