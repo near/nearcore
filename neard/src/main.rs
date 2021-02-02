@@ -25,8 +25,7 @@ use neard::{get_default_home, get_store_path, init_configs, load_config, start_w
 #[global_allocator]
 static ALLOC: MyAllocator = MyAllocator;
 
-#[cfg(not(feature = "memory_stats"))]
-#[cfg(jemallocator)]
+#[cfg(all(not(feature = "memory_stats"), jemallocator))]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 fn init_logging(verbose: Option<&str>) {
