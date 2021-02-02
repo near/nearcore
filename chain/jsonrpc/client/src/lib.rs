@@ -189,8 +189,6 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
     pub fn validators(&self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
     pub fn gas_price(&self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
-    #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_receipt(&self, id: near_jsonrpc_primitives::types::receipts::ReceiptReference) -> RpcRequest<near_primitives::views::ReceiptView>;
 });
 
 impl JsonRpcClient {
@@ -226,6 +224,14 @@ impl JsonRpcClient {
         request: RpcValidatorsOrderedRequest,
     ) -> RpcRequest<Vec<ValidatorStakeView>> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_validators_ordered", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_receipt(
+        &self,
+        request: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::receipts::RpcReceiptResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_receipt", request)
     }
 }
 

@@ -667,11 +667,16 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::receipts::RpcReceiptResponse,
         near_jsonrpc_primitives::types::receipts::RpcReceiptError,
     > {
-        Ok(self
+        match self
             .view_client_addr
             .send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
             .await??
-            .into())
+        {
+            Some(receip_view) => Ok(receip_view.into()),
+            None => Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt(
+                request_data.receipt_reference.receipt_id,
+            )),
+        }
     }
 
     async fn changes_in_block(&self, params: Option<Value>) -> Result<Value, RpcError> {

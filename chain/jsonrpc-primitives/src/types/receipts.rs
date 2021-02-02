@@ -15,13 +15,15 @@ pub struct RpcReceiptRequest {
 #[derive(Serialize, Deserialize)]
 pub struct RpcReceiptResponse {
     #[serde(flatten)]
-    pub receipt_view: Option<near_primitives::views::ReceiptView>,
+    pub receipt_view: near_primitives::views::ReceiptView,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcReceiptError {
     #[error("The node reached its limits. Try again later. More details: {0}")]
     InternalError(String),
+    #[error("Receipt is unknown")]
+    UnknownReceipt(near_primitives::hash::CryptoHash),
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
@@ -43,8 +45,8 @@ impl RpcReceiptRequest {
     }
 }
 
-impl From<Option<near_primitives::views::ReceiptView>> for RpcReceiptResponse {
-    fn from(receipt_view: Option<near_primitives::views::ReceiptView>) -> Self {
+impl From<near_primitives::views::ReceiptView> for RpcReceiptResponse {
+    fn from(receipt_view: near_primitives::views::ReceiptView) -> Self {
         Self { receipt_view }
     }
 }
@@ -53,6 +55,9 @@ impl From<near_client_primitives::types::GetReceiptError> for RpcReceiptError {
     fn from(error: near_client_primitives::types::GetReceiptError) -> Self {
         match error {
             near_client_primitives::types::GetReceiptError::IOError(s) => Self::InternalError(s),
+            near_client_primitives::types::GetReceiptError::UnknownReceipt(hash) => {
+                Self::UnknownReceipt(hash)
+            }
             near_client_primitives::types::GetReceiptError::Unreachable(s) => {
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
@@ -74,6 +79,7 @@ impl From<RpcReceiptError> for crate::errors::RpcError {
     fn from(error: RpcReceiptError) -> Self {
         let error_data = match error {
             RpcReceiptError::InternalError(_) => Some(Value::String(error.to_string())),
+            RpcReceiptError::UnknownReceipt(_) => Some(Value::String(error.to_string())),
             RpcReceiptError::Unreachable(s) => Some(Value::String(s)),
         };
 
