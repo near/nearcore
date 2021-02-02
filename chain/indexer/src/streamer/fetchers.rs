@@ -72,7 +72,7 @@ async fn fetch_single_chunk(
     client: &Addr<near_client::ViewClientActor>,
     get_chunk: near_client::GetChunk,
 ) -> Result<views::ChunkView, FailedToFetchData> {
-    client.send(get_chunk).await?.map_err(FailedToFetchData::String)
+    client.send(get_chunk).await?.map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetch all ExecutionOutcomeWithId for current block
