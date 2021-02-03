@@ -13,7 +13,7 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
-borsh = "0.7.1"
+borsh = "0.8.1"
 wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near" }
 wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }
 pwasm-utils = "0.12"
@@ -26,7 +26,7 @@ near-vm-errors = { path = "../near-vm-errors", version = "2.3.0" }
 near-primitives = { path = "../../core/primitives" }
 log = "0.4"
 near-evm-runner = { path = "../near-evm-runner", version = "2.3.0", optional = true}
-cached = "0.12.0"
+cached = "0.23.0"
 
 [dev-dependencies]
 assert_matches = "1.3"

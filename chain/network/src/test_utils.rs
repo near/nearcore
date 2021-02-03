@@ -6,7 +6,6 @@ use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::{future, FutureExt};
 use log::debug;
 use rand::{thread_rng, RngCore};
-use tokio::time::delay_for;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
@@ -108,7 +107,7 @@ impl PeerInfo {
 /// Useful in tests to prevent them from running forever.
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(delay_for(Duration::from_millis(max_wait_ms)).then(|_| {
+    actix::spawn(tokio::time::sleep(Duration::from_millis(max_wait_ms)).then(|_| {
         panic!("Timeout exceeded.");
         future::ready(())
     }));
@@ -124,7 +123,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 /// use near_network::test_utils::WaitOrTimeout;
 /// use std::time::{Instant, Duration};
 ///
-/// System::run(|| {
+/// System::builder().stop_on_panic(true).run(|| {
 ///     let start = Instant::now();
 ///     WaitOrTimeout::new(Box::new(move |ctx| {
 ///             if start.elapsed() > Duration::from_millis(10) {

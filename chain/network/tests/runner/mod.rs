@@ -600,10 +600,12 @@ impl Runner {
 /// Use to start running the test.
 /// It will fail if it doesn't solve all actions.
 pub fn start_test(runner: Runner) {
-    System::run(|| {
-        runner.start();
-    })
-    .unwrap();
+    System::builder()
+        .stop_on_panic(true)
+        .run(|| {
+            runner.start();
+        })
+        .unwrap();
 }
 
 impl Actor for Runner {

@@ -19,11 +19,10 @@ impl Codec {
     }
 }
 
-impl Encoder for Codec {
-    type Item = Vec<u8>;
+impl Encoder<Vec<u8>> for Codec {
     type Error = Error;
 
-    fn encode(&mut self, item: Self::Item, buf: &mut BytesMut) -> Result<(), Error> {
+    fn encode(&mut self, item: Vec<u8>, buf: &mut BytesMut) -> Result<(), Error> {
         if item.len() > self.max_length as usize {
             Err(Error::new(ErrorKind::InvalidInput, "Input is too long"))
         } else {
