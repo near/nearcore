@@ -37,8 +37,8 @@ dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_forward_chunk_parts = []
 protocol_feature_rectify_inflation = []
 protocol_feature_evm = []
-protocol_feature_block_ordinal = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm", "protocol_feature_block_ordinal"]
+protocol_feature_block_header_v3 = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm", "protocol_feature_block_header_v3"]
 nightly_protocol = []
 
 

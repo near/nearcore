@@ -72,7 +72,7 @@ async fn fetch_single_chunk(
     client: &Addr<near_client::ViewClientActor>,
     get_chunk: near_client::GetChunk,
 ) -> Result<views::ChunkView, FailedToFetchData> {
-    client.send(get_chunk).await?.map_err(FailedToFetchData::String)
+    client.send(get_chunk).await?.map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetch all ExecutionOutcomeWithId for current block
@@ -121,7 +121,10 @@ async fn fetch_receipt_by_id(
     client: &Addr<near_client::ViewClientActor>,
     receipt_id: CryptoHash,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    client.send(near_client::GetReceipt { receipt_id }).await?.map_err(FailedToFetchData::String)
+    client
+        .send(near_client::GetReceipt { receipt_id })
+        .await?
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetches all the chunks by their hashes.

@@ -41,7 +41,11 @@ use near_store::{
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::store::ChainStoreAccess;
 use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::block_header::{Approval, ApprovalInner};
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -324,6 +328,41 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    fn verify_approvals_and_threshold_orphan(
+        &self,
+        epoch_id: &EpochId,
+        doomslug_threshold_mode: DoomslugThresholdMode,
+        prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Signature>],
+    ) -> Result<(), Error> {
+        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
+        let message_to_sign = Approval::get_data_for_sig(
+            &if prev_block_height + 1 == block_height {
+                ApprovalInner::Endorsement(prev_block_hash.clone())
+            } else {
+                ApprovalInner::Skip(prev_block_height)
+            },
+            block_height,
+        );
+
+        for (validator, may_be_signature) in validators.iter().zip(approvals.iter()) {
+            if let Some(signature) = may_be_signature {
+                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
+                    return Err(ErrorKind::InvalidApprovals.into());
+                }
+            }
+        }
+        let stakes = validators.iter().map(|stake| (stake.stake, 0, false)).collect::<Vec<_>>();
+        if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
+            Err(ErrorKind::NotEnoughApprovals.into())
+        } else {
+            Ok(())
+        }
+    }
+
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
@@ -336,7 +375,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<ApprovalStake>, Error> {
+    ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
         let (_cur_epoch, cur_valset, next_epoch) =
             self.get_epoch_and_valset(parent_hash.clone())?;
         let mut validators = self.validators[cur_valset]
@@ -354,6 +393,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     .map(|x| x.get_approval_stake(true)),
             );
         }
+        let validators = validators.into_iter().map(|stake| (stake, false)).collect::<Vec<_>>();
         Ok(validators)
     }
 
@@ -703,6 +743,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
+        _prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         _epoch_id: &EpochId,
         request: &QueryRequest,

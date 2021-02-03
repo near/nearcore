@@ -49,8 +49,8 @@ use crate::{
 };
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt,
-    GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
+    GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt,
+    GetReceiptError, GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
 };
 use near_performance_metrics_macros::perf;
 use near_performance_metrics_macros::perf_with_debug;
@@ -240,6 +240,7 @@ impl ViewClientActor {
                         &state_root,
                         header.height(),
                         header.raw_timestamp(),
+                        header.prev_hash(),
                         header.hash(),
                         header.epoch_id(),
                         &msg.request,
@@ -503,15 +504,14 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
 }
 
 impl Handler<GetChunk> for ViewClientActor {
-    type Result = Result<ChunkView, String>;
+    type Result = Result<ChunkView, GetChunkError>;
 
     #[perf]
     fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
-        let get_chunk_from_block = |block: Result<Block, near_chain::Error>,
+        let get_chunk_from_block = |block: Block,
                                     shard_id: ShardId,
                                     chain: &mut Chain|
          -> Result<ShardChunk, near_chain::Error> {
-            let block = block?;
             let chunk_header = block
                 .chunks()
                 .get(shard_id as usize)
@@ -527,26 +527,29 @@ impl Handler<GetChunk> for ViewClientActor {
                 ))
             })
         };
-        match msg {
-            GetChunk::ChunkHash(chunk_hash) => self.chain.get_chunk(&chunk_hash).map(Clone::clone),
+
+        let chunk = match msg {
+            GetChunk::ChunkHash(chunk_hash) => self.chain.get_chunk(&chunk_hash)?.clone(),
             GetChunk::BlockHash(block_hash, shard_id) => {
-                let block = self.chain.get_block(&block_hash).map(Clone::clone);
-                get_chunk_from_block(block, shard_id, &mut self.chain)
+                let block = self.chain.get_block(&block_hash)?.clone();
+                get_chunk_from_block(block, shard_id, &mut self.chain)?
             }
             GetChunk::Height(height, shard_id) => {
-                let block = self.chain.get_block_by_height(height).map(Clone::clone);
-                get_chunk_from_block(block, shard_id, &mut self.chain)
+                let block = self.chain.get_block_by_height(height)?.clone();
+                get_chunk_from_block(block, shard_id, &mut self.chain)?
             }
-        }
-        .and_then(|chunk| {
-            let chunk_inner = chunk.cloned_header().take_inner();
-            let epoch_id =
-                self.runtime_adapter.get_epoch_id_from_prev_block(&chunk_inner.prev_block_hash)?;
-            self.runtime_adapter
-                .get_chunk_producer(&epoch_id, chunk_inner.height_created, chunk_inner.shard_id)
-                .map(|author| ChunkView::from_author_chunk(author, chunk))
-        })
-        .map_err(|err| err.to_string())
+        };
+
+        let chunk_inner = chunk.cloned_header().take_inner();
+        let epoch_id =
+            self.runtime_adapter.get_epoch_id_from_prev_block(&chunk_inner.prev_block_hash)?;
+        let author = self.runtime_adapter.get_chunk_producer(
+            &epoch_id,
+            chunk_inner.height_created,
+            chunk_inner.shard_id,
+        )?;
+
+        Ok(ChunkView::from_author_chunk(author, chunk))
     }
 }
 
@@ -770,15 +773,14 @@ impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
 }
 
 impl Handler<GetReceipt> for ViewClientActor {
-    type Result = Result<Option<ReceiptView>, String>;
+    type Result = Result<Option<ReceiptView>, GetReceiptError>;
 
     #[perf]
     fn handle(&mut self, msg: GetReceipt, _: &mut Self::Context) -> Self::Result {
         Ok(self
             .chain
             .mut_store()
-            .get_receipt(&msg.receipt_id)
-            .map_err(|e| e.to_string())?
+            .get_receipt(&msg.receipt_id)?
             .map(|receipt| receipt.clone().into()))
     }
 }

@@ -244,8 +244,7 @@ fn sync_state_stake_change() {
                     tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
                 let dir2 =
                     tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
-                let (client1, view_client1, _) =
-                    start_with_config(dir1.path(), near1.clone());
+                let (client1, view_client1, _) = start_with_config(dir1.path(), near1.clone());
 
                 let genesis_hash = *genesis_block(&genesis).hash();
                 let signer =

@@ -52,6 +52,9 @@ pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
 
 pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
+/// Updates the way receipt ID is constructed to use current block hash instead of last block hash
+pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
+
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
     upper: Option<ProtocolVersion>,
@@ -82,17 +85,17 @@ pub enum ProtocolFeature {
     RectifyInflation,
     #[cfg(feature = "protocol_feature_evm")]
     EVM,
-    #[cfg(feature = "protocol_feature_block_ordinal")]
-    BlockOrdinal,
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    BlockHeaderV3,
 }
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 41;
+pub const PROTOCOL_VERSION: ProtocolVersion = 42;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 47;
+pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
@@ -122,8 +125,8 @@ lazy_static! {
             (ProtocolFeature::RectifyInflation, 43),
             #[cfg(feature = "protocol_feature_evm")]
             (ProtocolFeature::EVM, 46),
-            #[cfg(feature = "protocol_feature_block_ordinal")]
-            (ProtocolFeature::BlockOrdinal, 47),
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            (ProtocolFeature::BlockHeaderV3, 48),
         ]
         .into_iter()
         .collect();
@@ -131,7 +134,9 @@ lazy_static! {
             STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
         {
             assert!(
-                PROTOCOL_FEATURES_TO_VERSION_MAPPING[&stable_protocol_feature]
+                *nightly_protocol_features_to_version_mapping
+                    .get(&stable_protocol_feature)
+                    .unwrap_or(&stable_protocol_version)
                     >= *stable_protocol_version
             );
         }

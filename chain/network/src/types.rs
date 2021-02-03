@@ -433,7 +433,6 @@ pub struct Pong {
 #[derive(
     BorshSerialize,
     BorshDeserialize,
-    Serialize,
     PartialEq,
     Eq,
     Clone,
@@ -617,7 +616,7 @@ impl RawRoutedMessage {
     }
 }
 
-#[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessageNoSignature<'a> {
     target: &'a PeerIdOrHash,
     author: &'a PeerId,
@@ -631,7 +630,7 @@ pub struct RoutedMessageNoSignature<'a> {
 /// sender of the package should be banned instead.
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
@@ -727,7 +726,6 @@ impl SyncData {
 #[derive(
     BorshSerialize,
     BorshDeserialize,
-    Serialize,
     PartialEq,
     Eq,
     Clone,
