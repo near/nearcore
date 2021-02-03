@@ -123,7 +123,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 /// use near_network::test_utils::WaitOrTimeout;
 /// use std::time::{Instant, Duration};
 ///
-/// System::run(|| {
+/// System::builder().stop_on_panic(true).run(|| {
 ///     let start = Instant::now();
 ///     WaitOrTimeout::new(Box::new(move |ctx| {
 ///             if start.elapsed() > Duration::from_millis(10) {

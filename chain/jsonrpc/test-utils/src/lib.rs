@@ -50,16 +50,18 @@ macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
-        System::run(|| {
-            let (_view_client_addr, addr) = test_utils::start_all($node_type);
+        System::builder()
+            .stop_on_panic(true)
+            .run(|| {
+                let (_view_client_addr, addr) = test_utils::start_all($node_type);
 
-            let $client = new_client(&format!("http://{}", addr));
+                let $client = new_client(&format!("http://{}", addr));
 
-            actix::spawn(async move {
-                $block.await;
-                System::current().stop();
-            });
-        })
-        .unwrap();
+                actix::spawn(async move {
+                    $block.await;
+                    System::current().stop();
+                });
+            })
+            .unwrap();
     };
 }

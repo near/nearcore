@@ -17,7 +17,6 @@ fn run_nodes(
     let mut rng = thread_rng();
     let genesis_height = rng.gen_range(0, 10000);
     System::builder()
-        .name("NEAR")
         .stop_on_panic(true)
         .run(move || {
             let dirs = (0..num_nodes)

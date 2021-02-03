@@ -44,7 +44,6 @@ fn test_tx_propagation() {
     init_integration_logger();
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 4;
@@ -138,7 +137,6 @@ fn test_tx_propagation_through_rpc() {
     init_integration_logger();
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 4;
@@ -216,7 +214,6 @@ fn test_tx_status_with_light_client() {
     init_integration_logger();
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 4;
@@ -297,7 +294,6 @@ fn test_tx_status_with_light_client1() {
     init_integration_logger();
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 4;
@@ -376,7 +372,6 @@ fn test_rpc_routing() {
     init_integration_logger();
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 4;
@@ -432,7 +427,6 @@ fn test_rpc_routing_error() {
     init_integration_logger();
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 4;
@@ -484,7 +478,6 @@ fn test_get_validator_info_rpc() {
     init_integration_logger();
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 1;
@@ -564,7 +557,6 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
     init_integration_logger();
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 2;

@@ -90,7 +90,6 @@ fn init_test_staking(
 fn test_stake_nodes() {
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 2;
@@ -172,7 +171,6 @@ fn test_stake_nodes() {
 fn test_validator_kickout() {
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 4;
@@ -344,7 +342,6 @@ fn test_validator_kickout() {
 fn test_validator_join() {
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 4;
@@ -512,7 +509,6 @@ fn test_validator_join() {
 fn test_inflation() {
     heavy_test(|| {
         System::builder()
-            .name("NEAR")
             .stop_on_panic(true)
             .run(move || {
                 let num_nodes = 1;
