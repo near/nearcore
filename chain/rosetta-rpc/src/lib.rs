@@ -2,7 +2,7 @@ use std::convert::{AsRef, TryInto};
 use std::sync::Arc;
 
 use actix::Addr;
-use actix_cors::{Cors, CorsFactory};
+use actix_cors::Cors;
 use actix_web::{App, HttpServer, ResponseError};
 use paperclip::actix::{
     api_v2_operation,
@@ -868,8 +868,8 @@ async fn construction_submit(
     }
 }
 
-fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
-    let mut cors = Cors::new();
+fn get_cors(cors_allowed_origins: &[String]) -> Cors {
+    let mut cors = Cors::default();
     if cors_allowed_origins != ["*".to_string()] {
         for origin in cors_allowed_origins {
             cors = cors.allowed_origin(&origin);
@@ -882,7 +882,6 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
         ])
         .allowed_header(actix_web::http::header::CONTENT_TYPE)
         .max_age(3600)
-        .finish()
 }
 
 pub fn start_rosetta_rpc(

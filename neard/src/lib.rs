@@ -214,7 +214,6 @@ pub fn start_with_config(
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<Arbiter>) {
     let store = init_and_migrate_store(home_dir, &config);
-    near_actix_utils::init_stop_on_panic();
 
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,

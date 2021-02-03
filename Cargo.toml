@@ -12,7 +12,6 @@ members = [
     "core/runtime-configs",
     "core/store",
     "core/metrics",
-    "utils/actix",
     "runtime/near-evm-runner",
     "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
@@ -48,23 +47,13 @@ members = [
     "tools/delay_detector"
 ]
 
-[dependencies]
-# pins this version to fix https://github.com/actix/actix-net/issues/129
-actix-rt = "=1.1.1"
-openssl-probe = { version = "0.1.2" }
-# pin syn to fix https://github.com/nushell/nushell/pull/2868
-syn = "=1.0.57"
-
 [dev-dependencies]
-actix = "0.9"
-lazy_static = "1.4"
-log = "^0.4.6"
+# Pin dependency to avoid compilation errors
+actix-rt = "=2.0.0-beta.2"
+
 rand = "0.7"
-serde_json = "1"
-futures = "0.3"
 
 near-logger-utils = { path = "./test-utils/logger" }
-near-actix-utils = { path = "./utils/actix" }
 near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
@@ -80,6 +69,9 @@ near-network = { path = "./chain/network" }
 neard = { path = "./neard"}
 
 testlib = { path = "./test-utils/testlib" }
+
+[replace]
+"ethereum-types:0.10.0" = { path = "./patches/ethereum-types-0.10.0-to-0.11.0" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

@@ -52,21 +52,24 @@ impl Node for ProcessNode {
                 self.state = ProcessNodeState::Running(child);
                 let addr = self.config.rpc_config.addr.clone();
                 thread::sleep(Duration::from_secs(3));
-                let system = System::new("actix");
-                WaitOrTimeout::new(
-                    Box::new(move |_| {
-                        actix::spawn(
-                            new_client(&format!("http://{}", addr))
-                                .status()
-                                .map_ok(|_| System::current().stop())
-                                .then(|_| futures::future::ready(())),
+                System::builder()
+                    .stop_on_panic(true)
+                    .run(move || {
+                        WaitOrTimeout::new(
+                            Box::new(move |_| {
+                                actix::spawn(
+                                    new_client(&format!("http://{}", addr))
+                                        .status()
+                                        .map_ok(|_| System::current().stop())
+                                        .then(|_| futures::future::ready(())),
+                                )
+                            }),
+                            1000,
+                            30000,
                         )
-                    }),
-                    1000,
-                    30000,
-                )
-                .start();
-                system.run().unwrap();
+                        .start();
+                    })
+                    .unwrap();
             }
             ProcessNodeState::Running(_) => panic!("Node is already running"),
         }

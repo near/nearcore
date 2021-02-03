@@ -8,7 +8,7 @@ repository = "https://github.com/nearprotocol/nearcore"
 homepage = "https://github.com/nearprotocol/nearcore"
 
 [dependencies]
-borsh = "0.7.1"
+borsh = "0.8.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 hex = "0.4"
@@ -16,22 +16,22 @@ byteorder = "1.0"
 num-bigint = { version = "0.3", default-features = false }
 num-traits = "0.2.12"
 enum-primitive-derive = "0.2"
-itertools = "0.9.0"
+itertools = "0.10.0"
 
 sha2 = ">=0.8,<0.10"
 sha3 = "0.9"
-rlp = "0.4.2"
-keccak-hash = "0.4.1"
+rlp = "0.5.0"
+keccak-hash = "0.7.0"
 ripemd160 = "0.9.0"
 libsecp256k1 = "0.3.5"
 
-evm = { git = "https://github.com/openethereum/openethereum", rev = "v2.7.2" }
-vm = { git = "https://github.com/openethereum/openethereum", rev = "v2.7.2" }
+evm = { git = "https://github.com/near/openethereum", branch = "v2.7.2-updated-dependencies" }
+vm = { git = "https://github.com/near/openethereum", branch = "v2.7.2-updated-dependencies" }
 lunarity-lexer = "0.2"
 bn = { git = "https://github.com/near/bn", rev = "43953916ed1a314b78320771734f36af77993dd9" }
 parity-bytes = "0.1.0"
-ethereum-types = "0.8.0"
-ethabi = "11.0.0"
+ethereum-types = "0.11.0"
+ethabi = "13.0.0"
 
 near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }
@@ -42,9 +42,9 @@ derivative = "2.1.1"
 
 [dev-dependencies]
 ethabi-contract = "11.0.0"
-ethabi-derive = "11.0.0"
+ethabi-derive = "13.0.0"
 lazy_static = "1.4"
-lazy-static-include = "2.2.2"
+lazy-static-include = "3"
 criterion = "0.3.0"
 
 near-crypto = { path = "../../core/crypto" }

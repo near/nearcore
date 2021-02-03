@@ -236,7 +236,7 @@ impl JsonRpcClient {
 }
 
 fn create_client() -> Client {
-    Client::build()
+    Client::builder()
         .timeout(CONNECT_TIMEOUT)
         .connector(
             Connector::new()

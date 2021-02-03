@@ -5,5 +5,4 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-near-actix-utils = { path = "../../utils/actix" }
 tracing-subscriber = "0.2.4"

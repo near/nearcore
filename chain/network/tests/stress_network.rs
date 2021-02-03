@@ -67,37 +67,39 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
 fn stress_test() {
     init_test_logger_allow_panic();
 
-    System::run(|| {
-        let num_nodes = 7;
-        let ports: Vec<_> = (0..num_nodes).map(|_| open_port()).collect();
+    System::builder()
+        .stop_on_panic(true)
+        .run(|| {
+            let num_nodes = 7;
+            let ports: Vec<_> = (0..num_nodes).map(|_| open_port()).collect();
 
-        let boot_nodes: Vec<_> =
-            ports.iter().enumerate().map(|(ix, port)| (format!("test{}", ix), *port)).collect();
+            let boot_nodes: Vec<_> =
+                ports.iter().enumerate().map(|(ix, port)| (format!("test{}", ix), *port)).collect();
 
-        let mut pms: Vec<_> = (0..num_nodes)
-            .map(|ix| {
-                Arc::new(
-                    make_peer_manager(
-                        format!("test{}", ix).as_str(),
-                        ports[ix],
-                        boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
+            let mut pms: Vec<_> = (0..num_nodes)
+                .map(|ix| {
+                    Arc::new(
+                        make_peer_manager(
+                            format!("test{}", ix).as_str(),
+                            ports[ix],
+                            boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
+                        )
+                        .start(),
                     )
-                    .start(),
-                )
-            })
-            .collect();
+                })
+                .collect();
 
-        pms[0].do_send(StopSignal::should_panic());
+            pms[0].do_send(StopSignal::should_panic());
 
-        // States:
-        // 0 -> Check other nodes health.
-        // 1 -> Spawn node0 and schedule crash.
-        // 2 -> Timeout.
-        let state = Arc::new(AtomicUsize::new(0));
-        let flags: Vec<_> = (0..num_nodes).map(|_| Arc::new(AtomicBool::new(false))).collect();
-        let round = Arc::new(AtomicUsize::new(0));
+            // States:
+            // 0 -> Check other nodes health.
+            // 1 -> Spawn node0 and schedule crash.
+            // 2 -> Timeout.
+            let state = Arc::new(AtomicUsize::new(0));
+            let flags: Vec<_> = (0..num_nodes).map(|_| Arc::new(AtomicBool::new(false))).collect();
+            let round = Arc::new(AtomicUsize::new(0));
 
-        WaitOrTimeout::new(
+            WaitOrTimeout::new(
             Box::new(move |ctx| {
                 let s = state.load(Ordering::Relaxed);
                 if s == 0 {
@@ -157,6 +159,6 @@ fn stress_test() {
             10000,
         )
         .start();
-    })
-    .unwrap();
+        })
+        .unwrap();
 }
