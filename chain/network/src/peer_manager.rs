@@ -570,7 +570,7 @@ impl PeerManagerActor {
         let ProcessEdgeResult { new_edge, schedule_computation } =
             self.routing_table.process_edges(edges);
 
-        if self.scheduled_routing_table_update == false {
+        if !self.scheduled_routing_table_update {
             if let Some(duration) = schedule_computation {
                 self.scheduled_routing_table_update = true;
                 near_performance_metrics::actix::run_later(
