@@ -427,11 +427,11 @@ pub struct GetReceipt {
 pub enum GetReceiptError {
     #[error("IO Error: {0}")]
     IOError(String),
+    #[error("Receipt with id {0} has never been observed on this node")]
+    UnknownReceipt(near_primitives::hash::CryptoHash),
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
-    #[error("Receipt {0} is unknown")]
-    UnknownReceipt(near_primitives::hash::CryptoHash),
     // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
     #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
     Unreachable(String),

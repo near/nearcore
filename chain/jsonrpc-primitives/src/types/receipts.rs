@@ -22,7 +22,7 @@ pub struct RpcReceiptResponse {
 pub enum RpcReceiptError {
     #[error("The node reached its limits. Try again later. More details: {0}")]
     InternalError(String),
-    #[error("Receipt is unknown")]
+    #[error("Receipt with id {0} has never been observed on this node")]
     UnknownReceipt(near_primitives::hash::CryptoHash),
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
@@ -42,12 +42,6 @@ impl RpcReceiptRequest {
     pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         let receipt_reference = crate::utils::parse_params::<ReceiptReference>(value)?;
         Ok(Self { receipt_reference })
-    }
-}
-
-impl From<near_primitives::views::ReceiptView> for RpcReceiptResponse {
-    fn from(receipt_view: near_primitives::views::ReceiptView) -> Self {
-        Self { receipt_view }
     }
 }
 
@@ -77,11 +71,7 @@ impl From<actix::MailboxError> for RpcReceiptError {
 
 impl From<RpcReceiptError> for crate::errors::RpcError {
     fn from(error: RpcReceiptError) -> Self {
-        let error_data = match error {
-            RpcReceiptError::InternalError(_) => Some(Value::String(error.to_string())),
-            RpcReceiptError::UnknownReceipt(_) => Some(Value::String(error.to_string())),
-            RpcReceiptError::Unreachable(s) => Some(Value::String(s)),
-        };
+        let error_data = Some(Value::String(error.to_string()));
 
         Self::new(-32_000, "Server error".to_string(), error_data)
     }

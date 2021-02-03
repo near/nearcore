@@ -672,7 +672,9 @@ impl JsonRpcHandler {
             .send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
             .await??
         {
-            Some(receip_view) => Ok(receip_view.into()),
+            Some(receipt_view) => {
+                Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptResponse { receipt_view })
+            }
             None => Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt(
                 request_data.receipt_reference.receipt_id,
             )),
