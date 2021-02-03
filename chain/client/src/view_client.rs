@@ -240,6 +240,7 @@ impl ViewClientActor {
                         &state_root,
                         header.height(),
                         header.raw_timestamp(),
+                        header.prev_hash(),
                         header.hash(),
                         header.epoch_id(),
                         &msg.request,
