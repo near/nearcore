@@ -755,10 +755,9 @@ impl RoutingTable {
     pub fn get_raw_graph(&self) -> HashMap<PeerId, HashSet<PeerId>> {
         let mut result = HashMap::with_capacity(self.raw_graph.adjacency.len());
         for (key, neighbors) in self.raw_graph.adjacency.iter() {
-            let mut tmp: HashSet<PeerId> = HashSet::with_capacity(neighbors.len());
-            for node in neighbors.iter() {
-                tmp.insert(self.raw_graph.id2p.get(node).cloned().unwrap());
-            }
+            let tmp = neighbors.iter()
+                .map(|node| self.raw_graph.id2p[node].clone())
+                .collect::<HashSet<_>>();
             let key = self.raw_graph.id2p.get(&key).cloned().unwrap();
             result.insert(key, tmp);
         }
