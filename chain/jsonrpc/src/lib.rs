@@ -647,7 +647,9 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::blocks::RpcBlockResponse,
         near_jsonrpc_primitives::types::blocks::RpcBlockError,
     > {
-        Ok(self.view_client_addr.send(GetBlock(request_data.block_reference.into())).await??.into())
+        let block_view =
+            self.view_client_addr.send(GetBlock(request_data.block_reference.into())).await??;
+        Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
     async fn chunk(
@@ -657,7 +659,9 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::chunks::RpcChunkResponse,
         near_jsonrpc_primitives::types::chunks::RpcChunkError,
     > {
-        Ok(self.view_client_addr.send(GetChunk::from(request_data.chunk_reference)).await??.into())
+        let chunk_view =
+            self.view_client_addr.send(GetChunk::from(request_data.chunk_reference)).await??;
+        Ok(near_jsonrpc_primitives::types::chunks::RpcChunkResponse { chunk_view })
     }
 
     async fn receipt(
