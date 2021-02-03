@@ -63,7 +63,7 @@ impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
     pub fn new(indexer_config: IndexerConfig) -> Self {
         let near_config = neard::load_config(&indexer_config.home_dir);
-        let system = System::new("NEAR Indexer");
+        let system = System::builder().stop_on_panic(true).name("NEAR Indexer").build();
         neard::genesis_validate::validate_genesis(&near_config.genesis);
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),

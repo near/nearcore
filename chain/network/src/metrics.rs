@@ -124,7 +124,7 @@ impl NetworkMetrics {
         }
     }
 
-    pub fn inc_by(&self, message_name: &str, value: i64) {
+    pub fn inc_by(&self, message_name: &str, value: u64) {
         if let Some(counter) = self.peer_messages.get(message_name) {
             inc_counter_by_opt(counter.as_ref(), value);
         }

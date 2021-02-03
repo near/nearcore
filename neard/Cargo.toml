@@ -7,8 +7,8 @@ default-run = "neard"
 
 [dependencies]
 jemallocator = { version = "0.3"  }
-actix = "0.9"
-actix-web = { version = "2", features = [ "openssl" ] }
+actix = "0.11.0-beta.1"
+actix-web = { version = "4.0.0-beta.1", features = [ "openssl" ] }
 byteorder = "1.2"
 easy-ext = "0.2"
 rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
@@ -21,14 +21,13 @@ rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
 lazy_static = "1.4"
-dirs = "2.0.2"
-borsh = "0.7.1"
+dirs = "3"
+borsh = "0.8.1"
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
-num-rational = { version = "0.2.4", features = ["serde"] }
+num-rational = { version = "0.3", features = ["serde"] }
 openssl-probe = { version = "0.1.2" }
 
-near-actix-utils = { path = "../utils/actix" }
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
@@ -53,7 +52,7 @@ delay-detector = { path = "../tools/delay_detector", optional = true }
 near-logger-utils = { path = "../test-utils/logger" }
 tempfile = "3"
 testlib = { path = "../test-utils/testlib" }
-primitive-types = "0.7.2"
+primitive-types = "0.9"
 
 [features]
 performance_stats = ["near-performance-metrics/performance_stats"]

@@ -14,6 +14,7 @@ use crate::transaction::SignedTransaction;
 use crate::types::{AccountId, CompiledContractCache, NumSeats, NumShards, ShardId};
 use crate::version::{
     ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
+    CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
 };
 use std::mem::size_of;
 use std::ops::Deref;
@@ -96,9 +97,16 @@ pub fn get_block_shard_id_rev(
 pub fn create_receipt_id_from_transaction(
     protocol_version: ProtocolVersion,
     signed_transaction: &SignedTransaction,
+    prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
 ) -> CryptoHash {
-    create_hash_upgradable(protocol_version, &signed_transaction.get_hash(), &block_hash, 0)
+    create_hash_upgradable(
+        protocol_version,
+        &signed_transaction.get_hash(),
+        &prev_block_hash,
+        &block_hash,
+        0,
+    )
 }
 
 /// Creates a new Receipt ID from a given receipt, a block hash and a new receipt index.
@@ -106,10 +114,17 @@ pub fn create_receipt_id_from_transaction(
 pub fn create_receipt_id_from_receipt(
     protocol_version: ProtocolVersion,
     receipt: &Receipt,
+    prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     receipt_index: usize,
 ) -> CryptoHash {
-    create_hash_upgradable(protocol_version, &receipt.receipt_id, &block_hash, receipt_index as u64)
+    create_hash_upgradable(
+        protocol_version,
+        &receipt.receipt_id,
+        &prev_block_hash,
+        &block_hash,
+        receipt_index as u64,
+    )
 }
 
 /// Creates a new action_hash from a given receipt, a block hash and an action index.
@@ -117,13 +132,20 @@ pub fn create_receipt_id_from_receipt(
 pub fn create_action_hash(
     protocol_version: ProtocolVersion,
     receipt: &Receipt,
+    prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     action_index: usize,
 ) -> CryptoHash {
     // Action hash uses the same input as a new receipt ID, so to avoid hash conflicts we use the
     // salt starting from the `u64` going backward.
     let salt = u64::max_value() - action_index as u64;
-    create_hash_upgradable(protocol_version, &receipt.receipt_id, &block_hash, salt)
+    create_hash_upgradable(
+        protocol_version,
+        &receipt.receipt_id,
+        &prev_block_hash,
+        &block_hash,
+        salt,
+    )
 }
 
 /// Creates a new `data_id` from a given action hash, a block hash and a data index.
@@ -134,7 +156,13 @@ pub fn create_data_id(
     block_hash: &CryptoHash,
     data_index: usize,
 ) -> CryptoHash {
-    create_hash_upgradable(protocol_version, &action_hash, &block_hash, data_index as u64)
+    create_hash_upgradable(
+        protocol_version,
+        &action_hash,
+        &block_hash,
+        &block_hash,
+        data_index as u64,
+    )
 }
 
 /// Creates a unique random seed to be provided to `VMContext` from a give `action_hash` and
@@ -170,6 +198,7 @@ pub fn create_random_seed(
 fn create_hash_upgradable(
     protocol_version: ProtocolVersion,
     base: &CryptoHash,
+    extra_hash_old: &CryptoHash,
     extra_hash: &CryptoHash,
     salt: u64,
 ) -> CryptoHash {
@@ -180,7 +209,13 @@ fn create_hash_upgradable(
             size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>(),
         );
         bytes.extend_from_slice(base.as_ref());
-        bytes.extend_from_slice(extra_hash.as_ref());
+        let extra_hash_used =
+            if protocol_version < CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION {
+                extra_hash_old
+            } else {
+                extra_hash
+            };
+        bytes.extend_from_slice(extra_hash_used.as_ref());
         bytes.extend(index_to_bytes(salt));
         hash(&bytes)
     }
@@ -368,15 +403,71 @@ mod tests {
         let salt = 3;
         assert_eq!(
             create_nonce_with_nonce(&base, salt),
-            create_hash_upgradable(CREATE_HASH_PROTOCOL_VERSION - 1, &base, &extra_base, salt)
+            create_hash_upgradable(
+                CREATE_HASH_PROTOCOL_VERSION - 1,
+                &base,
+                &extra_base,
+                &extra_base,
+                salt,
+            )
         );
         assert_ne!(
             create_nonce_with_nonce(&base, salt),
-            create_hash_upgradable(CREATE_HASH_PROTOCOL_VERSION, &base, &extra_base, salt)
+            create_hash_upgradable(
+                CREATE_HASH_PROTOCOL_VERSION,
+                &base,
+                &extra_base,
+                &extra_base,
+                salt,
+            )
         );
         assert_ne!(
-            create_hash_upgradable(CREATE_HASH_PROTOCOL_VERSION, &base, &extra_base, salt),
-            create_hash_upgradable(CREATE_HASH_PROTOCOL_VERSION, &base, &other_extra_base, salt)
+            create_hash_upgradable(
+                CREATE_HASH_PROTOCOL_VERSION,
+                &base,
+                &extra_base,
+                &extra_base,
+                salt,
+            ),
+            create_hash_upgradable(
+                CREATE_HASH_PROTOCOL_VERSION,
+                &base,
+                &other_extra_base,
+                &other_extra_base,
+                salt,
+            )
+        );
+        assert_ne!(
+            create_hash_upgradable(
+                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION - 1,
+                &base,
+                &extra_base,
+                &other_extra_base,
+                salt,
+            ),
+            create_hash_upgradable(
+                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
+                &base,
+                &extra_base,
+                &other_extra_base,
+                salt,
+            )
+        );
+        assert_eq!(
+            create_hash_upgradable(
+                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
+                &base,
+                &extra_base,
+                &other_extra_base,
+                salt,
+            ),
+            create_hash_upgradable(
+                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
+                &base,
+                &other_extra_base,
+                &other_extra_base,
+                salt
+            )
         );
     }
 }

@@ -538,7 +538,7 @@ impl RoutingTable {
         }
 
         // Update metrics after edge update
-        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as i64);
+        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as u64);
         near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges as i64);
 
         ProcessEdgeResult { new_edge, schedule_computation: new_schedule }

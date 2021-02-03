@@ -185,7 +185,7 @@ pub fn inc_counter_opt(counter: Option<&IntCounter>) {
     }
 }
 
-pub fn get_counter(counter: &Result<IntCounter>) -> std::result::Result<i64, String> {
+pub fn get_counter(counter: &Result<IntCounter>) -> std::result::Result<u64, String> {
     if let Ok(counter) = counter {
         Ok(counter.get())
     } else {
@@ -193,7 +193,7 @@ pub fn get_counter(counter: &Result<IntCounter>) -> std::result::Result<i64, Str
     }
 }
 
-pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
+pub fn inc_counter_by(counter: &Result<IntCounter>, value: u64) {
     if let Ok(counter) = counter {
         counter.inc_by(value);
     } else {
@@ -201,7 +201,7 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
     }
 }
 
-pub fn inc_counter_by_opt(counter: Option<&IntCounter>, value: i64) {
+pub fn inc_counter_by_opt(counter: Option<&IntCounter>, value: u64) {
     if let Some(counter) = counter {
         counter.inc_by(value);
     }
