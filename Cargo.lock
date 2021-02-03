@@ -3506,8 +3506,8 @@ dependencies = [
 
 [[package]]
 name = "near-rust-allocator-proxy"
-version = "0.2.1"
-source = "git+https://github.com/near/near-memory-tracker.git?tag=0.2.4#abfa0a2dab1f67aa2dd77d646041ec0030b77356"
+version = "0.2.6"
+source = "git+https://github.com/near/near-memory-tracker.git?tag=v0.2.6#567647c4987d4f04910ab47e00f427c0c1bf3bf6"
 dependencies = [
  "arr_macro",
  "backtrace",
