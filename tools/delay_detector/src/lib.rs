@@ -1,5 +1,6 @@
 use log::{info, warn};
 use std::borrow::Cow;
+use std::cmp::Reverse;
 use std::time::{Duration, Instant};
 
 pub struct DelayDetector<'a> {
@@ -37,9 +38,9 @@ impl<'a> DelayDetector<'a> {
 
 impl<'a> Drop for DelayDetector<'a> {
     fn drop(&mut self) {
-        let elapsed = Instant::now() - self.started;
+        let elapsed = self.started.elapsed();
         let long_delay = self.min_delay * 10;
-        if elapsed > self.min_delay && elapsed <= long_delay {
+        if self.min_delay < elapsed && elapsed <= long_delay {
             info!(target: "delay_detector", "Took {:?} processing {}", elapsed, self.msg);
         }
         if elapsed > long_delay {
@@ -47,7 +48,7 @@ impl<'a> Drop for DelayDetector<'a> {
             if self.last_snapshot.is_some() {
                 self.snapshot("end");
             }
-            self.snapshots.sort_by(|a, b| b.1.cmp(&a.1));
+            self.snapshots.sort_by_key(|(_, d)| Reverse(*d));
             for ((s1, s2), duration) in self.snapshots.drain(..) {
                 info!(target: "delay_detector", "Took {:?} between {} and {}", duration, s1, s2);
             }
