@@ -87,6 +87,9 @@ pub enum ProtocolFeature {
     EVM,
     #[cfg(feature = "protocol_feature_block_header_v3")]
     BlockHeaderV3,
+    /// Decreases the storage cost of 1 byte by 10X.
+    #[cfg(feature = "protocol_feature_lower_storage_cost")]
+    LowerStorageCost,
 }
 
 /// Current latest stable version of the protocol.
@@ -95,12 +98,16 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 42;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 48;
+pub const PROTOCOL_VERSION: ProtocolVersion = 104;
 
 lazy_static! {
-    static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
-        /* add mapping here */
-    ].into_iter().collect();
+    static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
+        vec![
+            #[cfg(feature = "protocol_feature_lower_storage_cost")]
+            (ProtocolFeature::LowerStorageCost, 42),
+        ]
+        .into_iter()
+        .collect();
 }
 
 #[cfg(not(feature = "nightly_protocol"))]
@@ -115,18 +122,18 @@ lazy_static! {
 #[cfg(feature = "nightly_protocol")]
 lazy_static! {
     pub static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = {
-        let nightly_protocol_features_to_version_mapping: HashMap<
+        let mut nightly_protocol_features_to_version_mapping: HashMap<
             ProtocolFeature,
             ProtocolVersion,
         > = vec![
             #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-            (ProtocolFeature::ForwardChunkParts, 42),
+            (ProtocolFeature::ForwardChunkParts, 101),
             #[cfg(feature = "protocol_feature_rectify_inflation")]
-            (ProtocolFeature::RectifyInflation, 43),
+            (ProtocolFeature::RectifyInflation, 102),
             #[cfg(feature = "protocol_feature_evm")]
-            (ProtocolFeature::EVM, 46),
+            (ProtocolFeature::EVM, 103),
             #[cfg(feature = "protocol_feature_block_header_v3")]
-            (ProtocolFeature::BlockHeaderV3, 48),
+            (ProtocolFeature::BlockHeaderV3, 104),
         ]
         .into_iter()
         .collect();
@@ -140,6 +147,8 @@ lazy_static! {
                     >= *stable_protocol_version
             );
         }
+        nightly_protocol_features_to_version_mapping
+            .extend(STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter());
         nightly_protocol_features_to_version_mapping
     };
 }
