@@ -427,14 +427,14 @@ impl RoutingTable {
     ) -> Result<Vec<Edge>, ()> {
         let enc_nonce = index_to_bytes(nonce);
 
-        let result = match self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref()) {
+        let res = match self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref()) {
             Ok(Some(edges)) => Ok(edges),
             _ => Err(()),
         };
 
         update.delete(ColComponentEdges, enc_nonce.as_ref());
 
-        result
+        res
     }
 
     /// If peer_id is not on memory check if it is on disk in bring it back on memory.
@@ -820,7 +820,7 @@ impl Graph {
         let entry = self.adjacency.entry(id).or_default();
 
         if entry.is_empty() && id != 0 {
-            let peer = self.id2p.get(&id).take().cloned().unwrap();
+            let peer = self.id2p.remove(&id).unwrap();
             self.p2id.remove(&peer);
             self.unused.insert(id);
             self.adjacency.remove(&id);
