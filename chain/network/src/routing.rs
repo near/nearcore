@@ -923,8 +923,8 @@ impl Graph {
 
     fn compute_result(
         &self,
-        routes: &mut Vec<u128>,
-        distance: &Vec<i32>,
+        routes: &[u128],
+        distance: &[i32],
     ) -> HashMap<PeerId, Vec<PeerId>> {
         let source_id = 0;
         let mut result = HashMap::with_capacity(routes.len());
