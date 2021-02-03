@@ -939,7 +939,7 @@ impl Graph {
 
                 for (id, neighbor) in neighbors.iter().enumerate().take(128) {
                     if (cur_route & (1u128 << id)) != 0 {
-                        peer_set.push(self.id2p.get(neighbor).unwrap().clone());
+                        peer_set.push(self.id2p[neighbor].clone());
                     };
                 }
                 if !peer_set.is_empty() {
