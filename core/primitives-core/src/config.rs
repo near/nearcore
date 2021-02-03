@@ -1,7 +1,10 @@
 use crate::types::Gas;
-use serde::{export::fmt, Deserialize, Serialize};
+
+use serde::{Deserialize, Serialize};
+use core::fmt;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+
 
 #[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
