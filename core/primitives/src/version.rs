@@ -52,6 +52,9 @@ pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
 
 pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
+/// Updates the way receipt ID is constructed to use current block hash instead of last block hash
+pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
+
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
     upper: Option<ProtocolVersion>,
@@ -88,7 +91,7 @@ pub enum ProtocolFeature {
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 41;
+pub const PROTOCOL_VERSION: ProtocolVersion = 42;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
