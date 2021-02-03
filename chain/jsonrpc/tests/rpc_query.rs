@@ -1,11 +1,10 @@
 use std::convert::TryFrom;
 
 use actix::{Actor, System};
-use borsh::BorshSerialize;
 use futures::{future, FutureExt};
 use serde_json::json;
 
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
+use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
 use near_jsonrpc_primitives::rpc::RpcQueryRequest;
@@ -14,10 +13,8 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::to_base64;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
-use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[macro_use]
 pub mod test_utils;
