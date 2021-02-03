@@ -939,7 +939,7 @@ impl Graph {
                 let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
 
                 for (id, neighbor) in neighbors.iter().enumerate().take(128) {
-                    if (cur_route & ((1 as u128) << id)) != 0 {
+                    if (cur_route & (1u128 << id)) != 0 {
                         peer_set.push(self.id2p.get(neighbor).unwrap().clone());
                     };
                 }
