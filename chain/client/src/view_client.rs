@@ -50,7 +50,7 @@ use crate::{
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
     GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt,
-    GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
+    GetReceiptError, GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
 };
 use near_performance_metrics_macros::perf;
 use near_performance_metrics_macros::perf_with_debug;
@@ -772,15 +772,14 @@ impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
 }
 
 impl Handler<GetReceipt> for ViewClientActor {
-    type Result = Result<Option<ReceiptView>, String>;
+    type Result = Result<Option<ReceiptView>, GetReceiptError>;
 
     #[perf]
     fn handle(&mut self, msg: GetReceipt, _: &mut Self::Context) -> Self::Result {
         Ok(self
             .chain
             .mut_store()
-            .get_receipt(&msg.receipt_id)
-            .map_err(|e| e.to_string())?
+            .get_receipt(&msg.receipt_id)?
             .map(|receipt| receipt.clone().into()))
     }
 }
