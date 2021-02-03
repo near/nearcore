@@ -943,7 +943,7 @@ impl Graph {
                         peer_set.push(self.id2p.get(neighbor).unwrap().clone());
                     };
                 }
-                if peer_set.len() != 0 {
+                if !peer_set.is_empty() {
                     result.insert(self.id2p.get(&key).unwrap().clone(), peer_set);
                 }
             }
