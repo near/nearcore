@@ -2,7 +2,8 @@
 
 /chain/ @SkidanovAlex @bowenwang1996
 /chain/network/ @mfornet @bowenwang1996
-/chain/jsonrpc/ @frol @bowenwang1996
+/chain/jsonrpc/ @frol @khorolets
+/chain/jsonrpc-primitives/ @frol @khorolets
 /chain/indexer/ @khorolets @frol
 /chain/rosetta-rpc/ @frol
 
