@@ -930,7 +930,6 @@ impl Graph {
         let mut result = HashMap::with_capacity(routes.len());
 
         if let Some(neighbors) = self.adjacency.get(&source_id) {
-            let neighbors = Vec::from_iter(neighbors.into_iter());
             for (key, cur_route) in routes.iter().enumerate() {
                 if key == source_id || distance[key] == -1 {
                     continue;
