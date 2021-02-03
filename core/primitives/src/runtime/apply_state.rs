@@ -12,7 +12,9 @@ pub struct ApplyState {
     // TODO #1903 pub block_height: BlockHeight,
     pub block_index: BlockHeight,
     /// Prev block hash
-    pub last_block_hash: CryptoHash,
+    pub prev_block_hash: CryptoHash,
+    /// Current block hash
+    pub block_hash: CryptoHash,
     /// Current epoch id
     pub epoch_id: EpochId,
     /// Current epoch height
