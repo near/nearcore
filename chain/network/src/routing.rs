@@ -882,6 +882,8 @@ impl Graph {
     /// `sources` which belong to the shortest path from `source` to `u`. Nodes that are
     /// not connected to `source` will not appear in the result.
     pub fn calculate_distance(&self) -> HashMap<PeerId, Vec<PeerId>> {
+        // TODO add removal of unreachable nodes
+
         let mut queue = VecDeque::new();
 
         let nodes = self.unused.len() + self.id2p.len();
