@@ -939,7 +939,7 @@ impl Graph {
                     };
                 }
                 if !peer_set.is_empty() {
-                    result.insert(self.id2p.get(&key).unwrap().clone(), peer_set);
+                    result.insert(self.id2p[key].clone(), peer_set);
                 }
             }
         }
