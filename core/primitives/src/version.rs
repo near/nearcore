@@ -134,7 +134,9 @@ lazy_static! {
             STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
         {
             assert!(
-                PROTOCOL_FEATURES_TO_VERSION_MAPPING[&stable_protocol_feature]
+                *nightly_protocol_features_to_version_mapping
+                    .get(&stable_protocol_feature)
+                    .unwrap_or(&stable_protocol_version)
                     >= *stable_protocol_version
             );
         }
