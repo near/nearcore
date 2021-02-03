@@ -5,19 +5,17 @@ use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde::Deserialize;
 use serde::Serialize;
 
-use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{
+use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::message::{from_slice, Message};
+use near_jsonrpc_primitives::rpc::{
     RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
 };
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
     QueryResponse, StatusResponse, ValidatorStakeView,
 };
-
-use crate::message::{from_slice, Message, RpcError};
-
-pub mod message;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
