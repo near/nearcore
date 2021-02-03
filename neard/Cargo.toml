@@ -77,3 +77,6 @@ name = "neard"
 [[bin]]
 path = "src/../src/main.rs"
 name = "near"
+
+[package.metadata.workspaces]
+independent = true

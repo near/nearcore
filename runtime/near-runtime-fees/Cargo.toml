@@ -21,3 +21,6 @@ num-rational = { version = "0.2.4", features = ["serde"]}
 [features]
 default = []
 protocol_feature_evm = []
+
+[package.metadata.workspaces]
+independent = true

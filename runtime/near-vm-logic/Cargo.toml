@@ -67,3 +67,6 @@ path = "tests/test_promises.rs"
 [[test]]
 name = "test_iterators"
 path = "tests/test_iterators.rs"
+
+[package.metadata.workspaces]
+independent = true

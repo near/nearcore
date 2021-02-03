@@ -68,3 +68,6 @@ required-features = ["protocol_feature_evm"]
 name = "bench"
 required-features = ["protocol_feature_evm"]
 harness = false
+
+[package.metadata.workspaces]
+independent = true

@@ -32,3 +32,6 @@ near-runtime-fees = { path = "../near-runtime-fees", version = "2.3.0" }
 [features]
 default = []
 no_cache = ["near-vm-runner/no_cache"]
+
+[package.metadata.workspaces]
+independent = true

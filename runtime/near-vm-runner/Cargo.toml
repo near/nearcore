@@ -54,3 +54,6 @@ normal = ["cached"]
 [[bench]]
 name = "bench"
 harness = false
+
+[package.metadata.workspaces]
+independent = true
