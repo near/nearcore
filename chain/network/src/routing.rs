@@ -819,7 +819,7 @@ impl Graph {
     fn remove_if_unused(&mut self, id: usize) {
         let entry = self.adjacency.entry(id).or_default();
 
-        if entry.len() == 0 && id != 0 {
+        if entry.is_empty() && id != 0 {
             let peer = self.id2p.get(&id).take().cloned().unwrap();
             self.p2id.remove(&peer);
             self.unused.insert(id);
