@@ -917,17 +917,21 @@ impl Graph {
             }
         }
 
-        self.compute_result(&mut routes)
+        self.compute_result(&mut routes, &distance)
     }
 
-    fn compute_result(&self, routes: &mut Vec<u128>) -> HashMap<PeerId, Vec<PeerId>> {
+    fn compute_result(
+        &self,
+        routes: &mut Vec<u128>,
+        distance: &Vec<i32>,
+    ) -> HashMap<PeerId, Vec<PeerId>> {
         let source_id = 0;
         let mut result = HashMap::with_capacity(routes.len());
 
         if let Some(neighbors) = self.adjacency.get(&source_id) {
             let neighbors = Vec::from_iter(neighbors.into_iter());
             for (key, cur_route) in routes.iter().enumerate() {
-                if key == source_id {
+                if key == source_id || distance[key] == -1 {
                     continue;
                 }
                 let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
