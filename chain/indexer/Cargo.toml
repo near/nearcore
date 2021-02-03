@@ -1,15 +1,15 @@
 [package]
 name = "near-indexer"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-actix = "0.9"
+actix = "0.11.0-beta.1"
 tracing = "0.1.13"
 futures = "0.3.5"
 rocksdb = "0.15.0"
-tokio = { version = "0.2", features = ["time", "sync"] }
+tokio = { version = "1.1", features = ["time", "sync"] }
 
 neard = { path = "../../neard" }
 near-client = { path = "../client" }

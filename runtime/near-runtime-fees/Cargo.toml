@@ -16,7 +16,7 @@ Fees applied to near runtime encapsulated in a separate crate. Might merge it la
 serde = { version = "1", features = ["derive"] }
 near-primitives-core = { path = "../../core/primitives-core" }
 
-num-rational = { version = "0.2.4", features = ["serde"]}
+num-rational = { version = "0.3", features = ["serde"]}
 
 [features]
 default = []

@@ -382,25 +382,27 @@ fn test_status() {
 fn test_status_fail() {
     init_test_logger();
 
-    System::run(|| {
-        let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
+    System::builder()
+        .stop_on_panic(true)
+        .run(|| {
+            let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
-        let client = new_client(&format!("http://{}", addr));
-        WaitOrTimeout::new(
-            Box::new(move |_| {
-                actix::spawn(client.health().then(|res| {
-                    if res.is_err() {
-                        System::current().stop();
-                    }
-                    future::ready(())
-                }));
-            }),
-            100,
-            10000,
-        )
-        .start();
-    })
-    .unwrap();
+            let client = new_client(&format!("http://{}", addr));
+            WaitOrTimeout::new(
+                Box::new(move |_| {
+                    actix::spawn(client.health().then(|res| {
+                        if res.is_err() {
+                            System::current().stop();
+                        }
+                        future::ready(())
+                    }));
+                }),
+                100,
+                10000,
+            )
+            .start();
+        })
+        .unwrap();
 }
 
 /// Check health fails when node is absent.
@@ -408,15 +410,17 @@ fn test_status_fail() {
 fn test_health_fail() {
     init_test_logger();
 
-    System::run(|| {
-        let client = new_client(&"http://127.0.0.1:12322/health");
-        actix::spawn(client.health().then(|res| {
-            assert!(res.is_err());
-            System::current().stop();
-            future::ready(())
-        }));
-    })
-    .unwrap();
+    System::builder()
+        .stop_on_panic(true)
+        .run(|| {
+            let client = new_client(&"http://127.0.0.1:12322/health");
+            actix::spawn(client.health().then(|res| {
+                assert!(res.is_err());
+                System::current().stop();
+                future::ready(())
+            }));
+        })
+        .unwrap();
 }
 
 /// Health fails when node doesn't produce block for period of time.
@@ -424,25 +428,27 @@ fn test_health_fail() {
 fn test_health_fail_no_blocks() {
     init_test_logger();
 
-    System::run(|| {
-        let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
+    System::builder()
+        .stop_on_panic(true)
+        .run(|| {
+            let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
-        let client = new_client(&format!("http://{}", addr));
-        WaitOrTimeout::new(
-            Box::new(move |_| {
-                actix::spawn(client.health().then(|res| {
-                    if res.is_err() {
-                        System::current().stop();
-                    }
-                    future::ready(())
-                }));
-            }),
-            300,
-            10000,
-        )
-        .start();
-    })
-    .unwrap();
+            let client = new_client(&format!("http://{}", addr));
+            WaitOrTimeout::new(
+                Box::new(move |_| {
+                    actix::spawn(client.health().then(|res| {
+                        if res.is_err() {
+                            System::current().stop();
+                        }
+                        future::ready(())
+                    }));
+                }),
+                300,
+                10000,
+            )
+            .start();
+        })
+        .unwrap();
 }
 
 /// Retrieve client health.

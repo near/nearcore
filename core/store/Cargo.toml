@@ -12,13 +12,12 @@ lazy_static = "1.4"
 rocksdb = { version = "0.15.0",  optional = true }
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
-cached = "0.12"
+cached = "0.23"
 num_cpus = "1.11"
-rand = "0.7.2"
-strum = "0.18"
-strum_macros = "0.18"
+rand = "0.7"
+strum = { version = "0.20", features = ["derive"] }
 
-borsh = "0.7.1"
+borsh = "0.8.1"
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }

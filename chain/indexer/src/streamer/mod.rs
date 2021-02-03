@@ -124,7 +124,7 @@ pub(crate) async fn start(
     client: Addr<near_client::ClientActor>,
     near_config: neard::NearConfig,
     indexer_config: IndexerConfig,
-    mut blocks_sink: mpsc::Sender<StreamerMessage>,
+    blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
     let mut indexer_db_path = neard::get_store_path(&indexer_config.home_dir);
@@ -135,7 +135,7 @@ pub(crate) async fn start(
     let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
 
     'main: loop {
-        time::delay_for(INTERVAL).await;
+        time::sleep(INTERVAL).await;
         match indexer_config.await_for_node_synced {
             AwaitForNodeSyncedEnum::WaitForFullSync => {
                 let status = fetch_status(&client).await;
