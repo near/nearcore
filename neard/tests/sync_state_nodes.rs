@@ -27,7 +27,7 @@ fn sync_state_nodes() {
             .stop_on_panic(true)
             .run(move || {
                 let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-                let (_, view_client1, arbiters) = start_with_config(dir1.path(), near1);
+                let (_, view_client1, _) = start_with_config(dir1.path(), near1);
 
                 let view_client2_holder = Arc::new(RwLock::new(None));
                 let arbiters_holder = Arc::new(RwLock::new(vec![]));
@@ -145,13 +145,13 @@ fn sync_state_nodes_multishard() {
                     near1.client_config.max_block_production_delay;
 
                 let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-                let (_, view_client1, arbiters1) = start_with_config(dir1.path(), near1);
+                let (_, view_client1, _) = start_with_config(dir1.path(), near1);
 
                 let dir3 = tempfile::Builder::new().prefix("sync_nodes_3").tempdir().unwrap();
-                let (_, _, arbiters2) = start_with_config(dir3.path(), near3);
+                let (_, _, _) = start_with_config(dir3.path(), near3);
 
                 let dir4 = tempfile::Builder::new().prefix("sync_nodes_4").tempdir().unwrap();
-                let (_, _, arbiters3) = start_with_config(dir4.path(), near4);
+                let (_, _, _) = start_with_config(dir4.path(), near4);
 
                 let view_client2_holder = Arc::new(RwLock::new(None));
                 let arbiter_holder = Arc::new(RwLock::new(vec![]));
@@ -263,7 +263,7 @@ fn sync_empty_state() {
                 near1.client_config.max_block_production_delay = Duration::from_millis(400);
 
                 let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-                let (_, view_client1, arbiters) = start_with_config(dir1.path(), near1);
+                let (_, view_client1, _) = start_with_config(dir1.path(), near1);
                 let dir2 =
                     Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
 

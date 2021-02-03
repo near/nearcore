@@ -117,7 +117,7 @@ fn sync_nodes() {
             .stop_on_panic(true)
             .run(move || {
                 let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-                let (client1, _, arbiters) = start_with_config(dir1.path(), near1);
+                let (client1, _, _) = start_with_config(dir1.path(), near1);
 
                 let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
                 let _ = add_blocks(
@@ -129,7 +129,7 @@ fn sync_nodes() {
                 );
 
                 let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
-                let (_, view_client2, arbiters2) = start_with_config(dir2.path(), near2);
+                let (_, view_client2, _) = start_with_config(dir2.path(), near2);
 
                 WaitOrTimeout::new(
                     Box::new(move |_ctx| {
@@ -163,10 +163,10 @@ fn sync_after_sync_nodes() {
             .stop_on_panic(true)
             .run(move || {
                 let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-                let (client1, _, arbiters) = start_with_config(dir1.path(), near1);
+                let (client1, _, _) = start_with_config(dir1.path(), near1);
 
                 let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
-                let (_, view_client2, arbiters2) = start_with_config(dir2.path(), near2);
+                let (_, view_client2, _) = start_with_config(dir2.path(), near2);
 
                 let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
                 let blocks = add_blocks(
@@ -244,7 +244,7 @@ fn sync_state_stake_change() {
                     tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
                 let dir2 =
                     tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
-                let (client1, view_client1, arbiters) =
+                let (client1, view_client1, _) =
                     start_with_config(dir1.path(), near1.clone());
 
                 let genesis_hash = *genesis_block(&genesis).hash();
