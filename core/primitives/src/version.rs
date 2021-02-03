@@ -122,7 +122,7 @@ lazy_static! {
 #[cfg(feature = "nightly_protocol")]
 lazy_static! {
     pub static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = {
-        let nightly_protocol_features_to_version_mapping: HashMap<
+        let mut nightly_protocol_features_to_version_mapping: HashMap<
             ProtocolFeature,
             ProtocolVersion,
         > = vec![
@@ -147,6 +147,8 @@ lazy_static! {
                     >= *stable_protocol_version
             );
         }
+        nightly_protocol_features_to_version_mapping
+            .extend(STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter());
         nightly_protocol_features_to_version_mapping
     };
 }
