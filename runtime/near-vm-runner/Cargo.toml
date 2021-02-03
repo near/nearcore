@@ -30,6 +30,7 @@ near-primitives = { path = "../../core/primitives" }
 log = "0.4"
 near-evm-runner = { path = "../near-evm-runner", version = "2.3.0", optional = true}
 cached = "0.12.0"
+delay-detector = { path = "../../tools/delay_detector" }
 
 [dev-dependencies]
 assert_matches = "1.3"
@@ -37,13 +38,10 @@ wabt = "0.9"
 bencher = "^0.1.5"
 
 [features]
-default = [ "wasmer_default", "wasmer", "wasmer-types" ]
+default = []
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass" ]
 lightbeam = ["wasmtime/lightbeam"]
-wasmer_default = []
-wasmtime_default = ["wasmtime_vm"]
-wasmer1_default = [ "wasmer1_vm" ]
 no_cpu_compatibility_checks = []
 protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
 

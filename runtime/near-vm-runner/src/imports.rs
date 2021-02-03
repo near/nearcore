@@ -8,8 +8,10 @@ pub struct ImportReference(pub *mut c_void);
 unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
 
+#[cfg(feature = "wasmer1_vm")]
 use wasmer::{Memory, WasmerEnv};
 #[derive(WasmerEnv, Clone)]
+#[cfg(feature = "wasmer1_vm")]
 pub struct NearWasmerEnv {
     pub memory: Memory,
     pub logic: ImportReference,
