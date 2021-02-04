@@ -817,6 +817,7 @@ impl Graph {
         if entry.is_empty() && id != self.source_id {
             self.used[id as usize] = false;
             self.unused.push(id);
+            self.p2id.remove(self.id2p[id]);
         }
     }
 
