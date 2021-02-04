@@ -1,15 +1,16 @@
 //! Executes a single transaction or a list of transactions on a set of nodes.
-
-use crate::remote_node::{try_wait, wait, RemoteNode};
-use crate::stats::Stats;
-use crate::transactions_generator::{Generator, TransactionType};
-use futures::{future, FutureExt, StreamExt, TryFutureExt};
-use log::{debug, info, warn};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+use futures::{future, FutureExt, StreamExt, TryFutureExt};
+use log::{debug, info, warn};
 use tokio::time::interval;
+
+use crate::remote_node::{try_wait, wait, RemoteNode};
+use crate::stats::Stats;
+use crate::transactions_generator::{Generator, TransactionType};
 
 pub struct Executor {
     /// Nodes that can be used to generate nonces
@@ -76,6 +77,7 @@ impl Executor {
                         let node = node.clone();
                         let all_account_ids = all_account_ids.to_vec();
                         let (tx, rx) = tokio::sync::mpsc::channel(1024);
+                        let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
                         signal_tx.push(tx);
                         // Spawn a task that sends transactions only from the given account making
                         // sure the nonces are correct.
@@ -110,7 +112,7 @@ impl Executor {
                 // Spawn the task that sets the tps.
                 let period = Duration::from_nanos((Duration::from_secs(1).as_nanos() as u64) / tps);
                 let timeout = timeout.map(|t| Instant::now() + t);
-                let task = interval(period)
+                let task = tokio_stream::wrappers::IntervalStream::new(interval(period))
                     .take_while(move |_| {
                         if let Some(t_limit) = timeout {
                             if t_limit <= Instant::now() {
@@ -122,7 +124,7 @@ impl Executor {
                     })
                     .for_each(move |_| {
                         let ind = rand::random::<usize>() % signal_tx.len();
-                        let mut tx = signal_tx[ind].clone();
+                        let tx = signal_tx[ind].clone();
                         async move { tx.send(()).await }.map(drop)
                     });
 

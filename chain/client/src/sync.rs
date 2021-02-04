@@ -21,8 +21,10 @@ use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
 use near_primitives::utils::to_timestamp;
 
-use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
 use cached::{Cached, SizedCache};
+use near_client_primitives::types::{
+    DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
+};
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;

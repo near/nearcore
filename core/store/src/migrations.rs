@@ -409,6 +409,7 @@ pub fn migrate_14_to_15(path: &String) {
                         protocol_version,
                         transaction,
                         &block.header().prev_hash(),
+                        &block.header().hash(),
                     );
                     if execution_outcome_ids.contains(&local_receipt_id) {
                         local_receipt_ids.push(local_receipt_id);

@@ -58,7 +58,7 @@ fn test_invalid_raw_call_args() {
     let (mut fake_external, vm_config, fees_config) = setup();
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     assert_eq!(
-        context.raw_call_function(signed_transaction.rlp_bytes()).unwrap_err().to_string(),
+        context.raw_call_function(signed_transaction.rlp_bytes().to_vec()).unwrap_err().to_string(),
         "EvmError(InvalidEcRecoverSignature)"
     );
 
@@ -73,7 +73,7 @@ fn test_invalid_raw_call_args() {
         vec![],
     );
     assert_eq!(
-        context.raw_call_function(signed_transaction.rlp_bytes()).unwrap_err().to_string(),
+        context.raw_call_function(signed_transaction.rlp_bytes().to_vec()).unwrap_err().to_string(),
         "EvmError(InvalidChainId)"
     );
 }

@@ -30,10 +30,12 @@ use_contract!(subcontract, "tests/build/SubContract.abi");
 use_contract!(create2factory, "tests/build/Create2Factory.abi");
 use_contract!(selfdestruct, "tests/build/SelfDestruct.abi");
 
-lazy_static_include_str!(TEST, "tests/build/SolTests.bin");
-lazy_static_include_str!(FACTORY_TEST, "tests/build/Create2Factory.bin");
-lazy_static_include_str!(DESTRUCT_TEST, "tests/build/SelfDestruct.bin");
-lazy_static_include_str!(CONSTRUCTOR_TEST, "tests/build/ConstructorRevert.bin");
+lazy_static_include_str! {
+    TEST => "tests/build/SolTests.bin",
+    FACTORY_TEST => "tests/build/Create2Factory.bin",
+    DESTRUCT_TEST => "tests/build/SelfDestruct.bin",
+    CONSTRUCTOR_TEST => "tests/build/ConstructorRevert.bin",
+}
 
 #[test]
 fn test_funds_transfers() {
@@ -402,7 +404,7 @@ fn test_send_eth_tx() {
         U256::from(100),
         input,
     );
-    let raw = context.raw_call_function(signed_transaction.rlp_bytes()).unwrap();
+    let raw = context.raw_call_function(signed_transaction.rlp_bytes().to_vec()).unwrap();
 
     // The sub_addr should have been transferred 100 yoctoN.
     let sub_addr = raw[12..32].to_vec();
@@ -420,7 +422,7 @@ fn test_send_eth_tx() {
         U256::from(100),
         hex::decode(&TEST).unwrap(),
     );
-    let raw = context.raw_call_function(signed_transaction.rlp_bytes()).unwrap();
+    let raw = context.raw_call_function(signed_transaction.rlp_bytes().to_vec()).unwrap();
     assert_eq!(context.get_balance(raw).unwrap(), U256::from(100));
 
     // TODO: add transfer example.

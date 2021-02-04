@@ -49,13 +49,13 @@ use near_telemetry::TelemetryActor;
 use crate::client::Client;
 use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
-use crate::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusSyncInfo, SyncStatus,
-};
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
+use near_client_primitives::types::{
+    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
+    StatusSyncInfo, SyncStatus,
+};
 use near_primitives::block_header::ApprovalType;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -310,7 +310,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 }
                                 return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                self.client.chain.save_orphan(&block);
+                                if let Err(_) = self.client.chain.save_orphan(&block) {
+                                    error!(target: "client", "Received an invalid block during state sync");
+                                }
                                 return NetworkClientResponses::NoResponse;
                             }
                         }

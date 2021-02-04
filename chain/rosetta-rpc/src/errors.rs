@@ -17,8 +17,8 @@ impl std::convert::From<actix::MailboxError> for ErrorKind {
     }
 }
 
-impl std::convert::From<tokio::time::Elapsed> for ErrorKind {
-    fn from(_: tokio::time::Elapsed) -> Self {
+impl std::convert::From<tokio::time::error::Elapsed> for ErrorKind {
+    fn from(_: tokio::time::error::Elapsed) -> Self {
         Self::Timeout("The operation timed out.".to_string())
     }
 }

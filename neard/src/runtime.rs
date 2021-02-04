@@ -12,7 +12,10 @@ use log::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
+
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_chain::{Doomslug, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, GenesisConfig};
 #[cfg(feature = "protocol_feature_evm")]
 use near_chain_configs::{BETANET_EVM_CHAIN_ID, MAINNET_EVM_CHAIN_ID, TESTNET_EVM_CHAIN_ID};
@@ -442,7 +445,8 @@ impl NightshadeRuntime {
 
         let apply_state = ApplyState {
             block_index: block_height,
-            last_block_hash: *prev_block_hash,
+            prev_block_hash: *prev_block_hash,
+            block_hash: *block_hash,
             epoch_id,
             epoch_height,
             gas_price,
@@ -778,6 +782,48 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    fn verify_approvals_and_threshold_orphan(
+        &self,
+        epoch_id: &EpochId,
+        doomslug_threshold_mode: DoomslugThresholdMode,
+        prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Signature>],
+    ) -> Result<(), Error> {
+        let info = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_heuristic_block_approvers_ordered(epoch_id).map_err(Error::from)?
+        };
+
+        let message_to_sign = Approval::get_data_for_sig(
+            &if prev_block_height + 1 == block_height {
+                ApprovalInner::Endorsement(prev_block_hash.clone())
+            } else {
+                ApprovalInner::Skip(prev_block_height)
+            },
+            block_height,
+        );
+
+        for (validator, may_be_signature) in info.iter().zip(approvals.iter()) {
+            if let Some(signature) = may_be_signature {
+                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
+                    return Err(ErrorKind::InvalidApprovals.into());
+                }
+            }
+        }
+        let stakes = info
+            .iter()
+            .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch, false))
+            .collect::<Vec<_>>();
+        if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
+            Err(ErrorKind::NotEnoughApprovals.into())
+        } else {
+            Ok(())
+        }
+    }
+
     fn verify_approval(
         &self,
         prev_block_hash: &CryptoHash,
@@ -785,9 +831,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_height: BlockHeight,
         approvals: &[Option<Signature>],
     ) -> Result<bool, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let info =
-            epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?;
+        let info = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?
+        };
         if approvals.len() > info.len() {
             return Ok(false);
         }
@@ -801,9 +848,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_height,
         );
 
-        for (validator, may_be_signature) in info.into_iter().zip(approvals.iter()) {
+        for ((validator, is_slashed), may_be_signature) in info.into_iter().zip(approvals.iter()) {
             if let Some(signature) = may_be_signature {
-                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
+                if is_slashed || !signature.verify(message_to_sign.as_ref(), &validator.public_key)
+                {
                     return Ok(false);
                 }
             }
@@ -823,7 +871,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<ApprovalStake>, Error> {
+    ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
     }
@@ -1124,6 +1172,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
@@ -1163,6 +1212,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     *state_root,
                     block_height,
                     block_timestamp,
+                    prev_block_hash,
                     block_hash,
                     epoch_height,
                     epoch_id,
@@ -1430,7 +1480,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         height: BlockHeight,
         block_timestamp: u64,
-        last_block_hash: &CryptoHash,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
         contract_id: &AccountId,
@@ -1444,7 +1495,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let view_state = ViewApplyState {
             block_height: height,
-            last_block_hash: *last_block_hash,
+            prev_block_hash: *prev_block_hash,
+            block_hash: *block_hash,
             epoch_id: epoch_id.clone(),
             epoch_height,
             block_timestamp,
