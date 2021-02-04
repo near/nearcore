@@ -326,7 +326,7 @@ pub(crate) async fn query_account(
                     return Err(crate::errors::ErrorKind::InternalError(err));
                 }
             }
-            tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
     })
     .await??;
@@ -415,7 +415,7 @@ pub(crate) async fn query_access_key(
                         return Err(crate::errors::ErrorKind::InternalError(err));
                     }
                 }
-                tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         })
         .await??;
