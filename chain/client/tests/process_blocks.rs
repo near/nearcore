@@ -564,7 +564,6 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
-    let validator_signer1 = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
     System::builder()
         .stop_on_panic(true)
         .run(move || {
@@ -594,6 +593,13 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                     match msg {
                         NetworkRequests::Block { block } => {
                             if block.header().height() >= 4 && !sent_bad_blocks {
+                                let block_producer = validators[0]
+                                    [block.header().height() as usize % validators[0].len()];
+                                let validator_signer1 = InMemoryValidatorSigner::from_seed(
+                                    block_producer,
+                                    KeyType::ED25519,
+                                    block_producer,
+                                );
                                 sent_bad_blocks = true;
                                 let mut block_mut = block.clone();
                                 match mode {
