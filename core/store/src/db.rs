@@ -462,6 +462,7 @@ fn rocksdb_options() -> Options {
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(1048576);
     opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
+    opts.set_db_write_buffer_size(1024 * 1024 * 64);
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
     #[cfg(not(feature = "single_thread_rocksdb"))]
     {
