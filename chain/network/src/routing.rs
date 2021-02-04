@@ -798,10 +798,7 @@ impl Graph {
     fn contains_edge(&self, peer0: &PeerId, peer1: &PeerId) -> bool {
         if let Some(id0) = self.p2id.get(&peer0) {
             if let Some(id1) = self.p2id.get(&peer1) {
-                let adj = &self.adjacency[*id0];
-                if adj.contains(&id1) {
-                    return true;
-                }
+                return self.adjacency[*id0].contains(&id1);
             }
         }
         false
