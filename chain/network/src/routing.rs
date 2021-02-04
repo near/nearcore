@@ -817,7 +817,7 @@ impl Graph {
         if entry.is_empty() && id != self.source_id {
             self.used[id as usize] = false;
             self.unused.push(id);
-            self.p2id.remove(self.id2p[id]);
+            self.p2id.remove(&self.id2p[id as usize]);
         }
     }
 
@@ -987,6 +987,8 @@ mod test {
         let node0 = random_peer_id();
 
         let mut graph = Graph::new(source.clone());
+        graph.add_edge(source.clone(), node0.clone());
+        graph.remove_edge(&source, &node0);
         graph.add_edge(source.clone(), node0.clone());
 
         assert!(expected_routing_tables(
