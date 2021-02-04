@@ -34,7 +34,6 @@ ethereum-types = "0.11.0"
 ethabi = "13.0.0"
 
 near-vm-logic = { path = "../near-vm-logic" }
-near-primitives = { path = "../../core/primitives" }
 near-vm-errors = { path = "../near-vm-errors" }
 near-primitives = { path = "../../core/primitives" }
 near-runtime-utils = { path = "../near-runtime-utils" }

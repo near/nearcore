@@ -3359,10 +3359,10 @@ dependencies = [
  "derive_more",
  "hex",
  "lazy_static",
- "num-rational 0.2.4",
+ "num-rational",
  "serde",
  "serde_json",
- "sha2 0.9.2",
+ "sha2 0.9.3",
 ]
 
 [[package]]
@@ -3417,8 +3417,7 @@ dependencies = [
 name = "near-runtime-fees"
 version = "2.3.0"
 dependencies = [
- "num-rational",
- "serde",
+ "near-primitives-core",
 ]
 
 [[package]]
