@@ -76,7 +76,7 @@ impl ThreadStats {
     ) {
         self.in_progress_since = None;
 
-        let took_since_last_check = min(took, max(self.last_check, now) - self.last_check);
+        let took_since_last_check = min(took, now - self.last_check);
 
         let entry = self.stat.entry((msg, line)).or_insert_with(|| Entry {
             cnt: 0,
