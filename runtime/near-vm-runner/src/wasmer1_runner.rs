@@ -1,6 +1,5 @@
 use crate::errors::IntoVMError;
-use crate::imports;
-use crate::prepare;
+use crate::{cache, imports, prepare};
 use near_primitives::types::CompiledContractCache;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{
@@ -142,7 +141,7 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
 }
 
 pub fn run_wasmer1<'a>(
-    _code_hash: Vec<u8>,
+    code_hash: Vec<u8>,
     code: &[u8],
     method_name: &[u8],
     ext: &mut dyn External,
@@ -152,7 +151,7 @@ pub fn run_wasmer1<'a>(
     promise_results: &'a [PromiseResult],
     profile: Option<ProfileData>,
     current_protocol_version: ProtocolVersion,
-    _cache: Option<&'a dyn CompiledContractCache>,
+    cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
     // So doesn't require x86. However, when it is on x86, AVX is required:
@@ -179,9 +178,9 @@ pub fn run_wasmer1<'a>(
         Ok(code) => code,
         Err(e) => return (None, Some(e.into())),
     };
-    let module = match Module::new(&store, prepared_code) {
+    let module = match cache::compile_module_cached_wasmer1(&code_hash, &prepared_code, wasm_config, cache, &store) {
         Ok(x) => x,
-        Err(err) => return (None, Some(err.into_vm_error())),
+        Err(err) => return (None, Some(err)),
     };
 
     let mut memory = Wasmer1Memory::new(

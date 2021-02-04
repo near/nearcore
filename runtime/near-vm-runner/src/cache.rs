@@ -12,6 +12,7 @@ use std::convert::TryFrom;
 use wasmer_runtime::{compiler_for_backend, Backend};
 use wasmer_runtime_core::cache::Artifact;
 use wasmer_runtime_core::load_cache_with;
+use delay_detector::DelayDetector;
 
 pub(crate) fn compile_module(
     code: &[u8],
@@ -147,4 +148,79 @@ pub(crate) fn compile_module_cached_wasmer(
     return memcache_compile_module_cached_wasmer(key, wasm_code, config, cache);
     #[cfg(feature = "no_cache")]
     return compile_module_cached_wasmer_impl(key, wasm_code, config, cache);
+}
+
+#[cfg(feature = "wasmer1_vm")]
+pub(crate) fn compile_module_cached_wasmer1(
+    wasm_code_hash: &[u8],
+    wasm_code: &[u8],
+    config: &VMConfig,
+    cache: Option<&dyn CompiledContractCache>,
+    store: &wasmer::Store,
+) -> Result<wasmer::Module, VMError> {
+    let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer1, config);
+    return compile_module_cached_wasmer1_impl(key, wasm_code, cache, store);
+}
+
+#[cfg(feature = "wasmer1_vm")]
+fn compile_module_wasmer1(prepared_code: &[u8], store: &wasmer::Store) -> Result<wasmer::Module, VMError> {
+    wasmer::Module::new(&store, prepared_code).map_err(|err| err.into_vm_error())
+}
+
+#[cfg(feature = "wasmer1_vm")]
+pub(crate) fn compile_and_serialize_wasmer1(
+    wasm_code: &[u8],
+    key: &CryptoHash,
+    cache: &dyn CompiledContractCache,
+    store: &wasmer::Store,
+) -> Result<wasmer::Module, VMError> {
+    let mut d = DelayDetector::new("enter compile_and_serialize_wasmer1".into());
+    let module = compile_module_wasmer1(wasm_code, store).map_err(|e| cache_error(e, &key, cache))?;
+    let code = module.serialize().map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
+    let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
+    cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
+    d.snapshot("finish compile_and_serialize_wasmer1");
+    Ok(module)
+}
+
+#[cfg(feature = "wasmer1_vm")]
+fn deserialize_wasmer1(
+    serialized: &[u8],
+    store: &wasmer::Store
+) -> Result<Result<wasmer::Module, VMError>, CacheError> {
+    let mut d = DelayDetector::new("enter deserialize_wasmer1".into());
+    let record = CacheRecord::try_from_slice(serialized).map_err(|_e| DeserializationError)?;
+    let serialized_module = match record {
+        CacheRecord::Error(err) => return Ok(Err(err)),
+        CacheRecord::Code(code) => code,
+    };
+    let r = unsafe {
+        Ok(Ok(wasmer::Module::deserialize(store, serialized_module.as_slice())
+            .map_err(|_e| CacheError::DeserializationError)?))
+    };
+    d.snapshot("leave deserialize_wasmer1");
+    r
+}
+
+#[cfg(feature = "wasmer1_vm")]
+fn compile_module_cached_wasmer1_impl(
+    key: CryptoHash,
+    wasm_code: &[u8],
+    cache: Option<&dyn CompiledContractCache>,
+    store: &wasmer::Store
+) -> Result<wasmer::Module, VMError> {
+    if cache.is_none() {
+        return compile_module_wasmer1(wasm_code, store);
+    }
+
+    let cache = cache.unwrap();
+    match cache.get(&(key.0).0) {
+        Ok(serialized) => match serialized {
+            Some(serialized) => {
+                deserialize_wasmer1(serialized.as_slice(), store).map_err(VMError::CacheError)?
+            }
+            None => compile_and_serialize_wasmer1(wasm_code, &key, cache, store),
+        },
+        Err(_) => Err(VMError::CacheError(ReadError)),
+    }
 }
