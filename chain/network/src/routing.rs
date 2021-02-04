@@ -10,6 +10,7 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
 use chrono;
 use log::{trace, warn};
+use rustc_hash::FxHashSet;
 
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
@@ -31,7 +32,6 @@ use crate::{
 };
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use rustc_hash::FxHashSet;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
