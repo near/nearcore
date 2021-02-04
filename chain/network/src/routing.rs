@@ -919,7 +919,12 @@ impl Graph {
         let mut res = HashMap::with_capacity(routes.len());
 
         let neighbors = &self.adjacency[self.source_id as usize];
+        let mut unreachable_nodes = 0;
+
         for (key, &cur_route) in routes.iter().enumerate() {
+            if distance[key] == -1 && self.used[key] {
+                unreachable_nodes += 1;
+            }
             if key as u32 == self.source_id
                 || distance[key] == -1
                 || cur_route == 0u128
@@ -935,6 +940,9 @@ impl Graph {
                 };
             }
             res.insert(self.id2p[key].clone(), peer_set);
+        }
+        if unreachable_nodes > 1000 {
+            warn!("We store more than 1000 unreachable nodes.");
         }
         res
     }
