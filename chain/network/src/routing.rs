@@ -45,7 +45,8 @@ const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// seconds will be removed from cache and persisted in disk.
 pub const SAVE_PEERS_MAX_TIME: u64 = 7_200;
 pub const SAVE_PEERS_AFTER_TIME: u64 = 3_600;
-pub const PEER_LIMIT: usize = 128;
+/// Graph implementation supports up to 128 peers.
+pub const MAX_NUM_PEERS: usize = 128;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -889,7 +890,7 @@ impl Graph {
         distance[source_id] = 0;
 
         if let Some(neighbors) = self.adjacency.get(source_id) {
-            for (id, neighbor) in neighbors.iter().enumerate().take(PEER_LIMIT) {
+            for (id, neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
                 queue.push_back(*neighbor);
                 distance[*neighbor] = 1;
                 routes[*neighbor] = 1u128 << id;
@@ -926,7 +927,7 @@ impl Graph {
             }
             let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
 
-            for (id, neighbor) in neighbors.iter().enumerate().take(PEER_LIMIT) {
+            for (id, neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
                 if (cur_route & (1u128 << id)) != 0 {
                     peer_set.push(self.id2p[*neighbor].clone());
                 };
