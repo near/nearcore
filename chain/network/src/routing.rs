@@ -893,7 +893,7 @@ impl Graph {
             for (id, neighbor) in neighbors.iter().enumerate().take(PEER_LIMIT) {
                 queue.push_back(*neighbor);
                 distance[*neighbor] = 1;
-                routes[*neighbor] = (1 as u128) << id;
+                routes[*neighbor] = 1u128 << id;
             }
         }
 
