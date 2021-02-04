@@ -46,6 +46,7 @@ const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// seconds will be removed from cache and persisted in disk.
 pub const SAVE_PEERS_MAX_TIME: u64 = 7_200;
 pub const SAVE_PEERS_AFTER_TIME: u64 = 3_600;
+pub const PEER_LIMIT: usize = 128;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -839,29 +840,26 @@ impl Graph {
     }
 
     fn add_edge_internal(&mut self, peer0: PeerId, peer1: PeerId) {
-        if peer0 != peer1 {
-            let id0 = self.get_id(&peer0);
-            let id1 = self.get_id(&peer1);
+        let id0 = self.get_id(&peer0);
+        let id1 = self.get_id(&peer1);
 
-            self.adjacency[id0].insert(id1);
-            self.adjacency[id1].insert(id0);
-        }
+        self.adjacency[id0].insert(id1);
+        self.adjacency[id1].insert(id0);
     }
 
     fn remove_edge_internal(&mut self, peer0: &PeerId, peer1: &PeerId) {
-        if peer0 != peer1 {
-            let id0 = self.get_id(&peer0);
-            let id1 = self.get_id(&peer1);
+        let id0 = self.get_id(&peer0);
+        let id1 = self.get_id(&peer1);
 
-            self.adjacency[id0].remove(&id1);
-            self.adjacency[id1].remove(&id0);
+        self.adjacency[id0].remove(&id1);
+        self.adjacency[id1].remove(&id0);
 
-            self.remove_if_unused(id0);
-            self.remove_if_unused(id1);
-        }
+        self.remove_if_unused(id0);
+        self.remove_if_unused(id1);
     }
 
     pub fn add_edge(&mut self, peer0: PeerId, peer1: PeerId) {
+        assert_ne!(peer0, peer1);
         if !self.contains_edge(&peer0, &peer1) {
             self.add_edge_internal(peer0, peer1);
             self.total_active_edges += 1;
@@ -869,6 +867,7 @@ impl Graph {
     }
 
     pub fn remove_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
+        assert_ne!(peer0, peer1);
         if self.contains_edge(&peer0, &peer1) {
             self.remove_edge_internal(&peer0, &peer1);
             self.total_active_edges -= 1;
@@ -891,7 +890,7 @@ impl Graph {
         distance[source_id] = 0;
 
         if let Some(neighbors) = self.adjacency.get(source_id) {
-            for (id, neighbor) in neighbors.iter().enumerate().take(128) {
+            for (id, neighbor) in neighbors.iter().enumerate().take(PEER_LIMIT) {
                 queue.push_back(*neighbor);
                 distance[*neighbor] = 1;
                 routes[*neighbor] = (1 as u128) << id;
@@ -928,7 +927,7 @@ impl Graph {
             }
             let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
 
-            for (id, neighbor) in neighbors.iter().enumerate().take(128) {
+            for (id, neighbor) in neighbors.iter().enumerate().take(PEER_LIMIT) {
                 if (cur_route & (1u128 << id)) != 0 {
                     peer_set.push(self.id2p[*neighbor].clone());
                 };
