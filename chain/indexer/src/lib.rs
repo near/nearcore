@@ -7,7 +7,6 @@
 //! See the [example] for further details.
 //!
 //! [example]: https://github.com/nearprotocol/nearcore/tree/master/tools/indexer/example
-use actix::System;
 use tokio::sync::mpsc;
 
 pub use neard::{get_default_home, init_configs, NearConfig};
@@ -54,7 +53,6 @@ pub struct IndexerConfig {
 pub struct Indexer {
     indexer_config: IndexerConfig,
     near_config: neard::NearConfig,
-    actix_runtime: actix::SystemRunner,
     view_client: actix::Addr<near_client::ViewClientActor>,
     client: actix::Addr<near_client::ClientActor>,
 }
@@ -63,7 +61,6 @@ impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
     pub fn new(indexer_config: IndexerConfig) -> Self {
         let near_config = neard::load_config(&indexer_config.home_dir);
-        let system = System::builder().stop_on_panic(true).name("NEAR Indexer").build();
         neard::genesis_validate::validate_genesis(&near_config.genesis);
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),
@@ -74,7 +71,7 @@ impl Indexer {
         );
         let (client, view_client, _) =
             neard::start_with_config(&indexer_config.home_dir, near_config.clone());
-        Self { actix_runtime: system, view_client, client, near_config, indexer_config }
+        Self { view_client, client, near_config, indexer_config }
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
@@ -100,10 +97,5 @@ impl Indexer {
         &self,
     ) -> (actix::Addr<near_client::ViewClientActor>, actix::Addr<near_client::ClientActor>) {
         (self.view_client.clone(), self.client.clone())
-    }
-
-    /// Start Indexer.
-    pub fn start(self) {
-        self.actix_runtime.run().unwrap();
     }
 }
