@@ -62,7 +62,7 @@ benchmark_group!(
     benches,
     calculate_distance_3_3,
     calculate_distance_10_10,
-    //    calculate_distance_100_100,
+    calculate_distance_100_100,
     calculate_distance_10_100
 );
 

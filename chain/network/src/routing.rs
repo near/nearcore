@@ -22,6 +22,7 @@ use near_store::{
     StoreUpdate,
 };
 
+use crate::freelist::FreeList;
 use crate::metrics;
 use crate::{
     cache::RouteBackCache,
@@ -30,7 +31,7 @@ use crate::{
 };
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use std::iter::FromIterator;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
@@ -758,7 +759,7 @@ impl RoutingTable {
             let key = self.raw_graph.id2p[key].clone();
             let neighbors = neighbors
                 .iter()
-                .map(|node| self.raw_graph.id2p[node].clone())
+                .map(|node| self.raw_graph.id2p[*node].clone())
                 .collect::<HashSet<_>>();
             result.insert(key, neighbors);
         }
@@ -781,10 +782,9 @@ pub struct RoutingTableInfo {
 pub struct Graph {
     pub source: PeerId,
     p2id: HashMap<PeerId, usize>,
-    id2p: FxHashMap<usize, PeerId>,
-    adjacency: FxHashMap<usize, FxHashSet<usize>>,
+    id2p: FreeList<PeerId>,
+    adjacency: FreeList<FxHashSet<usize>>,
     total_active_edges: u64,
-    unused: FxHashSet<usize>,
 }
 
 impl Graph {
@@ -792,12 +792,12 @@ impl Graph {
         let mut res = Self {
             source: source.clone(),
             p2id: HashMap::default(),
-            id2p: FxHashMap::default(),
-            adjacency: FxHashMap::default(),
+            id2p: FreeList::default(),
+            adjacency: FreeList::default(),
             total_active_edges: 0,
-            unused: FxHashSet::default(),
         };
-        res.id2p.insert(0, source.clone());
+        res.id2p.insert(source.clone());
+        res.adjacency.insert(FxHashSet::default());
         res.p2id.insert(source, 0);
 
         res
@@ -806,10 +806,9 @@ impl Graph {
     fn contains_edge(&self, peer0: &PeerId, peer1: &PeerId) -> bool {
         if let Some(id0) = self.p2id.get(&peer0) {
             if let Some(id1) = self.p2id.get(&peer1) {
-                if let Some(adj) = self.adjacency.get(id0) {
-                    if adj.contains(&id1) {
-                        return true;
-                    }
+                let adj = &self.adjacency[*id0];
+                if adj.contains(&id1) {
+                    return true;
                 }
             }
         }
@@ -817,13 +816,12 @@ impl Graph {
     }
 
     fn remove_if_unused(&mut self, id: usize) {
-        let entry = self.adjacency.entry(id).or_default();
+        let entry = &self.adjacency[id];
 
         if entry.is_empty() && id != 0 {
-            let peer = self.id2p.remove(&id).unwrap();
+            let peer = self.id2p.delete(id);
             self.p2id.remove(&peer);
-            self.unused.insert(id);
-            self.adjacency.remove(&id);
+            self.adjacency.delete(id);
         }
     }
 
@@ -831,11 +829,10 @@ impl Graph {
         match self.p2id.entry(peer0.clone()) {
             Entry::Occupied(occupied) => *occupied.get(),
             Entry::Vacant(vacant) => {
-                let val =
-                    if let Some(val) = self.unused.drain().next() { val } else { self.id2p.len() };
+                let val = self.id2p.insert(peer0.clone());
+                self.adjacency.insert(FxHashSet::default());
 
                 vacant.insert(val);
-                self.id2p.insert(val, peer0.clone());
                 val
             }
         }
@@ -846,8 +843,8 @@ impl Graph {
             let id0 = self.get_id(&peer0);
             let id1 = self.get_id(&peer1);
 
-            self.adjacency.entry(id0).or_default().insert(id1);
-            self.adjacency.entry(id1).or_default().insert(id0);
+            self.adjacency[id0].insert(id1);
+            self.adjacency[id1].insert(id0);
         }
     }
 
@@ -856,8 +853,8 @@ impl Graph {
             let id0 = self.get_id(&peer0);
             let id1 = self.get_id(&peer1);
 
-            self.adjacency.get_mut(&id0).unwrap().remove(&id1);
-            self.adjacency.get_mut(&id1).unwrap().remove(&id0);
+            self.adjacency[id0].remove(&id1);
+            self.adjacency[id1].remove(&id0);
 
             self.remove_if_unused(id0);
             self.remove_if_unused(id1);
@@ -886,14 +883,14 @@ impl Graph {
 
         let mut queue = VecDeque::new();
 
-        let nodes = self.unused.len() + self.id2p.len();
+        let nodes = self.id2p.len();
         let mut distance: Vec<i32> = vec![-1; nodes];
         let mut routes: Vec<u128> = vec![0; nodes];
 
         let source_id = 0;
         distance[source_id] = 0;
 
-        if let Some(neighbors) = self.adjacency.get(&source_id) {
+        if let Some(neighbors) = self.adjacency.get(source_id) {
             for (id, neighbor) in neighbors.iter().enumerate().take(128) {
                 queue.push_back(*neighbor);
                 distance[*neighbor] = 1;
@@ -904,17 +901,15 @@ impl Graph {
         while let Some(cur_peer) = queue.pop_front() {
             let cur_distance = distance[cur_peer];
 
-            if let Some(neighbors) = self.adjacency.get(&cur_peer) {
-                for neighbor in neighbors {
-                    if distance[*neighbor] == -1 {
-                        distance[*neighbor] = cur_distance + 1;
-                        queue.push_back(*neighbor);
-                    }
-                    // If this edge belong to a shortest path, all paths to
-                    // the closer nodes are also valid for the current node.
-                    if distance[*neighbor] == cur_distance + 1 {
-                        routes[*neighbor] |= routes[cur_peer];
-                    }
+            for neighbor in &self.adjacency[cur_peer] {
+                if distance[*neighbor] == -1 {
+                    distance[*neighbor] = cur_distance + 1;
+                    queue.push_back(*neighbor);
+                }
+                // If this edge belong to a shortest path, all paths to
+                // the closer nodes are also valid for the current node.
+                if distance[*neighbor] == cur_distance + 1 {
+                    routes[*neighbor] |= routes[cur_peer];
                 }
             }
         }
@@ -926,21 +921,20 @@ impl Graph {
         let source_id = 0;
         let mut result = HashMap::with_capacity(routes.len());
 
-        if let Some(neighbors) = self.adjacency.get(&source_id) {
-            for (key, cur_route) in routes.iter().enumerate() {
-                if key == source_id || distance[key] == -1 {
-                    continue;
-                }
-                let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
+        let neighbors = &self.adjacency[source_id];
+        for (key, cur_route) in routes.iter().enumerate() {
+            if key == source_id || distance[key] == -1 {
+                continue;
+            }
+            let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
 
-                for (id, neighbor) in neighbors.iter().enumerate().take(128) {
-                    if (cur_route & (1u128 << id)) != 0 {
-                        peer_set.push(self.id2p[neighbor].clone());
-                    };
-                }
-                if !peer_set.is_empty() {
-                    result.insert(self.id2p[key].clone(), peer_set);
-                }
+            for (id, neighbor) in neighbors.iter().enumerate().take(128) {
+                if (cur_route & (1u128 << id)) != 0 {
+                    peer_set.push(self.id2p[*neighbor].clone());
+                };
+            }
+            if !peer_set.is_empty() {
+                result.insert(self.id2p[key].clone(), peer_set);
             }
         }
         result

@@ -20,4 +20,5 @@ pub mod routing;
 pub mod types;
 pub mod utils;
 
+mod freelist;
 pub mod test_utils;
