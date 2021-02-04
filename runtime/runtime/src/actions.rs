@@ -143,7 +143,7 @@ pub(crate) fn execute_function_call(
             apply_state.current_protocol_version,
             cache,
             #[cfg(feature = "costs_counting")]
-            &apply_state.profile,
+            apply_state.profile.as_ref(),
         )
     }
 }
