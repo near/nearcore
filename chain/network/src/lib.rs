@@ -9,6 +9,7 @@ pub use types::{
 
 mod cache;
 mod codec;
+mod freelist;
 pub mod metrics;
 mod peer;
 mod peer_manager;
@@ -20,5 +21,4 @@ pub mod routing;
 pub mod types;
 pub mod utils;
 
-mod freelist;
 pub mod test_utils;
