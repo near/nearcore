@@ -942,7 +942,7 @@ impl Graph {
             res.insert(self.id2p[key].clone(), peer_set);
         }
         if unreachable_nodes > 1000 {
-            warn!("We store more than 1000 unreachable nodes.");
+            warn!("We store more than 1000 unreachable nodes: {}", unreachable_nodes);
         }
         res
     }
