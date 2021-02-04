@@ -8,12 +8,12 @@ use near_primitives::types::{AccountId, Balance, Gas};
 use near_runtime_fees::RuntimeFeesConfig;
 
 // Just re-exporting RuntimeConfig for backwards compatibility.
+pub use near_primitives::num_rational::Rational;
 pub use near_primitives::runtime::config::RuntimeConfig;
 
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_utils::is_account_id_64_len_hex;
 use num_bigint::BigUint;
-use num_rational::Rational;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
 use std::convert::TryFrom;

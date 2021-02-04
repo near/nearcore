@@ -1,4 +1,5 @@
-pub use borsh;
+pub use near_primitives_core::borsh;
+pub use near_primitives_core::num_rational;
 
 pub mod account;
 pub mod block;
