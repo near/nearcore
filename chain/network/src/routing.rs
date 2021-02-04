@@ -23,7 +23,6 @@ use near_store::{
     StoreUpdate,
 };
 
-use crate::freelist::FreeList;
 use crate::metrics;
 use crate::{
     cache::RouteBackCache,
@@ -746,7 +745,8 @@ impl RoutingTable {
     pub fn get_raw_graph(&self) -> HashMap<PeerId, HashSet<PeerId>> {
         let mut res = HashMap::with_capacity(self.raw_graph.adjacency.len());
         for (key, neighbors) in self.raw_graph.adjacency.iter().enumerate() {
-            if let Some(key) = self.raw_graph.id2p.get(key).cloned() {
+            if self.raw_graph.used[key] {
+                let key = self.raw_graph.id2p[key].clone();
                 let neighbors = neighbors
                     .iter()
                     .map(|node| self.raw_graph.id2p[*node].clone())
@@ -774,7 +774,9 @@ pub struct Graph {
     pub source: PeerId,
     source_id: usize,
     p2id: HashMap<PeerId, usize>,
-    id2p: FreeList<PeerId>,
+    id2p: Vec<PeerId>,
+    used: Vec<bool>,
+    unused: Vec<usize>,
     adjacency: Vec<FxHashSet<usize>>,
     total_active_edges: u64,
 }
@@ -785,13 +787,16 @@ impl Graph {
             source: source.clone(),
             source_id: 0,
             p2id: HashMap::default(),
-            id2p: FreeList::default(),
+            id2p: Vec::default(),
+            used: Vec::default(),
+            unused: Vec::default(),
             adjacency: Vec::default(),
             total_active_edges: 0,
         };
-        assert_eq!(res.source_id, res.id2p.insert(source.clone()));
+        res.id2p.push(source.clone());
         res.adjacency.push(FxHashSet::default());
         res.p2id.insert(source, res.source_id);
+        res.used.push(true);
 
         res
     }
@@ -809,16 +814,25 @@ impl Graph {
         let entry = &self.adjacency[id];
 
         if entry.is_empty() && id != 0 {
-            let peer = self.id2p.delete(id);
-            self.p2id.remove(&peer);
+            self.used[id] = false;
+            self.unused.push(id);
         }
     }
 
-    fn get_id(&mut self, peer0: &PeerId) -> usize {
-        match self.p2id.entry(peer0.clone()) {
+    fn get_id(&mut self, peer: &PeerId) -> usize {
+        match self.p2id.entry(peer.clone()) {
             Entry::Occupied(occupied) => *occupied.get(),
             Entry::Vacant(vacant) => {
-                let val = self.id2p.insert(peer0.clone());
+                let val = if let Some(val) = self.unused.pop() {
+                    self.id2p[val] = peer.clone();
+                    self.used[val] = true;
+                    val
+                } else {
+                    let val = self.id2p.len();
+                    self.id2p.push(peer.clone());
+                    self.used.push(true);
+                    val
+                };
                 if self.id2p.len() != self.adjacency.len() {
                     self.adjacency.push(FxHashSet::default());
                 }
@@ -905,7 +919,11 @@ impl Graph {
 
         let neighbors = &self.adjacency[self.source_id];
         for (key, cur_route) in routes.iter().enumerate() {
-            if key == self.source_id || distance[key] == -1 || *cur_route == 0u128 {
+            if key == self.source_id
+                || distance[key] == -1
+                || *cur_route == 0u128
+                || !self.used[key]
+            {
                 continue;
             }
             let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);

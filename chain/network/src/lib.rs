@@ -9,7 +9,6 @@ pub use types::{
 
 mod cache;
 mod codec;
-mod freelist;
 pub mod metrics;
 mod peer;
 mod peer_manager;
