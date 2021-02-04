@@ -814,7 +814,7 @@ impl Graph {
     fn remove_if_unused(&mut self, id: u32) {
         let entry = &self.adjacency[id as usize];
 
-        if entry.is_empty() && id != 0 {
+        if entry.is_empty() && id != self.source_id {
             self.used[id as usize] = false;
             self.unused.push(id);
         }
@@ -832,11 +832,9 @@ impl Graph {
                     let val = self.id2p.len() as u32;
                     self.id2p.push(peer.clone());
                     self.used.push(true);
+                    self.adjacency.push(Vec::default());
                     val
                 };
-                if self.id2p.len() != self.adjacency.len() {
-                    self.adjacency.push(Vec::default());
-                }
 
                 vacant.insert(val);
                 val
