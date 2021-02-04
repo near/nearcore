@@ -41,8 +41,8 @@ pub fn safe_gas_price_inflated(
     inflation_base: Rational,
     inflation_exponent: u8,
 ) -> Result<Balance, IntegerOverflowError> {
-    let numer = BigUint::from(*inflation_base.numer() as usize).pow(inflation_exponent);
-    let denom = BigUint::from(*inflation_base.denom() as usize).pow(inflation_exponent);
+    let numer = BigUint::from(*inflation_base.numer() as usize).pow(inflation_exponent as u32);
+    let denom = BigUint::from(*inflation_base.denom() as usize).pow(inflation_exponent as u32);
     // Rounding up
     let inflated_gas_price: BigUint = (numer * gas_price + &denom - 1u8) / denom;
     inflated_gas_price.to_u128().ok_or_else(|| IntegerOverflowError {})
