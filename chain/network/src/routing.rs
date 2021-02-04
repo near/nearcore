@@ -825,6 +825,8 @@ impl Graph {
             Entry::Occupied(occupied) => *occupied.get(),
             Entry::Vacant(vacant) => {
                 let val = if let Some(val) = self.unused.pop() {
+                    assert!(!self.used[val as usize]);
+                    assert!(self.adjacency[val as usize].is_empty());
                     self.id2p[val as usize] = peer.clone();
                     self.used[val as usize] = true;
                     val
