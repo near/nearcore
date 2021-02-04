@@ -902,7 +902,7 @@ impl Graph {
 
         let neighbors = &self.adjacency[self.source_id];
         for (key, cur_route) in routes.iter().enumerate() {
-            if key == self.source_id || distance[key] == -1 || cur_route == 0u128 {
+            if key == self.source_id || distance[key] == -1 || *cur_route == 0u128 {
                 continue;
             }
             let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
