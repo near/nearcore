@@ -116,6 +116,8 @@ impl<T> IndexMut<usize> for FreeList<T> {
 
 #[test]
 fn free_list_test() {
+    use std::iter::FromIterator;
+
     let mut list = FreeList::new();
 
     let a = list.insert("a");
@@ -140,8 +142,8 @@ fn free_list_test() {
 
     assert_eq!(list.len(), 5);
     assert_eq!(e, a);
-    assert_eq!(f, b);
-    assert_eq!(g, c);
+    assert_eq!(f, c);
+    assert_eq!(g, b);
     assert_eq!(h, 4);
 
     assert_eq!(list[d], "d");
@@ -152,5 +154,5 @@ fn free_list_test() {
 
     assert_eq!(list.delete(f), "f");
     let vec = Vec::from_iter(list.iter());
-    assert_eq!(vec, vec![(0, &"e"), (2, &"g"), (3, &"h"), (4, &"g")]);
+    assert_eq!(vec, vec![(0, &"e"), (1, &"g"), (3, &"h"), (4, &"g")]);
 }
