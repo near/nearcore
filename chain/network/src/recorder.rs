@@ -114,7 +114,7 @@ impl MetricRecorder {
         for (u, u_adj) in graph {
             for v in u_adj {
                 if u < v {
-                    self.graph.push((u.clone(), v);
+                    self.graph.push((u.clone(), v));
                 }
             }
         }
