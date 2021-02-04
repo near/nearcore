@@ -1,3 +1,4 @@
+use std::iter::FromIterator;
 use std::mem;
 use std::ops::{Index, IndexMut};
 
@@ -139,12 +140,13 @@ fn free_list_test() {
     assert_eq!(g, c);
     assert_eq!(h, 4);
 
-    assert_eq!(list[d] == "d");
-    assert_eq!(list[e] == "e");
-    assert_eq!(list[f] == "f");
-    assert_eq!(list[g] == "g");
-    assert_eq!(list.get(4), Some(g));
+    assert_eq!(list[d], "d");
+    assert_eq!(list[e], "e");
+    assert_eq!(list[f], "f");
+    assert_eq!(list[g], "g");
+    assert_eq!(list.get(4), Some(&"g"));
 
-    let vec = Vec::FromIter(list.iter());
-    assert_eq!(vec, vec!["e", "f", "g", "h", "g"]);
+    assert_eq!(list.delete(f), "f");
+    let vec = Vec::from_iter(list.iter());
+    assert_eq!(vec, vec![(0, &"e"), (2, &"g"), (3, &"h"), (4, &"g")]);
 }
