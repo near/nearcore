@@ -154,5 +154,5 @@ fn free_list_test() {
 
     assert_eq!(list.delete(f), "f");
     let vec = Vec::from_iter(list.iter());
-    assert_eq!(vec, vec![(0, &"e"), (1, &"g"), (3, &"h"), (4, &"g")]);
+    assert_eq!(vec, vec![(0, &"e"), (1, &"g"), (3, &"d"), (4, &"g")]);
 }
