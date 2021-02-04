@@ -838,29 +838,15 @@ impl Graph {
         }
     }
 
-    fn add_edge_internal(&mut self, peer0: PeerId, peer1: PeerId) {
-        let id0 = self.get_id(&peer0);
-        let id1 = self.get_id(&peer1);
-
-        self.adjacency[id0].insert(id1);
-        self.adjacency[id1].insert(id0);
-    }
-
-    fn remove_edge_internal(&mut self, peer0: &PeerId, peer1: &PeerId) {
-        let id0 = self.get_id(&peer0);
-        let id1 = self.get_id(&peer1);
-
-        self.adjacency[id0].remove(&id1);
-        self.adjacency[id1].remove(&id0);
-
-        self.remove_if_unused(id0);
-        self.remove_if_unused(id1);
-    }
-
     pub fn add_edge(&mut self, peer0: PeerId, peer1: PeerId) {
         assert_ne!(peer0, peer1);
         if !self.contains_edge(&peer0, &peer1) {
-            self.add_edge_internal(peer0, peer1);
+            let id0 = self.get_id(&peer0);
+            let id1 = self.get_id(&peer1);
+
+            self.adjacency[id0].insert(id1);
+            self.adjacency[id1].insert(id0);
+            
             self.total_active_edges += 1;
         }
     }
@@ -868,7 +854,15 @@ impl Graph {
     pub fn remove_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
         assert_ne!(peer0, peer1);
         if self.contains_edge(&peer0, &peer1) {
-            self.remove_edge_internal(&peer0, &peer1);
+            let id0 = self.get_id(&peer0);
+            let id1 = self.get_id(&peer1);
+
+            self.adjacency[id0].remove(&id1);
+            self.adjacency[id1].remove(&id0);
+
+            self.remove_if_unused(id0);
+            self.remove_if_unused(id1);
+            
             self.total_active_edges -= 1;
         }
     }
