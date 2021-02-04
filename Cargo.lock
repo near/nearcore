@@ -3278,7 +3278,6 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "rand 0.7.3",
- "rustc-hash",
  "serde",
  "serde_json",
  "strum",

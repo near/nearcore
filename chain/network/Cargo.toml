@@ -20,7 +20,6 @@ byteorder = "1.2"
 lazy_static = "1.4"
 tracing = "0.1.13"
 strum = { version = "0.20", features = ["derive"] }
-rustc-hash = "1.1.0"
 
 borsh = "0.8.1"
 cached = "0.23"
