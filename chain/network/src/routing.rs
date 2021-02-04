@@ -771,22 +771,22 @@ pub struct RoutingTableInfo {
 #[derive(Clone)]
 pub struct Graph {
     pub source: PeerId,
+    source_id: usize,
     p2id: HashMap<PeerId, usize>,
     id2p: FreeList<PeerId>,
     adjacency: FreeList<FxHashSet<usize>>,
     total_active_edges: u64,
-    source_id: usize,
 }
 
 impl Graph {
     pub fn new(source: PeerId) -> Self {
         let mut res = Self {
             source: source.clone(),
+            source_id: 0,
             p2id: HashMap::default(),
             id2p: FreeList::default(),
             adjacency: FreeList::default(),
             total_active_edges: 0,
-            source_id: 0,
         };
         assert_eq!(res.source_id, res.id2p.insert(source.clone()));
         assert_eq!(res.source_id, res.adjacency.insert(FxHashSet::default()));
