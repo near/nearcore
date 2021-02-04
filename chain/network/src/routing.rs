@@ -785,6 +785,7 @@ pub struct Graph {
     id2p: FreeList<PeerId>,
     adjacency: FreeList<FxHashSet<usize>>,
     total_active_edges: u64,
+    source_id: usize,
 }
 
 impl Graph {
@@ -795,10 +796,11 @@ impl Graph {
             id2p: FreeList::default(),
             adjacency: FreeList::default(),
             total_active_edges: 0,
+            source_id: 0,
         };
-        res.id2p.insert(source.clone());
-        res.adjacency.insert(FxHashSet::default());
-        res.p2id.insert(source, 0);
+        assert_eq!(res.source_id, res.id2p.insert(source.clone()));
+        assert_eq!(res.source_id, res.adjacency.insert(FxHashSet::default()));
+        res.p2id.insert(source, res.source_id);
 
         res
     }
@@ -846,7 +848,7 @@ impl Graph {
 
             self.adjacency[id0].insert(id1);
             self.adjacency[id1].insert(id0);
-            
+
             self.total_active_edges += 1;
         }
     }
@@ -862,7 +864,7 @@ impl Graph {
 
             self.remove_if_unused(id0);
             self.remove_if_unused(id1);
-            
+
             self.total_active_edges -= 1;
         }
     }
@@ -879,10 +881,9 @@ impl Graph {
         let mut distance: Vec<i32> = vec![-1; nodes];
         let mut routes: Vec<u128> = vec![0; nodes];
 
-        let source_id = 0;
-        distance[source_id] = 0;
+        distance[self.source_id] = 0;
 
-        if let Some(neighbors) = self.adjacency.get(source_id) {
+        if let Some(neighbors) = self.adjacency.get(self.source_id) {
             for (id, neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
                 queue.push_back(*neighbor);
                 distance[*neighbor] = 1;
@@ -910,12 +911,11 @@ impl Graph {
     }
 
     fn compute_result(&self, routes: &[u128], distance: &[i32]) -> HashMap<PeerId, Vec<PeerId>> {
-        let source_id = 0;
         let mut res = HashMap::with_capacity(routes.len());
 
-        let neighbors = &self.adjacency[source_id];
+        let neighbors = &self.adjacency[self.source_id];
         for (key, cur_route) in routes.iter().enumerate() {
-            if key == source_id || distance[key] == -1 {
+            if key == self.source_id || distance[key] == -1 {
                 continue;
             }
             let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
