@@ -193,7 +193,7 @@ pub fn random_epoch_id() -> EpochId {
 }
 
 pub fn expected_routing_tables(
-    current: HashMap<PeerId, HashSet<PeerId>>,
+    current: HashMap<PeerId, Vec<PeerId>>,
     expected: Vec<(PeerId, Vec<PeerId>)>,
 ) -> bool {
     if current.len() != expected.len() {

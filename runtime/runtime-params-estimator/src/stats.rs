@@ -26,8 +26,11 @@ impl Measurements {
         block_size: usize,
         block_cost: ExecutionCost,
     ) {
+        #[cfg(feature = "costs_counting")]
         let ext_costs = node_runtime::EXT_COSTS_COUNTER
             .with(|f| f.borrow_mut().drain().collect::<HashMap<_, _>>());
+        #[cfg(not(feature = "costs_counting"))]
+        let ext_costs = HashMap::new();
         self.data.entry(metric).or_insert_with(Vec::new).push((block_size, block_cost, ext_costs));
     }
 
