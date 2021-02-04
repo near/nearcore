@@ -162,7 +162,7 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         if config.max_num_peers as usize > MAX_NUM_PEERS {
-            panic!("we can't have more peers than {}", MAX_NUM_PEERS);
+            panic!("Exceeded max peer limit: {}", MAX_NUM_PEERS);
         }
 
         let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
