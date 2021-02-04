@@ -753,7 +753,6 @@ impl RoutingTable {
         }
     }
 
-    // This method is slow
     pub fn get_raw_graph(&self) -> HashMap<PeerId, HashSet<PeerId>> {
         let mut res = HashMap::with_capacity(self.raw_graph.adjacency.len());
         for (key, neighbors) in self.raw_graph.adjacency.iter() {
