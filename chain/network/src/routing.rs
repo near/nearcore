@@ -32,7 +32,6 @@ use crate::{
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use rustc_hash::FxHashSet;
-use std::iter::FromIterator;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
@@ -630,7 +629,7 @@ impl RoutingTable {
                 .peer_forwarding
                 .iter()
                 .map(|(k, v)| {
-                    let r: HashSet<PeerId> = HashSet::from_iter(v.iter().cloned());
+                    let r: Vec<PeerId> = v.iter().cloned().collect();
                     (k.clone(), r)
                 })
                 .collect(),
@@ -776,7 +775,7 @@ pub struct ProcessEdgeResult {
 #[derive(Debug)]
 pub struct RoutingTableInfo {
     pub account_peers: HashMap<AccountId, PeerId>,
-    pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
+    pub peer_forwarding: HashMap<PeerId, Vec<PeerId>>,
 }
 
 #[derive(Clone)]
