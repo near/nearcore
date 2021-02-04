@@ -888,25 +888,25 @@ impl Graph {
 
         {
             let neighbors = &self.adjacency[self.source_id];
-            for (id, neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
-                queue.push_back(*neighbor);
-                distance[*neighbor] = 1;
-                routes[*neighbor] = 1u128 << id;
+            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
+                queue.push_back(neighbor);
+                distance[neighbor] = 1;
+                routes[neighbor] = 1u128 << id;
             }
         }
 
         while let Some(cur_peer) = queue.pop_front() {
             let cur_distance = distance[cur_peer];
 
-            for neighbor in &self.adjacency[cur_peer] {
-                if distance[*neighbor] == -1 {
-                    distance[*neighbor] = cur_distance + 1;
-                    queue.push_back(*neighbor);
+            for &neighbor in &self.adjacency[cur_peer] {
+                if distance[neighbor] == -1 {
+                    distance[neighbor] = cur_distance + 1;
+                    queue.push_back(neighbor);
                 }
                 // If this edge belong to a shortest path, all paths to
                 // the closer nodes are also valid for the current node.
-                if distance[*neighbor] == cur_distance + 1 {
-                    routes[*neighbor] |= routes[cur_peer];
+                if distance[neighbor] == cur_distance + 1 {
+                    routes[neighbor] |= routes[cur_peer];
                 }
             }
         }
@@ -918,11 +918,8 @@ impl Graph {
         let mut res = HashMap::with_capacity(routes.len());
 
         let neighbors = &self.adjacency[self.source_id];
-        for (key, cur_route) in routes.iter().enumerate() {
-            if key == self.source_id
-                || distance[key] == -1
-                || *cur_route == 0u128
-                || !self.used[key]
+        for (key, &cur_route) in routes.iter().enumerate() {
+            if key == self.source_id || distance[key] == -1 || cur_route == 0u128 || !self.used[key]
             {
                 continue;
             }
