@@ -24,10 +24,15 @@ impl<T> FreeList<T> {
                 self.store.push(Slot::Full(item));
                 self.store.len() - 1
             }
-            Some(idx) => {
+            Some(cur_free) => {
                 let mut new_elem: Slot<T> = Slot::Full(item);
-                mem::swap(&mut new_elem, &mut self.store[idx]);
-                idx
+                mem::swap(&mut new_elem, &mut self.store[cur_free]);
+                if let Slot::Free(next_free) = new_elem {
+                    self.first_free = next_free;
+                } else {
+                    panic!("bug")
+                }
+                cur_free
             }
         }
     }
