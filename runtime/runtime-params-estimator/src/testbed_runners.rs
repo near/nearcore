@@ -226,7 +226,6 @@ where
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
     ));
-    #[cfg(feature = "costs_counting")]
     node_runtime::EXT_COSTS_COUNTER.with(|f| {
         f.borrow_mut().clear();
     });
