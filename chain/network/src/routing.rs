@@ -872,7 +872,8 @@ impl Graph {
 
         distance[self.source_id] = 0;
 
-        if let Some(neighbors) = self.adjacency.get(self.source_id) {
+        {
+            let neighbors = &self.adjacency[self.source_id];
             for (id, neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
                 queue.push_back(*neighbor);
                 distance[*neighbor] = 1;
