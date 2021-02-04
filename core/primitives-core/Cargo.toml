@@ -23,7 +23,8 @@ sha2 = ">=0.8,<0.10"
 lazy_static = "1.4"
 
 [features]
-default = []
+default = ["protocol_feature_lower_storage_cost"]
 costs_counting = []
 protocol_feature_evm = []
+protocol_feature_lower_storage_cost = []
 

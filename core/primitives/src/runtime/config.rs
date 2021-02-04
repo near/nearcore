@@ -129,9 +129,8 @@ mod tests {
             config.as_ref().storage_amount_per_byte
         );
         let config_lower = RuntimeConfig::from_protocol_version(&config, ProtocolVersion::MAX);
-        assert_eq!(
-            config_lower.as_ref().storage_amount_per_byte,
-            config.as_ref().storage_amount_per_byte
+        assert!(
+            config_lower.as_ref().storage_amount_per_byte < config.as_ref().storage_amount_per_byte
         );
     }
 }
