@@ -745,13 +745,14 @@ impl RoutingTable {
 
     pub fn get_raw_graph(&self) -> HashMap<PeerId, HashSet<PeerId>> {
         let mut res = HashMap::with_capacity(self.raw_graph.adjacency.len());
-        for (key, neighbors) in self.raw_graph.adjacency.iter() {
-            let key = self.raw_graph.id2p[key].clone();
-            let neighbors = neighbors
-                .iter()
-                .map(|node| self.raw_graph.id2p[*node].clone())
-                .collect::<HashSet<_>>();
-            res.insert(key, neighbors);
+        for (key, neighbors) in self.raw_graph.adjacency.iter().enumerate() {
+            if let Some(key) = self.raw_graph.id2p.get(key).cloned() {
+                let neighbors = neighbors
+                    .iter()
+                    .map(|node| self.raw_graph.id2p[*node].clone())
+                    .collect::<HashSet<_>>();
+                res.insert(key, neighbors);
+            }
         }
         res
     }
@@ -774,7 +775,7 @@ pub struct Graph {
     source_id: usize,
     p2id: HashMap<PeerId, usize>,
     id2p: FreeList<PeerId>,
-    adjacency: FreeList<FxHashSet<usize>>,
+    adjacency: Vec<FxHashSet<usize>>,
     total_active_edges: u64,
 }
 
@@ -785,11 +786,11 @@ impl Graph {
             source_id: 0,
             p2id: HashMap::default(),
             id2p: FreeList::default(),
-            adjacency: FreeList::default(),
+            adjacency: Vec::default(),
             total_active_edges: 0,
         };
         assert_eq!(res.source_id, res.id2p.insert(source.clone()));
-        assert_eq!(res.source_id, res.adjacency.insert(FxHashSet::default()));
+        res.adjacency.push(FxHashSet::default());
         res.p2id.insert(source, res.source_id);
 
         res
@@ -810,7 +811,6 @@ impl Graph {
         if entry.is_empty() && id != 0 {
             let peer = self.id2p.delete(id);
             self.p2id.remove(&peer);
-            self.adjacency.delete(id);
         }
     }
 
@@ -819,7 +819,9 @@ impl Graph {
             Entry::Occupied(occupied) => *occupied.get(),
             Entry::Vacant(vacant) => {
                 let val = self.id2p.insert(peer0.clone());
-                self.adjacency.insert(FxHashSet::default());
+                if self.id2p.len() != self.adjacency.len() {
+                    self.adjacency.push(FxHashSet::default());
+                }
 
                 vacant.insert(val);
                 val
