@@ -343,6 +343,8 @@ impl BlockHeader {
         random_value: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        #[allow(unused)]
         block_ordinal: NumBlocks,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
