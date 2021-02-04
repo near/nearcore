@@ -624,17 +624,7 @@ impl RoutingTable {
             .into_iter()
             .map(|announce_account| (announce_account.account_id, announce_account.peer_id))
             .collect();
-        RoutingTableInfo {
-            account_peers,
-            peer_forwarding: self
-                .peer_forwarding
-                .iter()
-                .map(|(k, v)| {
-                    let r: Vec<PeerId> = v.iter().cloned().collect();
-                    (k.clone(), r)
-                })
-                .collect(),
-        }
+        RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
     }
 
     fn try_save_edges(&mut self) {
