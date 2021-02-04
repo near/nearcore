@@ -26,9 +26,15 @@ impl Measurements {
         block_size: usize,
         block_cost: ExecutionCost,
     ) {
-        let ext_costs = node_runtime::EXT_COSTS_COUNTER
-            .with(|f| f.borrow_mut().drain().collect::<HashMap<_, _>>());
-        self.data.entry(metric).or_insert_with(Vec::new).push((block_size, block_cost, ext_costs));
+        #[cfg(feature = "costs_counting")]
+        {
+            let ext_costs = node_runtime::EXT_COSTS_COUNTER
+                .with(|f| f.borrow_mut().drain().collect::<HashMap<_, _>>());
+            self.data
+                .entry(metric)
+                .or_insert_with(Vec::new)
+                .push((block_size, block_cost, ext_costs));
+        }
     }
 
     pub fn aggregate(&self) -> BTreeMap<Metric, DataStats> {
