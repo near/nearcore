@@ -1057,6 +1057,7 @@ impl TestEnv {
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
+                last_block.header().prev_hash(),
                 last_block.header().hash(),
                 last_block.header().epoch_id(),
                 &QueryRequest::ViewAccount { account_id },

@@ -79,12 +79,6 @@ impl RpcChunkRequest {
     }
 }
 
-impl From<near_primitives::views::ChunkView> for RpcChunkResponse {
-    fn from(chunk_view: near_primitives::views::ChunkView) -> Self {
-        Self { chunk_view }
-    }
-}
-
 impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
     fn from(error: near_client_primitives::types::GetChunkError) -> Self {
         match error {

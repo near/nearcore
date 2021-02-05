@@ -143,7 +143,7 @@ pub(crate) fn execute_function_call(
             apply_state.current_protocol_version,
             cache,
             #[cfg(feature = "costs_counting")]
-            &apply_state.profile,
+            apply_state.profile.as_ref(),
         )
     }
 }
@@ -177,7 +177,8 @@ pub(crate) fn action_function_call(
         action_receipt.gas_price,
         action_hash,
         &apply_state.epoch_id,
-        &apply_state.last_block_hash,
+        &apply_state.prev_block_hash,
+        &apply_state.block_hash,
         epoch_info_provider,
         apply_state.current_protocol_version,
     );

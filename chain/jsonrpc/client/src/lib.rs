@@ -225,10 +225,18 @@ impl JsonRpcClient {
     ) -> RpcRequest<Vec<ValidatorStakeView>> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_validators_ordered", request)
     }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_receipt(
+        &self,
+        request: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::receipts::RpcReceiptResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_receipt", request)
+    }
 }
 
 fn create_client() -> Client {
-    Client::build()
+    Client::builder()
         .timeout(CONNECT_TIMEOUT)
         .connector(
             Connector::new()

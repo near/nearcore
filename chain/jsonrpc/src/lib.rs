@@ -3,7 +3,7 @@ use std::string::FromUtf8Error;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
-use actix_cors::{Cors, CorsFactory};
+use actix_cors::Cors;
 use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use borsh::BorshDeserialize;
 use futures::Future;
@@ -12,12 +12,12 @@ use prometheus;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::time::{delay_for, timeout};
+use tokio::time::{sleep, timeout};
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
     ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
-    GetNetworkInfo, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
+    GetNetworkInfo, GetNextLightClientBlock, GetReceipt, GetStateChanges, GetStateChangesInBlock,
     GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus, TxStatusError, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
@@ -251,6 +251,14 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_light_client_proof" => {
                 self.light_client_execution_outcome_proof(request.params).await
             }
+            "EXPERIMENTAL_receipt" => {
+                let rpc_receipt_request =
+                    near_jsonrpc_primitives::types::receipts::RpcReceiptRequest::parse(
+                        request.params,
+                    )?;
+                let receipt = self.receipt(rpc_receipt_request).await?;
+                serde_json::to_value(receipt).map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "EXPERIMENTAL_tx_status" => self.tx_status_common(request.params, true).await,
             "EXPERIMENTAL_validators_ordered" => self.validators_ordered(request.params).await,
             "gas_price" => self.gas_price(request.params).await,
@@ -313,7 +321,7 @@ impl JsonRpcHandler {
                     Err(_) => return Err(ServerError::InternalError),
                     _ => {}
                 }
-                delay_for(self.polling_config.polling_interval).await;
+                sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -358,7 +366,7 @@ impl JsonRpcHandler {
                     Ok(Err(err)) => break Err(err),
                     Err(_) => break Err(TxStatusError::InternalError),
                 }
-                let _ = delay_for(self.polling_config.polling_interval).await;
+                let _ = sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -380,7 +388,7 @@ impl JsonRpcHandler {
                         break jsonify::<FinalExecutionOutcomeView>(Ok(Err(err.into())));
                     }
                 }
-                let _ = delay_for(self.polling_config.polling_interval).await;
+                let _ = sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -597,7 +605,7 @@ impl JsonRpcHandler {
                     },
                     Err(e) => break Err(RpcError::server_error(Some(e.to_string()))),
                 }
-                delay_for(self.polling_config.polling_interval).await;
+                sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -639,7 +647,9 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::blocks::RpcBlockResponse,
         near_jsonrpc_primitives::types::blocks::RpcBlockError,
     > {
-        Ok(self.view_client_addr.send(GetBlock(request_data.block_reference.into())).await??.into())
+        let block_view =
+            self.view_client_addr.send(GetBlock(request_data.block_reference.into())).await??;
+        Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
     async fn chunk(
@@ -649,7 +659,30 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::chunks::RpcChunkResponse,
         near_jsonrpc_primitives::types::chunks::RpcChunkError,
     > {
-        Ok(self.view_client_addr.send(GetChunk::from(request_data.chunk_reference)).await??.into())
+        let chunk_view =
+            self.view_client_addr.send(GetChunk::from(request_data.chunk_reference)).await??;
+        Ok(near_jsonrpc_primitives::types::chunks::RpcChunkResponse { chunk_view })
+    }
+
+    async fn receipt(
+        &self,
+        request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::receipts::RpcReceiptResponse,
+        near_jsonrpc_primitives::types::receipts::RpcReceiptError,
+    > {
+        match self
+            .view_client_addr
+            .send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
+            .await??
+        {
+            Some(receipt_view) => {
+                Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptResponse { receipt_view })
+            }
+            None => Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt(
+                request_data.receipt_reference.receipt_id,
+            )),
+        }
     }
 
     async fn changes_in_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -943,8 +976,8 @@ fn prometheus_handler(
     response.boxed()
 }
 
-fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
-    let mut cors = Cors::new();
+fn get_cors(cors_allowed_origins: &[String]) -> Cors {
+    let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
         for origin in cors_allowed_origins {
             cors = cors.allowed_origin(&origin);
@@ -954,7 +987,6 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
         .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
         .allowed_header(http::header::CONTENT_TYPE)
         .max_age(3600)
-        .finish()
 }
 
 pub fn start_http(

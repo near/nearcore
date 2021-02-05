@@ -10,6 +10,7 @@ use crate::db::refcount::decode_value_with_rc;
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{ColState, StorageError, Store};
 use near_primitives::types::ShardId;
+use std::cell::RefCell;
 use std::convert::{TryFrom, TryInto};
 use std::io::ErrorKind;
 
@@ -39,7 +40,7 @@ impl TrieCache {
     }
 }
 
-pub trait TrieStorage: Send + Sync {
+pub trait TrieStorage {
     /// Get bytes of a serialized TrieNode.
     /// # Errors
     /// StorageError if the storage fails internally or the hash is not present.
@@ -58,18 +59,30 @@ pub trait TrieStorage: Send + Sync {
     }
 }
 
+/// Records every value read by retrieve_raw_bytes.
+/// Used for obtaining state parts (and challenges in the future).
 pub struct TrieRecordingStorage {
-    pub(crate) storage: TrieCachingStorage,
-    pub(crate) recorded: Arc<Mutex<HashMap<CryptoHash, Vec<u8>>>>,
+    pub(crate) store: Arc<Store>,
+    pub(crate) shard_id: ShardId,
+    pub(crate) recorded: RefCell<HashMap<CryptoHash, Vec<u8>>>,
 }
 
 impl TrieStorage for TrieRecordingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        let result = self.storage.retrieve_raw_bytes(hash);
-        if let Ok(val) = &result {
-            self.recorded.lock().expect(POISONED_LOCK_ERR).insert(*hash, val.clone());
+        if let Some(val) = self.recorded.borrow().get(hash) {
+            return Ok(val.clone());
         }
-        result
+        let key = TrieCachingStorage::get_key_from_shard_id_and_hash(self.shard_id, hash);
+        let val = self
+            .store
+            .get(ColState, key.as_ref())
+            .map_err(|_| StorageError::StorageInternalError)?;
+        if let Some(val) = val {
+            self.recorded.borrow_mut().insert(*hash, val.clone());
+            Ok(val)
+        } else {
+            Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
+        }
     }
 
     fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {
@@ -81,7 +94,7 @@ impl TrieStorage for TrieRecordingStorage {
 /// visited_nodes are to validate that partial storage doesn't contain unnecessary nodes.
 pub struct TrieMemoryPartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Vec<u8>>,
-    pub(crate) visited_nodes: Arc<Mutex<HashSet<CryptoHash>>>,
+    pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
 }
 
 impl TrieStorage for TrieMemoryPartialStorage {
@@ -91,7 +104,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
             .get(hash)
             .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()));
         if result.is_ok() {
-            self.visited_nodes.lock().expect(POISONED_LOCK_ERR).insert(*hash);
+            self.visited_nodes.borrow_mut().insert(*hash);
         }
         result
     }

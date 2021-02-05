@@ -40,7 +40,10 @@ impl RpcUser {
         F: FnOnce(JsonRpcClient) -> Fut + 'static,
     {
         let addr = self.addr.clone();
-        System::new("actix")
+        System::builder()
+            .stop_on_panic(true)
+            .name("NEAR")
+            .build()
             .block_on(async move { f(new_client(&format!("http://{}", addr))).await })
     }
 

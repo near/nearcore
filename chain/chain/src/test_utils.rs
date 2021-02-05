@@ -743,6 +743,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
+        _prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         _epoch_id: &EpochId,
         request: &QueryRequest,

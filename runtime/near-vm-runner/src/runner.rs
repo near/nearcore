@@ -28,11 +28,11 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
-    #[cfg(feature = "costs_counting")] profile: &Option<ProfileData>,
+    #[cfg(feature = "costs_counting")] profile: Option<&ProfileData>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     #[cfg(feature = "costs_counting")]
-    match profile {
-        Some(profile) => run_vm_profiled(
+    if let Some(profile) = profile {
+        return run_vm_profiled(
             code_hash,
             code,
             method_name,
@@ -45,22 +45,8 @@ pub fn run<'a>(
             profile.clone(),
             current_protocol_version,
             cache,
-        ),
-        _ => run_vm(
-            code_hash,
-            code,
-            method_name,
-            ext,
-            context,
-            wasm_config,
-            fees_config,
-            promise_results,
-            VMKind::default(),
-            current_protocol_version,
-            cache,
-        ),
+        );
     }
-    #[cfg(not(feature = "costs_counting"))]
     run_vm(
         code_hash,
         code,
