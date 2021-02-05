@@ -39,7 +39,7 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
-default = ["jemallocator", "protocol_feature_lower_storage_cost"]
+default = ["jemallocator", "stable_protocol_features"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 stable_protocol_features = ["protocol_feature_lower_storage_cost"]
 protocol_feature_lower_storage_cost = ["near-primitives-core/protocol_feature_lower_storage_cost"]
