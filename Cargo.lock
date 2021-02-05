@@ -3740,11 +3740,11 @@ dependencies = [
  "parity-wasm",
  "pwasm-utils",
  "wabt",
- "wasmer",
- "wasmer-compiler-singlepass",
+ "wasmer-compiler-singlepass-near",
+ "wasmer-near",
  "wasmer-runtime-core-near",
  "wasmer-runtime-near",
- "wasmer-types",
+ "wasmer-types-near",
  "wasmtime",
 ]
 
@@ -6396,48 +6396,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer"
+name = "wasmer-compiler-cranelift-near"
 version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
-dependencies = [
- "cfg-if 0.1.10",
- "indexmap",
- "more-asserts",
- "target-lexicon 0.11.1",
- "thiserror",
- "wasmer-compiler",
- "wasmer-compiler-cranelift",
- "wasmer-derive",
- "wasmer-engine",
- "wasmer-engine-jit",
- "wasmer-engine-native",
- "wasmer-types",
- "wasmer-vm",
- "wat",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "wasmer-compiler"
-version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
-dependencies = [
- "raw-cpuid",
- "serde",
- "serde_bytes",
- "smallvec 1.6.1",
- "target-lexicon 0.11.1",
- "thiserror",
- "wasmer-types",
- "wasmer-vm",
- "wasmer_enumset",
- "wasmparser 0.65.0",
-]
-
-[[package]]
-name = "wasmer-compiler-cranelift"
-version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8de6b657ad3ede318777e0dfe82be83b098e7be7d82c9e4a00cc10bd5503e016"
 dependencies = [
  "cranelift-codegen 0.68.0",
  "cranelift-frontend 0.68.0",
@@ -6447,15 +6409,34 @@ dependencies = [
  "serde",
  "smallvec 1.6.1",
  "tracing",
- "wasmer-compiler",
- "wasmer-types",
- "wasmer-vm",
+ "wasmer-compiler-near",
+ "wasmer-types-near",
+ "wasmer-vm-near",
 ]
 
 [[package]]
-name = "wasmer-compiler-singlepass"
+name = "wasmer-compiler-near"
 version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c001e01ea85a43cc2ebeb709596622ee8c97fed68605027a86b4b4a15098e0a"
+dependencies = [
+ "raw-cpuid",
+ "serde",
+ "serde_bytes",
+ "smallvec 1.6.1",
+ "target-lexicon 0.11.1",
+ "thiserror",
+ "wasmer-types-near",
+ "wasmer-vm-near",
+ "wasmer_enumset",
+ "wasmparser 0.65.0",
+]
+
+[[package]]
+name = "wasmer-compiler-singlepass-near"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73ca932f5f20d9eebeec519b7a9e7ec5d49197405bb9a3f0c13f2ce2cba7cbd6"
 dependencies = [
  "byteorder",
  "dynasm 1.0.0",
@@ -6465,15 +6446,16 @@ dependencies = [
  "rayon",
  "serde",
  "smallvec 1.6.1",
- "wasmer-compiler",
- "wasmer-types",
- "wasmer-vm",
+ "wasmer-compiler-near",
+ "wasmer-types-near",
+ "wasmer-vm-near",
 ]
 
 [[package]]
-name = "wasmer-derive"
+name = "wasmer-derive-near"
 version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef5c253a3c8836848b12e251395afa1bb156a70cf19dd6603b69ec9f922a891a"
 dependencies = [
  "proc-macro-error",
  "proc-macro2 1.0.24",
@@ -6482,9 +6464,49 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer-engine"
+name = "wasmer-engine-jit-near"
 version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f5c2d5544188afce627f7e8a8e9b542bbd8ffe98ee2a6a33d2f21c9e7f16f2a"
+dependencies = [
+ "bincode",
+ "cfg-if 0.1.10",
+ "region",
+ "serde",
+ "serde_bytes",
+ "wasmer-compiler-near",
+ "wasmer-engine-near",
+ "wasmer-types-near",
+ "wasmer-vm-near",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "wasmer-engine-native-near"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d30ff20935a3337937838a919e6c98c9ea206ba1c43680d426092c06ceb3a7d"
+dependencies = [
+ "bincode",
+ "cfg-if 0.1.10",
+ "leb128",
+ "libloading 0.6.6",
+ "serde",
+ "tempfile",
+ "tracing",
+ "wasmer-compiler-near",
+ "wasmer-engine-near",
+ "wasmer-object-near",
+ "wasmer-types-near",
+ "wasmer-vm-near",
+ "which 4.0.2",
+]
+
+[[package]]
+name = "wasmer-engine-near"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22f523e2b3b25ce7fdabc6285fee718921a5ebad1ae4ce5653fe5423962fb952"
 dependencies = [
  "backtrace",
  "bincode",
@@ -6496,57 +6518,44 @@ dependencies = [
  "serde_bytes",
  "target-lexicon 0.11.1",
  "thiserror",
- "wasmer-compiler",
- "wasmer-types",
- "wasmer-vm",
+ "wasmer-compiler-near",
+ "wasmer-types-near",
+ "wasmer-vm-near",
 ]
 
 [[package]]
-name = "wasmer-engine-jit"
+name = "wasmer-near"
 version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dc66f9e8eab70dc797e2c1eaf2688745be9315e55ee6aa49b3e1a174cec32e6"
 dependencies = [
- "bincode",
  "cfg-if 0.1.10",
- "region",
- "serde",
- "serde_bytes",
- "wasmer-compiler",
- "wasmer-engine",
- "wasmer-types",
- "wasmer-vm",
+ "indexmap",
+ "more-asserts",
+ "target-lexicon 0.11.1",
+ "thiserror",
+ "wasmer-compiler-cranelift-near",
+ "wasmer-compiler-near",
+ "wasmer-derive-near",
+ "wasmer-engine-jit-near",
+ "wasmer-engine-native-near",
+ "wasmer-engine-near",
+ "wasmer-types-near",
+ "wasmer-vm-near",
+ "wat",
  "winapi 0.3.9",
 ]
 
 [[package]]
-name = "wasmer-engine-native"
+name = "wasmer-object-near"
 version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
-dependencies = [
- "bincode",
- "cfg-if 0.1.10",
- "leb128",
- "libloading 0.6.6",
- "serde",
- "tempfile",
- "tracing",
- "wasmer-compiler",
- "wasmer-engine",
- "wasmer-object",
- "wasmer-types",
- "wasmer-vm",
- "which 4.0.2",
-]
-
-[[package]]
-name = "wasmer-object"
-version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "684cb3a6938d890bd30a48bed14cfd6ed49713cd11857ea0f17413857680167c"
 dependencies = [
  "object 0.22.0",
  "thiserror",
- "wasmer-compiler",
- "wasmer-types",
+ "wasmer-compiler-near",
+ "wasmer-types-near",
 ]
 
 [[package]]
@@ -6612,9 +6621,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer-types"
+name = "wasmer-types-near"
 version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9975bdb09799bdfa8a68c22de7229335644c93a6585cfeb560c67ab3e992cd60"
 dependencies = [
  "cranelift-entity 0.68.0",
  "serde",
@@ -6622,9 +6632,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer-vm"
+name = "wasmer-vm-near"
 version = "1.0.1"
-source = "git+https://github.com/wasmerio/wasmer?rev=b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb#b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fffccc529aad5ae715eac4b57c12019b610eec4ffd80dd6c214b3bcc3fa7c89"
 dependencies = [
  "backtrace",
  "cc",
@@ -6636,7 +6647,7 @@ dependencies = [
  "region",
  "serde",
  "thiserror",
- "wasmer-types",
+ "wasmer-types-near",
  "winapi 0.3.9",
 ]
 

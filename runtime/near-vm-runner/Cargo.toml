@@ -16,9 +16,9 @@ This crate implements the specification of the interface that Near blockchain ex
 borsh = "0.7.1"
 wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near" }
 wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }
-wasmer = { git = "https://github.com/wasmerio/wasmer", rev="b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb", optional = true }
-wasmer-types = { git = "https://github.com/wasmerio/wasmer", rev="b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb", optional = true }
-wasmer-compiler-singlepass = { git = "https://github.com/wasmerio/wasmer", rev="b4d2d8ee804a45850af2b3e012fdbbbdcb1185cb", optional = true }
+wasmer = { version = "1.0.1", package = "wasmer-near", optional = true }
+wasmer-types = { version = "1.0.1", package = "wasmer-types-near", optional = true }
+wasmer-compiler-singlepass = { version = "1.0.1", package = "wasmer-compiler-singlepass-near", optional = true }
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.20.0", default-features = false, optional = true }
