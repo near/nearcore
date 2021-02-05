@@ -140,6 +140,8 @@ skip = [
     { name = "strsim", version = "=0.8.0" },
     { name = "wasmparser", version = "=0.57.0" },
     { name = "which", version = "=3.1.1" },
+    { name = "object", version = "=0.23.0" },
+    
     # hashbrown uses an older version
     { name = "ahash", version = "=0.4.7" },
 ]
