@@ -148,12 +148,14 @@ lazy_static::lazy_static! {
 fuzz_target!(|requests: Vec<JsonRpcRequest>| {
     NODE_INIT.call_once(|| {
         std::thread::spawn(|| {
-            System::run(|| {
-                let (_view_client_addr, addr) =
-                    test_utils::start_all(test_utils::NodeType::NonValidator);
-                unsafe { NODE_ADDR = Some(addr) }
-            })
-            .unwrap();
+            System::builder()
+                .stop_on_panic(true)
+                .run(|| {
+                    let (_view_client_addr, addr) =
+                        test_utils::start_all(test_utils::NodeType::NonValidator);
+                    unsafe { NODE_ADDR = Some(addr) }
+                })
+                .unwrap();
         });
     });
 

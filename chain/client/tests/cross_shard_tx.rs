@@ -17,62 +17,72 @@ fn test_keyvalue_runtime_balances() {
     let validator_groups = 2;
     let successful_queries = Arc::new(AtomicUsize::new(0));
     init_integration_logger();
-    System::run(move || {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+    System::builder()
+        .stop_on_panic(true)
+        .run(move || {
+            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+                Arc::new(RwLock::new(vec![]));
 
-        let validators = vec![vec!["test1", "test2", "test3", "test4"]];
-        let key_pairs =
-            vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
+            let validators = vec![vec!["test1", "test2", "test3", "test4"]];
+            let key_pairs = vec![
+                PeerInfo::random(),
+                PeerInfo::random(),
+                PeerInfo::random(),
+                PeerInfo::random(),
+            ];
 
-        let (_, conn, _) = setup_mock_all_validators(
-            validators.clone(),
-            key_pairs.clone(),
-            validator_groups,
-            true,
-            100,
-            false,
-            false,
-            5,
-            false,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            false,
-            Arc::new(RwLock::new(Box::new(move |_account_id: String, _msg: &NetworkRequests| {
-                (NetworkResponses::NoResponse, true)
-            }))),
-        );
-        *connectors.write().unwrap() = conn;
-
-        let connectors_ = connectors.write().unwrap();
-        let flat_validators = validators.iter().flatten().collect::<Vec<_>>();
-        for i in 0..4 {
-            let expected = (1000 + i * 100) as u128;
-
-            let successful_queries2 = successful_queries.clone();
-            actix::spawn(
-                connectors_[i]
-                    .1
-                    .send(Query::new(
-                        BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: flat_validators[i].to_string() },
-                    ))
-                    .then(move |res| {
-                        let query_response = res.unwrap().unwrap().unwrap();
-                        if let ViewAccount(view_account_result) = query_response.kind {
-                            assert_eq!(view_account_result.amount, expected);
-                            successful_queries2.fetch_add(1, Ordering::Relaxed);
-                            if successful_queries2.load(Ordering::Relaxed) >= 4 {
-                                System::current().stop();
-                            }
-                        }
-                        future::ready(())
-                    }),
+            let (_, conn, _) = setup_mock_all_validators(
+                validators.clone(),
+                key_pairs.clone(),
+                validator_groups,
+                true,
+                100,
+                false,
+                false,
+                5,
+                false,
+                vec![false; validators.iter().map(|x| x.len()).sum()],
+                false,
+                Arc::new(RwLock::new(Box::new(
+                    move |_account_id: String, _msg: &NetworkRequests| {
+                        (NetworkResponses::NoResponse, true)
+                    },
+                ))),
             );
-        }
+            *connectors.write().unwrap() = conn;
 
-        near_network::test_utils::wait_or_panic(5000);
-    })
-    .unwrap();
+            let connectors_ = connectors.write().unwrap();
+            let flat_validators = validators.iter().flatten().collect::<Vec<_>>();
+            for i in 0..4 {
+                let expected = (1000 + i * 100) as u128;
+
+                let successful_queries2 = successful_queries.clone();
+                actix::spawn(
+                    connectors_[i]
+                        .1
+                        .send(Query::new(
+                            BlockReference::latest(),
+                            QueryRequest::ViewAccount {
+                                account_id: flat_validators[i].to_string(),
+                            },
+                        ))
+                        .then(move |res| {
+                            let query_response = res.unwrap().unwrap().unwrap();
+                            if let ViewAccount(view_account_result) = query_response.kind {
+                                assert_eq!(view_account_result.amount, expected);
+                                successful_queries2.fetch_add(1, Ordering::Relaxed);
+                                if successful_queries2.load(Ordering::Relaxed) >= 4 {
+                                    System::current().stop();
+                                }
+                            }
+                            future::ready(())
+                        }),
+                );
+            }
+
+            near_network::test_utils::wait_or_panic(5000);
+        })
+        .unwrap();
 }
 
 #[cfg(feature = "expensive_tests")]
@@ -392,123 +402,125 @@ mod tests {
     ) {
         let validator_groups = 4;
         init_integration_logger();
-        System::run(move || {
-            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-                Arc::new(RwLock::new(vec![]));
+        System::builder()
+            .stop_on_panic(true)
+            .run(move || {
+                let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+                    Arc::new(RwLock::new(vec![]));
 
-            let validators = if rotate_validators {
-                vec![
+                let validators = if rotate_validators {
                     vec![
+                        vec![
+                            "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6",
+                            "test1.7", "test1.8",
+                        ],
+                        vec![
+                            "test2.1", "test2.2", "test2.3", "test2.4", "test2.5", "test2.6",
+                            "test2.7", "test2.8",
+                        ],
+                        vec![
+                            "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6",
+                            "test3.7", "test3.8",
+                        ],
+                    ]
+                } else {
+                    vec![vec![
                         "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6",
                         "test1.7", "test1.8",
-                    ],
-                    vec![
-                        "test2.1", "test2.2", "test2.3", "test2.4", "test2.5", "test2.6",
-                        "test2.7", "test2.8",
-                    ],
-                    vec![
-                        "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6",
-                        "test3.7", "test3.8",
-                    ],
-                ]
-            } else {
-                vec![vec![
-                    "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6", "test1.7",
-                    "test1.8",
-                ]]
-            };
-            let key_pairs = (0..32).map(|_| PeerInfo::random()).collect::<Vec<_>>();
-            let balances = Arc::new(RwLock::new(vec![]));
-            let observed_balances = Arc::new(RwLock::new(vec![]));
-            let presumable_epoch = Arc::new(RwLock::new(0usize));
+                    ]]
+                };
+                let key_pairs = (0..32).map(|_| PeerInfo::random()).collect::<Vec<_>>();
+                let balances = Arc::new(RwLock::new(vec![]));
+                let observed_balances = Arc::new(RwLock::new(vec![]));
+                let presumable_epoch = Arc::new(RwLock::new(0usize));
 
-            let mut balances_local = balances.write().unwrap();
-            let mut observed_balances_local = observed_balances.write().unwrap();
-            for i in 0..8 {
-                balances_local.push(1000 + 100 * i);
-                observed_balances_local.push(0);
-            }
+                let mut balances_local = balances.write().unwrap();
+                let mut observed_balances_local = observed_balances.write().unwrap();
+                for i in 0..8 {
+                    balances_local.push(1000 + 100 * i);
+                    observed_balances_local.push(0);
+                }
 
-            let (genesis_block, conn, block_stats) = setup_mock_all_validators(
-                validators.clone(),
-                key_pairs.clone(),
-                validator_groups,
-                true,
-                block_production_time,
-                drop_chunks,
-                !test_doomslug,
-                20,
-                test_doomslug,
-                vec![true; validators.iter().map(|x| x.len()).sum()],
-                true,
-                Arc::new(RwLock::new(Box::new(
-                    move |_account_id: String, _msg: &NetworkRequests| {
-                        (NetworkResponses::NoResponse, true)
-                    },
-                ))),
-            );
-            *connectors.write().unwrap() = conn;
-            let block_hash = *genesis_block.hash();
-
-            let connectors_ = connectors.write().unwrap();
-            let iteration = Arc::new(AtomicUsize::new(0));
-            let nonce = Arc::new(AtomicUsize::new(1));
-            let successful_queries = Arc::new(RwLock::new(HashSet::new()));
-            let unsuccessful_queries = Arc::new(AtomicUsize::new(0));
-            let flat_validators = validators.iter().flatten().map(|x| *x).collect::<Vec<_>>();
-
-            for i in 0..8 {
-                let connectors1 = connectors.clone();
-                let iteration1 = iteration.clone();
-                let nonce1 = nonce.clone();
-                let flat_validators1 = flat_validators.clone();
-                let successful_queries1 = successful_queries.clone();
-                let unsuccessful_queries1 = unsuccessful_queries.clone();
-                let balances1 = balances.clone();
-                let observed_balances1 = observed_balances.clone();
-                let presumable_epoch1 = presumable_epoch.clone();
-                let account_id1 = flat_validators[i].clone();
-                let block_stats1 = block_stats.clone();
-                actix::spawn(
-                    connectors_[i + *presumable_epoch.read().unwrap() * 8]
-                        .1
-                        .send(Query::new(
-                            BlockReference::latest(),
-                            QueryRequest::ViewAccount {
-                                account_id: flat_validators[i].to_string(),
-                            },
-                        ))
-                        .then(move |x| {
-                            test_cross_shard_tx_callback(
-                                x,
-                                account_id1.to_string(),
-                                connectors1,
-                                iteration1,
-                                nonce1,
-                                flat_validators1,
-                                successful_queries1,
-                                unsuccessful_queries1,
-                                balances1,
-                                observed_balances1,
-                                presumable_epoch1,
-                                num_iters,
-                                block_hash,
-                                block_stats1,
-                                min_ratio,
-                                max_ratio,
-                            );
-                            future::ready(())
-                        }),
+                let (genesis_block, conn, block_stats) = setup_mock_all_validators(
+                    validators.clone(),
+                    key_pairs.clone(),
+                    validator_groups,
+                    true,
+                    block_production_time,
+                    drop_chunks,
+                    !test_doomslug,
+                    20,
+                    test_doomslug,
+                    vec![true; validators.iter().map(|x| x.len()).sum()],
+                    true,
+                    Arc::new(RwLock::new(Box::new(
+                        move |_account_id: String, _msg: &NetworkRequests| {
+                            (NetworkResponses::NoResponse, true)
+                        },
+                    ))),
                 );
-            }
+                *connectors.write().unwrap() = conn;
+                let block_hash = *genesis_block.hash();
 
-            near_network::test_utils::wait_or_panic(if rotate_validators {
-                1000 * 60 * 80
-            } else {
-                1000 * 60 * 45
-            });
-        })
-        .unwrap();
+                let connectors_ = connectors.write().unwrap();
+                let iteration = Arc::new(AtomicUsize::new(0));
+                let nonce = Arc::new(AtomicUsize::new(1));
+                let successful_queries = Arc::new(RwLock::new(HashSet::new()));
+                let unsuccessful_queries = Arc::new(AtomicUsize::new(0));
+                let flat_validators = validators.iter().flatten().map(|x| *x).collect::<Vec<_>>();
+
+                for i in 0..8 {
+                    let connectors1 = connectors.clone();
+                    let iteration1 = iteration.clone();
+                    let nonce1 = nonce.clone();
+                    let flat_validators1 = flat_validators.clone();
+                    let successful_queries1 = successful_queries.clone();
+                    let unsuccessful_queries1 = unsuccessful_queries.clone();
+                    let balances1 = balances.clone();
+                    let observed_balances1 = observed_balances.clone();
+                    let presumable_epoch1 = presumable_epoch.clone();
+                    let account_id1 = flat_validators[i].clone();
+                    let block_stats1 = block_stats.clone();
+                    actix::spawn(
+                        connectors_[i + *presumable_epoch.read().unwrap() * 8]
+                            .1
+                            .send(Query::new(
+                                BlockReference::latest(),
+                                QueryRequest::ViewAccount {
+                                    account_id: flat_validators[i].to_string(),
+                                },
+                            ))
+                            .then(move |x| {
+                                test_cross_shard_tx_callback(
+                                    x,
+                                    account_id1.to_string(),
+                                    connectors1,
+                                    iteration1,
+                                    nonce1,
+                                    flat_validators1,
+                                    successful_queries1,
+                                    unsuccessful_queries1,
+                                    balances1,
+                                    observed_balances1,
+                                    presumable_epoch1,
+                                    num_iters,
+                                    block_hash,
+                                    block_stats1,
+                                    min_ratio,
+                                    max_ratio,
+                                );
+                                future::ready(())
+                            }),
+                    );
+                }
+
+                near_network::test_utils::wait_or_panic(if rotate_validators {
+                    1000 * 60 * 80
+                } else {
+                    1000 * 60 * 45
+                });
+            })
+            .unwrap();
     }
 
     #[test]

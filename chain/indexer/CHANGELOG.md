@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0
+
+* Upgrade dependencies
+
+## Breaking change
+
+actix update changed the way we used to deal with starting the node and getting necessary data from neard.
+The `start()` method was deleted, `Indexer` struct doesn't have `actix_runtime` anymore and runtime should be
+created and started on the Indexer implementation, not on the Indexer Framework one.
+
 ## 0.7.0
 
 * State changes return changes with cause instead of kinds

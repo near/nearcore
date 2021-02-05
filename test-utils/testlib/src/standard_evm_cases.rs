@@ -343,7 +343,6 @@ pub fn test_evm_crypto_zombies_contract_transfer_erc721(node: impl Node) {
 
     // verify Bob is the new zombie token owner now
     let (input, _decoder) = cryptozombies::functions::owner_of::call(U256::zero());
-    let alice_address = near_evm_runner::utils::near_account_id_to_evm_address(&alice_account());
     let args = encode_view_call_function_args(alice_address, contract_id, U256::zero(), input);
     let bytes = node_user
         .function_call(alice_account(), evm_account(), "view", args.clone(), 10u64.pow(14), 0)

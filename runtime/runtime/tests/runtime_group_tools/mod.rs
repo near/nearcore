@@ -58,7 +58,8 @@ impl StandaloneRuntime {
 
         let apply_state = ApplyState {
             block_index: 0,
-            last_block_hash: Default::default(),
+            prev_block_hash: Default::default(),
+            block_hash: Default::default(),
             epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: 100,

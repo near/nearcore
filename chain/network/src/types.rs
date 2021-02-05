@@ -40,9 +40,8 @@ use crate::peer::Peer;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::MetricRecorder;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
-use serde::export::fmt::Error;
-use serde::export::Formatter;
-use std::{fmt::Debug, io};
+use std::fmt::{Debug, Error, Formatter};
+use std::io;
 
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_primitives::merkle::combine_hash;
