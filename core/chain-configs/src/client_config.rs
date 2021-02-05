@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats, ShardId};
 use near_primitives::version::Version;
 
-const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
+pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum LogSummaryStyle {
