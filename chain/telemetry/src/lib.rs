@@ -44,7 +44,7 @@ impl TelemetryActor {
             }
         }
 
-        let client = Client::build()
+        let client = Client::builder()
             .timeout(CONNECT_TIMEOUT)
             .connector(
                 Connector::new()

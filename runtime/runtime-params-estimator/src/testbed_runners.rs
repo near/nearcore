@@ -48,7 +48,7 @@ pub struct Config {
     /// Number of the transactions in the block.
     pub block_sizes: Vec<usize>,
     /// Where state dump is located in case we need to create a testbed.
-    pub state_dump_path: String,
+    pub state_dump_path: PathBuf,
     /// Metric used for counting.
     pub metric: GasMetric,
     /// VMKind used
@@ -197,9 +197,8 @@ where
             x
         }
         None => {
-            let path = PathBuf::from(config.state_dump_path.as_str());
             println!("{:?}. Preparing testbed. Loading state.", metric);
-            Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&path)))
+            Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)))
         }
     };
     let testbed_clone = testbed.clone();
@@ -227,6 +226,7 @@ where
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
     ));
+    #[cfg(feature = "costs_counting")]
     node_runtime::EXT_COSTS_COUNTER.with(|f| {
         f.borrow_mut().clear();
     });

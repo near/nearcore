@@ -15,7 +15,7 @@ Fees applied to near runtime encapsulated in a separate crate. Might merge it la
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 
-num-rational = { version = "0.2.4", features = ["serde"]}
+num-rational = { version = "0.3", features = ["serde"]}
 
 [features]
 default = []

@@ -113,9 +113,3 @@ impl RpcBlockRequest {
         Ok(RpcBlockRequest { block_reference })
     }
 }
-
-impl From<near_primitives::views::BlockView> for RpcBlockResponse {
-    fn from(block_view: near_primitives::views::BlockView) -> Self {
-        Self { block_view }
-    }
-}

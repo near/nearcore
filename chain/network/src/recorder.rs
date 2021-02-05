@@ -109,12 +109,12 @@ impl MetricRecorder {
         self
     }
 
-    pub fn set_graph(&mut self, graph: &HashMap<PeerId, HashSet<PeerId>>) {
+    pub fn set_graph(&mut self, graph: HashMap<PeerId, HashSet<PeerId>>) {
         self.graph.clear();
-        for (u, u_adj) in graph.iter() {
+        for (u, u_adj) in graph {
             for v in u_adj {
                 if u < v {
-                    self.graph.push((u.clone(), v.clone()));
+                    self.graph.push((u.clone(), v));
                 }
             }
         }

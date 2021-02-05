@@ -66,6 +66,7 @@ fn chunks_recovered_from_others() {
 /// only wait for 3000/2 milliseconds until they produce a block with some chunks missing
 #[test]
 #[should_panic]
+#[ignore]
 fn chunks_recovered_from_full_timeout_too_short() {
     heavy_test(|| {
         chunks_produced_and_distributed_common(4, true, 2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
