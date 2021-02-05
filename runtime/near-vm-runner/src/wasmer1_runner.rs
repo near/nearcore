@@ -178,7 +178,13 @@ pub fn run_wasmer1<'a>(
         Ok(code) => code,
         Err(e) => return (None, Some(e.into())),
     };
-    let module = match cache::compile_module_cached_wasmer1(&code_hash, &prepared_code, wasm_config, cache, &store) {
+    let module = match cache::compile_module_cached_wasmer1(
+        &code_hash,
+        &prepared_code,
+        wasm_config,
+        cache,
+        &store,
+    ) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };

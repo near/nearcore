@@ -3731,7 +3731,6 @@ dependencies = [
  "bencher",
  "borsh",
  "cached",
- "delay-detector",
  "log",
  "near-evm-runner",
  "near-primitives",
