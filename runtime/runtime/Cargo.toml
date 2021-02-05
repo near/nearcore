@@ -36,7 +36,9 @@ near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm", "near-vm-runner/protocol_feature_evm"]
-wasmer1_default = ["near-vm-runner/wasmer1_vm", "near-vm-logic/wasmer1_default"]
+wasmer1_vm = ["near-vm-runner/wasmer1_vm"]
+wasmtime_vm = ["near-vm-runner/wasmtime_vm"]
+wasmer1_default = ["wasmer1_vm", "near-vm-logic/wasmer1_default"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
