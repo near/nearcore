@@ -276,7 +276,7 @@ pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ProtocolConfigView {
     /// Current Protocol Version
     pub protocol_version: ProtocolVersion,

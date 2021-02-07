@@ -233,6 +233,14 @@ impl JsonRpcClient {
     ) -> RpcRequest<near_jsonrpc_primitives::types::receipts::RpcReceiptResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_receipt", request)
     }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_protocol_config(
+        &self,
+        request: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_protocol_config", request)
+    }
 }
 
 fn create_client() -> Client {
