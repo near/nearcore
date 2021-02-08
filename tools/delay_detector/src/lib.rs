@@ -12,7 +12,13 @@ pub struct DelayDetector<'a> {
 
 impl<'a> DelayDetector<'a> {
     pub fn new(msg: Cow<'a, str>) -> Self {
-        Self { msg, started: Instant::now(), snapshots: vec![], last_snapshot: None, min_delay: Duration::from_millis(50) }
+        Self {
+            msg,
+            started: Instant::now(),
+            snapshots: vec![],
+            last_snapshot: None,
+            min_delay: Duration::from_millis(50),
+        }
     }
 
     pub fn min_delay(mut self, min_delay: Duration) -> Self {
