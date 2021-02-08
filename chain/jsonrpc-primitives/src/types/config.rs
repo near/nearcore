@@ -49,7 +49,7 @@ impl From<near_client_primitives::types::GetProtocolConfigError> for RpcProtocol
             near_client_primitives::types::GetProtocolConfigError::Unreachable(s) => {
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcBlockError", &s],
+                    &["RpcProtocolConfigError", &s],
                 );
                 Self::Unreachable(s)
             }
