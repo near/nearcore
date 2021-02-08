@@ -25,7 +25,7 @@ steps:
       rustc --version && cargo --version
       cargo fmt --all -- --check
       if [ -e deny.toml ]; then
-        cargo-deny check bans
+        cargo-deny --all-features check bans
       fi
       RUSTFLAGS='-D warnings' cargo check --all --tests --benches --all-features
       python3 scripts/state/update_res.py check
