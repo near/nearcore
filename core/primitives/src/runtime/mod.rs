@@ -5,7 +5,7 @@ use crate::types::Balance;
 pub use near_primitives_core::runtime::*;
 pub mod apply_state;
 pub mod config;
-pub mod fees;
+pub use near_primitives_core::runtime::fees;
 
 /// Checks if given account has enough balance for storage stake, and returns:
 ///  - None if account has enough balance,
