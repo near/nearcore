@@ -593,6 +593,66 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
+                        NetworkRequests::EpochSyncRequest { epoch_id, peer_id } => {
+                            for (i, peer_info) in key_pairs.iter().enumerate() {
+                                let peer_id = peer_id.clone();
+                                if peer_info.id == peer_id {
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.read().unwrap()[i]
+                                            .1
+                                            .send(NetworkViewClientMessages::EpochSyncRequest{
+                                                epoch_id: epoch_id.clone(),
+                                            })
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkViewClientResponses::EpochSyncResponse(response) => {
+                                                        connectors2.read().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(NetworkClientMessages::EpochSyncResponse(
+                                                                peer_id, response
+                                                            ));
+                                                    }
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::ready(())
+                                            }),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::EpochSyncFinalizationRequest { epoch_id, peer_id } => {
+                            for (i, peer_info) in key_pairs.iter().enumerate() {
+                                let peer_id = peer_id.clone();
+                                if peer_info.id == peer_id {
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.read().unwrap()[i]
+                                            .1
+                                            .send(NetworkViewClientMessages::EpochSyncFinalizationRequest{
+                                                epoch_id: epoch_id.clone(),
+                                            })
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkViewClientResponses::EpochSyncFinalizationResponse(response) => {
+                                                        connectors2.read().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(NetworkClientMessages::EpochSyncFinalizationResponse(
+                                                                peer_id, response
+                                                            ));
+                                                    }
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::ready(())
+                                            }),
+                                    );
+                                }
+                            }
+                        }
                         NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();
@@ -1187,10 +1247,13 @@ pub fn create_chunk(
         PROTOCOL_VERSION,
         &last_block.header(),
         2,
-        last_block.header().block_ordinal() + 1,
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        (last_block.header().block_ordinal() + 1),
         vec![chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        None,
         vec![],
         Rational::from_integer(0),
         0,

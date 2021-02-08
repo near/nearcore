@@ -59,6 +59,7 @@ use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpda
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_primitives::block_header::{Approval, ApprovalInner, BlockHeaderInnerLite};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -404,23 +405,29 @@ impl Chain {
     }
 
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
+        println!("KRYA SAVING BLOCK A");
         if self.store.get_block(block.hash()).is_ok() {
             return Ok(());
         }
+        println!("KRYA SAVING BLOCK B");
         if let Err(e) =
             Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
         {
             byzantine_assert!(false);
             return Err(e.into());
         }
+        println!("KRYA SAVING BLOCK C");
 
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
+        println!("KRYA SAVING BLOCK D");
         chain_store_update.save_block(block.clone());
         // We don't need to increase refcount for `prev_hash` at this point
         // because this is the block before State Sync.
 
+        println!("KRYA SAVING BLOCK {:?}", block);
         chain_store_update.commit()?;
+        println!("KRYA BLOCK SAVED!!!");
         Ok(())
     }
 
@@ -661,22 +668,28 @@ impl Chain {
         block: &Block,
     ) -> Result<(), Error> {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+            println!("KRYA??? {:?}", chunk_header);
             if chunk_header.height_created() == genesis_block.header().height() {
                 // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
                 // We must verify that content matches and signature is empty.
                 let genesis_chunk = &genesis_block.chunks()[shard_id];
+                println!("KRYA??? {:?} {:?}", chunk_header, genesis_chunk);
                 if genesis_chunk.chunk_hash() != chunk_header.chunk_hash()
                     || genesis_chunk.signature() != chunk_header.signature()
                 {
                     return Err(ErrorKind::InvalidChunk.into());
                 }
             } else {
+                println!("KRYA?? A");
                 if !runtime_adapter.verify_chunk_header_signature(&chunk_header.clone())? {
+                    println!("KRYA?? B");
                     byzantine_assert!(false);
                     return Err(ErrorKind::InvalidChunk.into());
                 }
+                println!("KRYA?? C");
             }
         }
+        println!("KRYA## A");
         block.check_validity().map_err(|e| e.into())
     }
 
@@ -772,6 +785,7 @@ impl Chain {
     pub fn sync_block_headers<F>(
         &mut self,
         mut headers: Vec<BlockHeader>,
+        is_epoch_sync: bool,
         on_challenge: F,
     ) -> Result<(), Error>
     where
@@ -795,6 +809,7 @@ impl Chain {
         if !all_known {
             // Validate header and then add to the chain.
             for header in headers.iter() {
+                println!("HERE 5 {:?}", header.height());
                 let mut chain_update = self.chain_update();
 
                 match chain_update.check_header_known(header) {
@@ -805,24 +820,50 @@ impl Chain {
                     },
                 }
 
-                chain_update.validate_header(header, &Provenance::SYNC, on_challenge)?;
+                let provenance =
+                    if is_epoch_sync { Provenance::SYNC } else { Provenance::EPOCH_SYNC };
+
+                if !is_epoch_sync {
+                    println!("HERE valid??? {:?}", header);
+                    match chain_update.validate_header(header, &provenance, on_challenge) {
+                        Ok(_) => {}
+                        Err(e) => println!("NO! {:?}", e),
+                    }
+                    //chain_update.validate_header(header, &Provenance::SYNC, on_challenge)?;
+                    println!("HERE valid!!!");
+                }
                 chain_update.chain_store_update.save_block_header(header.clone())?;
                 chain_update.commit()?;
 
                 // Add validator proposals for given header.
-                self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
-                    &header,
-                    self.store.get_block_height(&header.last_final_block())?,
-                ))?;
+                println!("HERE 6");
+                if !is_epoch_sync {
+                    println!("HERE 6, {:?}", header.last_final_block());
+                    println!(
+                        "HERE 6, {:?}",
+                        self.store.get_block_height(&header.last_final_block())?
+                    );
+                    self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
+                        &header,
+                        self.store.get_block_height(&header.last_final_block())?,
+                    ))?;
+                };
+                println!("HERE 7");
             }
         }
 
+        println!("HERE 8");
         let mut chain_update = self.chain_update();
 
         if let Some(header) = headers.last() {
             // Update header_head if it's the new tip
+            //if !is_epoch_sync {
             chain_update.update_header_head_if_not_challenged(header)?;
+            /*} else {
+                chain_update.update_header_head_forcibly(header)?;
+            }*/
         }
+        println!("HERE 9");
 
         chain_update.commit()
     }
@@ -915,7 +956,7 @@ impl Chain {
         let mut chain_store_update = self.mut_store().store_update();
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
-        chain_store_update.clear_chunk_data(chunk_height)?;
+        chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
 
         // clear all trie data
@@ -1113,10 +1154,10 @@ impl Chain {
                             block_hash, missing_chunks,
                         );
                     }
-                    ErrorKind::EpochOutOfBounds => {
+                    ErrorKind::EpochOutOfBounds(ref epoch_id) => {
                         // Possibly block arrived before we finished processing all of the blocks for epoch before last.
                         // Or someone is attacking with invalid chain.
-                        debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block_height, block.hash());
+                        debug!(target: "chain", "Received block {}/{} ignored, as epoch {:?} is unknown", block_height, block.hash(), epoch_id);
                     }
                     ErrorKind::Unfit(ref msg) => {
                         debug!(
@@ -2029,6 +2070,70 @@ impl Chain {
         }
         Ok(res)
     }
+
+    /// Validate that the light client block is valid.
+    /// Follows the spec at https://nomicon.io/ChainSpec/LightClient.html
+    /// Doesn't check the height and the epoch ID conditions. Those checks must be performed by the caller.
+    pub fn validate_light_block_no_height_or_epoch_check(
+        light_block: &LightClientBlockView,
+        block_producers: &Vec<ValidatorStake>,
+    ) -> bool {
+        let LightClientBlockView {
+            prev_block_hash: _,
+            inner_lite,
+            inner_rest_hash,
+            next_block_inner_hash,
+            approvals_after_next,
+            next_bps,
+        } = light_block;
+
+        let inner_lite: BlockHeaderInnerLite = inner_lite.clone().into();
+        let inner_lite_hash = hash(&inner_lite.try_to_vec().unwrap());
+        let current_block_hash = combine_hash(inner_lite_hash, *inner_rest_hash);
+        let next_block_hash = combine_hash(*next_block_inner_hash, current_block_hash);
+
+        let approval_data_serialized_for_sig = Approval::get_data_for_sig(
+            &ApprovalInner::Endorsement(next_block_hash),
+            inner_lite.height + 2,
+        );
+
+        let mut total_stake = 0;
+        let mut approved_stake = 0;
+        for (maybe_signature, block_producer) in approvals_after_next.iter().zip(block_producers) {
+            total_stake += block_producer.stake;
+
+            match maybe_signature {
+                None => continue,
+                Some(signature) => {
+                    approved_stake += block_producer.stake;
+                    if !signature.verify(
+                        approval_data_serialized_for_sig.as_ref(),
+                        &block_producer.public_key,
+                    ) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        let threshold = total_stake * 2 / 3;
+        if approved_stake <= threshold {
+            return false;
+        }
+
+        if let Some(next_bps) = next_bps {
+            if Chain::compute_bp_hash_inner(
+                next_bps.into_iter().map(|x| x.clone().into()).collect(),
+            )
+            .unwrap()
+                != inner_lite.next_bp_hash
+            {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 /// Implement block merkle proof retrieval.
@@ -2908,8 +3013,21 @@ impl<'a> ChainUpdate<'a> {
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
+        println!(
+            "KRYA EPOCH EXISTS? {:?} {:?} {:?}",
+            self.runtime_adapter.epoch_exists(&block.header().epoch_id()),
+            block.header().epoch_id(),
+            block.header()
+        );
+        debug!(
+            target: "chain",
+            "KRYA EPOCH EXISTS? {:?} {:?} {:?}",
+            self.runtime_adapter.epoch_exists(&block.header().epoch_id()),
+            block.header().epoch_id(),
+            block.header()
+        );
         if !self.runtime_adapter.epoch_exists(&block.header().epoch_id()) {
-            return Err(ErrorKind::EpochOutOfBounds.into());
+            return Err(ErrorKind::EpochOutOfBounds(block.header().epoch_id().clone()).into());
         }
 
         // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
@@ -3069,7 +3187,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Update the chain head if it's the new tip
-        let res = self.update_head(block)?;
+        let res = self.update_head(block.header())?;
 
         if res.is_some() {
             // On the epoch switch record the epoch light client block
@@ -3148,6 +3266,7 @@ impl<'a> ChainUpdate<'a> {
     where
         F: FnMut(ChallengeBody) -> (),
     {
+        println!("KRYA A");
         // Refuse blocks from the too distant future.
         if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
@@ -3181,116 +3300,127 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        let prev_header = self.get_previous_header(header)?.clone();
+        if *provenance != Provenance::EPOCH_SYNC {
+            let prev_header = self.get_previous_header(header)?.clone();
 
-        // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
-        if &self.runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash())?
-            != header.epoch_id()
-        {
-            return Err(ErrorKind::InvalidEpochHash.into());
-        }
-
-        // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
-        if &self.runtime_adapter.get_next_epoch_id_from_prev_block(header.prev_hash())?
-            != header.next_epoch_id()
-        {
-            return Err(ErrorKind::InvalidEpochHash.into());
-        }
-
-        if header.epoch_id() == prev_header.epoch_id() {
-            if header.next_bp_hash() != prev_header.next_bp_hash() {
-                return Err(ErrorKind::InvalidNextBPHash.into());
-            }
-        } else {
-            if header.next_bp_hash()
-                != &Chain::compute_bp_hash(
-                    &*self.runtime_adapter,
-                    header.next_epoch_id().clone(),
-                    &header.prev_hash(),
-                )?
+            // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
+            if &self.runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash())?
+                != header.epoch_id()
             {
-                return Err(ErrorKind::InvalidNextBPHash.into());
+                return Err(ErrorKind::InvalidEpochHash.into());
+            }
+
+            // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
+            if &self.runtime_adapter.get_next_epoch_id_from_prev_block(header.prev_hash())?
+                != header.next_epoch_id()
+            {
+                return Err(ErrorKind::InvalidEpochHash.into());
+            }
+            println!("KRYA B");
+            if header.epoch_id() == prev_header.epoch_id() {
+                if header.next_bp_hash() != prev_header.next_bp_hash() {
+                    return Err(ErrorKind::InvalidNextBPHash.into());
+                }
+            } else {
+                println!("KRYA B3");
+                if header.next_bp_hash()
+                    != &Chain::compute_bp_hash(
+                        &*self.runtime_adapter,
+                        header.next_epoch_id().clone(),
+                        &header.prev_hash(),
+                    )?
+                {
+                    return Err(ErrorKind::InvalidNextBPHash.into());
+                }
+            }
+
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            if let Some(prev_height) = header.prev_height() {
+                if prev_height != prev_header.height() {
+                    return Err(ErrorKind::Other("Invalid prev_height".to_string()).into());
+                }
+            }
+
+            // Prevent time warp attacks and some timestamp manipulations by forcing strict
+            // time progression.
+            if header.raw_timestamp() <= prev_header.raw_timestamp() {
+                return Err(ErrorKind::InvalidBlockPastTime(
+                    prev_header.timestamp(),
+                    header.timestamp(),
+                )
+                .into());
+            }
+
+            // If this is not the block we produced (hence trust in it) - validates block
+            // producer, confirmation signatures and finality info.
+            if *provenance != Provenance::PRODUCED {
+                println!("KRYA D");
+                // first verify aggregated signature
+                if !self.runtime_adapter.verify_approval(
+                    prev_header.hash(),
+                    prev_header.height(),
+                    header.height(),
+                    &header.approvals(),
+                )? {
+                    return Err(ErrorKind::InvalidApprovals.into());
+                };
+                println!("KRYA E");
+                let stakes = self
+                    .runtime_adapter
+                    .get_epoch_block_approvers_ordered(header.prev_hash())?
+                    .iter()
+                    .map(|(x, is_slashed)| (x.stake_this_epoch, x.stake_next_epoch, *is_slashed))
+                    .collect();
+                if !Doomslug::can_approved_block_be_produced(
+                    self.doomslug_threshold_mode,
+                    header.approvals(),
+                    &stakes,
+                ) {
+                    return Err(ErrorKind::NotEnoughApprovals.into());
+                }
+                println!("KRYA F");
+                let expected_last_ds_final_block = if prev_header.height() + 1 == header.height() {
+                    prev_header.hash()
+                } else {
+                    prev_header.last_ds_final_block()
+                };
+
+                let expected_last_final_block = if prev_header.height() + 1 == header.height()
+                    && prev_header.last_ds_final_block() == prev_header.prev_hash()
+                {
+                    prev_header.prev_hash()
+                } else {
+                    prev_header.last_final_block()
+                };
+                println!("KRYA G");
+                if header.last_ds_final_block() != expected_last_ds_final_block
+                    || header.last_final_block() != expected_last_final_block
+                {
+                    return Err(ErrorKind::InvalidFinalityInfo.into());
+                }
+                println!("KRYA H");
+                let mut block_merkle_tree =
+                    self.chain_store_update.get_block_merkle_tree(header.prev_hash())?.clone();
+                block_merkle_tree.insert(*header.prev_hash());
+                if &block_merkle_tree.root() != header.block_merkle_root() {
+                    return Err(ErrorKind::InvalidBlockMerkleRoot.into());
+                }
+                println!("KRYA Z");
             }
         }
 
+        println!("KRYA B4");
         if header.chunk_mask().len() as u64 != self.runtime_adapter.num_shards() {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
-
+        println!("KRYA B5");
         if !header.verify_chunks_included() {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        if let Some(prev_height) = header.prev_height() {
-            if prev_height != prev_header.height() {
-                return Err(ErrorKind::Other("Invalid prev_height".to_string()).into());
-            }
-        }
+        println!("KRYA B6");
 
-        // Prevent time warp attacks and some timestamp manipulations by forcing strict
-        // time progression.
-        if header.raw_timestamp() <= prev_header.raw_timestamp() {
-            return Err(ErrorKind::InvalidBlockPastTime(
-                prev_header.timestamp(),
-                header.timestamp(),
-            )
-            .into());
-        }
-        // If this is not the block we produced (hence trust in it) - validates block
-        // producer, confirmation signatures and finality info.
-        if *provenance != Provenance::PRODUCED {
-            // first verify aggregated signature
-            if !self.runtime_adapter.verify_approval(
-                prev_header.hash(),
-                prev_header.height(),
-                header.height(),
-                &header.approvals(),
-            )? {
-                return Err(ErrorKind::InvalidApprovals.into());
-            };
-
-            let stakes = self
-                .runtime_adapter
-                .get_epoch_block_approvers_ordered(header.prev_hash())?
-                .iter()
-                .map(|(x, is_slashed)| (x.stake_this_epoch, x.stake_next_epoch, *is_slashed))
-                .collect();
-            if !Doomslug::can_approved_block_be_produced(
-                self.doomslug_threshold_mode,
-                header.approvals(),
-                &stakes,
-            ) {
-                return Err(ErrorKind::NotEnoughApprovals.into());
-            }
-
-            let expected_last_ds_final_block = if prev_header.height() + 1 == header.height() {
-                prev_header.hash()
-            } else {
-                prev_header.last_ds_final_block()
-            };
-
-            let expected_last_final_block = if prev_header.height() + 1 == header.height()
-                && prev_header.last_ds_final_block() == prev_header.prev_hash()
-            {
-                prev_header.prev_hash()
-            } else {
-                prev_header.last_final_block()
-            };
-
-            if header.last_ds_final_block() != expected_last_ds_final_block
-                || header.last_final_block() != expected_last_final_block
-            {
-                return Err(ErrorKind::InvalidFinalityInfo.into());
-            }
-
-            let mut block_merkle_tree =
-                self.chain_store_update.get_block_merkle_tree(header.prev_hash())?.clone();
-            block_merkle_tree.insert(*header.prev_hash());
-            if &block_merkle_tree.root() != header.block_merkle_root() {
-                return Err(ErrorKind::InvalidBlockMerkleRoot.into());
-            }
-        }
+        println!("KRYA C");
 
         Ok(())
     }
@@ -3337,11 +3467,27 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    fn update_final_head_from_block(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    // KRYA remove
+    #[allow(dead_code)]
+    fn update_header_head_forcibly(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
+        let header_head = self.chain_store_update.header_head()?;
+        if header.height() > header_head.height {
+            let tip = Tip::from_header(header);
+            self.chain_store_update.save_header_head_forcibly(&tip)?;
+            debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
+
+            Ok(Some(tip))
+        } else {
+            Ok(None)
+        }
+    }
+
+    // TODO KRYA Bowen why don't use BlockHeader here?
+    fn update_final_head_from_block(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         let final_head = self.chain_store_update.final_head()?;
         let last_final_block_header =
-            match self.chain_store_update.get_block_header(block.header().last_final_block()) {
-                Ok(header) => header,
+            match self.chain_store_update.get_block_header(header.last_final_block()) {
+                Ok(final_header) => final_header,
                 Err(e) => match e.kind() {
                     ErrorKind::DBNotFoundErr(_) => return Ok(None),
                     _ => return Err(e),
@@ -3358,13 +3504,14 @@ impl<'a> ChainUpdate<'a> {
 
     /// Directly updates the head if we've just appended a new block to it or handle
     /// the situation where the block has higher height to have a fork
-    fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    // TODO KRYA Bowen why don't use BlockHeader here?
+    fn update_head(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         // if we made a fork with higher height than the head (which should also be true
         // when extending the head), update it
-        self.update_final_head_from_block(block)?;
+        self.update_final_head_from_block(header)?;
         let head = self.chain_store_update.head()?;
-        if block.header().height() > head.height {
-            let tip = Tip::from_header(&block.header());
+        if header.height() > head.height {
+            let tip = Tip::from_header(header);
 
             self.chain_store_update.save_body_head(&tip)?;
             near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);

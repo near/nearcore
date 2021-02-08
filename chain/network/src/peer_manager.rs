@@ -1307,6 +1307,20 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            NetworkRequests::EpochSyncRequest { peer_id, epoch_id } => {
+                if self.send_message(ctx, peer_id, PeerMessage::EpochSyncRequest(epoch_id)) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            NetworkRequests::EpochSyncFinalizationRequest { peer_id, epoch_id } => {
+                if self.send_message(ctx, peer_id, PeerMessage::EpochSyncFinalizationRequest(epoch_id)) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 self.try_ban_peer(ctx, &peer_id, ban_reason);
                 NetworkResponses::NoResponse

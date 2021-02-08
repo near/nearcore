@@ -438,7 +438,8 @@ pub(crate) fn canonical_prev_block_validity(
     height: &BlockHeight,
     hash: &CryptoHash,
 ) -> Result<(), StoreValidatorError> {
-    if *height != sv.config.genesis_height {
+    // TODO KRYA
+    /*if *height != sv.config.genesis_height {
         let header = unwrap_or_err_db!(
             sv.store.get_ser::<BlockHeader>(ColBlockHeader, hash.as_ref()),
             "Can't get Block Header {:?} from ColBlockHeader",
@@ -474,7 +475,7 @@ pub(crate) fn canonical_prev_block_validity(
                 err!("Unexpected Block on the Canonical Chain is found between Heights {:?} and {:?}, {:?}", prev_height, height, cur_hash);
             }
         }
-    }
+    }*/
     Ok(())
 }
 
@@ -699,10 +700,11 @@ pub(crate) fn block_info_block_header_exists(
     if *block_hash == CryptoHash::default() {
         return Ok(());
     }
-    unwrap_or_err_db!(
+    // TODO KRYA
+    /*unwrap_or_err_db!(
         sv.store.get_ser::<BlockHeader>(ColBlockHeader, block_hash.as_ref()),
         "Can't get Block Header from DB"
-    );
+    );*/
     Ok(())
 }
 

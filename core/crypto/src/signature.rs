@@ -610,6 +610,7 @@ impl Signature {
     /// Verifies that this signature is indeed signs the data with given public key.
     /// Also if public key doesn't match on the curve returns `false`.
     pub fn verify(&self, data: &[u8], public_key: &PublicKey) -> bool {
+        println!("KRYA verify_chunk_signature_with_header_parts Z");
         match (&self, public_key) {
             (Signature::ED25519(signature), PublicKey::ED25519(public_key)) => {
                 match ed25519_dalek::PublicKey::from_bytes(&public_key.0) {

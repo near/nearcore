@@ -60,6 +60,7 @@ while node0_height < AFTER_SYNC_HEIGHT:
 
 print('Restart node 1')
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].stop_checking_store()
 time.sleep(3)
 
 start_time = time.time()
@@ -67,12 +68,17 @@ start_time = time.time()
 node1_height = 0
 while True:
     assert time.time() - start_time < TIMEOUT, "Block sync timed out"
-    status = nodes[1].get_status()
+    status = nodes[1].get_status(timeout=15)
     print(status)
     node1_height = status['sync_info']['latest_block_height']
     if node1_height >= node0_height:
         break
     time.sleep(2)
+
+time.sleep(5)
+status = nodes[1].get_status(timeout=15)
+node1_height = status['sync_info']['latest_block_height']
+print(status)
 
 # all fresh data should be synced
 blocks_count = 0

@@ -197,18 +197,13 @@ fn receive_network_block() {
                 let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
                 let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
                 block_merkle_tree.insert(last_block.header.hash);
-                let next_block_ordinal = {
-                    #[cfg(feature = "protocol_feature_block_header_v3")]
-                    {
-                        last_block.header.block_ordinal.unwrap() + 1
-                    }
-                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                    0
-                };
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
                 let block = Block::produce(
                     PROTOCOL_VERSION,
                     &last_block.header.clone().into(),
                     last_block.header.height + 1,
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
                     next_block_ordinal,
                     last_block.chunks.into_iter().map(Into::into).collect(),
                     EpochId::default(),
@@ -217,6 +212,8 @@ fn receive_network_block() {
                     } else {
                         EpochId(last_block.header.next_epoch_id.clone())
                     },
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
+                    None,
                     vec![],
                     Rational::from_integer(0),
                     0,
@@ -279,18 +276,13 @@ fn produce_block_with_approvals() {
                 let signer1 =
                     InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
                 block_merkle_tree.insert(last_block.header.hash);
-                let next_block_ordinal = {
-                    #[cfg(feature = "protocol_feature_block_header_v3")]
-                    {
-                        last_block.header.block_ordinal.unwrap() + 1
-                    }
-                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                    0
-                };
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
                 let block = Block::produce(
                     PROTOCOL_VERSION,
                     &last_block.header.clone().into(),
                     last_block.header.height + 1,
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
                     next_block_ordinal,
                     last_block.chunks.into_iter().map(Into::into).collect(),
                     EpochId::default(),
@@ -299,6 +291,8 @@ fn produce_block_with_approvals() {
                     } else {
                         EpochId(last_block.header.next_epoch_id.clone())
                     },
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
+                    None,
                     vec![],
                     Rational::from_integer(0),
                     0,
@@ -456,18 +450,13 @@ fn invalid_blocks_common(is_requested: bool) {
                 let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
                 let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
                 block_merkle_tree.insert(last_block.header.hash);
-                let next_block_ordinal = {
-                    #[cfg(feature = "protocol_feature_block_header_v3")]
-                    {
-                        last_block.header.block_ordinal.unwrap() + 1
-                    }
-                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                    0
-                };
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
                 let valid_block = Block::produce(
                     PROTOCOL_VERSION,
                     &last_block.header.clone().into(),
                     last_block.header.height + 1,
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
                     next_block_ordinal,
                     last_block.chunks.iter().cloned().map(Into::into).collect(),
                     EpochId::default(),
@@ -476,6 +465,8 @@ fn invalid_blocks_common(is_requested: bool) {
                     } else {
                         EpochId(last_block.header.next_epoch_id.clone())
                     },
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
+                    None,
                     vec![],
                     Rational::from_integer(0),
                     0,
@@ -1203,11 +1194,11 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
             let block_hash = *blocks[i as usize].hash();
             assert!(matches!(
                 env.clients[0].chain.get_block(&block_hash).unwrap_err().kind(),
-                ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
+                ErrorKind::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
             ));
             assert!(matches!(
                 env.clients[0].chain.get_block_by_height(i).unwrap_err().kind(),
-                ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
+                ErrorKind::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
             ));
             assert!(env.clients[0]
                 .chain
@@ -2617,4 +2608,39 @@ fn test_block_ordinal() {
     env.process_block(0, next_block.clone(), Provenance::PRODUCED);
     ordinal += 1;
     assert_eq!(next_block.header().block_ordinal(), ordinal);
+}
+
+#[cfg(feature = "protocol_feature_block_header_v3")]
+#[test]
+fn test_epoch_sync_data_hash() {
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    let epoch_length = 5;
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let runtimes = create_nightshade_runtimes(&genesis, 1);
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes.clone());
+    let mut blocks: Vec<Block> = vec![];
+    for i in 1..=epoch_length * 10 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        if i > 1 {
+            if block.header().epoch_id() == blocks.last().unwrap().header().next_epoch_id() {
+                // Epoch is changed, current block must have epoch data hash
+                assert_ne!(block.header().epoch_sync_data_hash(), None);
+                assert_eq!(
+                    runtimes[0]
+                        .get_epoch_sync_data_hash(
+                            block.header().prev_hash(),
+                            blocks.last().unwrap().header().next_epoch_id()
+                        )
+                        .unwrap(),
+                    block.header().epoch_sync_data_hash().unwrap()
+                )
+            } else {
+                assert_eq!(block.header().epoch_sync_data_hash(), None);
+            }
+        }
+        blocks.push(block);
+    }
 }

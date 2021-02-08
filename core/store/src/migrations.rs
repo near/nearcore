@@ -539,6 +539,7 @@ pub fn migrate_16_to_rectify_inflation(path: &String) {
         let old_block_info =
             store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
         BlockInfo::new(
+            *block_header.hash(),
             block_header.height(),
             old_block_info.last_finalized_height,
             *block_header.last_final_block(),
