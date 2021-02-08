@@ -96,6 +96,7 @@ pub fn start_nodes(
             );
             near_config.client_config.tracked_shards.extend(&(from..to).collect::<Vec<_>>());
         }
+        near_config.client_config.epoch_sync_enabled = false;
         near_configs.push(near_config);
     }
 

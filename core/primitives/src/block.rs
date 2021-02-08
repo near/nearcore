@@ -19,7 +19,9 @@ use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
 };
-use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, NumShards, StateRoot};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::types::NumBlocks;
+use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
@@ -189,10 +191,13 @@ impl Block {
         protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
-        block_ordinal: NumBlocks,
+        #[cfg(feature = "protocol_feature_block_header_v3")] block_ordinal: NumBlocks,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
+        #[cfg(feature = "protocol_feature_block_header_v3")] epoch_sync_data_hash: Option<
+            CryptoHash,
+        >,
         approvals: Vec<Option<Signature>>,
         gas_price_adjustment_rate: Rational,
         min_gas_price: Balance,
@@ -272,6 +277,7 @@ impl Block {
             random_value,
             validator_proposals,
             chunk_mask,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             block_ordinal,
             epoch_id,
             next_epoch_id,
@@ -281,6 +287,8 @@ impl Block {
             signer,
             last_final_block.clone(),
             last_ds_final_block.clone(),
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            epoch_sync_data_hash,
             approvals,
             next_bp_hash,
             block_merkle_root,
@@ -483,25 +491,21 @@ impl Block {
         if self.header().prev_state_root() != &state_root {
             return Err(InvalidStateRoot);
         }
-
         // Check that chunk receipts root stored in the header matches the state root of the chunks
         let chunk_receipts_root = Block::compute_chunk_receipts_root(self.chunks().iter());
         if self.header().chunk_receipts_root() != &chunk_receipts_root {
             return Err(InvalidReceiptRoot);
         }
-
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
         let chunk_headers_root = Block::compute_chunk_headers_root(self.chunks().iter()).0;
         if self.header().chunk_headers_root() != &chunk_headers_root {
             return Err(InvalidChunkHeaderRoot);
         }
-
         // Check that chunk tx root stored in the header matches the tx root of the chunks
         let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks().iter());
         if self.header().chunk_tx_root() != &chunk_tx_root {
             return Err(InvalidTransactionRoot);
         }
-
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
         let chunk_mask: Vec<bool> = self
             .chunks()
@@ -511,13 +515,11 @@ impl Block {
         if self.header().chunk_mask() != &chunk_mask[..] {
             return Err(InvalidChunkMask);
         }
-
         // Check that challenges root stored in the header matches the challenges root of the challenges
         let challenges_root = Block::compute_challenges_root(&self.challenges());
         if self.header().challenges_root() != &challenges_root {
             return Err(InvalidChallengeRoot);
         }
-
         Ok(())
     }
 }

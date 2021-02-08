@@ -53,6 +53,7 @@ fn repro_1183() {
                 5,
                 false,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
@@ -173,6 +174,7 @@ fn test_sync_from_achival_node() {
                 epoch_length,
                 false,
                 vec![true, false, false, false],
+                vec![false, true, true, true],
                 false,
                 network_mock.clone(),
             );
@@ -271,6 +273,7 @@ fn test_long_gap_between_blocks() {
                 epoch_length,
                 true,
                 vec![false, false],
+                vec![true, true],
                 false,
                 network_mock.clone(),
             );

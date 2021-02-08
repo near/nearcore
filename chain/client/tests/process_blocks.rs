@@ -197,18 +197,13 @@ fn receive_network_block() {
                 let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
                 let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
                 block_merkle_tree.insert(last_block.header.hash);
-                let next_block_ordinal = {
-                    #[cfg(feature = "protocol_feature_block_header_v3")]
-                    {
-                        last_block.header.block_ordinal.unwrap() + 1
-                    }
-                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                    0
-                };
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
                 let block = Block::produce(
                     PROTOCOL_VERSION,
                     &last_block.header.clone().into(),
                     last_block.header.height + 1,
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
                     next_block_ordinal,
                     last_block.chunks.into_iter().map(Into::into).collect(),
                     EpochId::default(),
@@ -217,6 +212,8 @@ fn receive_network_block() {
                     } else {
                         EpochId(last_block.header.next_epoch_id.clone())
                     },
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
+                    None,
                     vec![],
                     Rational::from_integer(0),
                     0,
@@ -279,18 +276,13 @@ fn produce_block_with_approvals() {
                 let signer1 =
                     InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
                 block_merkle_tree.insert(last_block.header.hash);
-                let next_block_ordinal = {
-                    #[cfg(feature = "protocol_feature_block_header_v3")]
-                    {
-                        last_block.header.block_ordinal.unwrap() + 1
-                    }
-                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                    0
-                };
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
                 let block = Block::produce(
                     PROTOCOL_VERSION,
                     &last_block.header.clone().into(),
                     last_block.header.height + 1,
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
                     next_block_ordinal,
                     last_block.chunks.into_iter().map(Into::into).collect(),
                     EpochId::default(),
@@ -299,6 +291,8 @@ fn produce_block_with_approvals() {
                     } else {
                         EpochId(last_block.header.next_epoch_id.clone())
                     },
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
+                    None,
                     vec![],
                     Rational::from_integer(0),
                     0,
@@ -366,6 +360,7 @@ fn produce_block_with_approvals_arrived_early() {
                 100,
                 true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
                 network_mock.clone(),
             );
@@ -456,18 +451,13 @@ fn invalid_blocks_common(is_requested: bool) {
                 let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
                 let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
                 block_merkle_tree.insert(last_block.header.hash);
-                let next_block_ordinal = {
-                    #[cfg(feature = "protocol_feature_block_header_v3")]
-                    {
-                        last_block.header.block_ordinal.unwrap() + 1
-                    }
-                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                    0
-                };
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
                 let valid_block = Block::produce(
                     PROTOCOL_VERSION,
                     &last_block.header.clone().into(),
                     last_block.header.height + 1,
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
                     next_block_ordinal,
                     last_block.chunks.iter().cloned().map(Into::into).collect(),
                     EpochId::default(),
@@ -476,6 +466,8 @@ fn invalid_blocks_common(is_requested: bool) {
                     } else {
                         EpochId(last_block.header.next_epoch_id.clone())
                     },
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
+                    None,
                     vec![],
                     Rational::from_integer(0),
                     0,
@@ -584,6 +576,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                 100,
                 true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
                 network_mock.clone(),
             );
@@ -1015,8 +1008,11 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().inner_lite.epoch_id = EpochId(CryptoHash(Digest([1; 32])));
         block.mut_header().get_mut().prev_hash = CryptoHash(Digest([1; 32]));
         block.mut_header().resign(&*signer);
-        let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
-        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::EpochOutOfBounds);
+        let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
+        assert_eq!(
+            res.as_ref().unwrap_err().kind(),
+            ErrorKind::EpochOutOfBounds(block.header().epoch_id().clone())
+        );
     }
     {
         // Orphan block with invalid signature
@@ -1203,11 +1199,11 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
             let block_hash = *blocks[i as usize].hash();
             assert!(matches!(
                 env.clients[0].chain.get_block(&block_hash).unwrap_err().kind(),
-                ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
+                ErrorKind::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
             ));
             assert!(matches!(
                 env.clients[0].chain.get_block_by_height(i).unwrap_err().kind(),
-                ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
+                ErrorKind::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
             ));
             assert!(env.clients[0]
                 .chain
@@ -1367,7 +1363,7 @@ fn test_gc_after_state_sync() {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
         assert!(env.clients[1].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
     }
-    env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
+    env.clients[1].chain.reset_data_pre_state_sync(Some(sync_hash)).unwrap();
     assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
     // mimic what we do in possible_targets
     assert!(env.clients[1].runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
@@ -1389,6 +1385,9 @@ fn test_process_block_after_state_sync() {
     }
     let sync_height = epoch_length * 4 + 1;
     let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap().clone();
+    let prev_sync_block =
+        env.clients[0].chain.get_block_by_height(sync_height - 1).unwrap().clone();
+    assert_eq!(sync_block.header().epoch_id(), prev_sync_block.header().next_epoch_id());
     let sync_hash = *sync_block.hash();
     let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
     let state_part =
@@ -1398,7 +1397,7 @@ fn test_process_block_after_state_sync() {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
         assert!(env.clients[0].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
     }
-    env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
+    env.clients[0].chain.reset_data_pre_state_sync(Some(sync_hash)).unwrap();
     env.clients[0]
         .runtime_adapter
         .confirm_state(0, &chunk_extra.state_root, &vec![state_part])
@@ -1565,7 +1564,7 @@ fn test_gc_tail_update() {
     // simulate save sync hash block
     let prev_sync_block = blocks[blocks.len() - 3].clone();
     let sync_block = blocks[blocks.len() - 2].clone();
-    env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
+    env.clients[1].chain.reset_data_pre_state_sync(Some(*sync_block.hash())).unwrap();
     let mut store_update = env.clients[1].chain.mut_store().store_update();
     store_update.save_block(prev_sync_block.clone());
     store_update.inc_block_refcount(&prev_sync_block.hash()).unwrap();
@@ -1711,7 +1710,7 @@ fn test_incorrect_validator_key_produce_block() {
         vec![],
     ));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "seed"));
-    let mut config = ClientConfig::test(true, 10, 20, 2, false);
+    let mut config = ClientConfig::test(true, 10, 20, 2, false, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -1803,7 +1802,7 @@ fn test_data_reset_before_state_sync() {
         )
         .unwrap();
     assert!(matches!(response.kind, QueryResponseKind::ViewAccount(_)));
-    env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
+    env.clients[0].chain.reset_data_pre_state_sync(Some(*head_block.hash())).unwrap();
     // account should not exist after clearing state
     let response = env.clients[0].runtime_adapter.query(
         0,
@@ -2585,18 +2584,22 @@ fn test_block_ordinal() {
 
     // Test skips
     for i in 1..=5 {
-        let block = env.clients[0].produce_block(i * 10).unwrap().unwrap();
-        env.process_block(0, block.clone(), Provenance::PRODUCED);
-        ordinal += 1;
-        assert_eq!(block.header().block_ordinal(), ordinal);
+        // This cycle is to update `last_final_block` value.
+        // Otherwise `get_block_header(last_final_block)` will fail due to GC Headers
+        for j in 0..=2 {
+            let block = env.clients[0].produce_block(i * 10 + j).unwrap().unwrap();
+            env.process_block(0, block.clone(), Provenance::PRODUCED);
+            ordinal += 1;
+            assert_eq!(block.header().block_ordinal(), ordinal);
+        }
     }
 
     // Test forks
-    let last_block = env.clients[0].produce_block(99).unwrap().unwrap();
+    let last_block = env.clients[0].produce_block(55).unwrap().unwrap();
     env.process_block(0, last_block.clone(), Provenance::PRODUCED);
     ordinal += 1;
     assert_eq!(last_block.header().block_ordinal(), ordinal);
-    let fork1_block = env.clients[0].produce_block(100).unwrap().unwrap();
+    let fork1_block = env.clients[0].produce_block(56).unwrap().unwrap();
     env.clients[0]
         .chain
         .mut_store()
@@ -2605,7 +2608,7 @@ fn test_block_ordinal() {
             seen: last_block.header().raw_timestamp(),
         })
         .unwrap();
-    let fork2_block = env.clients[0].produce_block(101).unwrap().unwrap();
+    let fork2_block = env.clients[0].produce_block(57).unwrap().unwrap();
     assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
     env.process_block(0, fork1_block.clone(), Provenance::NONE);
     env.process_block(0, fork2_block.clone(), Provenance::NONE);
@@ -2613,8 +2616,44 @@ fn test_block_ordinal() {
     assert_eq!(fork1_block.header().block_ordinal(), ordinal);
     assert_eq!(fork2_block.header().block_ordinal(), ordinal);
     // Next block on top of fork
-    let next_block = env.clients[0].produce_block(102).unwrap().unwrap();
+    let next_block = env.clients[0].produce_block(58).unwrap().unwrap();
     env.process_block(0, next_block.clone(), Provenance::PRODUCED);
     ordinal += 1;
     assert_eq!(next_block.header().block_ordinal(), ordinal);
+}
+
+#[cfg(feature = "protocol_feature_block_header_v3")]
+#[test]
+fn test_epoch_sync_data_hash() {
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    let epoch_length = 5;
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let runtimes = create_nightshade_runtimes(&genesis, 1);
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes.clone());
+    let mut blocks: Vec<Block> = vec![];
+    for i in 1..=epoch_length * 10 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        if i > 1 {
+            if block.header().epoch_id() == blocks.last().unwrap().header().next_epoch_id() {
+                // Epoch is changed, current block must have epoch data hash
+                assert_ne!(block.header().epoch_sync_data_hash(), None);
+                assert_eq!(
+                    runtimes[0]
+                        .get_epoch_sync_data_hash(
+                            block.header().prev_hash(),
+                            blocks.last().unwrap().header().next_epoch_id(),
+                            block.header().next_epoch_id(),
+                        )
+                        .unwrap(),
+                    block.header().epoch_sync_data_hash().unwrap()
+                )
+            } else {
+                assert_eq!(block.header().epoch_sync_data_hash(), None);
+            }
+        }
+        blocks.push(block);
+    }
 }

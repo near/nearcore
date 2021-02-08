@@ -305,13 +305,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
                             if block.hash() == header.prev_hash() {
-                                if let Err(_) = self.client.chain.save_block(&block) {
-                                    error!(target: "client", "Failed to save a block during state sync");
+                                if let Err(e) = self.client.chain.save_block(&block) {
+                                    error!(target: "client", "Failed to save a block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                if let Err(_) = self.client.chain.save_orphan(&block) {
-                                    error!(target: "client", "Received an invalid block during state sync");
+                                if let Err(e) = self.client.chain.save_orphan(&block) {
+                                    error!(target: "client", "Received an invalid block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
                             }
@@ -466,6 +466,31 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
 
                 NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::EpochSyncResponse(peer_id, response) => {
+                // KRYA make sure we really sent EpochSyncRequest, ban otherwise
+                self.client.epoch_sync.on_response(peer_id, response);
+                NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response) => {
+                // KRYA make sure we really sent EpochSyncFinalizationRequest, ban otherwise
+                if self.client.epoch_sync.done {
+                    // We shouldn't go forward because Epoch Sync is finished
+                    return NetworkClientResponses::NoResponse;
+                }
+                debug!(target: "epoch_sync", "Epoch sync received finalization response {:?} from peer {:?}", response, peer_id);
+                match self.client.epoch_sync.on_response_finalize(
+                    &peer_id,
+                    &mut self.client.chain,
+                    response,
+                ) {
+                    Ok(_) => NetworkClientResponses::NoResponse,
+                    Err(e) => {
+                        error!(target: "epoch_sync", "Epoch sync received invalid finalization response from peer {:?}, error {}", peer_id, e);
+                        // Invalid finalization response. Ban peer?
+                        NetworkClientResponses::NoResponse
+                    }
+                }
             }
             NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
                 let _ = self.client.shards_mgr.process_partial_encoded_chunk_request(
@@ -1130,7 +1155,8 @@ impl ClientActor {
         self.sync_started = true;
 
         // Start main sync loop.
-        self.sync(ctx);
+        debug!(target: "client", "Epoch Sync is started");
+        self.init_sync(ctx);
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
@@ -1207,6 +1233,67 @@ impl ClientActor {
         f(self, ctx);
 
         return now.checked_add_signed(OldDuration::from_std(duration).unwrap()).unwrap();
+    }
+
+    fn init_sync(&mut self, ctx: &mut Context<ClientActor>) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("init sync".into());
+
+        macro_rules! run_later(() => ({
+             near_performance_metrics::actix::run_later(
+                 ctx,
+                 file!(),
+                 line!(),
+                 self.client.config.sync_step_period, move |act, ctx| {
+                     act.init_sync(ctx);
+
+                }
+            );
+            return;
+        }));
+        if !self.client.config.epoch_sync_enabled {
+            debug!(target: "client", "Epoch Sync is disabled, go to standard syncing procedures");
+            self.sync(ctx);
+            return;
+        }
+
+        if self.client.epoch_sync.just_started() {
+            match self.client.chain.reset_data_pre_state_sync(None) {
+                Err(e) => {
+                    error!(target:"client","Epoch Sync: cannot clear data in reset_data_pre_state_sync, {}", e);
+                    return;
+                }
+                Ok(_) => {}
+            }
+        }
+
+        let now = Utc::now();
+
+        let epoch_sync_done = self.client.epoch_sync.run(
+            &mut self.client.sync_status,
+            &self.network_info.highest_height_peers,
+            now,
+        );
+        if !epoch_sync_done {
+            run_later!();
+        }
+
+        // Init Sync in completed, transition to regular Sync, starting with StateSync
+        debug!(target: "client", "Epoch Sync is finished, transition to State Sync, sync_hash {:?}", self.client.epoch_sync.sync_hash);
+        if self.client.epoch_sync.sync_hash != CryptoHash::default() {
+            self.client.sync_status =
+                SyncStatus::StateSync(self.client.epoch_sync.sync_hash, HashMap::default());
+        }
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.client.config.sync_step_period,
+            move |act, ctx| {
+                act.sync(ctx);
+            },
+        );
     }
 
     /// Main syncing job responsible for syncing client with other peers.
@@ -1302,7 +1389,10 @@ impl ClientActor {
                     .collect();
 
                 if !self.client.config.archive && just_enter_state_sync {
-                    unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+                    unwrap_or_run_later!(self
+                        .client
+                        .chain
+                        .reset_data_pre_state_sync(Some(sync_hash)));
                 }
 
                 match unwrap_or_run_later!(self.client.state_sync.run(

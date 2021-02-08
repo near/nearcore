@@ -168,13 +168,12 @@ impl StoreValidator {
                     self.check(&validate::block_increase_refcount, &block_hash, &block, col);
                 }
                 DBCol::ColBlockHeight => {
-                    let height = BlockHeight::try_from_slice(key_ref)?;
-                    let hash = CryptoHash::try_from(value_ref)?;
-                    // Block on the Canonical Chain is stored properly
-                    self.check(&validate::canonical_header_validity, &height, &hash, col);
+                    // let height = BlockHeight::try_from_slice(key_ref)?;
+                    // let hash = CryptoHash::try_from(value_ref)?;
                     // If prev Block exists, it's also on the Canonical Chain and
                     // there are no Blocks in range (prev_height, height) on the Canonical Chain
-                    self.check(&validate::canonical_prev_block_validity, &height, &hash, col);
+                    // KRYA rethink and enable
+                    // self.check(&validate::canonical_prev_block_validity, &height, &hash, col);
                 }
                 DBCol::ColChunks => {
                     let chunk_hash = ChunkHash::try_from_slice(key_ref)?;

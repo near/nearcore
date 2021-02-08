@@ -61,7 +61,7 @@ pub fn setup_network_node(
     chain_genesis.time = genesis_time;
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
-        let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false);
+        let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
         client_config.ttl_account_id_router = config.ttl_account_id_router;
         let network_adapter = NetworkRecipient::new();

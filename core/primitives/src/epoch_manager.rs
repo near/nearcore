@@ -50,8 +50,9 @@ pub struct EpochConfig {
 }
 
 /// Information per each block.
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Clone, Debug)]
 pub struct BlockInfo {
+    pub hash: CryptoHash,
     pub height: BlockHeight,
     pub last_finalized_height: BlockHeight,
     pub last_final_block_hash: CryptoHash,
@@ -72,6 +73,7 @@ pub struct BlockInfo {
 
 impl BlockInfo {
     pub fn new(
+        hash: CryptoHash,
         height: BlockHeight,
         last_finalized_height: BlockHeight,
         last_final_block_hash: CryptoHash,
@@ -84,6 +86,7 @@ impl BlockInfo {
         #[cfg(feature = "protocol_feature_rectify_inflation")] timestamp_nanosec: u64,
     ) -> Self {
         Self {
+            hash,
             height,
             last_finalized_height,
             last_final_block_hash,

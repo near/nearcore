@@ -106,7 +106,7 @@ fn test_expired_tx() {
     System::builder()
         .stop_on_panic(true)
         .run(|| {
-            let (_, addr) = test_utils::start_all_with_validity_period(
+            let (_, addr) = test_utils::start_all_with_validity_period_and_no_epoch_sync(
                 test_utils::NodeType::Validator,
                 1,
                 false,

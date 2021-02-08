@@ -22,12 +22,12 @@ use crate::migrations::migrate_12_to_13;
 pub use crate::runtime::NightshadeRuntime;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_6_to_7, migrate_7_to_8,
-    migrate_8_to_9, migrate_9_to_10, set_store_version,
+    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_16_to_17, migrate_6_to_7,
+    migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
-use near_store::migrations::migrate_16_to_rectify_inflation;
+use near_store::migrations::migrate_17_to_rectify_inflation;
 
 pub mod config;
 pub mod genesis_validate;
@@ -177,10 +177,15 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         let store = create_store(&path);
         set_store_version(&store, 16);
     }
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
     if db_version <= 16 {
-        // version 16 => rectify inflation: add `timestamp` to `BlockInfo`
-        migrate_16_to_rectify_inflation(&path);
+        info!(target: "near", "Migrate DB from version 16 to 17");
+        // version 16 => 17: add `hash` to `BlockInfo`
+        migrate_16_to_17(&path);
+    }
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    if db_version <= 17 {
+        // version 17 => rectify inflation: add `timestamp` to `BlockInfo`
+        migrate_17_to_rectify_inflation(&path);
     }
     #[cfg(feature = "nightly_protocol")]
     {

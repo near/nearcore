@@ -59,6 +59,7 @@ use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpda
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_primitives::block_header::{Approval, ApprovalInner, BlockHeaderInnerLite};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -772,6 +773,7 @@ impl Chain {
     pub fn sync_block_headers<F>(
         &mut self,
         mut headers: Vec<BlockHeader>,
+        is_epoch_sync: bool,
         on_challenge: F,
     ) -> Result<(), Error>
     where
@@ -805,15 +807,21 @@ impl Chain {
                     },
                 }
 
-                chain_update.validate_header(header, &Provenance::SYNC, on_challenge)?;
+                if !is_epoch_sync {
+                    chain_update.validate_header(header, &Provenance::SYNC, on_challenge)?;
+                } else {
+                    // The Header has been successfully validated by Epoch Sync validation procedure
+                }
                 chain_update.chain_store_update.save_block_header(header.clone())?;
                 chain_update.commit()?;
 
                 // Add validator proposals for given header.
-                self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
-                    &header,
-                    self.store.get_block_height(&header.last_final_block())?,
-                ))?;
+                if !is_epoch_sync {
+                    self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
+                        &header,
+                        self.store.get_block_height(&header.last_final_block())?,
+                    ))?;
+                };
             }
         }
 
@@ -873,18 +881,37 @@ impl Chain {
         }
     }
 
-    pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
+    pub fn reset_data_pre_state_sync(
+        &mut self,
+        sync_hash: Option<CryptoHash>,
+    ) -> Result<(), Error> {
         let head = self.head()?;
-        // Get header we were syncing into.
-        let header = self.get_block_header(&sync_hash)?;
-        let prev_hash = *header.prev_hash();
-        let sync_height = header.height();
+        // Get header we were syncing into and do we need to clear headers.
+        let (prev_hash, sync_height, clear_headers) = match sync_hash {
+            Some(block_hash) => {
+                let header = self.get_block_header(&block_hash)?;
+                // Don't clear headers - Epoch Sync is disabled
+                (*header.prev_hash(), header.height(), false)
+            }
+            // Case for Epoch Sync - clear all data including headers
+            None => {
+                // This case is possible if the node starts building blocks from Genesis
+                debug!(target:"sync", "Epoch Sync in reset_data_pre_state_sync, clear data up to {:?} inclusively", head.height);
+                if head.height == 0 {
+                    // Nothing to clear
+                    return Ok(());
+                }
+                (head.last_block_hash, head.height + 1, true)
+            }
+        };
+
         let gc_height = std::cmp::min(head.height + 1, sync_height);
 
         // GC all the data from current tail up to `gc_height`. In case tail points to a height where
         // there is no block, we need to make sure that the last block before tail is cleaned.
         let tail = self.store.tail()?;
         let mut tail_prev_block_cleaned = false;
+        debug!(target:"sync", "reset_data_pre_state_sync runs for hash {:?}, tail {}, gc_height {}", sync_hash, tail, gc_height);
         for height in tail..gc_height {
             if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
@@ -915,7 +942,7 @@ impl Chain {
         let mut chain_store_update = self.mut_store().store_update();
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
-        chain_store_update.clear_chunk_data(chunk_height)?;
+        chain_store_update.clear_chunk_data_and_headers(chunk_height, clear_headers)?;
         chain_store_update.commit()?;
 
         // clear all trie data
@@ -1113,10 +1140,10 @@ impl Chain {
                             block_hash, missing_chunks,
                         );
                     }
-                    ErrorKind::EpochOutOfBounds => {
+                    ErrorKind::EpochOutOfBounds(ref epoch_id) => {
                         // Possibly block arrived before we finished processing all of the blocks for epoch before last.
                         // Or someone is attacking with invalid chain.
-                        debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block_height, block.hash());
+                        debug!(target: "chain", "Received block {}/{} ignored, as epoch {:?} is unknown", block_height, block.hash(), epoch_id);
                     }
                     ErrorKind::Unfit(ref msg) => {
                         debug!(
@@ -2029,6 +2056,70 @@ impl Chain {
         }
         Ok(res)
     }
+
+    /// Validate that the light client block is valid.
+    /// Follows the spec at https://nomicon.io/ChainSpec/LightClient.html
+    /// Doesn't check the height and the epoch ID conditions. Those checks must be performed by the caller.
+    pub fn validate_light_block_no_height_or_epoch_check(
+        light_block: &LightClientBlockView,
+        block_producers: &Vec<ValidatorStake>,
+    ) -> bool {
+        let LightClientBlockView {
+            prev_block_hash: _,
+            inner_lite,
+            inner_rest_hash,
+            next_block_inner_hash,
+            approvals_after_next,
+            next_bps,
+        } = light_block;
+
+        let inner_lite: BlockHeaderInnerLite = inner_lite.clone().into();
+        let inner_lite_hash = hash(&inner_lite.try_to_vec().unwrap());
+        let current_block_hash = combine_hash(inner_lite_hash, *inner_rest_hash);
+        let next_block_hash = combine_hash(*next_block_inner_hash, current_block_hash);
+
+        let approval_data_serialized_for_sig = Approval::get_data_for_sig(
+            &ApprovalInner::Endorsement(next_block_hash),
+            inner_lite.height + 2,
+        );
+
+        let mut total_stake = 0;
+        let mut approved_stake = 0;
+        for (maybe_signature, block_producer) in approvals_after_next.iter().zip(block_producers) {
+            total_stake += block_producer.stake;
+
+            match maybe_signature {
+                None => continue,
+                Some(signature) => {
+                    approved_stake += block_producer.stake;
+                    if !signature.verify(
+                        approval_data_serialized_for_sig.as_ref(),
+                        &block_producer.public_key,
+                    ) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        let threshold = total_stake * 2 / 3;
+        if approved_stake <= threshold {
+            return false;
+        }
+
+        if let Some(next_bps) = next_bps {
+            if Chain::compute_bp_hash_inner(
+                next_bps.into_iter().map(|x| x.clone().into()).collect(),
+            )
+            .unwrap()
+                != inner_lite.next_bp_hash
+            {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 /// Implement block merkle proof retrieval.
@@ -2909,7 +3000,7 @@ impl<'a> ChainUpdate<'a> {
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
         if !self.runtime_adapter.epoch_exists(&block.header().epoch_id()) {
-            return Err(ErrorKind::EpochOutOfBounds.into());
+            return Err(ErrorKind::EpochOutOfBounds(block.header().epoch_id().clone()).into());
         }
 
         // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
@@ -3069,7 +3160,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Update the chain head if it's the new tip
-        let res = self.update_head(block)?;
+        let res = self.update_head(block.header())?;
 
         if res.is_some() {
             // On the epoch switch record the epoch light client block
@@ -3337,11 +3428,11 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    fn update_final_head_from_block(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    fn update_final_head_from_block(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         let final_head = self.chain_store_update.final_head()?;
         let last_final_block_header =
-            match self.chain_store_update.get_block_header(block.header().last_final_block()) {
-                Ok(header) => header,
+            match self.chain_store_update.get_block_header(header.last_final_block()) {
+                Ok(final_header) => final_header,
                 Err(e) => match e.kind() {
                     ErrorKind::DBNotFoundErr(_) => return Ok(None),
                     _ => return Err(e),
@@ -3358,13 +3449,13 @@ impl<'a> ChainUpdate<'a> {
 
     /// Directly updates the head if we've just appended a new block to it or handle
     /// the situation where the block has higher height to have a fork
-    fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    fn update_head(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         // if we made a fork with higher height than the head (which should also be true
         // when extending the head), update it
-        self.update_final_head_from_block(block)?;
+        self.update_final_head_from_block(header)?;
         let head = self.chain_store_update.head()?;
-        if block.header().height() > head.height {
-            let tip = Tip::from_header(&block.header());
+        if header.height() > head.height {
+            let tip = Tip::from_header(header);
 
             self.chain_store_update.save_body_head(&tip)?;
             near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);

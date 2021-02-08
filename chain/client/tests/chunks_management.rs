@@ -127,6 +127,7 @@ fn chunks_produced_and_distributed_common(
             5,
             true,
             vec![false; validators.iter().map(|x| x.len()).sum()],
+            vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
             Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
@@ -294,7 +295,6 @@ fn test_request_chunk_restart() {
     if let NetworkRequests::PartialEncodedChunkResponse { response: response_body, .. } = response {
         assert_eq!(response_body.chunk_hash, block1.chunks()[0].chunk_hash());
     } else {
-        println!("{:?}", response);
         assert!(false);
     }
 }

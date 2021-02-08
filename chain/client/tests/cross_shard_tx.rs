@@ -42,6 +42,7 @@ fn test_keyvalue_runtime_balances() {
                 5,
                 false,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, _msg: &NetworkRequests| {
@@ -452,6 +453,7 @@ mod tests {
                     20,
                     test_doomslug,
                     vec![true; validators.iter().map(|x| x.len()).sum()],
+                    vec![false; validators.iter().map(|x| x.len()).sum()],
                     true,
                     Arc::new(RwLock::new(Box::new(
                         move |_account_id: String, _msg: &NetworkRequests| {

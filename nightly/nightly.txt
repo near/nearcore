@@ -49,6 +49,7 @@ pytest sanity/network_drop_package.py
 # TODO: enable them when we fix the issue with proxy shutdown (#2942)
 # pytest --timeout=900 sanity/sync_ban.py true
 # pytest --timeout=900 sanity/sync_ban.py false
+pytest --timeout=1200 sanity/epoch_sync_then_epoch_sync.py
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py

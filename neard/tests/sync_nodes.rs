@@ -50,10 +50,13 @@ fn add_blocks(
             PROTOCOL_VERSION,
             &prev.header(),
             prev.header().height() + 1,
-            prev.header().block_ordinal() + 1,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            (prev.header().block_ordinal() + 1),
             blocks[0].chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            None,
             vec![Some(
                 Approval::new(
                     *prev.hash(),
@@ -99,9 +102,11 @@ fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
     let mut near1 = load_test_config("test1", port1, genesis.clone());
     near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
     near1.client_config.min_num_peers = 1;
+    near1.client_config.epoch_sync_enabled = false;
     let mut near2 = load_test_config("test2", port2, genesis.clone());
     near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
     near2.client_config.min_num_peers = 1;
+    near2.client_config.epoch_sync_enabled = false;
     (genesis, genesis_block, near1, near2)
 }
 
@@ -231,11 +236,13 @@ fn sync_state_stake_change() {
         near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
         near1.client_config.min_num_peers = 0;
         near1.client_config.min_block_production_delay = Duration::from_millis(200);
+        near1.client_config.epoch_sync_enabled = false;
         let mut near2 = load_test_config("test2", port2, genesis.clone());
         near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
         near2.client_config.min_block_production_delay = Duration::from_millis(200);
         near2.client_config.min_num_peers = 1;
         near2.client_config.skip_sync_wait = false;
+        near2.client_config.epoch_sync_enabled = false;
 
         System::builder()
             .stop_on_panic(true)

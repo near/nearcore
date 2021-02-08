@@ -296,8 +296,8 @@ mod tests {
     ) {
         epoch_manager
             .record_block_info(
-                &cur_h,
                 BlockInfo::new(
+                    cur_h,
                     height,
                     0,
                     prev_h,

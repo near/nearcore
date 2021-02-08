@@ -29,8 +29,8 @@ use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::syncing::{
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
-    ShardStateSyncResponseV2,
+    EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
+    ShardStateSyncResponseHeader, ShardStateSyncResponseV1, ShardStateSyncResponseV2,
 };
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, ShardId,
@@ -1152,6 +1152,183 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
 
                 NetworkViewClientResponses::AnnounceAccount(filtered_announce_accounts)
+            }
+            NetworkViewClientMessages::EpochSyncRequest { epoch_id } => {
+                match self.chain.mut_store().get_epoch_light_client_block(&epoch_id.0) {
+                    Ok(light_client_block_view) => {
+                        NetworkViewClientResponses::EpochSyncResponse(EpochSyncResponse::Advance {
+                            light_client_block_view: light_client_block_view.clone(),
+                        })
+                    }
+                    Err(e) => match e.kind() {
+                        ErrorKind::DBNotFoundErr(_) => {
+                            NetworkViewClientResponses::EpochSyncResponse(
+                                EpochSyncResponse::UpToDate,
+                            )
+                        }
+                        _ => {
+                            warn!(target: "client", "Getting Epoch Sync response failed: {}", e.to_string());
+                            NetworkViewClientResponses::NoResponse
+                        }
+                    },
+                }
+            }
+            NetworkViewClientMessages::EpochSyncFinalizationRequest { epoch_id } => {
+                let height = match self.chain.runtime_adapter.get_epoch_start_height(&epoch_id.0) {
+                    Ok(height) => height,
+                    Err(e) => {
+                        // Inner error or malicious request
+                        warn!(target: "client", "Invalid Epoch in EpochSyncFinalizationRequest: {}", e.to_string());
+                        return NetworkViewClientResponses::NoResponse;
+                    }
+                };
+                let mut header = match self.chain.mut_store().get_header_by_height(height) {
+                    Ok(header) => header.clone(),
+                    Err(e) => {
+                        // Inner error or malicious request
+                        info!(target: "client", "Cannot get header by height {} in EpochSyncFinalizationRequest: {}", height, e.to_string());
+                        return NetworkViewClientResponses::NoResponse;
+                    }
+                };
+                let mut prev_header = match self
+                    .chain
+                    .mut_store()
+                    .get_block_header(header.prev_hash())
+                {
+                    Ok(header) => header.clone(),
+                    Err(e) => {
+                        // Inner error or malicious request
+                        info!(target: "client", "Cannot get header by height {} in EpochSyncFinalizationRequest: {}", height, e.to_string());
+                        return NetworkViewClientResponses::NoResponse;
+                    }
+                };
+
+                let (
+                    prev_epoch_first_block_info,
+                    prev_epoch_prev_last_block_info,
+                    prev_epoch_last_block_info,
+                    prev_epoch_info,
+                    cur_epoch_info,
+                    next_epoch_info,
+                ) = match self.chain.runtime_adapter.get_epoch_sync_data(
+                    prev_header.hash(),
+                    prev_header.next_epoch_id(),
+                    header.next_epoch_id(),
+                ) {
+                    Ok((
+                        prev_epoch_first_block_info,
+                        prev_epoch_prev_last_block_info,
+                        prev_epoch_last_block_info,
+                        prev_epoch_info,
+                        cur_epoch_info,
+                        next_epoch_info,
+                    )) => (
+                        prev_epoch_first_block_info,
+                        prev_epoch_prev_last_block_info,
+                        prev_epoch_last_block_info,
+                        prev_epoch_info,
+                        cur_epoch_info,
+                        next_epoch_info,
+                    ),
+                    Err(e) => {
+                        // Inner error or malicious request
+                        info!(target: "client", "Cannot get get_epoch_sync_data {} in EpochSyncFinalizationRequest: {}", prev_header.hash(), e.to_string());
+                        return NetworkViewClientResponses::NoResponse;
+                    }
+                };
+
+                // The Header `header` is related to the next Epoch and not counted into Chunk Mask covering.
+                // It's included independently.
+                let cur_epoch_header = header;
+                let mut headers = vec![];
+                let mut chunk_mask = vec![0; prev_header.chunk_mask().len()];
+
+                // This loop is for collecting Headers until they cover Chunk Mask.
+                let finalized_header_hash = loop {
+                    header = prev_header;
+                    prev_header = match self.chain.mut_store().get_block_header(header.prev_hash())
+                    {
+                        Ok(header) => header.clone(),
+                        Err(e) => {
+                            // Inner error or malicious request
+                            info!(target: "client", "Cannot get header by hash {} in EpochSyncFinalizationRequest: {}", header.prev_hash(), e.to_string());
+                            return NetworkViewClientResponses::NoResponse;
+                        }
+                    };
+
+                    let mut found = true;
+                    for x in chunk_mask.iter() {
+                        // KRYA *x < 2
+                        if *x < 1 {
+                            found = false;
+                            break;
+                        }
+                    }
+
+                    let last_final_block = header.last_final_block().clone();
+                    headers.push(header);
+                    if found {
+                        // The Header `header` is the last one to fulfill the Chunk Mask.
+                        // At this point we know about at least one Chunk in each Shard + have got requested `prev_header`.
+                        // The Header `prev_header` is not included into Chunk Mask covering,
+                        // but it is the first candidate to be Last Final Block.
+
+                        break last_final_block;
+                    }
+
+                    for i in 0..chunk_mask.len() {
+                        chunk_mask[i] += prev_header.chunk_mask()[i] as i32; // Rust guarantees that bool is 0 or 1
+                    }
+                };
+
+                // This loop is for looking for the Block that is finalized.
+                loop {
+                    header = prev_header;
+                    if *header.hash() == finalized_header_hash {
+                        // The Header `header` is what we were looking for, stopping.
+                        break;
+                    }
+
+                    // Otherwise this is the Header that needs to be applied in a regular way.
+                    prev_header = match self.chain.mut_store().get_block_header(header.prev_hash())
+                    {
+                        Ok(header) => header.clone(),
+                        Err(e) => {
+                            // Inner error or malicious request
+                            info!(target: "client", "Cannot get header by hash {} in EpochSyncFinalizationRequest: {}", header.prev_hash(), e.to_string());
+                            return NetworkViewClientResponses::NoResponse;
+                        }
+                    };
+                    headers.push(header);
+                }
+
+                // Getting the Merkle Tree for `header_sync_init_header`
+                let header_sync_init_header_tree = match self
+                    .chain
+                    .mut_store()
+                    .get_block_merkle_tree(header.hash())
+                {
+                    Ok(tree) => tree.clone(),
+                    Err(e) => {
+                        // Inner error: Block Proof should exist at this point.
+                        error!(target: "client", "Cannot get block tree for hash {} in EpochSyncFinalizationRequest: {}", header.hash(), e.to_string());
+                        return NetworkViewClientResponses::NoResponse;
+                    }
+                };
+                NetworkViewClientResponses::EpochSyncFinalizationResponse(
+                    EpochSyncFinalizationResponse {
+                        cur_epoch_header,
+                        prev_epoch_headers: headers,
+                        header_sync_init_header: header,
+                        header_sync_init_header_tree,
+                        prev_epoch_first_block_info,
+                        prev_epoch_prev_last_block_info,
+                        prev_epoch_last_block_info,
+                        prev_epoch_info,
+                        cur_epoch_info,
+                        next_epoch_info,
+                    },
+                )
             }
         }
     }
