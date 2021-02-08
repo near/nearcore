@@ -5,9 +5,8 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::StateRoot;
 
-use crate::trie::iterator::CrumbStatus;
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize, ValueHandle};
+use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 
 impl Trie {
@@ -56,26 +55,24 @@ impl Trie {
     ) -> Result<(), StorageError> {
         let root_node = self.retrieve_node(&root_hash)?;
         let path_begin = self.find_path(&root_node, size_start)?;
-        let path_end = self.find_path(&root_node, size_end)?;
+        let path_end = if size_end == root_node.memory_usage {
+            vec![16]
+        } else {
+            self.find_path(&root_node, size_end)?
+        };
+        let mut iterator = self.iter(&root_hash)?;
+        iterator.visit_nodes_interval(&path_begin, &path_end)?;
 
-        let mut iterator = TrieIterator::new(&self, root_hash)?;
-        let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
-        iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
-        loop {
-            match iterator.next() {
-                None => break,
-                Some(Err(e)) => {
-                    return Err(e);
-                }
-                Some(Ok(_)) => {
-                    // The last iteration actually reads a value we don't need.
-                }
-            }
-            // TODO #1603 this is bad for large keys
-            if iterator.key_nibbles >= path_end {
-                break;
+        // Extra nodes for compatibility with the previous version of computing state parts
+        if size_end != root_node.memory_usage {
+            let mut iterator = TrieIterator::new(&self, root_hash)?;
+            let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
+            iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0)?;
+            if let Some(item) = iterator.next() {
+                item?;
             }
         }
+
         Ok(())
     }
 
@@ -154,10 +151,11 @@ impl Trie {
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
-        trie_nodes: &PartialState,
+        trie_nodes: PartialState,
     ) -> Result<(), StorageError> {
         assert!(part_id < num_parts);
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes.clone() });
+        let num_nodes = trie_nodes.0.len();
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes });
 
         let root_node = trie.retrieve_node(&state_root)?;
         let total_size = root_node.memory_usage;
@@ -167,7 +165,7 @@ impl Trie {
         trie.visit_nodes_for_size_range(&state_root, size_start, size_end)?;
         let storage = trie.storage.as_partial_storage().unwrap();
 
-        if storage.visited_nodes.borrow().len() != trie_nodes.0.len() {
+        if storage.visited_nodes.borrow().len() != num_nodes {
             // TODO #1603 not actually TrieNodeMissing.
             // The error is that the proof has more nodes than needed.
             return Err(StorageError::TrieNodeMissing);
@@ -175,125 +173,41 @@ impl Trie {
         Ok(())
     }
 
-    /// on_enter is applied for nodes as well as values
-    fn traverse_all_nodes<F: FnMut(&CryptoHash) -> Result<(), StorageError>>(
-        &self,
-        root: &CryptoHash,
-        mut on_enter: F,
-    ) -> Result<(), StorageError> {
-        if root == &CryptoHash::default() {
-            return Ok(());
-        }
-        let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
-        let root_node = self.retrieve_node(root)?;
-        stack.push((*root, root_node, CrumbStatus::Entering));
-        while let Some((hash, node, position)) = stack.pop() {
-            if let CrumbStatus::Entering = position {
-                on_enter(&hash)?;
-            }
-            match &node.node {
-                TrieNode::Empty => {
-                    continue;
-                }
-                TrieNode::Leaf(_, value) => {
-                    match value {
-                        ValueHandle::HashAndSize(_, hash) => {
-                            on_enter(hash)?;
-                        }
-                        ValueHandle::InMemory(_) => unreachable!("only possible while mutating"),
-                    }
-                    continue;
-                }
-                TrieNode::Branch(children, value) => match position {
-                    CrumbStatus::Entering => {
-                        match value {
-                            Some(ValueHandle::HashAndSize(_, hash)) => {
-                                on_enter(hash)?;
-                            }
-                            _ => {}
-                        }
-                        stack.push((hash, node, CrumbStatus::AtChild(0)));
-                        continue;
-                    }
-                    CrumbStatus::AtChild(mut i) => {
-                        while i < 16 {
-                            if let Some(NodeHandle::Hash(_h)) = children[i].as_ref() {
-                                break;
-                            }
-                            i += 1;
-                        }
-                        if i < 16 {
-                            if let Some(NodeHandle::Hash(h)) = children[i].clone() {
-                                let child = self.retrieve_node(&h)?;
-                                stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
-                                stack.push((h, child, CrumbStatus::Entering));
-                            } else {
-                                stack.push((hash, node, CrumbStatus::Exiting));
-                            }
-                        } else {
-                            stack.push((hash, node, CrumbStatus::Exiting));
-                        }
-                    }
-                    CrumbStatus::Exiting => {
-                        continue;
-                    }
-                    CrumbStatus::At => {
-                        continue;
-                    }
-                },
-                TrieNode::Extension(_key, child) => {
-                    if let CrumbStatus::Entering = position {
-                        match child.clone() {
-                            NodeHandle::InMemory(_) => unreachable!("only possible while mutating"),
-                            NodeHandle::Hash(h) => {
-                                let child = self.retrieve_node(&h)?;
-                                stack.push((hash, node, CrumbStatus::Exiting));
-                                stack.push((h, child, CrumbStatus::Entering));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Combines all parts and returns TrieChanges that can be applied to storage.
-    ///
-    /// # Input
-    /// parts[i] has trie nodes for part i
-    ///
-    /// # Errors
-    /// StorageError if data is inconsistent. Should never happen if each part was validated.
-    pub fn combine_state_parts(
+    /// Returns the storage changes for the state part.
+    /// Writing all storage changes gives the complete trie.
+    pub fn apply_state_part(
         state_root: &StateRoot,
-        parts: &Vec<Vec<Vec<u8>>>,
+        part_id: u64,
+        num_parts: u64,
+        part: Vec<Vec<u8>>,
     ) -> Result<TrieChanges, StorageError> {
-        let nodes = parts
-            .iter()
-            .map(|part| part.iter())
-            .flatten()
-            .map(|data| data.to_vec())
-            .collect::<Vec<_>>();
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(nodes) });
-        let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
-        trie.traverse_all_nodes(&state_root, |hash| {
-            if let Some((_bytes, rc)) = insertions.get_mut(hash) {
-                *rc += 1;
-            } else {
-                let bytes = trie.storage.retrieve_raw_bytes(hash)?;
-                insertions.insert(*hash, (bytes, 1));
-            }
-            Ok(())
-        })?;
-        let mut insertions =
-            insertions.into_iter().map(|(k, (v, rc))| (k, v, rc)).collect::<Vec<_>>();
-        insertions.sort();
+        if state_root == &CryptoHash::default() {
+            return Ok(TrieChanges::empty(CryptoHash::default()));
+        }
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) });
+        let root_node = trie.retrieve_node(&state_root)?;
+        let total_size = root_node.memory_usage;
+        let size_start = (total_size + num_parts - 1) / num_parts * part_id;
+        let size_end = min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
+        let path_begin = trie.find_path(&root_node, size_start)?;
+        let path_end = if size_end == root_node.memory_usage {
+            vec![16]
+        } else {
+            trie.find_path(&root_node, size_end)?
+        };
+        let mut iterator = TrieIterator::new(&trie, state_root)?;
+        let hashes = iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        let mut map = HashMap::new();
+        for hash in hashes {
+            let value = trie.retrieve_raw_bytes(&hash)?;
+            map.entry(hash).or_insert_with(|| (value, 0)).1 += 1;
+        }
+        let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
         Ok(TrieChanges {
-            old_root: Default::default(),
+            old_root: CryptoHash::default(),
             new_root: *state_root,
             insertions,
-            deletions: vec![],
+            deletions,
         })
     }
 
@@ -311,19 +225,206 @@ impl Trie {
 mod tests {
     use std::collections::HashMap;
 
+    use rand::prelude::ThreadRng;
     use rand::Rng;
 
     use near_primitives::hash::{hash, CryptoHash};
 
     use crate::test_utils::{create_tries, gen_changes, test_populate_trie};
+    use crate::trie::iterator::CrumbStatus;
 
     use super::*;
-    use rand::prelude::ThreadRng;
+    use crate::trie::ValueHandle;
+
+    impl Trie {
+        /// Combines all parts and returns TrieChanges that can be applied to storage.
+        ///
+        /// # Input
+        /// parts[i] has trie nodes for part i
+        ///
+        /// # Errors
+        /// StorageError if data is inconsistent. Should never happen if each part was validated.
+        pub fn combine_state_parts_naive(
+            state_root: &StateRoot,
+            parts: &Vec<Vec<Vec<u8>>>,
+        ) -> Result<TrieChanges, StorageError> {
+            let nodes = parts
+                .iter()
+                .map(|part| part.iter())
+                .flatten()
+                .map(|data| data.to_vec())
+                .collect::<Vec<_>>();
+            let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(nodes) });
+            let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
+            trie.traverse_all_nodes(&state_root, |hash| {
+                if let Some((_bytes, rc)) = insertions.get_mut(hash) {
+                    *rc += 1;
+                } else {
+                    let bytes = trie.storage.retrieve_raw_bytes(hash)?;
+                    insertions.insert(*hash, (bytes, 1));
+                }
+                Ok(())
+            })?;
+            let mut insertions =
+                insertions.into_iter().map(|(k, (v, rc))| (k, v, rc)).collect::<Vec<_>>();
+            insertions.sort();
+            Ok(TrieChanges {
+                old_root: Default::default(),
+                new_root: *state_root,
+                insertions,
+                deletions: vec![],
+            })
+        }
+
+        /// on_enter is applied for nodes as well as values
+        fn traverse_all_nodes<F: FnMut(&CryptoHash) -> Result<(), StorageError>>(
+            &self,
+            root: &CryptoHash,
+            mut on_enter: F,
+        ) -> Result<(), StorageError> {
+            if root == &CryptoHash::default() {
+                return Ok(());
+            }
+            let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
+            let root_node = self.retrieve_node(root)?;
+            stack.push((*root, root_node, CrumbStatus::Entering));
+            while let Some((hash, node, position)) = stack.pop() {
+                if let CrumbStatus::Entering = position {
+                    on_enter(&hash)?;
+                }
+                match &node.node {
+                    TrieNode::Empty => {
+                        continue;
+                    }
+                    TrieNode::Leaf(_, value) => {
+                        match value {
+                            ValueHandle::HashAndSize(_, hash) => {
+                                on_enter(hash)?;
+                            }
+                            ValueHandle::InMemory(_) => {
+                                unreachable!("only possible while mutating")
+                            }
+                        }
+                        continue;
+                    }
+                    TrieNode::Branch(children, value) => match position {
+                        CrumbStatus::Entering => {
+                            match value {
+                                Some(ValueHandle::HashAndSize(_, hash)) => {
+                                    on_enter(hash)?;
+                                }
+                                _ => {}
+                            }
+                            stack.push((hash, node, CrumbStatus::AtChild(0)));
+                            continue;
+                        }
+                        CrumbStatus::AtChild(mut i) => {
+                            while i < 16 {
+                                if let Some(NodeHandle::Hash(_h)) = children[i].as_ref() {
+                                    break;
+                                }
+                                i += 1;
+                            }
+                            if i < 16 {
+                                if let Some(NodeHandle::Hash(h)) = children[i].clone() {
+                                    let child = self.retrieve_node(&h)?;
+                                    stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
+                                    stack.push((h, child, CrumbStatus::Entering));
+                                } else {
+                                    stack.push((hash, node, CrumbStatus::Exiting));
+                                }
+                            } else {
+                                stack.push((hash, node, CrumbStatus::Exiting));
+                            }
+                        }
+                        CrumbStatus::Exiting => {
+                            continue;
+                        }
+                        CrumbStatus::At => {
+                            continue;
+                        }
+                    },
+                    TrieNode::Extension(_key, child) => {
+                        if let CrumbStatus::Entering = position {
+                            match child.clone() {
+                                NodeHandle::InMemory(_) => {
+                                    unreachable!("only possible while mutating")
+                                }
+                                NodeHandle::Hash(h) => {
+                                    let child = self.retrieve_node(&h)?;
+                                    stack.push((hash, node, CrumbStatus::Exiting));
+                                    stack.push((h, child, CrumbStatus::Entering));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        fn visit_nodes_for_size_range_old(
+            &self,
+            root_hash: &CryptoHash,
+            size_start: u64,
+            size_end: u64,
+        ) -> Result<(), StorageError> {
+            let root_node = self.retrieve_node(&root_hash)?;
+            let path_begin = self.find_path(&root_node, size_start)?;
+            let path_end = self.find_path(&root_node, size_end)?;
+
+            let mut iterator = TrieIterator::new(&self, root_hash)?;
+            let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
+            iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
+            loop {
+                match iterator.next() {
+                    None => break,
+                    Some(Err(e)) => {
+                        return Err(e);
+                    }
+                    Some(Ok(_item)) => {
+                        // The last iteration actually reads a value we don't need.
+                    }
+                }
+                // TODO #1603 this is bad for large keys
+                if iterator.key_nibbles >= path_end {
+                    break;
+                }
+            }
+            Ok(())
+        }
+
+        pub fn get_trie_nodes_for_part_old(
+            &self,
+            part_id: u64,
+            num_parts: u64,
+            state_root: &StateRoot,
+        ) -> Result<PartialState, StorageError> {
+            assert!(part_id < num_parts);
+            assert!(self.storage.as_caching_storage().is_some());
+            let root_node = self.retrieve_node(&state_root)?;
+            let total_size = root_node.memory_usage;
+            let size_start = (total_size + num_parts - 1) / num_parts * part_id;
+            let size_end =
+                min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
+
+            let with_recording = self.recording_reads();
+            with_recording.visit_nodes_for_size_range_old(&state_root, size_start, size_end)?;
+            let recorded = with_recording.recorded_storage().unwrap();
+
+            let trie_nodes = recorded.nodes;
+
+            Ok(trie_nodes)
+        }
+    }
 
     #[test]
     fn test_combine_empty_trie_parts() {
         let state_root = StateRoot::default();
-        let _ = Trie::combine_state_parts(&state_root, &vec![]).unwrap();
+        let _ = Trie::combine_state_parts_naive(&state_root, &vec![]).unwrap();
+        let _ =
+            Trie::validate_trie_nodes_for_part(&state_root, 0, 1, PartialState(vec![])).unwrap();
+        let _ = Trie::apply_state_part(&state_root, 0, 1, vec![]).unwrap();
     }
 
     fn construct_trie_for_big_parts_1(
@@ -438,26 +539,35 @@ mod tests {
         run_test_parts_not_huge(construct_trie_for_big_parts_2, 100_000);
     }
 
+    fn merge_trie_changes(changes: Vec<TrieChanges>) -> TrieChanges {
+        if changes.is_empty() {
+            return TrieChanges::empty(CryptoHash::default());
+        }
+        let new_root = changes[0].new_root;
+        let mut map = HashMap::new();
+        for changes_set in changes {
+            assert!(changes_set.deletions.is_empty(), "state parts only have insertions");
+            for (key, value, rc) in changes_set.insertions {
+                map.entry(key).or_insert_with(|| (value, 0)).1 += rc as i32;
+            }
+            for (key, value, rc) in changes_set.deletions {
+                map.entry(key).or_insert_with(|| (value, 0)).1 -= rc as i32;
+            }
+        }
+        let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
+        TrieChanges { old_root: Default::default(), new_root, insertions, deletions }
+    }
+
     #[test]
-    fn test_parts() {
+    fn test_combine_state_parts() {
         let mut rng = rand::thread_rng();
-        for _ in 0..20 {
+        for _ in 0..2000 {
             let tries = create_tries();
             let trie = tries.get_trie_for_shard(0);
-            let trie_changes = gen_changes(&mut rng, 500);
-
+            let trie_changes = gen_changes(&mut rng, 20);
             let state_root =
                 test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
             let root_memory_usage = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
-            for _ in 0..100 {
-                // Test that creating and validating are consistent
-                let num_parts = rng.gen_range(1, 10);
-                let part_id = rng.gen_range(0, num_parts);
-                let trie_nodes =
-                    trie.get_trie_nodes_for_part(part_id, num_parts, &state_root).unwrap();
-                Trie::validate_trie_nodes_for_part(&state_root, part_id, num_parts, &trie_nodes)
-                    .expect("validate ok");
-            }
 
             {
                 // Test that combining all parts gets all nodes
@@ -468,7 +578,8 @@ mod tests {
                     })
                     .collect::<Vec<_>>();
 
-                let trie_changes = Trie::combine_state_parts(&state_root, &parts).unwrap();
+                let trie_changes = check_combine_state_parts(&state_root, num_parts, &parts);
+
                 let mut nodes = <HashMap<CryptoHash, Vec<u8>>>::new();
                 let sizes_vec = parts
                     .iter()
@@ -483,25 +594,71 @@ mod tests {
                 let all_nodes = nodes.into_iter().map(|(_hash, node)| node).collect::<Vec<_>>();
                 assert_eq!(all_nodes.len(), trie_changes.insertions.len());
                 let size_of_all = all_nodes.iter().map(|node| node.len()).sum::<usize>();
-                Trie::validate_trie_nodes_for_part(
-                    &state_root,
-                    0,
-                    1,
-                    &PartialState(all_nodes.clone()),
-                )
-                .expect("validate ok");
+                let num_nodes = all_nodes.len();
+                Trie::validate_trie_nodes_for_part(&state_root, 0, 1, PartialState(all_nodes))
+                    .expect("validate ok");
 
                 let sum_of_sizes = sizes_vec.iter().sum::<usize>();
                 // Manually check that sizes are reasonable
                 println!("------------------------------");
-                println!("Number of nodes: {:?}", all_nodes.len());
+                println!("Number of nodes: {:?}", num_nodes);
                 println!("Sizes of parts: {:?}", sizes_vec);
                 println!(
                     "All nodes size: {:?}, sum_of_sizes: {:?}, memory_usage: {:?}",
                     size_of_all, sum_of_sizes, root_memory_usage
                 );
                 // borsh serialize should be about this size
-                assert!(size_of_all + 8 * all_nodes.len() <= root_memory_usage as usize);
+                assert!(size_of_all + 8 * num_nodes <= root_memory_usage as usize);
+            }
+        }
+    }
+
+    fn check_combine_state_parts(
+        state_root: &CryptoHash,
+        num_parts: u64,
+        parts: &Vec<Vec<Vec<u8>>>,
+    ) -> TrieChanges {
+        let trie_changes = Trie::combine_state_parts_naive(&state_root, &parts).unwrap();
+
+        let trie_changes_new = {
+            let changes = (0..num_parts)
+                .map(|part_id| {
+                    Trie::apply_state_part(
+                        &state_root,
+                        part_id,
+                        num_parts,
+                        parts[part_id as usize].clone(),
+                    )
+                    .unwrap()
+                })
+                .collect::<Vec<_>>();
+            merge_trie_changes(changes)
+        };
+        assert_eq!(trie_changes, trie_changes_new);
+        trie_changes
+    }
+
+    #[test]
+    fn test_get_trie_nodes_for_part() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..20 {
+            let tries = create_tries();
+            let trie = tries.get_trie_for_shard(0);
+            let trie_changes = gen_changes(&mut rng, 10);
+
+            let state_root =
+                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            for _ in 0..10 {
+                // Test that creating and validating are consistent
+                let num_parts = rng.gen_range(1, 10);
+                let part_id = rng.gen_range(0, num_parts);
+                let trie_nodes =
+                    trie.get_trie_nodes_for_part(part_id, num_parts, &state_root).unwrap();
+                let trie_nodes2 =
+                    trie.get_trie_nodes_for_part_old(part_id, num_parts, &state_root).unwrap();
+                assert_eq!(trie_nodes, trie_nodes2);
+                Trie::validate_trie_nodes_for_part(&state_root, part_id, num_parts, trie_nodes)
+                    .expect("validate ok");
             }
         }
     }

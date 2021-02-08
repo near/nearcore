@@ -1741,14 +1741,17 @@ impl Chain {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk_height_included();
         let state_root = shard_state_header.chunk_prev_state_root();
-        let mut parts = vec![];
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            parts.push(self.store.owned_store().get(ColStateParts, &key)?.unwrap());
+            let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
+            self.runtime_adapter.apply_state_part(
+                shard_id,
+                &state_root,
+                part_id,
+                num_parts,
+                &part,
+            )?;
         }
-
-        // Confirm that state matches the parts we received
-        self.runtime_adapter.confirm_state(shard_id, &state_root, &parts)?;
 
         // Applying the chunk starts here
         let mut chain_update = self.chain_update();
