@@ -9,7 +9,7 @@ byteorder = "1.2"
 derive_more = "0.99.3"
 elastic-array = "0.11"
 lazy_static = "1.4"
-rocksdb = { version = "0.15.0",  optional = true }
+rocksdb = "0.15.0"
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
 cached = "0.23"
@@ -32,7 +32,7 @@ name = "trie_bench"
 harness = false
 
 [features]
-default = ["rocksdb"]
+default = []
 no_cache = []
 adversarial = []
 protocol_feature_rectify_inflation = []

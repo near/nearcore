@@ -39,7 +39,6 @@ pub use crate::trie::{
     WrappedTrieChanges,
 };
 
-#[cfg(feature = "rocksdb")]
 pub mod db;
 pub mod migrations;
 pub mod test_utils;
