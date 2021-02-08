@@ -977,7 +977,7 @@ fn prometheus_handler(
 }
 
 fn get_cors(cors_allowed_origins: &[String]) -> Cors {
-    let mut cors = Cors::default();
+    let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
         for origin in cors_allowed_origins {
             cors = cors.allowed_origin(&origin);
