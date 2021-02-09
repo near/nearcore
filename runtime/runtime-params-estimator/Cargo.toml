@@ -4,6 +4,10 @@ version = "2.3.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
+[[bin]]
+name = "runtime-params-estimator"
+required-features = ["costs_counting"]
+
 [dependencies]
 indicatif = "0.15.0"
 tempfile = "3"
@@ -14,15 +18,15 @@ serde_json = "1"
 csv = "1.1.3"
 clap = "2.33"
 
-borsh = "0.7.1"
-num-rational = "0.3.0"
+borsh = "0.8.1"
+num-rational = "0.3"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-crypto = { path = "../../core/crypto" }
-near-vm-logic = {path = "../../runtime/near-vm-logic" , features = ["costs_counting"]}
-near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting" ]}
-node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting"]}
+near-vm-logic = {path = "../../runtime/near-vm-logic"  }
+near-vm-runner = {path = "../../runtime/near-vm-runner" }
+node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 testlib = { path = "../../test-utils/testlib" }
@@ -31,22 +35,35 @@ neard = { path = "../../neard" }
 rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 glob = "0.3.0"
 walrus = "0.18.0"
-near-evm-runner = { path = "../../runtime/near-evm-runner", features = ["costs_counting"], optional = true }
+near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 hex = "0.4"
-ethabi = "9.0.1"
-ethabi-contract = "9.0.0"
-ethabi-derive = "9.0.1"
-ethereum-types = "0.8.0"
-lazy-static-include = "2.2.2"
+ethabi = "13.0.0"
+ethabi-contract = "11.0.0"
+ethabi-derive = "13.0.0"
+ethereum-types = "0.11.0"
+lazy-static-include = "3"
 num-traits = "0.2.12"
 libc = "0.2.81"
 
 [features]
-default = []
+default = ["costs_counting"]
+costs_counting = ["near-vm-logic/costs_counting",
+                  "near-vm-runner/costs_counting",
+                  "neard/costs_counting",
+                  "node-runtime/costs_counting",
+                  "testlib/costs_counting",
+                  "near-evm-runner/costs_counting"]
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
-required = ["near-vm-runner/no_cpu_compatibility_checks", "no_cache", "near-store/single_thread_rocksdb"]
+required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache", "near-store/single_thread_rocksdb"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
-protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-vm-runner/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-primitives/protocol_feature_evm", "testlib/protocol_feature_evm"]
-protocol_feature_transaction_hashes_in_state = ["near-primitives/protocol_feature_transaction_hashes_in_state", "node-runtime/protocol_feature_transaction_hashes_in_state"]
+protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
+                        "near-evm-runner/costs_counting",
+                        "near-vm-runner/protocol_feature_evm",
+                        "near-chain-configs/protocol_feature_evm",
+                        "near-runtime-fees/protocol_feature_evm",
+                        "node-runtime/protocol_feature_evm",
+                        "near-primitives/protocol_feature_evm",
+                        "testlib/protocol_feature_evm"]
+protocol_feature_transaction_hashes_in_state = ["node-runtime/protocol_feature_transaction_hashes_in_state"]

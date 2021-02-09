@@ -1,8 +1,10 @@
-use log::info;
+use log::warn;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::stats_enabled::{MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD, STATS, TID};
+use crate::stats_enabled::{get_entry, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
+
+use near_rust_allocator_proxy::allocator::get_tid;
 
 pub fn spawn<F>(class_name: &'static str, file: &'static str, line: u32, f: F)
 where
@@ -26,16 +28,20 @@ where
 {
     *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
     let f2 = move |a: &mut A, b: &mut A::Context| {
+        let stat = get_entry();
         let now = Instant::now();
+        stat.lock().unwrap().pre_log(now);
+
         f(a, b);
 
-        let took = now.elapsed();
-        STATS.lock().unwrap().log("run_later", file, line, took);
+        let ended = Instant::now();
+        let took = ended - now;
+        stat.lock().unwrap().log("run_later", file, line, took, ended);
         if took > SLOW_CALL_THRESHOLD {
-            info!(
+            warn!(
                 "Slow function call {}:{} {}:{} took: {}ms",
                 "run_later",
-                TID.with(|x| *x.borrow()),
+                get_tid(),
                 file,
                 line,
                 took.as_millis()

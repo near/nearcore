@@ -20,7 +20,7 @@ use rocksdb::Env;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use testlib::node::{Node, RuntimeNode};
 use testlib::user::runtime_user::MockClient;
@@ -33,11 +33,10 @@ pub struct EvmCost {
 }
 
 fn testbed_for_evm(
-    state_dump_path: &str,
+    state_dump_path: &Path,
     accounts: usize,
 ) -> (Arc<Mutex<RuntimeTestbed>>, Arc<Mutex<HashMap<usize, u64>>>) {
-    let path = PathBuf::from(state_dump_path);
-    let testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&path)));
+    let testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(state_dump_path)));
     let mut nonces: HashMap<usize, u64> = HashMap::new();
     let bar = ProgressBar::new(accounts as _);
     println!("Prepare a testbed of {} accounts all having a deployed evm contract", accounts);
@@ -210,13 +209,12 @@ pub fn measure_evm_deploy(
 use_contract!(soltest, "../near-evm-runner/tests/build/SolTests.abi");
 use_contract!(precompiled_function, "../near-evm-runner/tests/build/PrecompiledFunction.abi");
 
-lazy_static_include_str!(TEST, "../near-evm-runner/tests/build/SolTests.bin");
-lazy_static_include_str!(
-    PRECOMPILED_TEST,
-    "../near-evm-runner/tests/build/PrecompiledFunction.bin"
-);
+lazy_static_include_str! {
+    TEST => "../near-evm-runner/tests/build/SolTests.bin",
+    PRECOMPILED_TEST => "../near-evm-runner/tests/build/PrecompiledFunction.bin",
+}
 
-const CHAIN_ID: u128 = 0x99;
+const CHAIN_ID: u64 = 0x99;
 
 pub fn create_evm_context<'a>(
     external: &'a mut MockedExternal,

@@ -33,7 +33,7 @@ use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
 use near_performance_metrics;
-use near_performance_metrics_macros::perf;
+use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, EpochId};
@@ -49,13 +49,13 @@ use near_telemetry::TelemetryActor;
 use crate::client::Client;
 use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
-use crate::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusSyncInfo, SyncStatus,
-};
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
+use near_client_primitives::types::{
+    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
+    StatusSyncInfo, SyncStatus,
+};
 use near_primitives::block_header::ApprovalType;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -192,7 +192,7 @@ impl Actor for ClientActor {
 impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
-    #[perf]
+    #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(format!("NetworkClientMessage {}", msg.as_ref()).into());
@@ -310,7 +310,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 }
                                 return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                self.client.chain.save_orphan(&block);
+                                if let Err(_) = self.client.chain.save_orphan(&block) {
+                                    error!(target: "client", "Received an invalid block during state sync");
+                                }
                                 return NetworkClientResponses::NoResponse;
                             }
                         }

@@ -12,6 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
+use strum::AsStaticStr;
 use tokio::net::TcpStream;
 use tracing::{error, warn};
 
@@ -39,9 +40,8 @@ use crate::peer::Peer;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::MetricRecorder;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
-use serde::export::fmt::Error;
-use serde::export::Formatter;
-use std::{fmt::Debug, io};
+use std::fmt::{Debug, Error, Formatter};
+use std::io;
 
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_primitives::merkle::combine_hash;
@@ -433,7 +433,6 @@ pub struct Pong {
 #[derive(
     BorshSerialize,
     BorshDeserialize,
-    Serialize,
     PartialEq,
     Eq,
     Clone,
@@ -617,7 +616,7 @@ impl RawRoutedMessage {
     }
 }
 
-#[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessageNoSignature<'a> {
     target: &'a PeerIdOrHash,
     author: &'a PeerId,
@@ -631,7 +630,7 @@ pub struct RoutedMessageNoSignature<'a> {
 /// sender of the package should be banned instead.
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
@@ -727,7 +726,6 @@ impl SyncData {
 #[derive(
     BorshSerialize,
     BorshDeserialize,
-    Serialize,
     PartialEq,
     Eq,
     Clone,
@@ -1390,7 +1388,7 @@ pub enum NetworkAdversarialMessage {
     AdvSetSyncInfo(u64),
 }
 
-#[derive(Debug, strum::AsRefStr)]
+#[derive(Debug, strum::AsRefStr, AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
@@ -1469,6 +1467,7 @@ impl Message for NetworkClientMessages {
     type Result = NetworkClientResponses;
 }
 
+#[derive(AsStaticStr)]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),

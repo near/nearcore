@@ -19,7 +19,7 @@ use near_primitives::views::{
 use near_store::{ShardTries, TrieUpdate};
 use neard::config::MIN_GAS_PRICE;
 #[cfg(feature = "protocol_feature_evm")]
-use neard::config::TEST_EVM_CHAIN_ID;
+use neard::config::TESTNET_EVM_CHAIN_ID;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
@@ -128,7 +128,8 @@ impl RuntimeUser {
     fn apply_state(&self) -> ApplyState {
         ApplyState {
             block_index: 0,
-            last_block_hash: Default::default(),
+            prev_block_hash: Default::default(),
+            block_hash: Default::default(),
             block_timestamp: 0,
             epoch_height: 0,
             gas_price: MIN_GAS_PRICE,
@@ -139,7 +140,9 @@ impl RuntimeUser {
             config: self.runtime_config.clone(),
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
+            #[cfg(feature = "costs_counting")]
+            profile: None,
             #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
             transaction_validity_period: 0,
             #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
@@ -242,14 +245,15 @@ impl User for RuntimeUser {
         let mut result = CallResult::default();
         let view_state = ViewApplyState {
             block_height: apply_state.block_index,
-            last_block_hash: apply_state.last_block_hash,
+            prev_block_hash: apply_state.prev_block_hash,
+            block_hash: apply_state.block_hash,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,
             block_timestamp: apply_state.block_timestamp,
             current_protocol_version: PROTOCOL_VERSION,
             cache: apply_state.cache,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         result.result = self
             .trie_viewer

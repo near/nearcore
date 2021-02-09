@@ -50,6 +50,7 @@ fn create_block() -> Block {
         PROTOCOL_VERSION,
         genesis.header(),
         10,
+        genesis.header().block_ordinal() + 1,
         vec![genesis.chunks()[0].clone()],
         EpochId::default(),
         EpochId::default(),

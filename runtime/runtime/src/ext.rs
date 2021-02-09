@@ -31,6 +31,7 @@ pub struct RuntimeExt<'a> {
     action_hash: &'a CryptoHash,
     data_count: u64,
     epoch_id: &'a EpochId,
+    prev_block_hash: &'a CryptoHash,
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
@@ -57,6 +58,7 @@ impl<'a> RuntimeExt<'a> {
         gas_price: Balance,
         action_hash: &'a CryptoHash,
         epoch_id: &'a EpochId,
+        prev_block_hash: &'a CryptoHash,
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
@@ -71,6 +73,7 @@ impl<'a> RuntimeExt<'a> {
             action_hash,
             data_count: 0,
             epoch_id,
+            prev_block_hash,
             last_block_hash,
             epoch_info_provider,
             current_protocol_version,
@@ -99,6 +102,7 @@ impl<'a> RuntimeExt<'a> {
         let data_id = create_data_id(
             self.current_protocol_version,
             &self.action_hash,
+            &self.prev_block_hash,
             &self.last_block_hash,
             self.data_count as usize,
         );

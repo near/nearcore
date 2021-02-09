@@ -30,7 +30,7 @@ pub(crate) async fn fetch_latest_block(
     client
         .send(near_client::GetBlock(types::BlockReference::Finality(types::Finality::Final)))
         .await?
-        .map_err(FailedToFetchData::String)
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetches specific block by it's height
@@ -43,7 +43,7 @@ pub(crate) async fn fetch_block_by_height(
             near_primitives::types::BlockId::Height(height),
         )))
         .await?
-        .map_err(FailedToFetchData::String)
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetches specific block by it's hash
@@ -54,7 +54,7 @@ pub(crate) async fn fetch_block_by_hash(
     client
         .send(near_client::GetBlock(near_primitives::types::BlockId::Hash(hash).into()))
         .await?
-        .map_err(FailedToFetchData::String)
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 pub(crate) async fn fetch_state_changes(
@@ -72,7 +72,7 @@ async fn fetch_single_chunk(
     client: &Addr<near_client::ViewClientActor>,
     get_chunk: near_client::GetChunk,
 ) -> Result<views::ChunkView, FailedToFetchData> {
-    client.send(get_chunk).await?.map_err(FailedToFetchData::String)
+    client.send(get_chunk).await?.map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetch all ExecutionOutcomeWithId for current block
@@ -121,7 +121,10 @@ async fn fetch_receipt_by_id(
     client: &Addr<near_client::ViewClientActor>,
     receipt_id: CryptoHash,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    client.send(near_client::GetReceipt { receipt_id }).await?.map_err(FailedToFetchData::String)
+    client
+        .send(near_client::GetReceipt { receipt_id })
+        .await?
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetches all the chunks by their hashes.

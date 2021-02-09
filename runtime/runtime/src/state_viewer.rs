@@ -1,4 +1,5 @@
 use std::str;
+use std::sync::Arc;
 use std::time::Instant;
 
 use log::debug;
@@ -21,7 +22,6 @@ use near_vm_logic::ReturnData;
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
 use crate::ApplyState;
-use std::sync::Arc;
 
 pub struct TrieViewer {}
 
@@ -126,14 +126,17 @@ impl TrieViewer {
             0,
             &empty_hash,
             &view_state.epoch_id,
-            &view_state.last_block_hash,
+            &view_state.prev_block_hash,
+            &view_state.block_hash,
             epoch_info_provider,
             view_state.current_protocol_version,
         );
         let config = Arc::new(RuntimeConfig::default());
         let apply_state = ApplyState {
             block_index: view_state.block_height,
-            last_block_hash: view_state.last_block_hash,
+            // Used for legacy reasons
+            prev_block_hash: view_state.prev_block_hash,
+            block_hash: view_state.block_hash,
             epoch_id: view_state.epoch_id.clone(),
             epoch_height: view_state.epoch_height,
             gas_price: 0,
@@ -145,6 +148,8 @@ impl TrieViewer {
             cache: view_state.cache,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
+            #[cfg(feature = "costs_counting")]
+            profile: None,
             // The following fields are not needed here
             #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
             transaction_validity_period: 0,
@@ -205,10 +210,8 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[cfg(feature = "protocol_feature_evm")]
-    use near_chain_configs::TEST_EVM_CHAIN_ID;
+    use near_chain_configs::TESTNET_EVM_CHAIN_ID;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
@@ -217,6 +220,8 @@ mod tests {
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
 
+    use super::*;
+
     #[test]
     fn test_view_call() {
         let (viewer, root) = get_test_trie_viewer();
@@ -224,14 +229,15 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
-            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
             root,
@@ -253,14 +259,15 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
-            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TEST_EVM_CHAIN_ID,
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
             root,
@@ -286,7 +293,8 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
-            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
             block_timestamp: 1,
@@ -318,7 +326,8 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
-            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
             block_timestamp: 1,
@@ -401,7 +410,8 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
         let view_state = ViewApplyState {
             block_height: 1,
-            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
             block_timestamp: 1,

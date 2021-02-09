@@ -142,6 +142,8 @@ pub(crate) fn execute_function_call(
             promise_results,
             apply_state.current_protocol_version,
             cache,
+            #[cfg(feature = "costs_counting")]
+            apply_state.profile.as_ref(),
         )
     }
 }
@@ -175,7 +177,8 @@ pub(crate) fn action_function_call(
         action_receipt.gas_price,
         action_hash,
         &apply_state.epoch_id,
-        &apply_state.last_block_hash,
+        &apply_state.prev_block_hash,
+        &apply_state.block_hash,
         epoch_info_provider,
         apply_state.current_protocol_version,
     );
@@ -718,7 +721,7 @@ mod tests {
                 kind: ActionErrorKind::CreateAccountNotAllowed {
                     account_id: account_id.clone(),
                     predecessor_id: predecessor_id.clone(),
-                }
+                },
             })
         );
     }
@@ -737,7 +740,7 @@ mod tests {
                     account_id: account_id.clone(),
                     registrar_account_id: AccountId::from("registrar"),
                     predecessor_id: predecessor_id.clone(),
-                }
+                },
             })
         );
     }

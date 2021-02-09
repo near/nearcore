@@ -9,6 +9,7 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use tracing::debug;
 
+use near_chain_primitives::error::{Error, ErrorKind};
 use near_primitives::block::{Approval, Tip};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -46,7 +47,6 @@ use near_store::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, TAIL_KEY,
 };
 
-use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, ReceiptResult};
 

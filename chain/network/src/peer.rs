@@ -157,7 +157,7 @@ pub struct Peer {
     /// Protocol version to communicate with this peer.
     pub protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: FramedWrite<WriteHalf, Codec>,
+    framed: FramedWrite<Vec<u8>, WriteHalf, Codec>,
     /// Handshake timeout.
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
@@ -190,7 +190,7 @@ impl Peer {
         peer_addr: SocketAddr,
         peer_info: Option<PeerInfo>,
         peer_type: PeerType,
-        framed: FramedWrite<WriteHalf, Codec>,
+        framed: FramedWrite<Vec<u8>, WriteHalf, Codec>,
         handshake_timeout: Duration,
         peer_manager_addr: Addr<PeerManagerActor>,
         client_addr: Recipient<NetworkClientMessages>,
@@ -675,7 +675,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             }
         };
 
-        near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
+        near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as u64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
 
         #[cfg(feature = "metric_recorder")]
@@ -749,7 +749,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
 
         self.network_metrics.inc_by(
             NetworkMetrics::peer_message_bytes_rx(&peer_msg.msg_variant()).as_ref(),
-            msg.len() as i64,
+            msg.len() as u64,
         );
 
         if let PeerMessage::HandshakeV2(handshake) = peer_msg {

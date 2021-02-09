@@ -1,5 +1,5 @@
-use std::fmt::Debug;
 use std::time::Duration;
+use strum::AsStaticRef;
 
 pub fn measure_performance<F, Message, Result>(
     _class_name: &'static str,
@@ -12,14 +12,14 @@ where
     f(msg)
 }
 
-pub fn performance_with_debug<F, Message, Result>(
+pub fn measure_performance_with_debug<F, Message, Result>(
     _class_name: &'static str,
     msg: Message,
     f: F,
 ) -> Result
 where
     F: FnOnce(Message) -> Result,
-    Message: Debug,
+    Message: AsStaticRef<str>,
 {
     f(msg)
 }

@@ -12,25 +12,25 @@ members = [
     "core/runtime-configs",
     "core/store",
     "core/metrics",
-    "utils/actix",
     "runtime/near-evm-runner",
     "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
     "runtime/runtime",
-    "runtime/runtime-standalone",
     "runtime/runtime-params-estimator",
     "chain/chain",
     "chain/chunks",
     "chain/epoch_manager",
     "chain/pool",
     "chain/client",
+    "chain/client-primitives",
     "chain/network",
     "chain/indexer",
     "chain/jsonrpc",
     "chain/jsonrpc/client",
     "chain/jsonrpc/test-utils",
+    "chain/jsonrpc-primitives",
     "chain/rosetta-rpc",
     "test-utils/testlib",
     "test-utils/loadtester",
@@ -47,29 +47,19 @@ members = [
     "tools/delay_detector"
 ]
 
-[dependencies]
-# pins this version to fix https://github.com/actix/actix-net/issues/129
-actix-rt = "=1.1.1"
-openssl-probe = { version = "0.1.2" }
-# pin syn to fix https://github.com/nushell/nushell/pull/2868
-syn = "=1.0.57"
-
 [dev-dependencies]
-actix = "0.9"
-lazy_static = "1.4"
-log = "^0.4.6"
+# Pin dependency to avoid compilation errors
+actix-rt = "=2.0.0-beta.2"
+
 rand = "0.7"
-serde_json = "1"
-futures = "0.3"
 
 near-logger-utils = { path = "./test-utils/logger" }
-near-actix-utils = { path = "./utils/actix" }
 near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
-near-runtime-standalone = { path = "./runtime/runtime-standalone" }
-runtime-params-estimator = { path = "./runtime/runtime-params-estimator" }
+runtime-params-estimator = { path = "./runtime/runtime-params-estimator", default_features = false }
+near-chain = { path = "./chain/chain" }
 
 node-runtime = { path = "./runtime/runtime" }
 
@@ -79,6 +69,9 @@ near-network = { path = "./chain/network" }
 neard = { path = "./neard"}
 
 testlib = { path = "./test-utils/testlib" }
+
+[replace]
+"ethereum-types:0.10.0" = { path = "./patches/ethereum-types-0.10.0-to-0.11.0" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.
@@ -104,6 +97,7 @@ opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]
 performance_stats = ["neard/performance_stats"]
+memory_stats = ["neard/memory_stats"]
 expensive_tests = ["neard/expensive_tests"]
 regression_tests = []
 old_tests = []
@@ -114,6 +108,8 @@ delay_detector = ["neard/delay_detector"]
 rosetta_rpc = ["neard/rosetta_rpc"]
 protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_parts"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
-nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm"]
-protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "near-runtime-standalone/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
-protocol_feature_transaction_hashes_in_state = ["neard/protocol_feature_transaction_hashes_in_state", "testlib/protocol_feature_transaction_hashes_in_state", "near-runtime-standalone/protocol_feature_transaction_hashes_in_state", "runtime-params-estimator/protocol_feature_transaction_hashes_in_state"]
+nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3"]
+protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
+protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
+protocol_feature_transaction_hashes_in_state = ["neard/protocol_feature_transaction_hashes_in_state", "testlib/protocol_feature_transaction_hashes_in_state"]
+costs_counting = ["neard/costs_counting", "testlib/costs_counting", "node-runtime/costs_counting"]

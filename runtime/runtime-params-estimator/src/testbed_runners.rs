@@ -48,7 +48,7 @@ pub struct Config {
     /// Number of the transactions in the block.
     pub block_sizes: Vec<usize>,
     /// Where state dump is located in case we need to create a testbed.
-    pub state_dump_path: String,
+    pub state_dump_path: PathBuf,
     /// Metric used for counting.
     pub metric: GasMetric,
     /// VMKind used
@@ -109,9 +109,18 @@ pub fn measure_actions(
     measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
+// We use several "magical" file descriptors to interact with the plugin in QEMU
+// intercepting read syscall. Plugin counts instructions executed and amount of data transferred
+// by IO operations. We "normalize" all those costs into instruction count.
 const CATCH_BASE: u32 = 0xcafebabe;
 const HYPERCALL_START_COUNTING: u32 = 0;
 const HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED: u32 = 1;
+const HYPERCALL_GET_BYTES_READ: u32 = 2;
+const HYPERCALL_GET_BYTES_WRITTEN: u32 = 3;
+
+// See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
+const READ_BYTE_COST: u64 = 27;
+const WRITE_BYTE_COST: u64 = 47;
 
 fn hypercall(index: u32) -> u64 {
     let mut result: u64 = 0;
@@ -132,7 +141,16 @@ fn start_count_instructions() -> Consumed {
 }
 
 fn end_count_instructions() -> u64 {
-    hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)
+    const USE_IO_COSTS: bool = true;
+    if USE_IO_COSTS {
+        let result_insn = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED);
+        let result_read = hypercall(HYPERCALL_GET_BYTES_READ);
+        let result_written = hypercall(HYPERCALL_GET_BYTES_WRITTEN);
+
+        result_insn + result_read * READ_BYTE_COST + result_written * WRITE_BYTE_COST
+    } else {
+        hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)
+    }
 }
 
 fn start_count_time() -> Consumed {
@@ -179,9 +197,8 @@ where
             x
         }
         None => {
-            let path = PathBuf::from(config.state_dump_path.as_str());
             println!("{:?}. Preparing testbed. Loading state.", metric);
-            Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&path)))
+            Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)))
         }
     };
     let testbed_clone = testbed.clone();
@@ -209,6 +226,7 @@ where
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
     ));
+    #[cfg(feature = "costs_counting")]
     node_runtime::EXT_COSTS_COUNTER.with(|f| {
         f.borrow_mut().clear();
     });

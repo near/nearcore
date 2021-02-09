@@ -19,7 +19,7 @@ use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
 };
-use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
+use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
@@ -189,6 +189,7 @@ impl Block {
         protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
+        block_ordinal: NumBlocks,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
@@ -248,6 +249,15 @@ impl Block {
                 prev.last_final_block()
             };
 
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        match prev {
+            BlockHeader::BlockHeaderV1(_) => debug_assert_eq!(prev.block_ordinal(), 0),
+            BlockHeader::BlockHeaderV2(_) => debug_assert_eq!(prev.block_ordinal(), 0),
+            BlockHeader::BlockHeaderV3(_) => {
+                debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
+            }
+        };
+
         let header = BlockHeader::new(
             protocol_version,
             height,
@@ -262,6 +272,7 @@ impl Block {
             random_value,
             validator_proposals,
             chunk_mask,
+            block_ordinal,
             epoch_id,
             next_epoch_id,
             new_gas_price,
@@ -273,6 +284,8 @@ impl Block {
             approvals,
             next_bp_hash,
             block_merkle_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            prev.height(),
         );
 
         Self::block_from_protocol_version(

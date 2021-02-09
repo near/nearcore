@@ -1,6 +1,8 @@
 use crate::errors::IntoVMError;
 use crate::prepare;
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(not(feature = "no_cache"))]
+use cached::{cached_key, SizedCache};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
@@ -53,7 +55,7 @@ fn cache_error(error: VMError, key: &CryptoHash, cache: &dyn CompiledContractCac
     }
 }
 
-fn compile_and_serialize_wasmer(
+pub(crate) fn compile_and_serialize_wasmer(
     wasm_code: &[u8],
     config: &VMConfig,
     key: &CryptoHash,
@@ -92,17 +94,15 @@ fn deserialize_wasmer(
     }
 }
 
-pub(crate) fn compile_module_cached_wasmer(
-    wasm_code_hash: &[u8],
+fn compile_module_cached_wasmer_impl(
+    key: CryptoHash,
     wasm_code: &[u8],
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<wasmer_runtime::Module, VMError> {
-    /* Consider adding `|| cfg!(feature = "no_cache")` */
     if cache.is_none() {
         return compile_module(wasm_code, config);
     }
-    let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer, config);
     let cache = cache.unwrap();
     match cache.get(&(key.0).0) {
         Ok(serialized) => match serialized {
@@ -113,4 +113,37 @@ pub(crate) fn compile_module_cached_wasmer(
         },
         Err(_) => Err(VMError::CacheError(ReadError)),
     }
+}
+
+#[cfg(not(feature = "no_cache"))]
+const CACHE_SIZE: usize = 128;
+
+#[cfg(not(feature = "no_cache"))]
+cached_key! {
+    MODULES: SizedCache<CryptoHash, Result<wasmer_runtime::Module, VMError>>
+        = SizedCache::with_size(CACHE_SIZE);
+    Key = {
+        key
+    };
+
+    fn memcache_compile_module_cached_wasmer(
+        key: CryptoHash,
+        wasm_code: &[u8],
+        config: &VMConfig,
+        cache: Option<&dyn CompiledContractCache>) -> Result<wasmer_runtime::Module, VMError> = {
+        compile_module_cached_wasmer_impl(key, wasm_code, config, cache)
+    }
+}
+
+pub(crate) fn compile_module_cached_wasmer(
+    wasm_code_hash: &[u8],
+    wasm_code: &[u8],
+    config: &VMConfig,
+    cache: Option<&dyn CompiledContractCache>,
+) -> Result<wasmer_runtime::Module, VMError> {
+    let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer, config);
+    #[cfg(not(feature = "no_cache"))]
+    return memcache_compile_module_cached_wasmer(key, wasm_code, config, cache);
+    #[cfg(feature = "no_cache")]
+    return compile_module_cached_wasmer_impl(key, wasm_code, config, cache);
 }

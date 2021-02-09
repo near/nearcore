@@ -10,7 +10,6 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 
-use crate::error::{Error, ErrorKind, LogTransientStorageError};
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
@@ -24,6 +23,8 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
+
+use near_chain_primitives::error::{Error, ErrorKind, LogTransientStorageError};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -405,6 +406,9 @@ impl Chain {
     }
 
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
+        if self.store.get_block(block.hash()).is_ok() {
+            return Ok(());
+        }
         if let Err(e) =
             Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
         {
@@ -422,12 +426,22 @@ impl Chain {
         Ok(())
     }
 
-    pub fn save_orphan(&mut self, block: &Block) {
+    pub fn save_orphan(&mut self, block: &Block) -> Result<(), Error> {
+        if self.orphans.contains(block.hash()) {
+            return Ok(());
+        }
+        if let Err(e) =
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
+        {
+            byzantine_assert!(false);
+            return Err(e.into());
+        }
         self.orphans.add(Orphan {
             block: block.clone(),
             provenance: Provenance::NONE,
             added: Instant::now(),
         });
+        Ok(())
     }
 
     fn save_block_height_processed(&mut self, block_height: BlockHeight) -> Result<(), Error> {
@@ -2944,6 +2958,7 @@ impl<'a> ChainUpdate<'a> {
             // Before we add the block to the orphan pool, do some checks:
             // 1. Block header is signed by the block producer for height.
             // 2. Chunk headers in block body match block header.
+            // 3. Header has enough approvals from epoch block producers.
             // Not checked:
             // - Block producer could be slashed
             // - Chunk header signatures could be wrong
@@ -2951,6 +2966,9 @@ impl<'a> ChainUpdate<'a> {
                 return Err(ErrorKind::InvalidSignature.into());
             }
             block.check_validity()?;
+            // TODO: enable after #3729 and #3863
+            // #[cfg(feature = "protocol_feature_block_header_v3")]
+            // self.verify_orphan_header_approvals(&block.header())?;
             return Err(ErrorKind::Orphan.into());
         }
 
@@ -3237,6 +3255,13 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        if let Some(prev_height) = header.prev_height() {
+            if prev_height != prev_header.height() {
+                return Err(ErrorKind::Other("Invalid prev_height".to_string()).into());
+            }
+        }
+
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
         if header.raw_timestamp() <= prev_header.raw_timestamp() {
@@ -3263,7 +3288,7 @@ impl<'a> ChainUpdate<'a> {
                 .runtime_adapter
                 .get_epoch_block_approvers_ordered(header.prev_hash())?
                 .iter()
-                .map(|x| (x.stake_this_epoch, x.stake_next_epoch))
+                .map(|(x, is_slashed)| (x.stake_this_epoch, x.stake_next_epoch, *is_slashed))
                 .collect();
             if !Doomslug::can_approved_block_be_produced(
                 self.doomslug_threshold_mode,
@@ -3302,6 +3327,31 @@ impl<'a> ChainUpdate<'a> {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    #[allow(dead_code)]
+    fn verify_orphan_header_approvals(&mut self, header: &BlockHeader) -> Result<(), Error> {
+        let prev_hash = header.prev_hash();
+        let prev_height = match header.prev_height() {
+            None => {
+                // this will accept orphans of V1 and V2
+                // TODO: reject header V1 and V2 after a certain height
+                return Ok(());
+            }
+            Some(prev_height) => prev_height,
+        };
+        let height = header.height();
+        let epoch_id = header.epoch_id();
+        let approvals = header.approvals();
+        self.runtime_adapter.verify_approvals_and_threshold_orphan(
+            epoch_id,
+            self.doomslug_threshold_mode,
+            prev_hash,
+            prev_height,
+            height,
+            approvals,
+        )
     }
 
     /// Update the header head if this header has most work.

@@ -32,15 +32,17 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{
+    AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId,
+};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
-use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use near_client_primitives::types::{Error, ShardSyncDownload};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
@@ -118,7 +120,7 @@ impl Client {
         );
         let block_sync =
             BlockSync::new(network_adapter.clone(), config.block_fetch_horizon, config.archive);
-        let state_sync = StateSync::new(network_adapter.clone());
+        let state_sync = StateSync::new(network_adapter.clone(), config.state_sync_timeout);
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
         let parity_parts = runtime_adapter.num_total_parts() - data_parts;
@@ -371,8 +373,12 @@ impl Client {
             .runtime_adapter
             .get_epoch_block_approvers_ordered(&prev_hash)?
             .into_iter()
-            .map(|ApprovalStake { account_id, .. }| {
-                approvals_map.remove(&account_id).map(|x| x.signature)
+            .map(|(ApprovalStake { account_id, .. }, is_slashed)| {
+                if is_slashed {
+                    None
+                } else {
+                    approvals_map.remove(&account_id).map(|x| x.signature)
+                }
             })
             .collect();
 
@@ -400,6 +406,9 @@ impl Client {
             self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
         block_merkle_tree.insert(prev_hash);
         let block_merkle_root = block_merkle_tree.root();
+        // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
+        // The ordinal of the next Block will be equal to this amount plus one.
+        let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunks: Vec<_> = prev_block.chunks().iter().cloned().collect();
@@ -431,6 +440,7 @@ impl Client {
             protocol_version,
             &prev_header,
             next_height,
+            block_ordinal,
             chunks,
             epoch_id,
             next_epoch_id,
@@ -1510,10 +1520,11 @@ impl Client {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter1 = self.network_adapter.clone();
 
-            let (state_sync, new_shard_sync) = self
-                .catchup_state_syncs
-                .entry(sync_hash)
-                .or_insert_with(|| (StateSync::new(network_adapter1), HashMap::new()));
+            let state_sync_timeout = self.config.state_sync_timeout;
+            let (state_sync, new_shard_sync) =
+                self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
+                    (StateSync::new(network_adapter1, state_sync_timeout), HashMap::new())
+                });
 
             debug!(
                 target: "client",
@@ -1745,7 +1756,7 @@ mod test {
             let result = client.process_partial_encoded_chunk_forward(mock_forward);
             assert!(matches!(
                 result,
-                Err(crate::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+                Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
             ));
         }
     }

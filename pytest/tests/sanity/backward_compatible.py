@@ -87,6 +87,28 @@ def main():
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
+    data = json.dumps([{"create": {
+        "account_id": "near_2",
+        "method_name": "call_promise",
+        "arguments": [],
+        "amount": "0",
+        "gas": 30000000000000,
+    }, "id": 0 },
+        {"then": {
+            "promise_index": 0,
+            "account_id": "near_3",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": "0",
+            "gas": 30000000000000,
+        }, "id": 1}])
+
+    tx = sign_function_call_tx(new_signer_key, new_account_id, 'call_promise', bytes(data, 'utf-8'), 90000000000000, 0, 3, block_hash)
+    res = stable_node.send_tx_and_wait(tx, timeout=20)
+
+    assert 'error' not in res, res
+    assert 'Failure' not in res['result']['status'], res
+
     while max_height < BLOCKS:
         assert time.time() - started < TIMEOUT
         status = current_node.get_status()

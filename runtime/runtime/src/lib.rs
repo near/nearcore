@@ -61,6 +61,7 @@ pub mod ext;
 mod metrics;
 pub mod state_viewer;
 mod verifier;
+pub use near_vm_logic::types::ProfileData;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
@@ -70,7 +71,9 @@ pub struct ApplyState {
     // TODO #1903 pub block_height: BlockHeight,
     pub block_index: BlockHeight,
     /// Prev block hash
-    pub last_block_hash: CryptoHash,
+    pub prev_block_hash: CryptoHash,
+    /// Current block hash
+    pub block_hash: CryptoHash,
     /// Current epoch id
     pub epoch_id: EpochId,
     /// Current epoch height
@@ -92,7 +95,10 @@ pub struct ApplyState {
     pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// Ethereum chain id.
     #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u128,
+    pub evm_chain_id: u64,
+    /// Data collected from making a contract call
+    #[cfg(feature = "costs_counting")]
+    pub profile: Option<ProfileData>,
     /// Transaction validity period
     #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
     pub transaction_validity_period: BlockHeight,
@@ -261,7 +267,8 @@ impl Runtime {
                 let receipt_id = create_receipt_id_from_transaction(
                     apply_state.current_protocol_version,
                     &signed_transaction,
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
                 );
                 let receipt = Receipt {
                     predecessor_id: transaction.signer_id.clone(),
@@ -420,7 +427,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     stake,
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
                     epoch_info_provider,
                 )?;
             }
@@ -519,7 +526,8 @@ impl Runtime {
             let action_hash = create_action_hash(
                 apply_state.current_protocol_version,
                 &receipt,
-                &apply_state.last_block_hash,
+                &apply_state.prev_block_hash,
+                &apply_state.block_hash,
                 action_index,
             );
             let mut new_result = self.apply_action(
@@ -694,7 +702,8 @@ impl Runtime {
                 let receipt_id = create_receipt_id_from_receipt(
                     apply_state.current_protocol_version,
                     &receipt,
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
                     receipt_index,
                 );
 
@@ -717,7 +726,8 @@ impl Runtime {
                 ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt(
                     apply_state.current_protocol_version,
                     &receipt,
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
                     receipt_index as usize,
                 ))
             }
@@ -1512,6 +1522,7 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
+    use near_vm_logic::types::ProfileData;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -1585,7 +1596,8 @@ mod tests {
 
         let apply_state = ApplyState {
             block_index: 0,
-            last_block_hash: Default::default(),
+            prev_block_hash: Default::default(),
+            block_hash: Default::default(),
             epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: GAS_PRICE,
@@ -1596,7 +1608,9 @@ mod tests {
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: near_chain_configs::TEST_EVM_CHAIN_ID,
+            evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
+            #[cfg(feature = "costs_counting")]
+            profile: Some(ProfileData::new()),
             #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
             transaction_validity_period: 0,
             #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
@@ -1889,17 +1903,20 @@ mod tests {
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[0],
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash
                 ), // receipt for tx 0
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[1],
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash
                 ), // receipt for tx 1
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[2],
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash
                 ), // receipt for tx 2
             ],
             "STEP #1 failed",
@@ -1930,12 +1947,14 @@ mod tests {
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[4],
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
                 ), // receipt for tx 4
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[3],
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
                 ), // receipt for tx 3
                 receipts[0].receipt_id,           // receipt #0
             ],
@@ -1970,17 +1989,20 @@ mod tests {
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[5],
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
                 ), // receipt for tx 5
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[6],
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
                 ), // receipt for tx 6
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[7],
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
                 ), // receipt for tx 7
             ],
             "STEP #3 failed",
@@ -2012,7 +2034,8 @@ mod tests {
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[8],
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
                 ), // receipt for tx 8
             ],
             "STEP #4 failed",
