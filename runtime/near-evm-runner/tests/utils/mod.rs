@@ -3,7 +3,7 @@ use keccak_hash::keccak;
 
 use borsh::BorshSerialize;
 use near_crypto::{InMemorySigner, PublicKey, Signature, Signer};
-use near_evm_runner::types::{EthSignedTransaction, EthTransaction};
+use near_evm_runner::types::{EthSignedTransaction, EthTransaction, MetaCallArgs};
 use near_evm_runner::utils::{near_erc712_domain, prepare_meta_call_args, u256_to_arr};
 use near_evm_runner::EvmContext;
 use near_runtime_fees::RuntimeFeesConfig;
@@ -80,6 +80,7 @@ pub fn encode_meta_call_function_args(
     fee_amount: U256,
     fee_token: Address,
     address: Address,
+    value: U256,
     method_def: &str,
     args: Vec<u8>,
 ) -> Vec<u8> {
@@ -91,6 +92,7 @@ pub fn encode_meta_call_function_args(
         fee_amount,
         fee_token,
         address,
+        value,
         method_def,
         &args,
     )
@@ -98,20 +100,23 @@ pub fn encode_meta_call_function_args(
     match signer.sign(&msg) {
         Signature::ED25519(_) => panic!("Wrong Signer"),
         Signature::SECP256K1(sig) => {
-            let mut signature = Into::<[u8; 65]>::into(sig.clone()).to_vec();
-            // Add 27 to align eth-sig-util signature format
-            signature[64] += 27;
-            [
+            let array = Into::<[u8; 65]>::into(sig.clone()).to_vec();
+            let mut signature = [0u8; 64];
+            signature.copy_from_slice(&array[..64]);
+            MetaCallArgs {
                 signature,
-                u256_to_arr(&nonce).to_vec(),
-                u256_to_arr(&fee_amount).to_vec(),
-                fee_token.0.to_vec(),
-                address.0.to_vec(),
-                vec![method_def.len() as u8],
-                method_def.as_bytes().to_vec(),
+                // Add 27 to align eth-sig-util signature format
+                v: array[64] + 27,
+                nonce: u256_to_arr(&nonce),
+                fee_amount: u256_to_arr(&fee_amount),
+                fee_address: fee_token.0,
+                contract_address: address.0,
+                value: u256_to_arr(&value),
+                method_def: method_def.to_string(),
                 args,
-            ]
-            .concat()
+            }
+            .try_to_vec()
+            .expect("Failed to serialize")
         }
     }
 }
