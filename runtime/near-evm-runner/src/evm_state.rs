@@ -4,8 +4,7 @@ use std::io::{Error, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, U256};
 
-use near_vm_errors::EvmError;
-use near_vm_logic::VMLogicError;
+use near_vm_errors::{EvmError, VMLogicError};
 
 use crate::types::{DataKey, RawU256, Result};
 use crate::utils;

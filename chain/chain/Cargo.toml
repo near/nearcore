@@ -10,7 +10,6 @@ log = "0.4"
 failure = "0.1"
 failure_derive = "0.1"
 lazy_static = "1.4"
-rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
 cached = "0.23"

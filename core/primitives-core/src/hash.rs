@@ -158,7 +158,7 @@ impl Eq for CryptoHash {}
 ///
 /// ```
 /// let data = [1, 2, 3];
-/// let hash = near_primitives::hash::hash(&data);
+/// let hash = near_primitives_core::hash::hash(&data);
 /// ```
 pub fn hash(data: &[u8]) -> CryptoHash {
     use sha2::Digest;

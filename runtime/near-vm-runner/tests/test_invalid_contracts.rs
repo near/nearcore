@@ -1,5 +1,5 @@
-use near_vm_errors::{CompilationError, FunctionCallError, PrepareError};
-use near_vm_runner::{with_vm_variants, VMError};
+use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError};
+use near_vm_runner::with_vm_variants;
 
 pub mod test_utils;
 

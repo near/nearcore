@@ -2,7 +2,7 @@ mod fixtures;
 mod vm_logic_builder;
 
 use crate::fixtures::get_context;
-use near_vm_logic::{HostError, VMLogicError};
+use near_vm_errors::{HostError, VMLogicError};
 use vm_logic_builder::VMLogicBuilder;
 
 #[test]

@@ -72,6 +72,15 @@ Refer to [this document](https://docs.nearprotocol.com/docs/contribution/nearcor
 
 # Release Schedule
 
+If a crate is to be published individually the following needs to be added to its `Cargo.toml`:
+
+```toml
+[package.metadata.workspaces]
+independent = true
+```
+
+This is required by [cargo-workspaces](https://github.com/pksunkara/cargo-workspaces) which is used to publish non-private crates in the nearcore workspace.
+
 Once your change ends up in master, it will be released with the rest of the changes by other contributors on the regular release schedules.
 
 You should expect the changes from `master` to get merged into `beta` branch the next time `nightly` test run completes, assuming it passes.

@@ -11,7 +11,6 @@ actix = "0.11.0-beta.1"
 actix-web = { version = "4.0.0-beta.1", features = [ "openssl" ] }
 byteorder = "1.2"
 easy-ext = "0.2"
-rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 log = "0.4"
 chrono = { version = "0.4.4", features = ["serde"] }
 git-version = "0.3.1"
@@ -31,7 +30,6 @@ openssl-probe = { version = "0.1.2" }
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
-near-runtime-configs = { path = "../core/runtime-configs" }
 near-store = { path = "../core/store" }
 node-runtime = { path = "../runtime/runtime"}
 near-chain = { path = "../chain/chain" }
@@ -69,7 +67,7 @@ protocol_feature_evm = ["near-primitives/protocol_feature_evm", "node-runtime/pr
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-client/protocol_feature_block_header_v3"]
 nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm", "protocol_feature_block_header_v3"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
-costs_counting = ["node-runtime/costs_counting"]
+costs_counting = ["near-primitives/costs_counting", "node-runtime/costs_counting"]
 
 [[bin]]
 path = "src/main.rs"
@@ -78,3 +76,6 @@ name = "neard"
 [[bin]]
 path = "src/../src/main.rs"
 name = "near"
+
+[package.metadata.workspaces]
+independent = true
