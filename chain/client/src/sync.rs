@@ -34,8 +34,6 @@ pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 
 const BLOCK_REQUEST_TIMEOUT: i64 = 2;
 
-/// Sync state download timeout in seconds.
-pub const STATE_SYNC_TIMEOUT: i64 = 60;
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
 /// Number of state parts already requested stored as pending.
@@ -469,13 +467,10 @@ struct PendingRequestStatus {
     wait_until: DateTime<Utc>,
 }
 
-impl Default for PendingRequestStatus {
-    fn default() -> Self {
-        Self { missing_parts: 1, wait_until: Utc::now().add(Duration::seconds(STATE_SYNC_TIMEOUT)) }
-    }
-}
-
 impl PendingRequestStatus {
+    fn new(timeout: Duration) -> Self {
+        Self { missing_parts: 1, wait_until: Utc::now().add(timeout) }
+    }
     fn expired(&self) -> bool {
         Utc::now() > self.wait_until
     }
@@ -491,16 +486,19 @@ pub struct StateSync {
     last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
     /// Map from which part we requested to whom.
     requested_target: SizedCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
+
+    timeout: Duration,
 }
 
 impl StateSync {
-    pub fn new(network_adapter: Arc<dyn NetworkAdapter>) -> Self {
+    pub fn new(network_adapter: Arc<dyn NetworkAdapter>, timeout: TimeDuration) -> Self {
         StateSync {
             network_adapter,
             state_sync_time: Default::default(),
             last_time_block_requested: None,
             last_part_id_requested: Default::default(),
             requested_target: SizedCache::with_size(MAX_PENDING_PART as usize),
+            timeout: Duration::from_std(timeout).unwrap(),
         }
     }
 
@@ -514,8 +512,8 @@ impl StateSync {
             match self.last_time_block_requested {
                 None => (true, false),
                 Some(last_time) => {
-                    if now - last_time >= Duration::seconds(STATE_SYNC_TIMEOUT) {
-                        error!(target: "sync", "State sync: block request for {} timed out in {} seconds", prev_hash, STATE_SYNC_TIMEOUT);
+                    if now - last_time >= self.timeout {
+                        error!(target: "sync", "State sync: block request for {} timed out in {} seconds", prev_hash, self.timeout.num_seconds());
                         (true, false)
                     } else {
                         (false, false)
@@ -594,7 +592,7 @@ impl StateSync {
                     } else {
                         let prev = shard_sync_download.downloads[0].prev_update_time;
                         let error = shard_sync_download.downloads[0].error;
-                        download_timeout = now - prev > Duration::seconds(STATE_SYNC_TIMEOUT);
+                        download_timeout = now - prev > self.timeout;
                         if download_timeout || error {
                             shard_sync_download.downloads[0].run_me.store(true, Ordering::SeqCst);
                             shard_sync_download.downloads[0].error = false;
@@ -612,7 +610,7 @@ impl StateSync {
                             parts_done = false;
                             let prev = part_download.prev_update_time;
                             let error = part_download.error;
-                            let part_timeout = now - prev > Duration::seconds(STATE_SYNC_TIMEOUT);
+                            let part_timeout = now - prev > self.timeout;
                             if part_timeout || error {
                                 download_timeout |= part_timeout;
                                 part_download.run_me.store(true, Ordering::SeqCst);
@@ -665,7 +663,7 @@ impl StateSync {
             all_done &= this_done;
 
             if download_timeout {
-                warn!(target: "sync", "State sync didn't download the state for shard {} in {} seconds, sending StateRequest again", shard_id, STATE_SYNC_TIMEOUT);
+                warn!(target: "sync", "State sync didn't download the state for shard {} in {} seconds, sending StateRequest again", shard_id, self.timeout.num_seconds());
                 info!(target: "sync", "State sync status: me {:?}, sync_hash {}, phase {}",
                       me,
                       sync_hash,
@@ -742,12 +740,13 @@ impl StateSync {
     ) {
         self.requested_target.cache_set((part_id, sync_hash), target.clone());
 
+        let timeout = self.timeout;
         self.last_part_id_requested
             .entry((target, shard_id))
             .and_modify(|pending_request| {
                 pending_request.missing_parts += 1;
             })
-            .or_default();
+            .or_insert_with(|| PendingRequestStatus::new(timeout));
     }
 
     pub fn received_requested_part(

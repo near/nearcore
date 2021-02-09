@@ -4,6 +4,10 @@ version = "2.3.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
+[[bin]]
+name = "runtime-params-estimator"
+required-features = ["costs_counting"]
+
 [dependencies]
 indicatif = "0.15.0"
 tempfile = "3"
