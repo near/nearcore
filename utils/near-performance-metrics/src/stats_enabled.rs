@@ -42,7 +42,7 @@ struct Entry {
 }
 
 pub struct ThreadStats {
-    stat: HashMap<(&'static str, u32), Entry>,
+    stat: HashMap<(&'static str, u32, &'static str), Entry>,
     cnt: u128,
     time: Duration,
     classes: HashSet<&'static str>,
@@ -73,12 +73,13 @@ impl ThreadStats {
         line: u32,
         took: Duration,
         now: Instant,
+        msg_text: &'static str,
     ) {
         self.in_progress_since = None;
 
         let took_since_last_check = min(took, max(self.last_check, now) - self.last_check);
 
-        let entry = self.stat.entry((msg, line)).or_insert_with(|| Entry {
+        let entry = self.stat.entry((msg, line, msg_text)).or_insert_with(|| Entry {
             cnt: 0,
             time: Duration::default(),
             max_time: Duration::default(),
@@ -124,10 +125,11 @@ impl ThreadStats {
 
             for entry in stat {
                 warn!(
-                    "        func {} {}:{} cnt: {} total: {}ms max: {}ms",
+                    "        func {} {}:{}:{} cnt: {} total: {}ms max: {}ms",
                     get_tid(),
                     (entry.0).0,
                     (entry.0).1,
+                    (entry.0).2,
                     entry.1.cnt,
                     ((entry.1.time.as_millis()) as f64),
                     ((entry.1.max_time.as_millis()) as f64)
@@ -289,7 +291,14 @@ where
     }
     let ended = Instant::now();
     let took = ended - now;
-    stat.lock().unwrap().log(class_name, std::any::type_name::<Message>(), 0, took, ended);
+    stat.lock().unwrap().log(
+        class_name,
+        std::any::type_name::<Message>(),
+        0,
+        took,
+        ended,
+        msg_text.unwrap_or_default(),
+    );
     result
 }
 
@@ -319,7 +328,7 @@ where
         let res = unsafe { Pin::new_unchecked(&mut this.f) }.poll(cx);
         let ended = Instant::now();
         let took = ended - now;
-        stat.lock().unwrap().log(this.class_name, this.file, this.line, took, ended);
+        stat.lock().unwrap().log(this.class_name, this.file, this.line, took, ended, "");
 
         if took > SLOW_CALL_THRESHOLD {
             warn!(
