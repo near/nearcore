@@ -316,15 +316,11 @@ impl<'a> EvmContext<'a> {
         if self.next_nonce(&meta_call_args.sender)? != meta_call_args.nonce {
             return Err(VMLogicError::EvmError(EvmError::InvalidNonce));
         }
-        self.add_balance(&meta_call_args.sender, U256::from(self.attached_deposit))?;
-        // TODO: this is wrong?!
-        let value =
-            if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
         let result = interpreter::call(
             self,
             &meta_call_args.sender,
             &meta_call_args.sender,
-            value,
+            if meta_call_args.value.is_zero() { None } else { Some(meta_call_args.value) },
             0,
             &meta_call_args.contract_address,
             &meta_call_args.input,

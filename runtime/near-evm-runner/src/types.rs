@@ -93,13 +93,27 @@ pub struct ViewCallArgs {
     pub input: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct MetaCallArgs {
+    pub signature: [u8; 64],
+    pub v: u8,
+    pub nonce: RawU256,
+    pub fee_amount: RawU256,
+    pub fee_address: RawAddress,
+    pub contract_address: RawAddress,
+    pub value: RawU256,
+    pub method_def: String,
+    pub args: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct InternalMetaCallArgs {
     pub sender: Address,
     pub nonce: U256,
     pub fee_amount: U256,
     pub fee_address: Address,
     pub contract_address: Address,
+    pub value: U256,
     pub input: Vec<u8>,
 }
 
@@ -151,7 +165,7 @@ pub struct EthSignedTransaction {
     pub s: U256,
 }
 
-fn vrs_to_arr(v: u8, r: U256, s: U256) -> [u8; 65] {
+pub fn vrs_to_arr(v: u8, r: U256, s: U256) -> [u8; 65] {
     let mut result = [0u8; 65];
     result[0] = v;
     r.to_big_endian(&mut result[1..33]);
