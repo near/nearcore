@@ -25,8 +25,8 @@ pub struct RpcProtocolConfigResponse {
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcProtocolConfigError {
-    #[error("Block not found")]
-    BlockNotFound(String),
+    #[error("Block has never been observed: {0}")]
+    UnknownBlock(String),
     #[error("The node reached its limits. Try again later. More details: {0}")]
     InternalError(String),
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
