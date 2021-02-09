@@ -1,4 +1,4 @@
-use actix::{Actor, System};
+use actix::{Actor, Arbiter, System};
 use futures::{future, FutureExt};
 
 use near_client::GetBlock;
@@ -16,37 +16,48 @@ fn run_nodes(
 ) {
     let mut rng = thread_rng();
     let genesis_height = rng.gen_range(0, 10000);
+    let mut arbiters = Vec::new();
     System::builder()
         .stop_on_panic(true)
-        .run(move || {
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new()
-                        .prefix(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i))
-                        .tempdir()
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
-            let (_, _, clients) =
-                start_nodes(num_shards, &dirs, num_validators, 0, epoch_length, genesis_height);
-            let view_client = clients[clients.len() - 1].1.clone();
-            WaitOrTimeout::new(
-                Box::new(move |_ctx| {
-                    actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                        match &res {
-                            Ok(Ok(b)) if b.header.height > num_blocks => System::current().stop(),
-                            Err(_) => return future::ready(()),
-                            _ => {}
-                        };
-                        future::ready(())
-                    }));
-                }),
-                100,
-                40000,
-            )
-            .start();
+        .run({
+            let arbiters = &mut arbiters;
+            move || {
+                let dirs = (0..num_nodes)
+                    .map(|i| {
+                        tempfile::Builder::new()
+                            .prefix(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i))
+                            .tempdir()
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                let (_, _, clients) =
+                    start_nodes(num_shards, &dirs, num_validators, 0, epoch_length, genesis_height);
+                let view_client = clients.last().unwrap().1.clone();
+                WaitOrTimeout::new(
+                    Box::new(move |_ctx| {
+                        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                            match &res {
+                                Ok(Ok(b)) if b.header.height > num_blocks => {
+                                    System::current().stop()
+                                }
+                                Err(_) => return future::ready(()),
+                                _ => {}
+                            };
+                            future::ready(())
+                        }));
+                    }),
+                    100,
+                    40000,
+                )
+                .start();
+                arbiters.extend(clients.into_iter().flat_map(|it| it.2));
+            }
         })
         .unwrap();
+    arbiters.push(Arbiter::current());
+    for mut arb in arbiters {
+        arb.join().unwrap()
+    }
 }
 
 /// Runs two nodes that should produce blocks one after another.

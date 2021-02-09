@@ -154,6 +154,12 @@ pub struct PeerManagerActor {
     scheduled_routing_table_update: bool,
 }
 
+impl Drop for PeerManagerActor {
+    fn drop(&mut self) {
+        while self.edge_verifier_pool.connected() {}
+    }
+}
+
 impl PeerManagerActor {
     pub fn new(
         store: Arc<Store>,
