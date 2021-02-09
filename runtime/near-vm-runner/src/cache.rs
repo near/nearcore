@@ -61,6 +61,8 @@ pub(crate) fn compile_and_serialize_wasmer(
     key: &CryptoHash,
     cache: &dyn CompiledContractCache,
 ) -> Result<wasmer_runtime::Module, VMError> {
+    #[cfg(feature = "compile_timing")]
+    let start = std::time::Instant::now();
     let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
     let artifact =
         module.cache().map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
@@ -69,6 +71,8 @@ pub(crate) fn compile_and_serialize_wasmer(
         .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
     let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
     cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
+    #[cfg(feature = "compile_timing")]
+    println!("compile, serialize and cache = {:?}", start.elapsed());
     Ok(module)
 }
 
@@ -101,13 +105,23 @@ fn compile_module_cached_wasmer_impl(
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<wasmer_runtime::Module, VMError> {
     if cache.is_none() {
-        return compile_module(wasm_code, config);
+        #[cfg(feature = "compile_timing")]
+        let start = std::time::Instant::now();
+        let r = compile_module(wasm_code, config);
+        #[cfg(feature = "compile_timing")]
+        println!("compile = {:?}", start.elapsed());
+        return r
     }
     let cache = cache.unwrap();
     match cache.get(&(key.0).0) {
         Ok(serialized) => match serialized {
             Some(serialized) => {
-                deserialize_wasmer(serialized.as_slice()).map_err(VMError::CacheError)?
+                #[cfg(feature = "compile_timing")]
+                let start = std::time::Instant::now();
+                let r = deserialize_wasmer(serialized.as_slice()).map_err(VMError::CacheError)?;
+                #[cfg(feature = "compile_timing")]
+                println!("deserialize from cache = {:?}", start.elapsed());
+                r
             }
             None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
         },

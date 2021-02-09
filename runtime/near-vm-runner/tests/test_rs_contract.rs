@@ -247,3 +247,45 @@ pub fn test_out_of_memory() {
     );
     assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)));
 }
+
+const EVM_CONTRACT: &'static [u8] = include_bytes!("../tests/res/near_evm.wasm");
+
+#[test]
+pub fn test_call_evm_deploy_code() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let code = &EVM_CONTRACT;
+        let mut fake_external = MockedExternal::new();
+
+        let context = create_context(&arr_u64_to_u8(&[10u64, 20u64]));
+        let config = VMConfig::default();
+        let fees = RuntimeFeesConfig::default();
+
+        let promise_results = vec![];
+        let result = run_vm(
+            vec![],
+            &code,
+            b"deploy_code",
+            &mut fake_external,
+            context.clone(),
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind.clone(),
+            LATEST_PROTOCOL_VERSION,
+            None,
+        );
+        let result = run_vm(
+            vec![],
+            &code,
+            b"deploy_code",
+            &mut fake_external,
+            context,
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind.clone(),
+            LATEST_PROTOCOL_VERSION,
+            None,
+        );
+    });
+}

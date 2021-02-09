@@ -41,6 +41,7 @@ wasmer_default = []
 wasmtime_default = ["wasmtime_vm"]
 no_cpu_compatibility_checks = []
 protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
+compile_timing = []
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting"]

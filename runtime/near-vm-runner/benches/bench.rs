@@ -119,6 +119,7 @@ fn benchmark_fake_storage_10kib_1000(bench: &mut Bencher) {
             None,
             None,
         );
+        println!("{:?}", result);
         assert_run_result(result, 999 * 1000 / 2);
     });
 }
