@@ -5,12 +5,15 @@ use near_vm_logic::types::{Balance, ReturnData};
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, with_vm_variants, VMError};
 use std::mem::size_of;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use near_store::{StoreCompiledContractCache, create_store};
 
 pub mod test_utils;
 
 use self::test_utils::{
     CURRENT_ACCOUNT_ID, LATEST_PROTOCOL_VERSION, PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID,
-    SIGNER_ACCOUNT_PK,
+    SIGNER_ACCOUNT_PK
 };
 
 const TEST_CONTRACT: &'static [u8] = include_bytes!("../tests/res/test_contract_rs.wasm");
@@ -261,6 +264,10 @@ pub fn test_call_evm_deploy_code() {
         let fees = RuntimeFeesConfig::default();
 
         let promise_results = vec![];
+        let tmp_dir = tempfile::Builder::new().prefix("test_contract_cache_perf").tempdir().unwrap();
+        let store = create_store(tmp_dir.path().to_str().unwrap());
+        let mut cache = StoreCompiledContractCache { store };
+
         let result = run_vm(
             vec![],
             &code,
@@ -272,7 +279,7 @@ pub fn test_call_evm_deploy_code() {
             &promise_results,
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
-            None,
+            Some(&cache),
         );
         let result = run_vm(
             vec![],
@@ -285,7 +292,7 @@ pub fn test_call_evm_deploy_code() {
             &promise_results,
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
-            None,
+            Some(&cache),
         );
     });
 }

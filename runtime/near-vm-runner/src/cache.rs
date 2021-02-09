@@ -17,8 +17,13 @@ pub(crate) fn compile_module(
     code: &[u8],
     config: &VMConfig,
 ) -> Result<wasmer_runtime::Module, VMError> {
+    #[cfg(feature = "compile_timing")]
+    let start = std::time::Instant::now();
     let prepared_code = prepare::prepare_contract(code, config)?;
-    wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error())
+    let r = wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error());
+    #[cfg(feature = "compile_timing")]
+    println!("compile = {:?}", start.elapsed());
+    return r
 }
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -105,12 +110,7 @@ fn compile_module_cached_wasmer_impl(
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<wasmer_runtime::Module, VMError> {
     if cache.is_none() {
-        #[cfg(feature = "compile_timing")]
-        let start = std::time::Instant::now();
-        let r = compile_module(wasm_code, config);
-        #[cfg(feature = "compile_timing")]
-        println!("compile = {:?}", start.elapsed());
-        return r
+        return compile_module(wasm_code, config)
     }
     let cache = cache.unwrap();
     match cache.get(&(key.0).0) {
