@@ -297,7 +297,7 @@ where
         0,
         took,
         ended,
-        msg_text.unwrap_or(&""),
+        msg_text.unwrap_or_default(),
     );
     result
 }
