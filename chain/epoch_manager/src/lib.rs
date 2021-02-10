@@ -134,7 +134,8 @@ impl EpochManager {
         println!("PREV EPOCH PREV LAST BLOCK INFO! {:?}", prev_epoch_prev_last_block_info);
         self.save_block_info(&mut store_update, prev_epoch_prev_last_block_info)?;
         println!("PREV EPOCH LAST BLOCK INFO! {:?}", prev_epoch_last_block_info);
-        self.save_block_info(&mut store_update, prev_epoch_last_block_info)?;
+        // Bowen: this line is the cause of the issue
+        //self.save_block_info(&mut store_update, prev_epoch_last_block_info)?;
         println!("PREV EPOCH INFO! {:?}, {:?}", prev_epoch_id, prev_epoch_info);
         self.save_epoch_info(&mut store_update, &prev_epoch_id, prev_epoch_info)?;
         println!("CUR EPOCH INFO! {:?}, {:?}", epoch_id, epoch_info);
@@ -827,6 +828,7 @@ impl EpochManager {
         &mut self,
         parent_hash: &CryptoHash,
     ) -> Result<EpochId, EpochError> {
+        // Bowen: the real failure happens here
         if self.is_next_block_epoch_start(parent_hash)? {
             self.get_next_epoch_id(parent_hash)
         } else {
