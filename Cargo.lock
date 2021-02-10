@@ -3054,6 +3054,7 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "chrono",
+ "near-chain-configs",
  "near-chain-primitives",
  "near-chunks",
  "near-network",
@@ -3213,6 +3214,7 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "lazy_static",
+ "near-chain-configs",
  "near-client-primitives",
  "near-metrics",
  "near-primitives",
@@ -3567,7 +3569,7 @@ dependencies = [
 
 [[package]]
 name = "neard"
-version = "1.18.0-rc.1"
+version = "1.18.0-rc.3"
 dependencies = [
  "actix",
  "actix-web",
@@ -3590,6 +3592,7 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-network",
  "near-performance-metrics",

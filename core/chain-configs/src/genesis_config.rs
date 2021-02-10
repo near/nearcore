@@ -272,3 +272,102 @@ pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
     }
     total_supply
 }
+
+// Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
+// Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
+// `RuntimeConfig`, it should be its own endeavor.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ProtocolConfigView {
+    /// Current Protocol Version
+    pub protocol_version: ProtocolVersion,
+    /// Official time of blockchain start.
+    pub genesis_time: DateTime<Utc>,
+    /// ID of the blockchain. This must be unique for every blockchain.
+    /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
+    pub chain_id: String,
+    /// Height of genesis block.
+    pub genesis_height: BlockHeight,
+    /// Number of block producer seats at genesis.
+    pub num_block_producer_seats: NumSeats,
+    /// Defines number of shards and number of block producer seats per each shard at genesis.
+    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
+    /// Expected number of hidden validators per shard.
+    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
+    /// Enable dynamic re-sharding.
+    pub dynamic_resharding: bool,
+    /// Threshold of stake that needs to indicate that they ready for upgrade.
+    pub protocol_upgrade_stake_threshold: Rational,
+    /// Epoch length counted in block heights.
+    pub epoch_length: BlockHeightDelta,
+    /// Initial gas limit.
+    pub gas_limit: Gas,
+    /// Minimum gas price. It is also the initial gas price.
+    #[serde(with = "u128_dec_format_compatible")]
+    pub min_gas_price: Balance,
+    /// Maximum gas price.
+    #[serde(with = "u128_dec_format")]
+    pub max_gas_price: Balance,
+    /// Criterion for kicking out block producers (this is a number between 0 and 100)
+    pub block_producer_kickout_threshold: u8,
+    /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
+    pub chunk_producer_kickout_threshold: u8,
+    /// Online minimum threshold below which validator doesn't receive reward.
+    pub online_min_threshold: Rational,
+    /// Online maximum threshold above which validator gets full reward.
+    pub online_max_threshold: Rational,
+    /// Gas price adjustment rate
+    pub gas_price_adjustment_rate: Rational,
+    /// Runtime configuration (mostly economics constants).
+    pub runtime_config: RuntimeConfig,
+    /// Number of blocks for which a given transaction is valid
+    pub transaction_validity_period: NumBlocks,
+    /// Protocol treasury rate
+    pub protocol_reward_rate: Rational,
+    /// Maximum inflation on the total supply every epoch.
+    pub max_inflation_rate: Rational,
+    /// Expected number of blocks per year
+    pub num_blocks_per_year: NumBlocks,
+    /// Protocol treasury account
+    pub protocol_treasury_account: AccountId,
+    /// Fishermen stake threshold.
+    #[serde(with = "u128_dec_format")]
+    pub fishermen_threshold: Balance,
+    /// The minimum stake required for staking is last seat price divided by this number.
+    pub minimum_stake_divisor: u64,
+}
+
+// This may be subject to change
+pub type ProtocolConfig = GenesisConfig;
+
+impl From<ProtocolConfig> for ProtocolConfigView {
+    fn from(config: ProtocolConfig) -> Self {
+        ProtocolConfigView {
+            protocol_version: config.protocol_version,
+            genesis_time: config.genesis_time,
+            chain_id: config.chain_id,
+            genesis_height: config.genesis_height,
+            num_block_producer_seats: config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: config.avg_hidden_validator_seats_per_shard,
+            dynamic_resharding: config.dynamic_resharding,
+            protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
+            epoch_length: config.epoch_length,
+            gas_limit: config.gas_limit,
+            min_gas_price: config.min_gas_price,
+            max_gas_price: config.max_gas_price,
+            block_producer_kickout_threshold: config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: config.chunk_producer_kickout_threshold,
+            online_min_threshold: config.online_min_threshold,
+            online_max_threshold: config.online_max_threshold,
+            gas_price_adjustment_rate: config.gas_price_adjustment_rate,
+            runtime_config: config.runtime_config,
+            transaction_validity_period: config.transaction_validity_period,
+            protocol_reward_rate: config.protocol_reward_rate,
+            max_inflation_rate: config.max_inflation_rate,
+            num_blocks_per_year: config.num_blocks_per_year,
+            protocol_treasury_account: config.protocol_treasury_account,
+            fishermen_threshold: config.fishermen_threshold,
+            minimum_stake_divisor: config.minimum_stake_divisor,
+        }
+    }
+}
