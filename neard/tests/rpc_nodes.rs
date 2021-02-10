@@ -15,7 +15,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
-use near_primitives::types::{BlockId, BlockReference, TransactionOrReceiptId};
+use near_primitives::types::{BlockId, BlockReference, Finality, TransactionOrReceiptId};
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
     QueryResponseKind,
@@ -696,4 +696,35 @@ fn test_get_execution_outcome_tx_success() {
 #[test]
 fn test_get_execution_outcome_tx_failure() {
     test_get_execution_outcome(false);
+}
+
+#[test]
+fn test_protocol_config_rpc() {
+    init_integration_logger();
+    heavy_test(|| {
+        System::builder()
+            .stop_on_panic(true)
+            .run(move || {
+                let num_nodes = 1;
+                let dirs = (0..num_nodes)
+                    .map(|i| {
+                        tempfile::Builder::new()
+                            .prefix(&format!("protocol_config{}", i))
+                            .tempdir()
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                let (genesis, rpc_addrs, _) = start_nodes(1, &dirs, 1, 0, 10, 0);
+
+                actix::spawn(async move {
+                    let client = new_client(&format!("http://{}", rpc_addrs[0]));
+                    let config_response = client
+                        .EXPERIMENTAL_protocol_config(near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest { block_reference: near_jsonrpc_primitives::types::blocks::BlockReference::Finality(Finality::None) }).await.unwrap();
+                    assert_ne!(config_response.config_view.runtime_config.storage_amount_per_byte, genesis.config.runtime_config.storage_amount_per_byte);
+                    assert_eq!(config_response.config_view.runtime_config.storage_amount_per_byte, 10u128.pow(19));
+                    System::current().stop();
+                });
+            })
+            .unwrap();
+    });
 }
