@@ -29,6 +29,7 @@ use near_store::migrations::{
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use near_store::migrations::migrate_18_to_rectify_inflation;
+pub use runtime::errors as runtime_errors;
 
 pub mod config;
 pub mod genesis_validate;

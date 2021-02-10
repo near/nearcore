@@ -575,7 +575,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
+    ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
 
     fn get_validator_info(
         &self,

@@ -267,7 +267,42 @@ impl Query {
 }
 
 impl Message for Query {
-    type Result = Result<Option<QueryResponse>, String>;
+    type Result = Result<QueryResponse, QueryError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum QueryError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    #[error("There are no fully synchronized blocks yet")]
+    NotSyncedYet,
+    #[error("The node does not track the shard")]
+    DoesNotTrackShard,
+    #[error("Invalid account ID {0}")]
+    InvalidAccount(near_primitives::types::AccountId),
+    #[error("Account ID {0} has never been observed on the node")]
+    AccountDoesNotExist(near_primitives::types::AccountId),
+    #[error("Contract code for contract ID {0} has never been observed on the node")]
+    ContractCodeDoesNotExist(near_primitives::types::AccountId),
+    #[error("Access key for public key {0} has never been observed on the node")]
+    AccessKeyDoesNotExist(String),
+    #[error("VM error occurred: {0}")]
+    VMError(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for QueryError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
 }
 
 pub struct Status {

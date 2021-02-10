@@ -61,6 +61,8 @@ use near_primitives::runtime::config::RuntimeConfig;
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use near_epoch_manager::NUM_SECONDS_IN_A_YEAR;
 
+pub mod errors;
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -1246,27 +1248,27 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
+    ) -> Result<QueryResponse, near_chain::near_chain_primitives::error::QueryError> {
         match request {
             QueryRequest::ViewAccount { account_id } => {
-                match self.view_account(shard_id, *state_root, account_id) {
-                    Ok(r) => Ok(QueryResponse {
-                        kind: QueryResponseKind::ViewAccount(r.into()),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
-                    Err(e) => Err(e),
-                }
+                let account = self
+                    .view_account(shard_id, *state_root, account_id)
+                    .map_err(errors::RuntimeQueryError::from)?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::ViewAccount(account.into()),
+                    block_height,
+                    block_hash: *block_hash,
+                })
             }
             QueryRequest::ViewCode { account_id } => {
-                match self.view_contract_code(shard_id, *state_root, account_id) {
-                    Ok(r) => Ok(QueryResponse {
-                        kind: QueryResponseKind::ViewCode(r.into()),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
-                    Err(e) => Err(e),
-                }
+                let contract_code = self
+                    .view_contract_code(shard_id, *state_root, account_id)
+                    .map_err(errors::RuntimeQueryError::from)?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::ViewCode(contract_code.into()),
+                    block_height,
+                    block_hash: *block_hash,
+                })
             }
             QueryRequest::CallFunction { account_id, method_name, args } => {
                 let mut logs = vec![];
@@ -1538,7 +1540,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Account, Box<dyn std::error::Error>> {
+    ) -> Result<Account, node_runtime::state_viewer::errors::ViewAccountError> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
@@ -1548,7 +1550,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<ContractCode, Box<dyn std::error::Error>> {
+    ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.view_contract_code(&state_update, account_id)
     }
@@ -1570,7 +1572,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
         #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u64,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let view_state = ViewApplyState {
             block_height: height,
@@ -1601,7 +1603,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<AccessKey, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKey, node_runtime::state_viewer::errors::ViewAccessKeyError> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
@@ -1611,25 +1613,10 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<(PublicKey, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
+    {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
-        let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
-        let raw_prefix: &[u8] = prefix.as_ref();
-        let access_keys = match state_update.iter(&prefix) {
-            Ok(iter) => iter
-                .map(|key| {
-                    let key = key?;
-                    let public_key = &key[raw_prefix.len()..];
-                    let access_key = get_access_key_raw(&state_update, &key)?
-                        .ok_or("Missing key from iterator")?;
-                    PublicKey::try_from_slice(public_key)
-                        .map_err(|err| format!("{}", err).into())
-                        .map(|key| (key, access_key))
-                })
-                .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>(),
-            Err(e) => Err(e.into()),
-        };
-        access_keys
+        self.trie_viewer.view_access_keys(&state_update, account_id)
     }
 
     fn view_state(
@@ -1638,7 +1625,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
-    ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
+    ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
     }

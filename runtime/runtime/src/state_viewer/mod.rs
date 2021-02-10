@@ -2,6 +2,7 @@ use log::debug;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::{
     account::{AccessKey, Account},
+    borsh::BorshDeserialize,
     contract::ContractCode,
     hash::CryptoHash,
     receipt::ActionReceipt,
@@ -19,6 +20,8 @@ use std::{str, sync::Arc, time::Instant};
 
 use crate::{actions::execute_function_call, ext::RuntimeExt};
 
+pub mod errors;
+
 pub struct TrieViewer {}
 
 impl TrieViewer {
@@ -30,23 +33,23 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<Account, Box<dyn std::error::Error>> {
+    ) -> Result<Account, errors::ViewAccountError> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id).into());
+            return Err(errors::ViewAccountError::InvalidAccountId(account_id.clone()));
         }
 
         get_account(state_update, &account_id)?
-            .ok_or_else(|| format!("account {} does not exist while viewing", account_id).into())
+            .ok_or_else(|| errors::ViewAccountError::AccountDoesNotExist(account_id.clone()))
     }
 
     pub fn view_contract_code(
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<ContractCode, Box<dyn std::error::Error>> {
+    ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
         get_code(state_update, account_id, Some(account.code_hash))?.ok_or_else(|| {
-            format!("contract code of account {} does not exist while viewing", account_id).into()
+            errors::ViewContractCodeError::ContractCodeDoesNotExist(account_id.clone())
         })
     }
 
@@ -55,13 +58,50 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<AccessKey, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKey, errors::ViewAccessKeyError> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id).into());
+            return Err(errors::ViewAccessKeyError::InvalidAccountId(account_id.clone()));
         }
 
         get_access_key(state_update, account_id, public_key)?
-            .ok_or_else(|| format!("access key {} does not exist while viewing", public_key).into())
+            .ok_or_else(|| errors::ViewAccessKeyError::AccessKeyDoesNotExist(public_key.clone()))
+    }
+
+    pub fn view_access_keys(
+        &self,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+    ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
+        if !is_valid_account_id(account_id) {
+            return Err(errors::ViewAccessKeyError::InvalidAccountId(account_id.clone()));
+        }
+
+        let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
+        let raw_prefix: &[u8] = prefix.as_ref();
+        let access_keys = match state_update.iter(&prefix) {
+            Ok(iter) => iter
+                .map(|key| {
+                    let key = key?;
+                    let public_key = &key[raw_prefix.len()..];
+                    let access_key = near_store::get_access_key_raw(&state_update, &key)?
+                        .ok_or_else(|| {
+                            errors::ViewAccessKeyError::InternalError(
+                                "Unexpected missing key from iterator".to_string(),
+                            )
+                        })?;
+                    PublicKey::try_from_slice(public_key)
+                        .map_err(|_| {
+                            errors::ViewAccessKeyError::InternalError(format!(
+                                "Unexpected invalid public key {:?} received from store",
+                                public_key
+                            ))
+                        })
+                        .map(|key| (key, access_key))
+                })
+                .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>(),
+            Err(e) => Err(e.into()),
+        };
+        access_keys
     }
 
     pub fn view_state(
@@ -69,9 +109,9 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         prefix: &[u8],
-    ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
+    ) -> Result<ViewStateResult, errors::ViewStateError> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id).into());
+            return Err(errors::ViewStateError::InvalidAccountId(account_id.clone()));
         }
         let mut values = vec![];
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
@@ -102,14 +142,14 @@ impl TrieViewer {
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
-            return Err(format!("Contract ID {:?} is not valid", contract_id).into());
+            return Err(errors::CallFunctionError::InvalidAccountId(contract_id.clone()));
         }
         let root = state_update.get_root();
         let mut account = get_account(&state_update, contract_id)?
-            .ok_or_else(|| format!("Account {:?} doesn't exist", contract_id))?;
+            .ok_or_else(|| errors::CallFunctionError::AccountDoesNotExist(contract_id.clone()))?;
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty(KeyType::ED25519);
@@ -184,7 +224,7 @@ impl TrieViewer {
             }
             let message = format!("wasm execution failed with error: {:?}", err);
             debug!(target: "runtime", "(exec time {}) {}", time_str, message);
-            Err(message.into())
+            Err(errors::CallFunctionError::VMError(message))
         } else {
             let outcome = outcome.unwrap();
             debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);

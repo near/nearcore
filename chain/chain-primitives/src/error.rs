@@ -12,6 +12,24 @@ use near_primitives::serialize::to_base;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 
+#[derive(thiserror::Error, Debug)]
+pub enum QueryError {
+    #[error("Invalid account ID {0}")]
+    InvalidAccount(near_primitives::types::AccountId),
+    #[error("Account ID {0} does not exist while viewing")]
+    AccountDoesNotExist(near_primitives::types::AccountId),
+    #[error("Contract ID {0} code does not exist while viewing")]
+    ContractCodeDoesNotExist(near_primitives::types::AccountId),
+    #[error("Access key for public key {0} does not exist while viewing")]
+    AccessKeyDoesNotExist(String),
+    #[error("Storage error occurred: {0:?}")]
+    StorageError(#[from] near_primitives::errors::StorageError),
+    #[error("Internal error occurred: {0}")]
+    InternalError(String),
+    #[error("VM error occurred: {0}")]
+    VMError(String),
+}
+
 #[derive(Debug)]
 pub struct Error {
     inner: Context<ErrorKind>,

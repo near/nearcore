@@ -193,15 +193,7 @@ impl ViewClientActor {
         }
     }
 
-    fn handle_query(&mut self, msg: Query) -> Result<Option<QueryResponse>, String> {
-        {
-            let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-            if let Some(response) = request_manager.query_responses.cache_remove(&msg.query_id) {
-                request_manager.query_requests.cache_remove(&msg.query_id);
-                return response.map(Some);
-            }
-        }
-
+    fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
         let header = match msg.block_reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_header_by_height(block_height)
@@ -210,22 +202,20 @@ impl ViewClientActor {
                 self.chain.get_block_header(&block_hash)
             }
             BlockReference::Finality(ref finality) => {
-                let block_hash =
-                    self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
+                let block_hash = self.get_block_hash_by_finality(&finality)?;
                 self.chain.get_block_header(&block_hash)
             }
             BlockReference::SyncCheckpoint(ref synchronization_checkpoint) => {
-                if let Some(block_hash) = self
-                    .get_block_hash_by_sync_checkpoint(&synchronization_checkpoint)
-                    .map_err(|e| e.to_string())?
+                if let Some(block_hash) =
+                    self.get_block_hash_by_sync_checkpoint(&synchronization_checkpoint)?
                 {
                     self.chain.get_block_header(&block_hash)
                 } else {
-                    return Err("There are no fully synchronized blocks yet".into());
+                    return Err(QueryError::NotSyncedYet);
                 }
             }
         };
-        let header = header.map_err(|e| e.to_string())?.clone();
+        let header = header?.clone();
 
         let account_id = match &msg.request {
             QueryRequest::ViewAccount { account_id, .. } => account_id,
@@ -236,50 +226,31 @@ impl ViewClientActor {
             QueryRequest::ViewCode { account_id, .. } => account_id,
         };
         let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
+        let head = self.chain.head()?;
 
-        // If we have state for the shard that we query return query result directly.
-        // Otherwise route query to peers.
-        match self.chain.get_chunk_extra(header.hash(), shard_id) {
-            Ok(chunk_extra) => {
-                let state_root = chunk_extra.state_root;
-                self.runtime_adapter
-                    .query(
-                        shard_id,
-                        &state_root,
-                        header.height(),
-                        header.raw_timestamp(),
-                        header.prev_hash(),
-                        header.hash(),
-                        header.epoch_id(),
-                        &msg.request,
-                    )
-                    .map(Some)
-                    .map_err(|e| e.to_string())
-            }
-            Err(e) => {
-                match e.kind() {
-                    ErrorKind::DBNotFoundErr(_) => {}
-                    _ => {
-                        warn!(target: "client", "Getting chunk extra failed: {}", e.to_string());
-                    }
-                }
-                // route request
-                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if Self::need_request(msg.query_id.clone(), &mut request_manager.query_requests) {
-                    let validator = self
-                        .chain
-                        .find_validator_for_forwarding(shard_id)
-                        .map_err(|e| e.to_string())?;
-                    self.network_adapter.do_send(NetworkRequests::Query {
-                        query_id: msg.query_id,
-                        account_id: validator,
-                        block_reference: msg.block_reference,
-                        request: msg.request,
-                    });
-                }
-
-                Ok(None)
-            }
+        if self.runtime_adapter.cares_about_shard(
+            self.validator_account_id.as_ref(),
+            &head.last_block_hash,
+            shard_id,
+            true,
+        ) {
+            let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id)?;
+            let state_root = chunk_extra.state_root;
+            Ok(self
+                .runtime_adapter
+                .query(
+                    shard_id,
+                    &state_root,
+                    header.height(),
+                    header.raw_timestamp(),
+                    header.prev_hash(),
+                    header.hash(),
+                    header.epoch_id(),
+                    &msg.request,
+                )
+                .map_err(RuntimeQueryError::from)?)
+        } else {
+            Err(QueryError::DoesNotTrackShard)
         }
     }
 
@@ -469,11 +440,41 @@ impl Actor for ViewClientActor {
 }
 
 impl Handler<Query> for ViewClientActor {
-    type Result = Result<Option<QueryResponse>, String>;
+    type Result = Result<QueryResponse, QueryError>;
 
     #[perf]
     fn handle(&mut self, msg: Query, _: &mut Self::Context) -> Self::Result {
         self.handle_query(msg)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error(transparent)]
+struct RuntimeQueryError(#[from] pub near_chain::near_chain_primitives::error::QueryError);
+
+impl From<RuntimeQueryError> for near_client_primitives::types::QueryError {
+    fn from(error: RuntimeQueryError) -> Self {
+        match error.0 {
+            near_chain::near_chain_primitives::error::QueryError::InternalError(s) => {
+                Self::Unreachable(s)
+            }
+            near_chain::near_chain_primitives::error::QueryError::InvalidAccount(account_id) => {
+                Self::InvalidAccount(account_id)
+            }
+            near_chain::near_chain_primitives::error::QueryError::AccountDoesNotExist(
+                account_id,
+            ) => Self::AccountDoesNotExist(account_id),
+            near_chain::near_chain_primitives::error::QueryError::ContractCodeDoesNotExist(
+                account_id,
+            ) => Self::ContractCodeDoesNotExist(account_id),
+            near_chain::near_chain_primitives::error::QueryError::AccessKeyDoesNotExist(
+                public_key,
+            ) => Self::AccessKeyDoesNotExist(public_key),
+            near_chain::near_chain_primitives::error::QueryError::StorageError(storage_error) => {
+                Self::IOError(storage_error.to_string())
+            }
+            near_chain::near_chain_primitives::error::QueryError::VMError(s) => Self::VMError(s),
+        }
     }
 }
 
@@ -851,40 +852,6 @@ impl Handler<GetBlockProof> for ViewClientActor {
     }
 }
 
-impl Handler<GetProtocolConfig> for ViewClientActor {
-    type Result = Result<ProtocolConfigView, GetProtocolConfigError>;
-
-    #[perf]
-    fn handle(&mut self, msg: GetProtocolConfig, _: &mut Self::Context) -> Self::Result {
-        let block_header = match msg.0 {
-            BlockReference::Finality(finality) => {
-                let block_hash = self.get_block_hash_by_finality(&finality)?;
-                self.chain.get_block_header(&block_hash).map(Clone::clone)
-            }
-            BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_header_by_height(height).map(Clone::clone)
-            }
-            BlockReference::BlockId(BlockId::Hash(hash)) => {
-                self.chain.get_block_header(&hash).map(Clone::clone)
-            }
-            BlockReference::SyncCheckpoint(sync_checkpoint) => {
-                if let Some(block_hash) =
-                    self.get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
-                {
-                    self.chain.get_block_header(&block_hash).map(Clone::clone)
-                } else {
-                    return Err(GetProtocolConfigError::UnknownBlock(format!(
-                        "{:?}",
-                        sync_checkpoint
-                    )));
-                }
-            }
-        }?;
-        let config = self.runtime_adapter.get_protocol_config(block_header.epoch_id())?;
-        Ok(config.into())
-    }
-}
-
 impl Handler<NetworkViewClientMessages> for ViewClientActor {
     type Result = NetworkViewClientResponses;
 
@@ -942,25 +909,6 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
                 if request_manager.tx_status_requests.cache_remove(&tx_hash).is_some() {
                     request_manager.tx_status_response.cache_set(tx_hash, *tx_result);
-                }
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::Query { query_id, block_reference, request } => {
-                let query = Query { query_id: query_id.clone(), block_reference, request };
-                match self.handle_query(query) {
-                    Ok(Some(r)) => {
-                        NetworkViewClientResponses::QueryResponse { query_id, response: Ok(r) }
-                    }
-                    Ok(None) => NetworkViewClientResponses::NoResponse,
-                    Err(e) => {
-                        NetworkViewClientResponses::QueryResponse { query_id, response: Err(e) }
-                    }
-                }
-            }
-            NetworkViewClientMessages::QueryResponse { query_id, response } => {
-                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if request_manager.query_requests.cache_get(&query_id).is_some() {
-                    request_manager.query_responses.cache_set(query_id, response);
                 }
                 NetworkViewClientResponses::NoResponse
             }
