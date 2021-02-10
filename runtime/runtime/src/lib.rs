@@ -4,29 +4,34 @@ use std::collections::{HashMap, HashSet};
 use borsh::BorshSerialize;
 use log::debug;
 
+pub use near_crypto;
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
+pub use near_primitives;
+use near_primitives::runtime::get_insufficient_storage_stake;
+use near_primitives::{
+    account::{AccessKey, Account},
+    contract::ContractCode,
+    errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
+    hash::CryptoHash,
+    receipt::{
+        ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
+    },
+    state_record::StateRecord,
+    transaction::{
+        Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
+        SignedTransaction,
+    },
+    trie_key::TrieKey,
+    types::{
+        AccountId, Balance, EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey,
+        ShardId, StateChangeCause, StateRoot, ValidatorStake,
+    },
+    utils::{
+        create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
+        system_account,
+    },
 };
-use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{
-    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
-};
-use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
-    EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
-    StateRoot, ValidatorStake,
-};
-use near_primitives::utils::{
-    create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
-    system_account,
-};
-use near_runtime_configs::get_insufficient_storage_stake;
+pub use near_store;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_access_key, set_account, set_code, set_postponed_receipt, set_received_data,
@@ -49,7 +54,6 @@ use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOC
 use near_runtime_fees::RuntimeFeesConfig;
 use std::borrow::Borrow;
 use std::rc::Rc;
-use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
@@ -60,45 +64,10 @@ pub mod ext;
 mod metrics;
 pub mod state_viewer;
 mod verifier;
-pub use near_vm_logic::types::ProfileData;
+pub use near_primitives::profile::ProfileData;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
-
-#[derive(Debug)]
-pub struct ApplyState {
-    /// Currently building block height.
-    // TODO #1903 pub block_height: BlockHeight,
-    pub block_index: BlockHeight,
-    /// Prev block hash
-    pub prev_block_hash: CryptoHash,
-    /// Current block hash
-    pub block_hash: CryptoHash,
-    /// Current epoch id
-    pub epoch_id: EpochId,
-    /// Current epoch height
-    pub epoch_height: EpochHeight,
-    /// Price for the gas.
-    pub gas_price: Balance,
-    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
-    pub block_timestamp: u64,
-    /// Gas limit for a given chunk.
-    /// If None is given, assumes there is no gas limit.
-    pub gas_limit: Option<Gas>,
-    /// Current random seed (from current block vrf output).
-    pub random_seed: CryptoHash,
-    /// Current Protocol version when we apply the state transition
-    pub current_protocol_version: ProtocolVersion,
-    /// The Runtime config to use for the current transition.
-    pub config: Arc<RuntimeConfig>,
-    /// Cache for compiled contracts.
-    pub cache: Option<Arc<dyn CompiledContractCache>>,
-    /// Ethereum chain id.
-    #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u64,
-    /// Data collected from making a contract call
-    #[cfg(feature = "costs_counting")]
-    pub profile: Option<ProfileData>,
-}
+pub use near_primitives::runtime::apply_state::ApplyState;
 
 /// Contains information to update validators accounts at the first block of a new epoch.
 #[derive(Debug)]
@@ -1459,6 +1428,7 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
+    use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::{
         AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
@@ -1467,7 +1437,6 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
-    use near_vm_logic::types::ProfileData;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 

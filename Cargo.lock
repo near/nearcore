@@ -2627,8 +2627,9 @@ dependencies = [
 
 [[package]]
 name = "librocksdb-sys"
-version = "6.10.2"
-source = "git+https://github.com/nearprotocol/rust-rocksdb?branch=disable-thread#44592812fd12cc2ea5de55af7c8d9bfdeacac692"
+version = "6.11.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb5b56f651c204634b936be2f92dbb42c36867e00ff7fe2405591f3b9fa66f09"
 dependencies = [
  "bindgen",
  "cc",
@@ -2951,7 +2952,6 @@ dependencies = [
  "near-store",
  "num-rational",
  "rand 0.7.3",
- "rocksdb",
  "serde",
  "strum",
  "thiserror",
@@ -2966,7 +2966,6 @@ dependencies = [
  "derive_more",
  "near-crypto",
  "near-primitives",
- "near-runtime-configs",
  "near-runtime-fees",
  "num-rational",
  "serde",
@@ -3040,7 +3039,6 @@ dependencies = [
  "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "rocksdb",
  "serde",
  "serde_json",
  "strum",
@@ -3338,6 +3336,7 @@ dependencies = [
  "jemallocator",
  "lazy_static",
  "near-crypto",
+ "near-primitives-core",
  "near-rpc-error-macro",
  "near-vm-errors",
  "num-rational",
@@ -3350,6 +3349,22 @@ dependencies = [
  "sha2 0.9.3",
  "smart-default",
  "validator",
+]
+
+[[package]]
+name = "near-primitives-core"
+version = "0.1.0"
+dependencies = [
+ "base64 0.11.0",
+ "borsh",
+ "bs58",
+ "derive_more",
+ "hex",
+ "lazy_static",
+ "num-rational",
+ "serde",
+ "serde_json",
+ "sha2 0.9.3",
 ]
 
 [[package]]
@@ -3369,7 +3384,6 @@ dependencies = [
  "near-crypto",
  "near-network",
  "near-primitives",
- "near-runtime-configs",
  "paperclip",
  "serde",
  "serde_json",
@@ -3402,22 +3416,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-runtime-configs"
-version = "0.1.0"
-dependencies = [
- "lazy_static",
- "near-primitives",
- "near-runtime-fees",
- "near-vm-logic",
- "serde",
-]
-
-[[package]]
 name = "near-runtime-fees"
 version = "2.3.0"
 dependencies = [
- "num-rational",
- "serde",
+ "near-primitives-core",
 ]
 
 [[package]]
@@ -3430,8 +3432,9 @@ dependencies = [
 
 [[package]]
 name = "near-rust-allocator-proxy"
-version = "0.2.6"
-source = "git+https://github.com/near/near-memory-tracker.git?tag=v0.2.6#567647c4987d4f04910ab47e00f427c0c1bf3bf6"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74a52d373eeb19962f3a5e05b716957196a124de1484153f6cb081c36f54cb79"
 dependencies = [
  "arr_macro",
  "backtrace",
@@ -3499,6 +3502,7 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
+ "near-primitives-core",
  "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
@@ -3599,7 +3603,6 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-rosetta-rpc",
- "near-runtime-configs",
  "near-rust-allocator-proxy",
  "near-store",
  "near-telemetry",
@@ -3608,7 +3611,6 @@ dependencies = [
  "openssl-probe",
  "primitive-types",
  "rand 0.7.3",
- "rocksdb",
  "serde",
  "serde_json",
  "tempfile",
@@ -3648,7 +3650,6 @@ dependencies = [
  "near-evm-runner",
  "near-metrics",
  "near-primitives",
- "near-runtime-configs",
  "near-runtime-fees",
  "near-runtime-utils",
  "near-store",
@@ -3660,7 +3661,6 @@ dependencies = [
  "num-traits",
  "rand 0.7.3",
  "rayon",
- "rocksdb",
  "serde",
  "serde_json",
  "tempfile",
@@ -4726,8 +4726,9 @@ dependencies = [
 
 [[package]]
 name = "rocksdb"
-version = "0.14.0"
-source = "git+https://github.com/nearprotocol/rust-rocksdb?branch=disable-thread#44592812fd12cc2ea5de55af7c8d9bfdeacac692"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23d83c02c429044d58474eaf5ae31e062d0de894e21125b47437ec0edc1397e6"
 dependencies = [
  "libc",
  "librocksdb-sys",

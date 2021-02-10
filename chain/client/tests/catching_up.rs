@@ -10,7 +10,7 @@ mod tests {
     use futures::{future, FutureExt};
 
     use near_chain::test_utils::account_id_to_shard_id;
-    use near_client::sync::STATE_SYNC_TIMEOUT;
+    use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
@@ -136,7 +136,7 @@ mod tests {
                 let connectors1 = connectors.clone();
                 let mut block_prod_time: u64 = 3200;
                 if sync_hold {
-                    block_prod_time *= STATE_SYNC_TIMEOUT as u64;
+                    block_prod_time *= TEST_STATE_SYNC_TIMEOUT as u64;
                 }
                 let (_, conn, _) = setup_mock_all_validators(
                     validators.clone(),
@@ -354,7 +354,7 @@ mod tests {
                 *connectors.write().unwrap() = conn;
                 let mut max_wait_ms = 240000;
                 if sync_hold {
-                    max_wait_ms *= STATE_SYNC_TIMEOUT as u64;
+                    max_wait_ms *= TEST_STATE_SYNC_TIMEOUT as u64;
                 }
 
                 near_network::test_utils::wait_or_panic(max_wait_ms);

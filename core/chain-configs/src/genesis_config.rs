@@ -13,15 +13,17 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
-use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
-use near_primitives::state_record::StateRecord;
-use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, NumBlocks,
-    NumSeats,
+use near_primitives::{
+    hash::CryptoHash,
+    runtime::config::RuntimeConfig,
+    serialize::{u128_dec_format, u128_dec_format_compatible},
+    state_record::StateRecord,
+    types::{
+        AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas,
+        NumBlocks, NumSeats,
+    },
+    version::ProtocolVersion,
 };
-use near_primitives::version::ProtocolVersion;
-use near_runtime_configs::RuntimeConfig;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -31,7 +33,6 @@ pub const BETANET_EVM_CHAIN_ID: u64 = 1313161556;
 
 #[cfg(feature = "protocol_feature_evm")]
 /// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
-
 pub const TESTNET_EVM_CHAIN_ID: u64 = 1313161555;
 
 #[cfg(feature = "protocol_feature_evm")]

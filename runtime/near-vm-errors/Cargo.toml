@@ -24,3 +24,6 @@ ethereum-types = "0.11.0"
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
+
+[package.metadata.workspaces]
+independent = true

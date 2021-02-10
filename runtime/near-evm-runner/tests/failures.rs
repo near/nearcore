@@ -3,8 +3,10 @@ use rlp::Encodable;
 
 use near_crypto::{InMemorySigner, KeyType};
 
-use crate::utils::{accounts, create_context, setup, sign_eth_transaction, CHAIN_ID};
-use near_evm_runner::utils::{near_erc712_domain, prepare_meta_call_args};
+use crate::utils::{
+    accounts, create_context, encode_meta_call_function_args, setup, sign_eth_transaction, CHAIN_ID,
+};
+use near_evm_runner::utils::{near_erc712_domain, parse_meta_call, prepare_meta_call_args};
 
 mod utils;
 
@@ -86,6 +88,7 @@ fn test_wrong_meta_tx() {
         U256::from(6),
         Address::from_slice(&[0u8; 20]),
         Address::from_slice(&[0u8; 20]),
+        U256::from(100),
         "wrong_method",
         &hex::decode("ca").unwrap(),
     )
@@ -98,9 +101,34 @@ fn test_wrong_meta_tx() {
         U256::from(6),
         Address::from_slice(&[0u8; 20]),
         Address::from_slice(&[0u8; 20]),
+        U256::from(100),
         "wrong_method([])",
         &hex::decode("ca").unwrap(),
     )
     .unwrap_err();
     assert_eq!(err.to_string(), "EvmError(InvalidMetaTransactionMethodName)");
+}
+
+#[test]
+fn wrong_signed_meta_tx() {
+    let signer = InMemorySigner::from_seed("doesnt", KeyType::SECP256K1, "a");
+    let domain_separator = near_erc712_domain(U256::from(CHAIN_ID));
+    let meta_tx = encode_meta_call_function_args(
+        &signer,
+        CHAIN_ID,
+        U256::from(14),
+        U256::from(6),
+        Address::from_slice(&[0u8; 20]),
+        Address::from_slice(&[0u8; 20]),
+        U256::from(0),
+        "test()",
+        vec![],
+    );
+    let err = parse_meta_call(
+        &domain_separator,
+        &"evm".to_string(),
+        meta_tx[..meta_tx.len() - 1].to_vec(),
+    )
+    .unwrap_err();
+    assert_eq!(err.to_string(), "EvmError(ArgumentParseError)");
 }

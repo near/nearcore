@@ -1,3 +1,5 @@
+use near_primitives::num_rational::Rational;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig, StorageUsageConfig,
@@ -7,8 +9,6 @@ use near_runtime_fees::{
     EvmBls12ConstOpCost, EvmBn128PairingCost, EvmCostConfig, EvmLinearCost, EvmModexpCost,
     EvmPrecompileCostConfig,
 };
-use node_runtime::config::RuntimeConfig;
-use num_rational::Rational;
 use rand::{thread_rng, RngCore};
 use std::convert::TryInto;
 

@@ -2,7 +2,8 @@ mod fixtures;
 mod vm_logic_builder;
 
 use fixtures::get_context;
-use near_vm_logic::{HostError, VMConfig, VMLogicError};
+use near_vm_errors::{HostError, VMLogicError};
+use near_vm_logic::VMConfig;
 use vm_logic_builder::VMLogicBuilder;
 
 #[test]

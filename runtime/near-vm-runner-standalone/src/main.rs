@@ -9,14 +9,16 @@
 use clap::{App, Arg};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
-use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
-use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_logic::profile::ProfileData;
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, run_vm_profiled, VMError};
-use serde::de::{MapAccess, Visitor};
-use serde::ser::SerializeMap;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::HashMap;
-use std::{fmt, fs};
+use serde::{
+    de::{MapAccess, Visitor},
+    ser::SerializeMap,
+    {Deserialize, Deserializer, Serialize, Serializer},
+};
+use std::{collections::HashMap, fmt, fs};
 
 #[derive(Debug, Clone)]
 struct State(HashMap<Vec<u8>, Vec<u8>>);

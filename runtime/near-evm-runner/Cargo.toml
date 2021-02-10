@@ -51,7 +51,7 @@ criterion = "0.3.0"
 near-crypto = { path = "../../core/crypto" }
 
 [features]
-costs_counting = []
+costs_counting = ["near-vm-logic/costs_counting"]
 protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm", "near-vm-logic/protocol_feature_evm"]
 
 [[test]]
@@ -68,3 +68,6 @@ required-features = ["protocol_feature_evm"]
 name = "bench"
 required-features = ["protocol_feature_evm"]
 harness = false
+
+[package.metadata.workspaces]
+independent = true
