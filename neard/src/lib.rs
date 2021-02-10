@@ -26,6 +26,7 @@ use near_store::migrations::{
     migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 
+use near_client::state_sync_actor::start_state_sync_actor;
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use near_store::migrations::migrate_16_to_rectify_inflation;
 
@@ -240,6 +241,14 @@ pub fn start_with_config(
         #[cfg(feature = "adversarial")]
         adv.clone(),
     );
+    let state_sync_addr = start_state_sync_actor(
+        config.client_config.clone(),
+        network_adapter.clone(),
+        runtime.clone(),
+        chain_genesis.clone(),
+        false,
+        config.validator_signer.clone(),
+    );
     let (client_actor, client_arbiter) = start_client(
         config.client_config,
         chain_genesis,
@@ -250,6 +259,7 @@ pub fn start_with_config(
         telemetry,
         #[cfg(feature = "adversarial")]
         adv.clone(),
+        state_sync_addr.0,
     );
     start_http(
         config.rpc_config,
