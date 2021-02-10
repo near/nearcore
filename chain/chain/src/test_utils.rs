@@ -44,6 +44,7 @@ use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use near_chain_configs::ProtocolConfig;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::block_header::{Approval, ApprovalInner};
 
@@ -1013,6 +1014,10 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn evm_chain_id(&self) -> u64 {
         // See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
         1313161555
+    }
+
+    fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
+        unreachable!("get_protocol_config should not be called in KeyValueRuntime");
     }
 }
 

@@ -15,7 +15,7 @@ use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
     ErrorKind, RuntimeAdapter,
 };
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, ProtocolConfigView};
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
@@ -49,8 +49,9 @@ use crate::{
 };
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice, GetReceipt,
-    GetReceiptError, GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
+    GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
+    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError,
+    GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
 };
 use near_performance_metrics_macros::perf;
 use near_performance_metrics_macros::perf_with_debug;
@@ -801,6 +802,40 @@ impl Handler<GetBlockProof> for ViewClientActor {
             .get_block_proof(&msg.block_hash, &msg.head_block_hash)
             .map_err(|e| e.to_string())?;
         Ok(GetBlockProofResponse { block_header_lite, proof: block_proof })
+    }
+}
+
+impl Handler<GetProtocolConfig> for ViewClientActor {
+    type Result = Result<ProtocolConfigView, GetProtocolConfigError>;
+
+    #[perf]
+    fn handle(&mut self, msg: GetProtocolConfig, _: &mut Self::Context) -> Self::Result {
+        let block_header = match msg.0 {
+            BlockReference::Finality(finality) => {
+                let block_hash = self.get_block_hash_by_finality(&finality)?;
+                self.chain.get_block_header(&block_hash).map(Clone::clone)
+            }
+            BlockReference::BlockId(BlockId::Height(height)) => {
+                self.chain.get_header_by_height(height).map(Clone::clone)
+            }
+            BlockReference::BlockId(BlockId::Hash(hash)) => {
+                self.chain.get_block_header(&hash).map(Clone::clone)
+            }
+            BlockReference::SyncCheckpoint(sync_checkpoint) => {
+                if let Some(block_hash) =
+                    self.get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
+                {
+                    self.chain.get_block_header(&block_hash).map(Clone::clone)
+                } else {
+                    return Err(GetProtocolConfigError::UnknownBlock(format!(
+                        "{:?}",
+                        sync_checkpoint
+                    )));
+                }
+            }
+        }?;
+        let config = self.runtime_adapter.get_protocol_config(block_header.epoch_id())?;
+        Ok(config.into())
     }
 }
 

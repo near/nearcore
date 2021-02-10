@@ -50,6 +50,7 @@ delay-detector = { path = "../tools/delay_detector", optional = true }
 near-logger-utils = { path = "../test-utils/logger" }
 tempfile = "3"
 testlib = { path = "../test-utils/testlib" }
+near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.9"
 
 [features]
