@@ -136,7 +136,10 @@ impl StateSyncActor {
         // TODO clone was added
         match self.run_catchup() {
             Ok(accepted_blocks) => {
-                NetworkClientMessages::ProcessAcceptedBlocked(accepted_blocks);
+                self.client_addr
+                    .clone()
+                    .unwrap()
+                    .do_send(NetworkClientMessages::ProcessAcceptedBlocked(accepted_blocks));
             }
             Err(err) => {
                 error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.validator_signer.as_ref().map(|vs| vs.validator_id()), err)
