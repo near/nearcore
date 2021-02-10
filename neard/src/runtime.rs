@@ -16,7 +16,7 @@ use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_chain::{Doomslug, DoomslugThresholdMode};
-use near_chain_configs::{Genesis, GenesisConfig};
+use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig};
 #[cfg(feature = "protocol_feature_evm")]
 use near_chain_configs::{BETANET_EVM_CHAIN_ID, MAINNET_EVM_CHAIN_ID, TESTNET_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
@@ -1450,6 +1450,17 @@ impl RuntimeAdapter for NightshadeRuntime {
             "testnet" => TESTNET_EVM_CHAIN_ID,
             _ => BETANET_EVM_CHAIN_ID,
         }
+    }
+
+    fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
+        let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
+        let mut config = self.genesis_config.clone();
+        config.protocol_version = protocol_version;
+        // Currently only runtime config is changed through protocol upgrades.
+        let runtime_config =
+            RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
+        config.runtime_config = (*runtime_config).clone();
+        Ok(config)
     }
 }
 

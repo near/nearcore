@@ -1,7 +1,7 @@
 //! Helper functions to compute the costs of certain actions assuming they succeed and the only
 //! actions in the transaction batch.
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{Balance, Gas};
-use near_runtime_fees::RuntimeFeesConfig;
 
 pub struct FeeHelper {
     pub cfg: RuntimeFeesConfig,

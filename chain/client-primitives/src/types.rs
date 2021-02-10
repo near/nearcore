@@ -8,6 +8,7 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use near_chain_configs::ProtocolConfigView;
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::errors::InvalidTxError;
@@ -448,4 +449,34 @@ impl From<near_chain_primitives::Error> for GetReceiptError {
 
 impl Message for GetReceipt {
     type Result = Result<Option<ReceiptView>, GetReceiptError>;
+}
+
+pub struct GetProtocolConfig(pub BlockReference);
+
+impl Message for GetProtocolConfig {
+    type Result = Result<ProtocolConfigView, GetProtocolConfigError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetProtocolConfigError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    #[error("Block has never been observed: {0}")]
+    UnknownBlock(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetProtocolConfigError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
+            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => Self::UnknownBlock(s),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
 }
