@@ -2,7 +2,7 @@ use std::convert::{AsRef, TryInto};
 use std::sync::Arc;
 
 use actix::Addr;
-use actix_cors::{Cors, CorsFactory};
+use actix_cors::Cors;
 use actix_web::{App, HttpServer, ResponseError};
 use paperclip::actix::{
     api_v2_operation,
@@ -86,7 +86,8 @@ async fn network_status(
         )),
     )?;
     let network_info = network_info.map_err(errors::ErrorKind::InternalError)?;
-    let genesis_block = genesis_block.map_err(errors::ErrorKind::InternalInvariantError)?;
+    let genesis_block =
+        genesis_block.map_err(|err| errors::ErrorKind::InternalInvariantError(err.to_string()))?;
     let earliest_block = earliest_block;
 
     let genesis_block_identifier: models::BlockIdentifier = (&genesis_block.header).into();
@@ -220,7 +221,7 @@ async fn block_details(
                 near_primitives::types::BlockId::Hash(block.header.prev_hash).into(),
             ))
             .await?
-            .map_err(errors::ErrorKind::InternalError)?;
+            .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
 
         models::BlockIdentifier {
             index: parent_block.header.height.try_into().unwrap(),
@@ -297,7 +298,7 @@ async fn block_transaction_details(
     let block = view_client_addr
         .send(near_client::GetBlock(block_id.clone()))
         .await?
-        .map_err(errors::ErrorKind::NotFound)?;
+        .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
 
     let transaction = crate::adapters::collect_transactions(
         Arc::clone(&genesis),
@@ -365,7 +366,7 @@ async fn account_balance(
     let block = view_client_addr
         .send(near_client::GetBlock(block_id.clone()))
         .await?
-        .map_err(errors::ErrorKind::NotFound)?;
+        .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
 
     let (block_hash, block_height, account_info) =
         match crate::utils::query_account(block_id, account_identifier.address, &view_client_addr)
@@ -867,8 +868,8 @@ async fn construction_submit(
     }
 }
 
-fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
-    let mut cors = Cors::new();
+fn get_cors(cors_allowed_origins: &[String]) -> Cors {
+    let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
         for origin in cors_allowed_origins {
             cors = cors.allowed_origin(&origin);
@@ -881,7 +882,6 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
         ])
         .allowed_header(actix_web::http::header::CONTENT_TYPE)
         .max_age(3600)
-        .finish()
 }
 
 pub fn start_rosetta_rpc(

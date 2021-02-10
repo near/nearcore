@@ -1,27 +1,23 @@
-use std::str;
-use std::sync::Arc;
-use std::time::Instant;
-
 use log::debug;
-
 use near_crypto::{KeyType, PublicKey};
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ActionReceipt;
-use near_primitives::serialize::to_base64;
-use near_primitives::transaction::FunctionCallAction;
-use near_primitives::trie_key::trie_key_parsers;
-use near_primitives::types::{AccountId, EpochInfoProvider};
-use near_primitives::views::{StateItem, ViewApplyState, ViewStateResult};
-use near_runtime_configs::RuntimeConfig;
+use near_primitives::{
+    account::{AccessKey, Account},
+    contract::ContractCode,
+    hash::CryptoHash,
+    receipt::ActionReceipt,
+    runtime::{apply_state::ApplyState, config::RuntimeConfig},
+    serialize::to_base64,
+    transaction::FunctionCallAction,
+    trie_key::trie_key_parsers,
+    types::{AccountId, EpochInfoProvider},
+    views::{StateItem, ViewApplyState, ViewStateResult},
+};
 use near_runtime_utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_logic::ReturnData;
+use std::{str, sync::Arc, time::Instant};
 
-use crate::actions::execute_function_call;
-use crate::ext::RuntimeExt;
-use crate::ApplyState;
+use crate::{actions::execute_function_call, ext::RuntimeExt};
 
 pub struct TrieViewer {}
 
@@ -126,14 +122,17 @@ impl TrieViewer {
             0,
             &empty_hash,
             &view_state.epoch_id,
-            &view_state.last_block_hash,
+            &view_state.prev_block_hash,
+            &view_state.block_hash,
             epoch_info_provider,
             view_state.current_protocol_version,
         );
         let config = Arc::new(RuntimeConfig::default());
         let apply_state = ApplyState {
             block_index: view_state.block_height,
-            last_block_hash: view_state.last_block_hash,
+            // Used for legacy reasons
+            prev_block_hash: view_state.prev_block_hash,
+            block_hash: view_state.block_hash,
             epoch_id: view_state.epoch_id.clone(),
             epoch_height: view_state.epoch_height,
             gas_price: 0,
@@ -204,10 +203,12 @@ impl TrieViewer {
 mod tests {
     #[cfg(feature = "protocol_feature_evm")]
     use near_chain_configs::TESTNET_EVM_CHAIN_ID;
-    use near_primitives::test_utils::MockEpochInfoProvider;
-    use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::{EpochId, StateChangeCause};
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::{
+        test_utils::MockEpochInfoProvider,
+        trie_key::TrieKey,
+        types::{EpochId, StateChangeCause},
+        version::PROTOCOL_VERSION,
+    };
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
@@ -221,7 +222,8 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
-            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
             block_timestamp: 1,
@@ -250,7 +252,8 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
-            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
             block_timestamp: 1,
@@ -283,7 +286,8 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
-            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
             block_timestamp: 1,
@@ -315,7 +319,8 @@ mod tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: 1,
-            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
             block_timestamp: 1,
@@ -398,7 +403,8 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
         let view_state = ViewApplyState {
             block_height: 1,
-            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
             epoch_height: 0,
             block_timestamp: 1,

@@ -1,13 +1,14 @@
 //! Settings of the parameters of the runtime.
 use serde::{Deserialize, Serialize};
 
-use near_primitives::account::Account;
-use near_primitives::serialize::u128_dec_format;
-use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::ProtocolVersion;
-use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::VMConfig;
-use std::sync::Arc;
+use crate::checked_feature;
+use crate::config::VMConfig;
+use crate::runtime::fees::RuntimeFeesConfig;
+use crate::serialize::u128_dec_format;
+use crate::types::{AccountId, Balance};
+use crate::version::ProtocolVersion;
+use std::ops::DerefMut;
+use std::sync::{Arc, Mutex};
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -38,6 +39,10 @@ impl Default for RuntimeConfig {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref LOWER_STORAGE_COST_CONFIG: Mutex<Option<Arc<RuntimeConfig>>> = Mutex::new(None);
+}
+
 impl RuntimeConfig {
     pub fn free() -> Self {
         Self {
@@ -49,13 +54,35 @@ impl RuntimeConfig {
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
-    /// It uses `genesis_runtime_config` to keep the unchanged fees.
-    /// TODO: https://github.com/nearprotocol/NEPs/issues/120
+    /// It uses `genesis_runtime_config` to identify the original
+    /// config and `protocol_version` for the current protocol version.
     pub fn from_protocol_version(
         genesis_runtime_config: &Arc<RuntimeConfig>,
-        _protocol_version: ProtocolVersion,
+        protocol_version: ProtocolVersion,
     ) -> Arc<Self> {
-        genesis_runtime_config.clone()
+        if checked_feature!(
+            "protocol_feature_lower_storage_cost",
+            LowerStorageCost,
+            protocol_version
+        ) {
+            let mut config = LOWER_STORAGE_COST_CONFIG.lock().unwrap();
+            if let Some(config) = config.deref_mut() {
+                config.clone()
+            } else {
+                let upgraded_config = Arc::new(genesis_runtime_config.decrease_storage_cost());
+                *config = Some(upgraded_config.clone());
+                upgraded_config
+            }
+        } else {
+            genesis_runtime_config.clone()
+        }
+    }
+
+    /// Returns a new config with decreased storage cost.
+    fn decrease_storage_cost(&self) -> Self {
+        let mut config = self.clone();
+        config.storage_amount_per_byte = 10u128.pow(19);
+        config
     }
 }
 
@@ -78,34 +105,6 @@ impl Default for AccountCreationConfig {
     }
 }
 
-/// Checks if given account has enough balance for storage stake, and returns:
-///  - None if account has enough balance,
-///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
-///  - Err(message) if account has invalid storage usage or amount/locked.
-///
-/// Read details of state staking https://nomicon.io/Economics/README.html#state-stake
-pub fn get_insufficient_storage_stake(
-    account: &Account,
-    runtime_config: &RuntimeConfig,
-) -> Result<Option<Balance>, String> {
-    let required_amount = Balance::from(account.storage_usage)
-        .checked_mul(runtime_config.storage_amount_per_byte)
-        .ok_or_else(|| {
-            format!("Account's storage_usage {} overflows multiplication", account.storage_usage)
-        })?;
-    let available_amount = account.amount.checked_add(account.locked).ok_or_else(|| {
-        format!(
-            "Account's amount {} and locked {} overflow addition",
-            account.amount, account.locked
-        )
-    })?;
-    if available_amount >= required_amount {
-        Ok(None)
-    } else {
-        Ok(Some(required_amount - available_amount))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,6 +117,20 @@ mod tests {
                 / config.transaction_costs.min_receipt_with_function_call_gas()
                 <= 63,
             "The maximum desired depth of receipts should be at most 63"
+        );
+    }
+
+    #[test]
+    fn test_lower_cost() {
+        let config = Arc::new(RuntimeConfig::default());
+        let config_same = RuntimeConfig::from_protocol_version(&config, 0);
+        assert_eq!(
+            config_same.as_ref().storage_amount_per_byte,
+            config.as_ref().storage_amount_per_byte
+        );
+        let config_lower = RuntimeConfig::from_protocol_version(&config, ProtocolVersion::MAX);
+        assert!(
+            config_lower.as_ref().storage_amount_per_byte < config.as_ref().storage_amount_per_byte
         );
     }
 }

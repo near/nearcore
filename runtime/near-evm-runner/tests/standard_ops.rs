@@ -30,10 +30,12 @@ use_contract!(subcontract, "tests/build/SubContract.abi");
 use_contract!(create2factory, "tests/build/Create2Factory.abi");
 use_contract!(selfdestruct, "tests/build/SelfDestruct.abi");
 
-lazy_static_include_str!(TEST, "tests/build/SolTests.bin");
-lazy_static_include_str!(FACTORY_TEST, "tests/build/Create2Factory.bin");
-lazy_static_include_str!(DESTRUCT_TEST, "tests/build/SelfDestruct.bin");
-lazy_static_include_str!(CONSTRUCTOR_TEST, "tests/build/ConstructorRevert.bin");
+lazy_static_include_str! {
+    TEST => "tests/build/SolTests.bin",
+    FACTORY_TEST => "tests/build/Create2Factory.bin",
+    DESTRUCT_TEST => "tests/build/SelfDestruct.bin",
+    CONSTRUCTOR_TEST => "tests/build/ConstructorRevert.bin",
+}
 
 #[test]
 fn test_funds_transfers() {
@@ -167,6 +169,11 @@ fn test_deploy_and_transfer() {
 fn test_meta_call() {
     let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
     let signer = InMemorySigner::from_seed(&accounts(1), KeyType::SECP256K1, "a");
+    let signer_addr = public_key_to_address(signer.public_key.clone());
+
+    let mut context =
+        create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 1000);
+    assert_eq!(context.deposit(signer_addr.0.to_vec()).unwrap(), U256::from(1000));
 
     let meta_tx = encode_meta_call_function_args(
         &signer,
@@ -175,18 +182,19 @@ fn test_meta_call() {
         U256::from(6),
         Address::from_slice(&[0u8; 20]),
         test_addr.clone(),
+        U256::from(10),
         "deployNewGuy(uint256 _aNumber)",
         // RLP encode of ["0x08"]
         hex::decode("c108").unwrap(),
     );
-    let mut context =
-        create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 100);
+    let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     let raw = context.meta_call_function(meta_tx).unwrap();
 
     // The sub_addr should have been transferred 100 yoctoN.
     let sub_addr = raw[12..32].to_vec();
+    assert_eq!(context.get_balance(signer_addr.0.to_vec()).unwrap(), U256::from(990));
     assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(100));
-    assert_eq!(context.get_balance(sub_addr).unwrap(), U256::from(100));
+    assert_eq!(context.get_balance(sub_addr).unwrap(), U256::from(10));
 }
 
 #[test]
@@ -308,6 +316,7 @@ fn test_meta_call_sig_and_recover() {
         U256::from(6),
         Address::from_slice(&[0u8; 20]),
         test_addr.clone(),
+        U256::from(0),
         "adopt(uint256 petId)",
         // RLP encode of ["0x09"]
         hex::decode("c109").unwrap(),
@@ -315,7 +324,7 @@ fn test_meta_call_sig_and_recover() {
 
     // meta_tx[0..65] is eth-sig-util format signature
     // assert signature same as eth-sig-util, which also implies msg before sign (constructed by prepare_meta_call_args, follow eip-712) same
-    assert_eq!(hex::encode(&meta_tx[0..65]), "29b88cd2fab58cfd0d05eacdabaab081257d62bdafe9153922025c8e8723352d61922acbb290bd1dba8f17f174d47cd5cc41480d19a82a0bff4d0b9b9441399b1c");
+    assert_eq!(hex::encode(&meta_tx[0..65]), "4d94263f09bfd6322a633eebbf087fbed32d1b964e2fdab9cc9931fff3b9cd683e0912697e26836007e6ba026acccd9bb6116713959936815b1f6d9496dc5d341c");
     let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx).unwrap();
     assert_eq!(result.sender, signer_addr);
 
@@ -326,12 +335,13 @@ fn test_meta_call_sig_and_recover() {
         U256::from(6),
         Address::from_slice(&[0u8; 20]),
         test_addr.clone(),
+        U256::from(0),
         // must not have trailing space after comma
         "adopt(uint256 petId,string petName)",
         // RLP encode of ["0x09", "0x436170734C6F636B"] (9 and "CapsLock" in hex)
         hex::decode("ca0988436170734c6f636b").unwrap(),
     );
-    assert_eq!(hex::encode(&meta_tx2[0..65]), "8f5e467a71327b1f23330ff0918dd55ab61daf65b4726c1457c91982964a78ee47874a32b6e1b8479da60d3e17de891e3f8c4cbc9f269da06b232862f51b0ba51b");
+    assert_eq!(hex::encode(&meta_tx2[0..65]), "ff7c5eedd0684ef685c82c518900cbdc30471555a93770119bbff307be5c22411e3d4f47e2ce8389aae8f4ad38c923d8dac922bb4ee83d2477116a54fed02b311b");
     let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx2).unwrap();
     assert_eq!(result.sender, signer_addr);
 
@@ -342,11 +352,12 @@ fn test_meta_call_sig_and_recover() {
         U256::from(6),
         Address::from_slice(&[0u8; 20]),
         test_addr,
+        U256::from(0),
         "adopt(uint256 petId,PetObj petObject)PetObj(string petName,address owner)",
         // RLP encode of ["0x09", ["0x436170734C6F636B", "0x0123456789012345678901234567890123456789"]]
         hex::decode("e009de88436170734c6f636b940123456789012345678901234567890123456789").unwrap(),
     );
-    assert_eq!(hex::encode(&meta_tx3[0..65]), "f4852afcf9b11e0c6bac70f0c468ed29fa5b2f1d5a786fc9b383729f591d4dd32a4e5bdec0e12881b9f469e14fb7eed1911613a8ea636f14df81e39568324f791b");
+    assert_eq!(hex::encode(&meta_tx3[0..65]), "9efee70f160fed244ef03ccfab3ebb1f24be4f41052a7b83d99d3bd9250fcf3a612c448133170b4968c73ec56cba65c6cae50a39aec922ed605aa04c0ddff8e11c");
     let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx3).unwrap();
     assert_eq!(result.sender, signer_addr);
 }
@@ -378,20 +389,8 @@ fn test_send_eth_tx() {
     let signer_addr = public_key_to_address(signer.public_key.clone());
 
     let mut context =
-        create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 1000);
-    assert_eq!(
-        context.deposit(address_to_vec(&near_account_id_to_evm_address(&accounts(1)))).unwrap(),
-        U256::from(1000)
-    );
-
-    let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
-    context
-        .transfer(
-            TransferArgs { address: signer_addr.0, amount: u256_to_arr(&U256::from(200)) }
-                .try_to_vec()
-                .unwrap(),
-        )
-        .unwrap();
+        create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 200);
+    assert_eq!(context.deposit(signer_addr.0.to_vec()).unwrap(), U256::from(200));
 
     let mut context = create_context(&mut fake_external, &vm_config, &fees_config, accounts(1), 0);
     let (input, _) = soltest::functions::deploy_new_guy::call(8);
@@ -405,7 +404,7 @@ fn test_send_eth_tx() {
         U256::from(100),
         input,
     );
-    let raw = context.raw_call_function(signed_transaction.rlp_bytes()).unwrap();
+    let raw = context.raw_call_function(signed_transaction.rlp_bytes().to_vec()).unwrap();
 
     // The sub_addr should have been transferred 100 yoctoN.
     let sub_addr = raw[12..32].to_vec();
@@ -423,7 +422,7 @@ fn test_send_eth_tx() {
         U256::from(100),
         hex::decode(&TEST).unwrap(),
     );
-    let raw = context.raw_call_function(signed_transaction.rlp_bytes()).unwrap();
+    let raw = context.raw_call_function(signed_transaction.rlp_bytes().to_vec()).unwrap();
     assert_eq!(context.get_balance(raw).unwrap(), U256::from(100));
 
     // TODO: add transfer example.

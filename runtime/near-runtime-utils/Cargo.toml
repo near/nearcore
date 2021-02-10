@@ -19,3 +19,6 @@ This crate contains utility functions for NEAR runtime.
 [dependencies]
 lazy_static = "1.4"
 regex = "1"
+
+[package.metadata.workspaces]
+independent = true

@@ -10,19 +10,18 @@ log = "0.4"
 failure = "0.1"
 failure_derive = "0.1"
 lazy_static = "1.4"
-rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
-cached = "0.12"
-num-rational = "0.2.4"
+cached = "0.23"
+num-rational = "0.3"
 tracing = "0.1.13"
 thiserror = "1.0"
-strum = "0.18"
-strum_macros = "0.18"
+strum = "0.20"
 
-borsh = "0.7.1"
+borsh = "0.8.1"
 
 near-chain-configs = { path = "../../core/chain-configs" }
+near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
@@ -43,5 +42,6 @@ delay_detector = ["delay-detector"]
 no_cache = ["near-store/no_cache"]
 protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-chain-configs/protocol_feature_evm"]
 protocol_feature_rectify_inflation = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_rectify_inflation"]
+protocol_feature_block_header_v3 = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_rectify_inflation", "protocol_feature_block_header_v3"]
 nightly_protocol = []

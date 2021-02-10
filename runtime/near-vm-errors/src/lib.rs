@@ -1,8 +1,6 @@
-use std::fmt;
+use std::fmt::{self, Error, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::export::fmt::Error;
-use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
 
 use near_rpc_error_macro::RpcError;
@@ -88,6 +86,7 @@ pub enum CompilationError {
     CodeDoesNotExist { account_id: String },
     PrepareError(PrepareError),
     WasmerCompileError { msg: String },
+    UnsupportedCompiler { msg: String },
 }
 
 #[derive(
@@ -375,6 +374,9 @@ impl fmt::Display for CompilationError {
             CompilationError::PrepareError(p) => write!(f, "PrepareError: {}", p),
             CompilationError::WasmerCompileError { msg } => {
                 write!(f, "Wasmer compilation error: {}", msg)
+            }
+            CompilationError::UnsupportedCompiler { msg } => {
+                write!(f, "Unsupported compiler: {}", msg)
             }
         }
     }

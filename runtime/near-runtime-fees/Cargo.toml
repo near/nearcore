@@ -13,10 +13,11 @@ Fees applied to near runtime encapsulated in a separate crate. Might merge it la
 """
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-
-num-rational = { version = "0.2.4", features = ["serde"]}
+near-primitives-core = { path = "../../core/primitives-core" }
 
 [features]
 default = []
-protocol_feature_evm = []
+protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
+
+[package.metadata.workspaces]
+independent = true

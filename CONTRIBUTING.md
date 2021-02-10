@@ -1,7 +1,7 @@
 Thank you for considering contributing to the NEAR reference client!
 
-We welcome all external contributions. This document outlines the process of contributing to nearcore. 
-For contributing to other repositories, see `CONTRIBUTING.md` in the corresponding repository. 
+We welcome all external contributions. This document outlines the process of contributing to nearcore.
+For contributing to other repositories, see `CONTRIBUTING.md` in the corresponding repository.
 For non-technical contributions, such as e.g. content or events, see [this document](https://docs.nearprotocol.com/docs/contribution/contribution-overview).
 
 # Pull Requests and Issues
@@ -58,7 +58,9 @@ You should expect someone to comment on the issue within 48 hours after it is cr
 
 # Setting up the environment
 
-We use nightly Rust features, so you will need nightly rust installed. See [this document](https://doc.rust-lang.org/1.2.0/book/nightly-rust.html) for details.
+We use nightly Rust features, so you will need nightly rust installed. If you use [rustup](https://rust-lang.github.io/rustup/index.html) the appropriate nightly is picked automatically from the `rust-toolchain` file.
+
+Building `nearcore` requires `libclang`, see [`bindgen` documentation](https://rust-lang.github.io/rust-bindgen/requirements.html#clang) for installation instructions.
 
 Majority of NEAR developers use CLion with Rust plugin as their primary IDE.
 
@@ -70,8 +72,17 @@ Refer to [this document](https://docs.nearprotocol.com/docs/contribution/nearcor
 
 # Release Schedule
 
+If a crate is to be published individually the following needs to be added to its `Cargo.toml`:
+
+```toml
+[package.metadata.workspaces]
+independent = true
+```
+
+This is required by [cargo-workspaces](https://github.com/pksunkara/cargo-workspaces) which is used to publish non-private crates in the nearcore workspace.
+
 Once your change ends up in master, it will be released with the rest of the changes by other contributors on the regular release schedules.
 
-You should expect the changes from `master` to get merged into `beta` branch the next time `nightly` test run completes, assuming it passes. 
+You should expect the changes from `master` to get merged into `beta` branch the next time `nightly` test run completes, assuming it passes.
 Releases to the `stable` branch are manual, but generally contain a contiguous prefix of commits from `beta` branch.
 Note, that the goal is to maintain `beta` as stable as possible and `stable` completely stable. Hence if your change is breaking something that gets detected down the line - it will rolled back and requested to address the issue with additional test coverage.

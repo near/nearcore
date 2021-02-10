@@ -3,8 +3,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use chrono::{DateTime, Utc};
+use num_rational::Rational;
 use serde::Serialize;
 
+use near_chain_configs::{GenesisConfig, ProtocolConfig};
+use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
@@ -26,10 +30,8 @@ use near_primitives::version::{
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 
-use crate::error::Error;
-use chrono::{DateTime, Utc};
-use near_chain_configs::GenesisConfig;
-use num_rational::Rational;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::DoomslugThresholdMode;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -334,6 +336,18 @@ pub trait RuntimeAdapter: Send + Sync {
         approvals: &[Option<Signature>],
     ) -> Result<bool, Error>;
 
+    /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    fn verify_approvals_and_threshold_orphan(
+        &self,
+        epoch_id: &EpochId,
+        doomslug_threshold_mode: DoomslugThresholdMode,
+        prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Signature>],
+    ) -> Result<(), Error>;
+
     /// Epoch block producers ordered by their order in the proposals.
     /// Returns error if height is outside of known boundaries.
     fn get_epoch_block_producers_ordered(
@@ -345,7 +359,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<ApprovalStake>, Error>;
+    ) -> Result<Vec<(ApprovalStake, bool)>, Error>;
 
     /// Block producers for given height for the main block. Return error if outside of known boundaries.
     fn get_block_producer(
@@ -524,6 +538,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
@@ -588,6 +603,8 @@ pub trait RuntimeAdapter: Send + Sync {
 
     #[cfg(feature = "protocol_feature_evm")]
     fn evm_chain_id(&self) -> u64;
+
+    fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`

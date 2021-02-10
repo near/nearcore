@@ -1,12 +1,14 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
-use near_primitives::types::CompiledContractCache;
+use near_primitives::{
+    config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
+};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
-use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::Module;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
@@ -240,7 +242,7 @@ pub fn run_wasmer<'a>(
         );
     }
 
-    let import_object = imports::build_wasmer(memory_copy, &mut logic);
+    let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
 
     let method_name = match std::str::from_utf8(method_name) {
         Ok(x) => x,

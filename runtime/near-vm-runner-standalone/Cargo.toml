@@ -21,9 +21,9 @@ to make sure it has expected behavior once deployed to the blockchain.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = "2.33.0"
-base64 = "0.11"
-strum = "0.18"
-num-rational = { version = "0.2.4" }
+base64 = "0.13"
+strum = "0.20"
+num-rational = { version = "0.3" }
 
 near-vm-logic = { path = "../near-vm-logic", version = "2.3.0", features = ["costs_counting"]}
 near-vm-runner = { path = "../near-vm-runner", version = "2.3.0", features = ["wasmtime_vm"] }
@@ -32,3 +32,6 @@ near-runtime-fees = { path = "../near-runtime-fees", version = "2.3.0" }
 [features]
 default = []
 no_cache = ["near-vm-runner/no_cache"]
+
+[package.metadata.workspaces]
+independent = true

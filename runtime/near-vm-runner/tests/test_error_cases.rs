@@ -1,6 +1,8 @@
-use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, PrepareError};
-use near_vm_logic::{HostError, ReturnData, VMKind, VMOutcome};
-use near_vm_runner::{with_vm_variants, VMError};
+use near_vm_errors::{
+    CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
+};
+use near_vm_logic::{ReturnData, VMKind, VMOutcome};
+use near_vm_runner::with_vm_variants;
 
 pub mod test_utils;
 

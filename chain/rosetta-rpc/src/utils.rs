@@ -265,10 +265,10 @@ where
 
 fn get_liquid_balance_for_storage(
     mut account: near_primitives::account::Account,
-    runtime_config: &near_runtime_configs::RuntimeConfig,
+    runtime_config: &near_primitives::runtime::config::RuntimeConfig,
 ) -> near_primitives::types::Balance {
     account.amount = 0;
-    near_runtime_configs::get_insufficient_storage_stake(&account, &runtime_config)
+    near_primitives::runtime::get_insufficient_storage_stake(&account, &runtime_config)
         .expect("get_insufficient_storage_stake never fails when state is consistent")
         .unwrap_or(0)
 }
@@ -286,7 +286,7 @@ impl RosettaAccountBalances {
 
     pub fn from_account<T: Into<near_primitives::account::Account>>(
         account: T,
-        runtime_config: &near_runtime_configs::RuntimeConfig,
+        runtime_config: &near_primitives::runtime::config::RuntimeConfig,
     ) -> Self {
         let account = account.into();
         let amount = account.amount;
@@ -326,7 +326,7 @@ pub(crate) async fn query_account(
                     return Err(crate::errors::ErrorKind::InternalError(err));
                 }
             }
-            tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
     })
     .await??;
@@ -415,7 +415,7 @@ pub(crate) async fn query_access_key(
                         return Err(crate::errors::ErrorKind::InternalError(err));
                     }
                 }
-                tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         })
         .await??;

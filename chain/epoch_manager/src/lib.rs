@@ -608,10 +608,31 @@ impl EpochManager {
         Ok(self.epoch_validators_ordered_unique.cache_get(epoch_id).unwrap())
     }
 
+    /// get_heuristic_block_approvers_ordered: block producers for epoch
+    /// get_all_block_producers_ordered: block producers for epoch, slashing info
+    /// get_all_block_approvers_ordered: block producers for epoch, slashing info, sometimes block producers for next epoch
+    pub fn get_heuristic_block_approvers_ordered(
+        &mut self,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ApprovalStake>, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let mut result = vec![];
+        let mut validators: HashSet<AccountId> = HashSet::new();
+        for validator_id in epoch_info.block_producers_settlement.iter() {
+            let validator_stake = epoch_info.validators[*validator_id as usize].clone();
+            if !validators.contains(&validator_stake.account_id) {
+                validators.insert(validator_stake.account_id.clone());
+                result.push(validator_stake.get_approval_stake(false));
+            }
+        }
+
+        Ok(result)
+    }
+
     pub fn get_all_block_approvers_ordered(
         &mut self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<ApprovalStake>, EpochError> {
+    ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
         let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
 
@@ -632,21 +653,20 @@ impl EpochManager {
         let mut result = vec![];
         let mut validators: HashMap<AccountId, usize> = HashMap::default();
         for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
-            if !is_slashed {
-                match validators.get(&validator_stake.account_id) {
-                    None => {
-                        validators.insert(validator_stake.account_id.clone(), result.len());
-                        result.push(
-                            validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
-                        );
-                    }
-                    Some(old_ord) => {
-                        if ord >= settlement_epoch_boundary {
-                            result[*old_ord].stake_next_epoch = validator_stake.stake;
-                        };
-                    }
-                };
-            }
+            match validators.get(&validator_stake.account_id) {
+                None => {
+                    validators.insert(validator_stake.account_id.clone(), result.len());
+                    result.push((
+                        validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
+                        is_slashed,
+                    ));
+                }
+                Some(old_ord) => {
+                    if ord >= settlement_epoch_boundary {
+                        result[*old_ord].0.stake_next_epoch = validator_stake.stake;
+                    };
+                }
+            };
         }
         Ok(result)
     }
@@ -2874,6 +2894,158 @@ mod tests {
         let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
         let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
         assert_ne!(epoch_info2.epoch_height, epoch_info3.epoch_height);
+    }
+
+    #[test]
+    /// Slashed after unstaking: slashed for 2 epochs
+    fn test_unstake_slash() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(9);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 0)]);
+        record_block_with_slashes(
+            &mut epoch_manager,
+            h[1],
+            h[2],
+            2,
+            vec![],
+            vec![SlashedValidator::new("test1".to_string(), false)],
+        );
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[3], h[4], 4, vec![stake("test1", stake_amount)]);
+
+        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
+        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+        assert_eq!(
+            epoch_info1.validator_kickout.get("test1"),
+            Some(&ValidatorKickoutReason::Unstaked)
+        );
+        assert_eq!(
+            epoch_info2.validator_kickout.get("test1"),
+            Some(&ValidatorKickoutReason::Slashed)
+        );
+        assert_eq!(
+            epoch_info3.validator_kickout.get("test1"),
+            Some(&ValidatorKickoutReason::Slashed)
+        );
+        assert!(epoch_info4.validator_kickout.is_empty());
+        assert!(epoch_info4.validator_to_index.get("test1").is_some());
+    }
+
+    #[test]
+    /// Slashed with no unstake in previous epoch: slashed for 3 epochs
+    fn test_no_unstake_slash() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(9);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block_with_slashes(
+            &mut epoch_manager,
+            h[0],
+            h[1],
+            1,
+            vec![],
+            vec![SlashedValidator::new("test1".to_string(), false)],
+        );
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[3], h[4], 4, vec![stake("test1", stake_amount)]);
+
+        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
+        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+        assert_eq!(
+            epoch_info1.validator_kickout.get("test1"),
+            Some(&ValidatorKickoutReason::Slashed)
+        );
+        assert_eq!(
+            epoch_info2.validator_kickout.get("test1"),
+            Some(&ValidatorKickoutReason::Slashed)
+        );
+        assert_eq!(
+            epoch_info3.validator_kickout.get("test1"),
+            Some(&ValidatorKickoutReason::Slashed)
+        );
+        assert!(epoch_info4.validator_kickout.is_empty());
+        assert!(epoch_info4.validator_to_index.get("test1").is_some());
+    }
+
+    #[test]
+    /// Slashed right after validator rotated out
+    fn test_slash_non_validator() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(9);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 0)]);
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block_with_slashes(
+            &mut epoch_manager,
+            h[2],
+            h[3],
+            3,
+            vec![],
+            vec![SlashedValidator::new("test1".to_string(), false)],
+        );
+        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
+        record_block(&mut epoch_manager, h[4], h[5], 5, vec![stake("test1", stake_amount)]);
+
+        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone(); // Unstaked
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone(); // -
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone(); // Slashed
+        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone(); // Slashed
+        let epoch_info5 = epoch_manager.get_epoch_info(&EpochId(h[5])).unwrap().clone(); // Ok
+        assert_eq!(
+            epoch_info1.validator_kickout.get("test1"),
+            Some(&ValidatorKickoutReason::Unstaked)
+        );
+        assert!(epoch_info2.validator_kickout.is_empty());
+        assert_eq!(
+            epoch_info3.validator_kickout.get("test1"),
+            Some(&ValidatorKickoutReason::Slashed)
+        );
+        assert_eq!(
+            epoch_info4.validator_kickout.get("test1"),
+            Some(&ValidatorKickoutReason::Slashed)
+        );
+        assert!(epoch_info5.validator_kickout.is_empty());
+        assert!(epoch_info5.validator_to_index.get("test1").is_some());
+    }
+
+    #[test]
+    /// Slashed and attempt to restake: proposal gets ignored
+    fn test_slash_restake() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(9);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block_with_slashes(
+            &mut epoch_manager,
+            h[0],
+            h[1],
+            1,
+            vec![],
+            vec![SlashedValidator::new("test1".to_string(), false)],
+        );
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![stake("test1", stake_amount)]);
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[3], h[4], 4, vec![stake("test1", stake_amount)]);
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
+        assert!(epoch_info2.stake_change.get("test1").is_none());
+        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+        assert!(epoch_info4.stake_change.get("test1").is_some());
     }
 
     #[test]

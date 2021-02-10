@@ -6,11 +6,11 @@ edition = "2018"
 default-run = "neard"
 
 [dependencies]
-actix = "0.9"
-actix-web = { version = "2", features = [ "openssl" ] }
+jemallocator = { version = "0.3"  }
+actix = "0.11.0-beta.1"
+actix-web = { version = "4.0.0-beta.1", features = [ "openssl" ] }
 byteorder = "1.2"
 easy-ext = "0.2"
-rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 log = "0.4"
 chrono = { version = "0.4.4", features = ["serde"] }
 git-version = "0.3.1"
@@ -20,18 +20,17 @@ rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
 lazy_static = "1.4"
-dirs = "2.0.2"
-borsh = "0.7.1"
+dirs = "3"
+borsh = "0.8.1"
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
-num-rational = { version = "0.2.4", features = ["serde"] }
+num-rational = { version = "0.3", features = ["serde"] }
 openssl-probe = { version = "0.1.2" }
+near-rust-allocator-proxy = "0.2.7"
 
-near-actix-utils = { path = "../utils/actix" }
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
-near-runtime-configs = { path = "../core/runtime-configs" }
 near-store = { path = "../core/store" }
 node-runtime = { path = "../runtime/runtime"}
 near-chain = { path = "../chain/chain" }
@@ -51,10 +50,12 @@ delay-detector = { path = "../tools/delay_detector", optional = true }
 near-logger-utils = { path = "../test-utils/logger" }
 tempfile = "3"
 testlib = { path = "../test-utils/testlib" }
-primitive-types = "0.7.2"
+near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
+primitive-types = "0.9"
 
 [features]
 performance_stats = ["near-performance-metrics/performance_stats"]
+memory_stats = ["near-performance-metrics/memory_stats"]
 adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-store/adversarial"]
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
@@ -64,10 +65,10 @@ rosetta_rpc = ["near-rosetta-rpc"]
 protocol_feature_forward_chunk_parts = ["near-client/protocol_feature_forward_chunk_parts"]
 protocol_feature_rectify_inflation = ["near-epoch-manager/protocol_feature_rectify_inflation"]
 protocol_feature_evm = ["near-primitives/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]
-protocol_feature_block_ordinal = ["near-primitives/protocol_feature_block_ordinal"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm"]
+protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-client/protocol_feature_block_header_v3"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm", "protocol_feature_block_header_v3"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
-costs_counting = ["node-runtime/costs_counting"]
+costs_counting = ["near-primitives/costs_counting", "node-runtime/costs_counting"]
 
 [[bin]]
 path = "src/main.rs"
@@ -76,3 +77,6 @@ name = "neard"
 [[bin]]
 path = "src/../src/main.rs"
 name = "near"
+
+[package.metadata.workspaces]
+independent = true

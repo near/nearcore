@@ -7,6 +7,7 @@ use near_jsonrpc::ServerError;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
@@ -20,7 +21,6 @@ use near_store::{ShardTries, TrieUpdate};
 use neard::config::MIN_GAS_PRICE;
 #[cfg(feature = "protocol_feature_evm")]
 use neard::config::TESTNET_EVM_CHAIN_ID;
-use node_runtime::config::RuntimeConfig;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -128,7 +128,8 @@ impl RuntimeUser {
     fn apply_state(&self) -> ApplyState {
         ApplyState {
             block_index: 0,
-            last_block_hash: Default::default(),
+            prev_block_hash: Default::default(),
+            block_hash: Default::default(),
             block_timestamp: 0,
             epoch_height: 0,
             gas_price: MIN_GAS_PRICE,
@@ -240,7 +241,8 @@ impl User for RuntimeUser {
         let mut result = CallResult::default();
         let view_state = ViewApplyState {
             block_height: apply_state.block_index,
-            last_block_hash: apply_state.last_block_hash,
+            prev_block_hash: apply_state.prev_block_hash,
+            block_hash: apply_state.block_hash,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,
             block_timestamp: apply_state.block_timestamp,

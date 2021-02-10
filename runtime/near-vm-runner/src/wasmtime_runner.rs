@@ -5,12 +5,16 @@ use wasmtime::Module;
 pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
     use crate::{imports, prepare};
-    use near_primitives::types::CompiledContractCache;
+    use near_primitives::{
+        config::VMConfig, profile::ProfileData, types::CompiledContractCache,
+        version::ProtocolVersion,
+    };
     use near_runtime_fees::RuntimeFeesConfig;
     use near_vm_errors::FunctionCallError::{LinkError, WasmUnknownError};
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
-    use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
-    use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+    use near_vm_logic::{
+        types::PromiseResult, External, MemoryLike, VMContext, VMLogic, VMOutcome,
+    };
     use std::ffi::c_void;
     use std::str;
     use wasmtime::ExternType::Func;
@@ -158,7 +162,7 @@ pub mod wasmtime_runner {
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
         // lifetimes of the logic instance and pass raw pointers here.
         let raw_logic = &mut logic as *mut _ as *mut c_void;
-        imports::link_wasmtime(&mut linker, memory_copy, raw_logic);
+        imports::link_wasmtime(&mut linker, memory_copy, raw_logic, current_protocol_version);
         let func_name = match str::from_utf8(method_name) {
             Ok(name) => name,
             Err(_) => {
