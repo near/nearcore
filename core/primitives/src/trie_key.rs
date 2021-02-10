@@ -84,8 +84,8 @@ pub enum TrieKey {
     /// Used to store transaction hashes for a given block.
     #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
     BlockTransactionHashes { height: BlockHeight },
-    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
     /// Hash of transactions originated from `account_id`.
+    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
     AccountTransactionHash { account_id: AccountId, hash: CryptoHash },
 }
 
