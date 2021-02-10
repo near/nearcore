@@ -205,6 +205,7 @@ pub fn setup_mock_with_validity_period(
         Utc::now(),
     );
     let client_addr = client.start();
+    state_sync_actor_addr.do_send(StateSyncActorRequests::ClientAddr { addr: client_addr.clone() });
     let client_addr1 = client_addr.clone();
 
     let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
