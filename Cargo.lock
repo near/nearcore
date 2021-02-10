@@ -2966,7 +2966,6 @@ dependencies = [
  "derive_more",
  "near-crypto",
  "near-primitives",
- "near-runtime-fees",
  "num-rational",
  "serde",
  "serde_json",
@@ -3110,7 +3109,7 @@ dependencies = [
 
 [[package]]
 name = "near-evm-runner"
-version = "2.3.0"
+version = "0.1.0"
 dependencies = [
  "bn",
  "borsh",
@@ -3132,7 +3131,6 @@ dependencies = [
  "lunarity-lexer",
  "near-crypto",
  "near-primitives",
- "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
  "near-vm-logic",
@@ -3143,7 +3141,7 @@ dependencies = [
  "rlp",
  "serde",
  "serde_json",
- "sha2 0.9.3",
+ "sha2 0.8.2",
  "sha3",
  "vm",
 ]
@@ -3416,15 +3414,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-runtime-fees"
-version = "2.3.0"
-dependencies = [
- "near-primitives-core",
-]
-
-[[package]]
 name = "near-runtime-utils"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "lazy_static",
  "regex",
@@ -3485,10 +3476,9 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "borsh",
- "ethereum-types 0.11.0",
  "hex",
  "near-rpc-error-macro",
  "serde",
@@ -3496,26 +3486,24 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
  "borsh",
  "bs58",
  "byteorder",
  "near-primitives-core",
- "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
- "num-rational",
  "serde",
  "serde_json",
- "sha2 0.9.3",
+ "sha2 0.8.2",
  "sha3",
 ]
 
 [[package]]
 name = "near-vm-runner"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -3525,7 +3513,6 @@ dependencies = [
  "log",
  "near-evm-runner",
  "near-primitives",
- "near-runtime-fees",
  "near-vm-errors",
  "near-vm-logic",
  "parity-wasm",
@@ -3538,11 +3525,11 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
  "clap 2.33.3",
- "near-runtime-fees",
+ "near-primitives-core",
  "near-vm-logic",
  "near-vm-runner",
  "num-rational",
@@ -3634,7 +3621,7 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
@@ -3650,7 +3637,6 @@ dependencies = [
  "near-evm-runner",
  "near-metrics",
  "near-primitives",
- "near-runtime-fees",
  "near-runtime-utils",
  "near-store",
  "near-vm-errors",
@@ -4736,7 +4722,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-params-estimator"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "borsh",
  "clap 2.33.3",
@@ -4755,7 +4741,6 @@ dependencies = [
  "near-crypto",
  "near-evm-runner",
  "near-primitives",
- "near-runtime-fees",
  "near-store",
  "near-vm-logic",
  "near-vm-runner",
@@ -5450,7 +5435,6 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
- "near-runtime-fees",
  "near-store",
  "near-vm-errors",
  "neard",

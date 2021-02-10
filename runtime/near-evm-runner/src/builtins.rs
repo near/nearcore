@@ -12,7 +12,7 @@ use crate::utils::ecrecover_address;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 
 use ethereum_types::{Address, U256};
-use near_runtime_fees::EvmPrecompileCostConfig;
+use near_primitives::runtime::fees::EvmPrecompileCostConfig;
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
 use parity_bytes::BytesRef;

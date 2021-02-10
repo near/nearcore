@@ -1,5 +1,5 @@
 use crate::test_utils::LATEST_PROTOCOL_VERSION;
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, HostError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;

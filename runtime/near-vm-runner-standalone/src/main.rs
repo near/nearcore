@@ -7,7 +7,7 @@
 //! Optional `--context-file=/tmp/context.json --config-file=/tmp/config.json` could be added
 //! to provide custom context and VM config.
 use clap::{App, Arg};
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
 use near_vm_logic::profile::ProfileData;
 use near_vm_logic::types::PromiseResult;
