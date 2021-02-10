@@ -39,7 +39,7 @@ pub use crate::trie::{
     WrappedTrieChanges,
 };
 
-mod db;
+pub mod db;
 pub mod migrations;
 pub mod test_utils;
 mod trie;

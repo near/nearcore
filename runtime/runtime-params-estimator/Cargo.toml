@@ -32,7 +32,7 @@ near-primitives = { path = "../../core/primitives" }
 testlib = { path = "../../test-utils/testlib" }
 state-viewer = { path = "../../test-utils/state-viewer" }
 neard = { path = "../../neard" }
-rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
+rocksdb = { version = "0.15.0"}
 glob = "0.3.0"
 walrus = "0.18.0"
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
@@ -54,7 +54,7 @@ costs_counting = ["near-vm-logic/costs_counting",
                   "testlib/costs_counting",
                   "near-evm-runner/costs_counting"]
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
-required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache", "near-store/single_thread_rocksdb"]
+required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
