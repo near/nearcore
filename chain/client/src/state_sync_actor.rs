@@ -318,15 +318,17 @@ impl StateSyncActor {
                             |challenge| challenges.write().unwrap().push(challenge)
                         ));
 
-                        self.client_addr.iter().cloned().map(|client_addr| {
-                            client_addr.do_send(NetworkClientMessages::SendChallenges(challenges));
-                        });
+                        let client_addr = self
+                            .client_addr
+                            .clone()
+                            .unwrap()
+                            .do_send(NetworkClientMessages::SendChallenges(challenges));
 
-                        self.client_addr.iter().cloned().map(|client_addr| {
-                            client_addr.do_send(NetworkClientMessages::ProcessAcceptedBlocked(
+                        self.client_addr.clone().unwrap().do_send(
+                            NetworkClientMessages::ProcessAcceptedBlocked(
                                 accepted_blocks.write().unwrap().drain(..).collect(),
-                            ));
-                        });
+                            ),
+                        );
 
                         self.shards_mgr.request_chunks(
                             blocks_missing_chunks.write().unwrap().drain(..).flatten(),
