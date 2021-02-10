@@ -1,11 +1,10 @@
 use crate::sync::{highest_height_peer, BlockSync, HeaderSync, StateSync, StateSyncResult};
+use actix::Message;
 use actix::{Actor, Addr, Arbiter, Context, Handler};
-use actix::{MailboxError, Message, Recipient};
 use near_chain_configs::ClientConfig;
-use near_client_primitives::types::{ShardSyncDownload, SyncStatus};
-use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkRequests};
+use near_client_primitives::types::SyncStatus;
+use near_network::{NetworkAdapter, NetworkClientMessages, NetworkRequests};
 use near_performance_metrics_macros::perf_with_debug;
-use near_primitives::unwrap_or_return;
 use std::sync::{Arc, RwLock};
 use strum::AsStaticStr;
 
@@ -20,7 +19,6 @@ use near_network::recorder::MetricRecorder;
 use near_network::types::NetworkInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::ShardId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
@@ -32,7 +30,7 @@ pub struct StateSyncActor {
     pub chain: Chain,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub sync_status: SyncStatus, // TODO, not yet updated
-    network_info: NetworkInfo,   // TODO:
+    network_info: NetworkInfo,
     pub shards_mgr: ShardsManager,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Keeps track of syncing headers.
@@ -208,12 +206,10 @@ impl StateSyncActor {
                 // Announce this client's account id if their epoch is coming up.
                 let head = unwrap_or_run_later!(self.chain.head());
 
-                self.client_addr.iter().cloned().map(|client_addr| {
-                    client_addr.do_send(NetworkClientMessages::CheckSendAnnounceAccount(
-                        head.prev_block_hash,
-                    ));
-                });
-                //self.check_send_announce_account(head.prev_block_hash);
+                self.client_addr
+                    .clone()
+                    .unwrap()
+                    .do_send(NetworkClientMessages::CheckSendAnnounceAccount(head.prev_block_hash));
             }
             wait_period = self.config.sync_check_period;
         } else {
@@ -318,8 +314,7 @@ impl StateSyncActor {
                             |challenge| challenges.write().unwrap().push(challenge)
                         ));
 
-                        let client_addr = self
-                            .client_addr
+                        self.client_addr
                             .clone()
                             .unwrap()
                             .do_send(NetworkClientMessages::SendChallenges(challenges));
@@ -428,22 +423,7 @@ impl Handler<StateSyncActorRequests> for StateSyncActor {
     type Result = ();
 
     #[perf_with_debug]
-    fn handle(&mut self, msg: StateSyncActorRequests, ctx: &mut Context<Self>) -> Self::Result {
-        macro_rules! unwrap_or_run_later(($obj: expr) => (match $obj {
-            Ok(v) => v,
-            Err(err) => {
-                error!(target: "sync", "Sync: Unexpected error: {}", err);
-
-            near_performance_metrics::actix::run_later(
-                ctx,
-                file!(),
-                line!(),
-                self.config.sync_step_period, move |act, ctx| {
-                    act.sync(ctx);
-                });
-                return;
-            }
-        }));
+    fn handle(&mut self, msg: StateSyncActorRequests, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             StateSyncActorRequests::ReceivedRequestedPart { part_id, shard_id, hash } => {
                 self.state_sync.received_requested_part(part_id, shard_id, hash);
@@ -461,7 +441,9 @@ impl Handler<StateSyncActorRequests> for StateSyncActor {
 impl Actor for StateSyncActor {
     type Context = Context<Self>;
 
-    fn started(&mut self, ctx: &mut Self::Context) {}
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.start_sync(ctx);
+    }
 }
 
 pub fn start_state_sync_actor(

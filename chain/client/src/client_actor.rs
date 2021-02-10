@@ -1,7 +1,6 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -12,7 +11,6 @@ use log::{debug, error, info, trace, warn};
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 #[cfg(feature = "adversarial")]
 use near_chain::StoreValidator;
@@ -49,7 +47,6 @@ use near_telemetry::TelemetryActor;
 use crate::client::Client;
 use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::state_sync_actor::{StateSyncActor, StateSyncActorRequests};
-use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;

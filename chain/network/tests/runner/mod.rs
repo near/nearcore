@@ -19,11 +19,10 @@ use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
     GetInfo, StopSignal, WaitOrTimeout,
 };
-use near_network::types::{OutboundTcpConnect, StateSyncActorResponses, ROUTED_MESSAGE_TTL};
+use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_iter;
 use near_network::{
-    NetworkClientMessages, NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses,
-    PeerInfo, PeerManagerActor,
+    NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;

@@ -40,7 +40,7 @@ use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::metrics;
-use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
+use crate::sync::{StateSync, StateSyncResult};
 use crate::SyncStatus;
 use near_client_primitives::types::{Error, ShardSyncDownload};
 use near_primitives::block_header::ApprovalType;
