@@ -24,7 +24,6 @@ sha3 = ">=0.8,<0.10"
 near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" }
 near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
 near-runtime-utils = { path = "../near-runtime-utils", version = "3.0.0" }
-# num-rational = { version = "0.3" }
 
 [dev-dependencies]
 serde_json = {version= "1", features= ["preserve_order"]}
