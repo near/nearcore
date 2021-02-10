@@ -1171,10 +1171,10 @@ pub fn create_chunk(
         swap(&mut merkle_paths, &mut new_merkle_paths);
     }
     match &mut chunk {
-        EncodedShardChunk::V1(ref mut chunk) => {
+        EncodedShardChunk::V1(chunk) => {
             chunk.header.height_included = next_height;
         }
-        EncodedShardChunk::V2(ref mut chunk) => {
+        EncodedShardChunk::V2(chunk) => {
             *chunk.header.height_included_mut() = next_height;
         }
     }
