@@ -2,7 +2,7 @@ use crate::sync::{highest_height_peer, BlockSync, HeaderSync, StateSync, StateSy
 use actix::Message;
 use actix::{Actor, Addr, Arbiter, Context, Handler};
 use near_chain_configs::ClientConfig;
-use near_client_primitives::types::{Error, ShardSyncDownload, SyncStatus};
+use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus, SyncStatus};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkRequests};
 use near_performance_metrics_macros::perf_with_debug;
 use std::sync::{Arc, RwLock};
@@ -12,14 +12,14 @@ use strum::AsStaticStr;
 use crate::ClientActor;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, RuntimeAdapter};
 use near_chunks::ShardsManager;
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
-use near_network::types::NetworkInfo;
+use near_network::types::{NetworkInfo, StateResponseInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -114,6 +114,7 @@ pub enum StateSyncActorRequests {
     ReceivedRequestedPart { part_id: u64, shard_id: u64, hash: CryptoHash },
     ClientAddr { addr: Addr<ClientActor> },
     NetworkInfo { network_info: NetworkInfo },
+    StateResponse(StateResponseInfo),
 }
 
 impl StateSyncActor {
@@ -132,7 +133,8 @@ impl StateSyncActor {
     fn catchup(&mut self, ctx: &mut Context<StateSyncActor>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client catchup".into());
-        match self.run_catchup(&self.network_info.highest_height_peers) {
+        // TODO clone was added
+        match self.run_catchup() {
             Ok(accepted_blocks) => {
                 NetworkClientMessages::ProcessAcceptedBlocked(accepted_blocks);
             }
@@ -153,10 +155,7 @@ impl StateSyncActor {
     }
 
     /// Walks through all the ongoing state syncs for future epochs and processes them
-    pub fn run_catchup(
-        &mut self,
-        highest_height_peers: &Vec<FullPeerInfo>,
-    ) -> Result<Vec<AcceptedBlock>, Error> {
+    pub fn run_catchup(&mut self) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
@@ -179,7 +178,7 @@ impl StateSyncActor {
                 new_shard_sync,
                 &mut self.chain,
                 &self.runtime_adapter,
-                highest_height_peers,
+                &self.network_info.highest_height_peers,
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
             )? {
                 StateSyncResult::Unchanged => {}
@@ -544,6 +543,116 @@ impl Handler<StateSyncActorRequests> for StateSyncActor {
             }
             StateSyncActorRequests::NetworkInfo { network_info } => {
                 self.network_info = network_info
+            }
+            StateSyncActorRequests::StateResponse(state_response_info) => {
+                let shard_id = state_response_info.shard_id();
+                let hash = state_response_info.sync_hash();
+                let state_response = state_response_info.take_state_response();
+
+                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
+                       shard_id,
+                       hash,
+                       state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
+                );
+                // Get the download that matches the shard_id and hash
+                let download = {
+                    let mut download: Option<&mut ShardSyncDownload> = None;
+
+                    // ... It could be that the state was requested by the state sync
+                    if let SyncStatus::StateSync(sync_hash, shards_to_download) =
+                        &mut self.sync_status
+                    {
+                        if hash == *sync_hash {
+                            if let Some(part_id) = state_response.part_id() {
+                                self.state_sync.received_requested_part(part_id, shard_id, hash);
+                            }
+
+                            if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                                assert!(
+                                    download.is_none(),
+                                    "Internal downloads set has duplicates"
+                                );
+                                download = Some(shard_download);
+                            } else {
+                                // This may happen because of sending too many StateRequests to different peers.
+                                // For example, we received StateResponse after StateSync completion.
+                            }
+                        }
+                    }
+
+                    // ... Or one of the catchups
+                    if let Some((_, shards_to_download)) = self.catchup_state_syncs.get_mut(&hash) {
+                        if let Some(part_id) = state_response.part_id() {
+                            self.state_sync.received_requested_part(part_id, shard_id, hash);
+                        }
+
+                        if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                            assert!(download.is_none(), "Internal downloads set has duplicates");
+                            download = Some(shard_download);
+                        } else {
+                            // This may happen because of sending too many StateRequests to different peers.
+                            // For example, we received StateResponse after StateSync completion.
+                        }
+                    }
+                    // We should not be requesting the same state twice.
+                    download
+                };
+
+                if let Some(shard_sync_download) = download {
+                    match shard_sync_download.status {
+                        ShardSyncStatus::StateDownloadHeader => {
+                            if let Some(header) = state_response.take_header() {
+                                if !shard_sync_download.downloads[0].done {
+                                    match self.chain.set_state_header(shard_id, hash, header) {
+                                        Ok(()) => {
+                                            shard_sync_download.downloads[0].done = true;
+                                        }
+                                        Err(err) => {
+                                            error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
+                                            shard_sync_download.downloads[0].error = true;
+                                        }
+                                    }
+                                }
+                            } else {
+                                // No header found.
+                                // It may happen because requested node couldn't build state response.
+                                if !shard_sync_download.downloads[0].done {
+                                    info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
+                                    shard_sync_download.downloads[0].error = true;
+                                }
+                            }
+                        }
+                        ShardSyncStatus::StateDownloadParts => {
+                            if let Some(part) = state_response.take_part() {
+                                let num_parts = shard_sync_download.downloads.len() as u64;
+                                let (part_id, data) = part;
+                                if part_id >= num_parts {
+                                    error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
+                                    return;
+                                }
+                                if !shard_sync_download.downloads[part_id as usize].done {
+                                    match self
+                                        .chain
+                                        .set_state_part(shard_id, hash, part_id, num_parts, &data)
+                                    {
+                                        Ok(()) => {
+                                            shard_sync_download.downloads[part_id as usize].done =
+                                                true;
+                                        }
+                                        Err(err) => {
+                                            error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
+                                            shard_sync_download.downloads[part_id as usize].error =
+                                                true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                } else {
+                    error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
+                }
             }
         }
     }
