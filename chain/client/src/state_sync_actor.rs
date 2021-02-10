@@ -2,16 +2,19 @@ use crate::sync::{highest_height_peer, BlockSync, HeaderSync, StateSync, StateSy
 use actix::Message;
 use actix::{Actor, Addr, Arbiter, Context, Handler};
 use near_chain_configs::ClientConfig;
-use near_client_primitives::types::SyncStatus;
-use near_network::{NetworkAdapter, NetworkClientMessages, NetworkRequests};
+use near_client_primitives::types::{Error, ShardSyncDownload, SyncStatus};
+use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkRequests};
 use near_performance_metrics_macros::perf_with_debug;
 use std::sync::{Arc, RwLock};
 use strum::AsStaticStr;
 
 // use delay_detector::DelayDetector;
 use crate::ClientActor;
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use log::{debug, error, info, warn};
 use near_chain::test_utils::format_hash;
+use near_chain::types::AcceptedBlock;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, RuntimeAdapter};
 use near_chunks::ShardsManager;
 #[cfg(feature = "metric_recorder")]
@@ -38,6 +41,9 @@ pub struct StateSyncActor {
     /// Keeps track of syncing block.
     pub block_sync: BlockSync,
     client_addr: Option<Addr<ClientActor>>,
+    /// A mapping from a block for which a state sync is underway for the next epoch, and the object
+    /// storing the current status of the state sync
+    pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
 }
 
 impl StateSyncActor {
@@ -97,6 +103,7 @@ impl StateSyncActor {
             header_sync,
             block_sync,
             client_addr: None,
+            catchup_state_syncs: HashMap::new(),
         }
     }
 }
@@ -119,6 +126,110 @@ impl StateSyncActor {
         }
 
         needs_syncing
+    }
+
+    /// Runs catchup on repeat, if this client is a validator.
+    fn catchup(&mut self, ctx: &mut Context<StateSyncActor>) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client catchup".into());
+        match self.run_catchup(&self.network_info.highest_height_peers) {
+            Ok(accepted_blocks) => {
+                NetworkClientMessages::ProcessAcceptedBlocked(accepted_blocks);
+            }
+            Err(err) => {
+                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.validator_signer.as_ref().map(|vs| vs.validator_id()), err)
+            }
+        }
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.config.catchup_step_period,
+            move |act, ctx| {
+                act.catchup(ctx);
+            },
+        );
+    }
+
+    /// Walks through all the ongoing state syncs for future epochs and processes them
+    pub fn run_catchup(
+        &mut self,
+        highest_height_peers: &Vec<FullPeerInfo>,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
+        let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
+            assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
+            let network_adapter1 = self.network_adapter.clone();
+
+            let state_sync_timeout = self.config.state_sync_timeout;
+            let (state_sync, new_shard_sync) =
+                self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
+                    (StateSync::new(network_adapter1, state_sync_timeout), HashMap::new())
+                });
+
+            debug!(
+                target: "client",
+                "Catchup me: {:?}: sync_hash: {:?}, sync_info: {:?}", me, sync_hash, new_shard_sync
+            );
+
+            match state_sync.run(
+                me,
+                sync_hash,
+                new_shard_sync,
+                &mut self.chain,
+                &self.runtime_adapter,
+                highest_height_peers,
+                state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
+            )? {
+                StateSyncResult::Unchanged => {}
+                StateSyncResult::Changed(fetch_block) => {
+                    assert!(!fetch_block);
+                }
+                StateSyncResult::Completed => {
+                    let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                    let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+                    let challenges = Arc::new(RwLock::new(vec![]));
+
+                    self.chain.catchup_blocks(
+                        me,
+                        &sync_hash,
+                        |accepted_block| {
+                            accepted_blocks.write().unwrap().push(accepted_block);
+                        },
+                        |missing_chunks| {
+                            blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                        },
+                        |challenge| challenges.write().unwrap().push(challenge),
+                    )?;
+
+                    self.client_addr
+                        .clone()
+                        .unwrap()
+                        .do_send(NetworkClientMessages::SendChallenges(challenges));
+
+                    self.shards_mgr.request_chunks(
+                        blocks_missing_chunks
+                            .write()
+                            .unwrap()
+                            .drain(..)
+                            .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                        &self.chain.header_head()?,
+                        // It is ok to pass the latest protocol version here since we are likely
+                        // syncing old blocks, which means the protocol version will not change
+                        // the logic. Even in the worst case where we are syncing a recent block,
+                        // the only impact is the request will be sent after some delay.
+                        PROTOCOL_VERSION,
+                    );
+
+                    let unwrapped_accepted_blocks =
+                        accepted_blocks.write().unwrap().drain(..).collect();
+                    return Ok(unwrapped_accepted_blocks);
+                }
+            }
+        }
+
+        Ok(vec![])
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
@@ -443,6 +554,9 @@ impl Actor for StateSyncActor {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.start_sync(ctx);
+
+        // Start catchup job.
+        self.catchup(ctx);
     }
 }
 

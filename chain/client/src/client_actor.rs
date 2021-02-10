@@ -183,7 +183,7 @@ impl Actor for ClientActor {
         self.schedule_triggers(ctx);
 
         // Start catchup job.
-        self.catchup(ctx);
+        //self.catchup(ctx);
 
         // Start periodic logging of current state of the client.
         self.log_summary(ctx);
@@ -1080,30 +1080,6 @@ impl ClientActor {
                 error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e)
             }
         }
-    }
-
-    /// Runs catchup on repeat, if this client is a validator.
-    fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client catchup".into());
-        match self.client.run_catchup(&self.network_info.highest_height_peers) {
-            Ok(accepted_blocks) => {
-                self.process_accepted_blocks(accepted_blocks);
-            }
-            Err(err) => {
-                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err)
-            }
-        }
-
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            self.client.config.catchup_step_period,
-            move |act, ctx| {
-                act.catchup(ctx);
-            },
-        );
     }
 
     fn run_timer<F>(

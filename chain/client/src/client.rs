@@ -72,7 +72,7 @@ pub struct Client {
     pending_approvals: SizedCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
-    pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
+    //pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
     /// Keeps track of syncing state.
     //pub state_sync: StateSync,
     /// List of currently accumulated challenges.
@@ -136,7 +136,7 @@ impl Client {
             network_adapter,
             validator_signer,
             pending_approvals: SizedCache::with_size(num_block_producer_seats),
-            catchup_state_syncs: HashMap::new(),
+            //catchup_state_syncs: HashMap::new(),
             //state_sync,
             challenges: Default::default(),
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
@@ -1497,83 +1497,6 @@ impl Client {
             }
         }
         Ok(false)
-    }
-
-    /// Walks through all the ongoing state syncs for future epochs and processes them
-    pub fn run_catchup(
-        &mut self,
-        highest_height_peers: &Vec<FullPeerInfo>,
-    ) -> Result<Vec<AcceptedBlock>, Error> {
-        let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
-        for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
-            assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
-            let network_adapter1 = self.network_adapter.clone();
-
-            let state_sync_timeout = self.config.state_sync_timeout;
-            let (state_sync, new_shard_sync) =
-                self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
-                    (StateSync::new(network_adapter1, state_sync_timeout), HashMap::new())
-                });
-
-            debug!(
-                target: "client",
-                "Catchup me: {:?}: sync_hash: {:?}, sync_info: {:?}", me, sync_hash, new_shard_sync
-            );
-
-            match state_sync.run(
-                me,
-                sync_hash,
-                new_shard_sync,
-                &mut self.chain,
-                &self.runtime_adapter,
-                highest_height_peers,
-                state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
-            )? {
-                StateSyncResult::Unchanged => {}
-                StateSyncResult::Changed(fetch_block) => {
-                    assert!(!fetch_block);
-                }
-                StateSyncResult::Completed => {
-                    let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                    let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-                    let challenges = Arc::new(RwLock::new(vec![]));
-
-                    self.chain.catchup_blocks(
-                        me,
-                        &sync_hash,
-                        |accepted_block| {
-                            accepted_blocks.write().unwrap().push(accepted_block);
-                        },
-                        |missing_chunks| {
-                            blocks_missing_chunks.write().unwrap().push(missing_chunks)
-                        },
-                        |challenge| challenges.write().unwrap().push(challenge),
-                    )?;
-
-                    self.send_challenges(challenges);
-
-                    self.shards_mgr.request_chunks(
-                        blocks_missing_chunks
-                            .write()
-                            .unwrap()
-                            .drain(..)
-                            .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                        &self.chain.header_head()?,
-                        // It is ok to pass the latest protocol version here since we are likely
-                        // syncing old blocks, which means the protocol version will not change
-                        // the logic. Even in the worst case where we are syncing a recent block,
-                        // the only impact is the request will be sent after some delay.
-                        PROTOCOL_VERSION,
-                    );
-
-                    let unwrapped_accepted_blocks =
-                        accepted_blocks.write().unwrap().drain(..).collect();
-                    return Ok(unwrapped_accepted_blocks);
-                }
-            }
-        }
-
-        Ok(vec![])
     }
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.
