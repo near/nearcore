@@ -3430,8 +3430,9 @@ dependencies = [
 
 [[package]]
 name = "near-rust-allocator-proxy"
-version = "0.2.6"
-source = "git+https://github.com/near/near-memory-tracker.git?tag=v0.2.6#567647c4987d4f04910ab47e00f427c0c1bf3bf6"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74a52d373eeb19962f3a5e05b716957196a124de1484153f6cb081c36f54cb79"
 dependencies = [
  "arr_macro",
  "backtrace",
