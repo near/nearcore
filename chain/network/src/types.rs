@@ -43,6 +43,7 @@ use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use std::fmt::{Debug, Error, Formatter};
 use std::io;
 
+use near_chain::types::AcceptedBlock;
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_primitives::merkle::combine_hash;
 
@@ -1146,6 +1147,11 @@ pub struct Ban {
     pub ban_reason: ReasonForBan,
 }
 
+#[derive(Eq, PartialEq, Debug)]
+pub enum StateSyncActorResponses {
+    NoResponse,
+}
+
 // TODO(#1313): Use Box
 #[derive(Debug, Clone, PartialEq, strum::AsRefStr)]
 #[allow(clippy::large_enum_variant)]
@@ -1392,6 +1398,9 @@ pub enum NetworkAdversarialMessage {
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
+    CheckSendAnnounceAccount(CryptoHash),
+    ProcessAcceptedBlocked(Vec<AcceptedBlock>),
+
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),
 

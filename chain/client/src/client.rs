@@ -73,12 +73,8 @@ pub struct Client {
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
-    /// Keeps track of syncing headers.
-    pub header_sync: HeaderSync,
-    /// Keeps track of syncing block.
-    pub block_sync: BlockSync,
     /// Keeps track of syncing state.
-    pub state_sync: StateSync,
+    //pub state_sync: StateSync,
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// A ReedSolomon instance to reconstruct shard.
@@ -111,16 +107,7 @@ impl Client {
             network_adapter.clone(),
         );
         let sync_status = SyncStatus::AwaitingPeers;
-        let header_sync = HeaderSync::new(
-            network_adapter.clone(),
-            config.header_sync_initial_timeout,
-            config.header_sync_progress_timeout,
-            config.header_sync_stall_ban_timeout,
-            config.header_sync_expected_height_per_second,
-        );
-        let block_sync =
-            BlockSync::new(network_adapter.clone(), config.block_fetch_horizon, config.archive);
-        let state_sync = StateSync::new(network_adapter.clone(), config.state_sync_timeout);
+        //let state_sync = StateSync::new(network_adapter.clone(), config.state_sync_timeout);
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
         let parity_parts = runtime_adapter.num_total_parts() - data_parts;
@@ -150,9 +137,7 @@ impl Client {
             validator_signer,
             pending_approvals: SizedCache::with_size(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
-            header_sync,
-            block_sync,
-            state_sync,
+            //state_sync,
             challenges: Default::default(),
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),

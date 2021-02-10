@@ -19,6 +19,7 @@ mod client;
 mod client_actor;
 mod info;
 mod metrics;
+pub mod state_sync_actor;
 pub mod sync;
 pub mod test_utils;
 mod view_client;

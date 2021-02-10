@@ -41,6 +41,7 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
+use crate::state_sync_actor::{start_state_sync_actor, StateSyncActor, StateSyncActorRequests};
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
@@ -69,7 +70,7 @@ pub fn setup(
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
-) -> (Block, ClientActor, Addr<ViewClientActor>) {
+) -> (Block, ClientActor, Addr<ViewClientActor>, Addr<StateSyncActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
@@ -123,6 +124,15 @@ pub fn setup(
         adv.clone(),
     );
 
+    let (state_sync_client_addr, _) = start_state_sync_actor(
+        config.clone(),
+        network_adapter.clone(),
+        runtime.clone(),
+        chain_genesis.clone(),
+        enable_doomslug,
+        Some(signer.clone()),
+    );
+
     let client = ClientActor::new(
         config,
         chain_genesis,
@@ -134,9 +144,10 @@ pub fn setup(
         enable_doomslug,
         #[cfg(feature = "adversarial")]
         adv,
+        state_sync_client_addr.clone(),
     )
     .unwrap();
-    (genesis_block, client, view_client_addr)
+    (genesis_block, client, view_client_addr, state_sync_client_addr)
 }
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
@@ -178,7 +189,7 @@ pub fn setup_mock_with_validity_period(
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
-    let (_, client, view_client_addr) = setup(
+    let (_, client, view_client_addr, state_sync_actor_addr) = setup(
         vec![validators],
         1,
         1,
@@ -204,7 +215,7 @@ pub fn setup_mock_with_validity_period(
     .start();
 
     network_adapter.set_recipient(network_actor.recipient());
-
+    // TODO: state_sync_actor_addr
     (client_addr, view_client_addr)
 }
 
@@ -405,6 +416,8 @@ pub fn setup_mock_all_validators(
         let block_stats1 = block_stats.clone();
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
+        let state_sync_addr = Arc::new(RwLock::new(None));
+        let state_sync_addr1 = state_sync_addr.clone();
         let validators_clone1 = validators_clone.clone();
         let validators_clone2 = validators_clone.clone();
         let genesis_block1 = genesis_block.clone();
@@ -820,7 +833,7 @@ pub fn setup_mock_all_validators(
             .start();
             let network_adapter = NetworkRecipient::new();
             network_adapter.set_recipient(pm.recipient());
-            let (block, client, view_client_addr) = setup(
+            let (block, client, view_client_addr, state_sync_addr) = setup(
                 validators_clone1.clone(),
                 validator_groups,
                 num_shards,
@@ -837,8 +850,12 @@ pub fn setup_mock_all_validators(
             );
             *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
+            *state_sync_addr1.write().unwrap() = Some(state_sync_addr);
             client
         });
+
+        let addr = state_sync_addr.write().unwrap().clone().unwrap();
+        addr.do_send(StateSyncActorRequests::ClientAddr { addr: client_addr.clone() });
 
         ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
     }

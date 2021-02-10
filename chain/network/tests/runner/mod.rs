@@ -11,6 +11,7 @@ use futures::{future, FutureExt, TryFutureExt};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
+use near_client::state_sync_actor::{start_state_sync_actor, StateSyncActorRequests};
 use near_client::{start_view_client, ClientActor};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
@@ -18,10 +19,11 @@ use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
     GetInfo, StopSignal, WaitOrTimeout,
 };
-use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
+use near_network::types::{OutboundTcpConnect, StateSyncActorResponses, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_iter;
 use near_network::{
-    NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
+    NetworkClientMessages, NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses,
+    PeerInfo, PeerManagerActor,
 };
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -70,6 +72,15 @@ pub fn setup_network_node(
         #[cfg(feature = "adversarial")]
         let adv = Arc::new(RwLock::new(Default::default()));
 
+        let (state_sync_client_addr, _) = start_state_sync_actor(
+            client_config.clone(),
+            network_adapter.clone(),
+            runtime.clone(),
+            chain_genesis.clone(),
+            false,
+            Some(signer.clone()),
+        );
+
         let client_actor = ClientActor::new(
             client_config.clone(),
             chain_genesis.clone(),
@@ -81,9 +92,13 @@ pub fn setup_network_node(
             false,
             #[cfg(feature = "adversarial")]
             adv.clone(),
+            state_sync_client_addr.clone(),
         )
         .unwrap()
         .start();
+
+        state_sync_client_addr
+            .do_send(StateSyncActorRequests::ClientAddr { addr: client_actor.clone() });
         let view_client_actor = start_view_client(
             config.account_id.clone(),
             chain_genesis.clone(),
