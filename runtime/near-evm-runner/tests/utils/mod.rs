@@ -7,8 +7,8 @@ use near_evm_runner::types::{EthSignedTransaction, EthTransaction, MetaCallArgs}
 use near_evm_runner::utils::{near_erc712_domain, prepare_meta_call_args, u256_to_arr};
 use near_evm_runner::EvmContext;
 use near_primitives::config::VMConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::Balance;
-use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use rlp::RlpStream;
 

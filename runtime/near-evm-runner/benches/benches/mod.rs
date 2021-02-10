@@ -1,5 +1,5 @@
 use near_evm_runner::run_evm;
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_errors::VMError;
 use near_vm_logic::{External, VMConfig, VMOutcome};
 

@@ -1,12 +1,12 @@
 use crate::{HostError, VMLogicError};
+#[cfg(feature = "protocol_feature_evm")]
+use near_primitives_core::runtime::fees::EvmGas;
+use near_primitives_core::runtime::fees::Fee;
 use near_primitives_core::{
     config::{ActionCosts, ExtCosts, ExtCostsConfig},
     profile::ProfileData,
     types::Gas,
 };
-#[cfg(feature = "protocol_feature_evm")]
-use near_runtime_fees::EvmGas;
-use near_runtime_fees::Fee;
 use std::fmt;
 
 #[cfg(feature = "costs_counting")]

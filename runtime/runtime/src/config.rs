@@ -1,11 +1,11 @@
 //! Settings of the parameters of the runtime.
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_runtime_fees::RuntimeFeesConfig;
 
 // Just re-exporting RuntimeConfig for backwards compatibility.
 pub use near_primitives::num_rational::Rational;
