@@ -116,7 +116,15 @@ impl<'a> TrieIterator<'a> {
                         hash = child;
                         key = key.mid(existing_key.len());
                     } else {
-                        self.descend_into_node(&copy_node);
+                        self.trail.push(Crumb {
+                            status: if existing_key >= key {
+                                CrumbStatus::Entering
+                            } else {
+                                CrumbStatus::Exiting
+                            },
+                            node: copy_node,
+                        });
+                        self.key_nibbles.extend(existing_key.iter());
                         return Ok(());
                     }
                 }
