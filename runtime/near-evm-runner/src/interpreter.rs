@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ethereum_types::{Address, U256};
 use evm::{CreateContractAddress, Factory};
-use near_runtime_fees::EvmCostConfig;
+use near_primitives::runtime::fees::EvmCostConfig;
 use near_vm_errors::{EvmError, VMLogicError};
 use vm::{
     ActionParams, ActionType, ActionValue, ContractCreateResult, ExecTrapResult, Ext, GasLeft,

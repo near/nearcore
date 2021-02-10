@@ -13,7 +13,7 @@ use near_evm_runner::utils::{
     encode_view_call_function_args, near_account_id_to_evm_address, near_erc712_domain,
     parse_meta_call, u256_to_arr,
 };
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_errors::{EvmError, VMLogicError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::VMConfig;
