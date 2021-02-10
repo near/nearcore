@@ -3,7 +3,7 @@ use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -19,7 +19,7 @@ use tracing::{error, warn};
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
-use near_primitives::challenge::Challenge;
+use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -1286,7 +1286,7 @@ pub struct KnownProducer {
     pub peer_id: PeerId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NetworkInfo {
     pub active_peers: Vec<FullPeerInfo>,
     pub num_active_peers: usize,
@@ -1400,6 +1400,7 @@ pub enum NetworkAdversarialMessage {
 pub enum NetworkClientMessages {
     CheckSendAnnounceAccount(CryptoHash),
     ProcessAcceptedBlocked(Vec<AcceptedBlock>),
+    SendChallenges(Arc<RwLock<Vec<ChallengeBody>>>),
 
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),

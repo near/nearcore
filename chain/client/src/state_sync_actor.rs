@@ -108,6 +108,7 @@ impl StateSyncActor {
 pub enum StateSyncActorRequests {
     ReceivedRequestedPart { part_id: u64, shard_id: u64, hash: CryptoHash },
     ClientAddr { addr: Addr<ClientActor> },
+    NetworkInfo { network_info: NetworkInfo },
 }
 
 impl StateSyncActor {
@@ -317,12 +318,14 @@ impl StateSyncActor {
                             |challenge| challenges.write().unwrap().push(challenge)
                         ));
 
-                        // self.send_challenges(challenges); TODO: piotr
+                        self.client_addr.iter().cloned().map(|client_addr| {
+                            client_addr.do_send(NetworkClientMessages::SendChallenges(challenges));
+                        });
 
                         self.client_addr.iter().cloned().map(|client_addr| {
-                            NetworkClientMessages::ProcessAcceptedBlocked(
+                            client_addr.do_send(NetworkClientMessages::ProcessAcceptedBlocked(
                                 accepted_blocks.write().unwrap().drain(..).collect(),
-                            );
+                            ));
                         });
 
                         self.shards_mgr.request_chunks(
@@ -445,6 +448,9 @@ impl Handler<StateSyncActorRequests> for StateSyncActor {
             }
             StateSyncActorRequests::ClientAddr { addr } => {
                 self.client_addr = Some(addr);
+            }
+            StateSyncActorRequests::NetworkInfo { network_info } => {
+                self.network_info = network_info
             }
         }
     }

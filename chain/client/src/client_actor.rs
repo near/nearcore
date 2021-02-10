@@ -89,7 +89,7 @@ pub struct ClientActor {
     doomslug_timer_next_attempt: DateTime<Utc>,
     chunk_request_retry_next_attempt: DateTime<Utc>,
     sync_started: bool,
-    state_sync_actor: Addr<StateSyncActor>,
+    state_sync_addr: Addr<StateSyncActor>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -165,7 +165,7 @@ impl ClientActor {
             doomslug_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
             sync_started: false,
-            state_sync_actor,
+            state_sync_addr: state_sync_actor,
         })
     }
 }
@@ -210,6 +210,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::ProcessAcceptedBlocked(accepted_blocks) => {
                 //            fn process_accepted_blocks(&mut self, accepted_blocks: Vec<AcceptedBlock>) {
                 self.process_accepted_blocks(accepted_blocks);
+                NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::SendChallenges(challenges) => {
+                self.client.send_challenges(challenges);
                 NetworkClientResponses::NoResponse
             }
             #[cfg(feature = "adversarial")]
@@ -382,7 +386,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     {
                         if hash == *sync_hash {
                             if let Some(part_id) = state_response.part_id() {
-                                self.state_sync_actor.do_send(
+                                self.state_sync_addr.do_send(
                                     StateSyncActorRequests::ReceivedRequestedPart {
                                         part_id,
                                         shard_id,
@@ -409,7 +413,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         self.client.catchup_state_syncs.get_mut(&hash)
                     {
                         if let Some(part_id) = state_response.part_id() {
-                            self.state_sync_actor.do_send(
+                            self.state_sync_addr.do_send(
                                 StateSyncActorRequests::ReceivedRequestedPart {
                                     part_id,
                                     shard_id,
@@ -536,7 +540,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::NetworkInfo(network_info) => {
-                self.network_info = network_info;
+                self.network_info = network_info.clone();
+                self.state_sync_addr.do_send(StateSyncActorRequests::NetworkInfo { network_info });
                 NetworkClientResponses::NoResponse
             }
         }
