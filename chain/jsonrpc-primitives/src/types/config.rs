@@ -41,7 +41,7 @@ impl From<near_client_primitives::types::GetProtocolConfigError> for RpcProtocol
     fn from(error: near_client_primitives::types::GetProtocolConfigError) -> Self {
         match error {
             near_client_primitives::types::GetProtocolConfigError::UnknownBlock(s) => {
-                Self::BlockNotFound(s)
+                Self::UnknownBlock(s)
             }
             near_client_primitives::types::GetProtocolConfigError::IOError(s) => {
                 Self::InternalError(s)
@@ -66,7 +66,7 @@ impl From<actix::MailboxError> for RpcProtocolConfigError {
 impl From<RpcProtocolConfigError> for crate::errors::RpcError {
     fn from(error: RpcProtocolConfigError) -> Self {
         let error_data = match error {
-            RpcProtocolConfigError::BlockNotFound(hash) => {
+            RpcProtocolConfigError::UnknownBlock(hash) => {
                 Some(Value::String(format!("Block Not Found: {}", hash)))
             }
             RpcProtocolConfigError::Unreachable(s) => Some(Value::String(s)),
