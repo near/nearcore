@@ -462,6 +462,8 @@ impl Client {
             seen: to_timestamp(Utc::now()),
         })?;
 
+        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
+
         Ok(Some(block))
     }
 
@@ -569,7 +571,7 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
+        near_metrics::inc_counter(&metrics::CHUNK_PRODUCED_TOTAL);
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
