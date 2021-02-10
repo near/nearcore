@@ -81,8 +81,8 @@ pub enum TrieKey {
     /// Used to store a key-value record `Vec<u8>` within a contract deployed on a given `AccountId`
     /// and a given key.
     ContractData { account_id: AccountId, key: Vec<u8> },
-    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
     /// Used to store transaction hashes for a given block.
+    #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
     BlockTransactionHashes { height: BlockHeight },
     #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
     /// Hash of transactions originated from `account_id`.
