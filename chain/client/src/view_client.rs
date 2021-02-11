@@ -852,6 +852,40 @@ impl Handler<GetBlockProof> for ViewClientActor {
     }
 }
 
+impl Handler<GetProtocolConfig> for ViewClientActor {
+    type Result = Result<ProtocolConfigView, GetProtocolConfigError>;
+
+    #[perf]
+    fn handle(&mut self, msg: GetProtocolConfig, _: &mut Self::Context) -> Self::Result {
+        let block_header = match msg.0 {
+            BlockReference::Finality(finality) => {
+                let block_hash = self.get_block_hash_by_finality(&finality)?;
+                self.chain.get_block_header(&block_hash).map(Clone::clone)
+            }
+            BlockReference::BlockId(BlockId::Height(height)) => {
+                self.chain.get_header_by_height(height).map(Clone::clone)
+            }
+            BlockReference::BlockId(BlockId::Hash(hash)) => {
+                self.chain.get_block_header(&hash).map(Clone::clone)
+            }
+            BlockReference::SyncCheckpoint(sync_checkpoint) => {
+                if let Some(block_hash) =
+                    self.get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
+                {
+                    self.chain.get_block_header(&block_hash).map(Clone::clone)
+                } else {
+                    return Err(GetProtocolConfigError::UnknownBlock(format!(
+                        "{:?}",
+                        sync_checkpoint
+                    )));
+                }
+            }
+        }?;
+        let config = self.runtime_adapter.get_protocol_config(block_header.epoch_id())?;
+        Ok(config.into())
+    }
+}
+
 impl Handler<NetworkViewClientMessages> for ViewClientActor {
     type Result = NetworkViewClientResponses;
 
