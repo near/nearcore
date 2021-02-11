@@ -954,6 +954,27 @@ mod tests {
     }
 
     #[test]
+    fn test_iterator_seek() {
+        let mut rng = rand::thread_rng();
+        for _test_run in 0..10 {
+            let tries = create_tries();
+            let trie = tries.get_trie_for_shard(0);
+            let trie_changes = gen_changes(&mut rng, 500);
+
+            let state_root =
+                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let queries = gen_changes(&mut rng, 500).into_iter().map(|(key, _)| key);
+            for query in queries {
+                let mut iterator = trie.iter(&state_root).unwrap();
+                iterator.seek(&query).unwrap();
+                if let Some(Ok((key, _))) = iterator.next() {
+                    assert!(key >= query);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_refcounts() {
         let mut rng = rand::thread_rng();
         for _test_run in 0..10 {
