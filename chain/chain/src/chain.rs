@@ -2455,7 +2455,6 @@ impl Chain {
 /// and decide to accept it or reject it.
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
-#[allow(unused)]
 pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
@@ -2465,6 +2464,7 @@ pub struct ChainUpdate<'a> {
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
     genesis: &'a Block,
+    #[allow(unused)]
     transaction_validity_period: BlockHeight,
 }
 

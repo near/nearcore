@@ -540,7 +540,7 @@ impl NightshadeRuntime {
     }
 
     #[allow(unused_variables)]
-    fn check_duplicate_transaction(
+    fn is_duplicate_transaction(
         &self,
         state_update: &TrieUpdate,
         tx: &SignedTransaction,
@@ -632,7 +632,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
             let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
             #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
-            if self.check_duplicate_transaction(&state_update, transaction)? {
+            if self.is_duplicate_transaction(&state_update, transaction)? {
                 return Ok(Some(InvalidTxError::DuplicateTransaction));
             }
 
@@ -705,9 +705,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
                     // Verifying the transaction is on the same chain and hasn't expired yet.
-                    if chain_validate(&tx)
-                        && !self.check_duplicate_transaction(&state_update, &tx)?
-                    {
+                    if chain_validate(&tx) && !self.is_duplicate_transaction(&state_update, &tx)? {
                         // Verifying the validity of the transaction based on the current state.
 
                         match verify_and_charge_transaction(

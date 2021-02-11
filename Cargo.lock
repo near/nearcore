@@ -3557,6 +3557,7 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-rosetta-rpc",
  "near-store",
  "neard",
  "node-runtime",

@@ -20,8 +20,8 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
-    EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
-    StateRoot, ValidatorStake,
+    EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey, ShardId,
+    ShardTransactionHashes, StateChangeCause, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{
     create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
@@ -1276,21 +1276,30 @@ impl Runtime {
             TransactionHashesInState,
             apply_state.current_protocol_version,
             {
-                set(
-                    &mut state_update,
-                    TrieKey::BlockTransactionHashes { height: apply_state.block_index },
-                    &transaction_hash_keys,
-                );
-                for height in apply_state
+                // We maintain a window of length `transaction_validity_period + 1` in state.
+                // There is a `+1` because of how `near_store::check_transaction_validity_period`
+                // is implemented.
+                // When we process block h, we save the transaction hashes in the current block.
+                // At the same time, we need to remove all hashes of height < max(h - transaction_validity_period, 0)
+                // By induction, it suffices to remove all heights from `prev(h) - transaction_validity_period`
+                // to `h - transaction_validity_period` (exclusive).
+                if !transaction_hash_keys.is_empty() {
+                    set(
+                        &mut state_update,
+                        TrieKey::BlockTransactionHashes { height: apply_state.block_index },
+                        &transaction_hash_keys,
+                    );
+                }
+
+                let start_height = apply_state
                     .prev_block_height
-                    .saturating_sub(apply_state.transaction_validity_period)
-                    ..apply_state
-                        .block_index
-                        .saturating_sub(apply_state.transaction_validity_period)
-                {
+                    .saturating_sub(apply_state.transaction_validity_period);
+                let stop_height =
+                    apply_state.block_index.saturating_sub(apply_state.transaction_validity_period);
+                for height in start_height..stop_height {
                     let trie_key = TrieKey::BlockTransactionHashes { height };
                     let transaction_hash_keys =
-                        get::<Vec<(AccountId, CryptoHash)>>(&state_update, &trie_key)?
+                        get::<ShardTransactionHashes>(&state_update, &trie_key)?
                             .unwrap_or_default();
                     for (account_id, hash) in transaction_hash_keys {
                         state_update.remove(TrieKey::AccountTransactionHash { account_id, hash });

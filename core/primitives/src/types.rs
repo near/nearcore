@@ -611,3 +611,6 @@ pub trait EpochInfoProvider {
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
 }
+
+pub type ShardTransactionHash = (AccountId, CryptoHash);
+pub type ShardTransactionHashes = Vec<ShardTransactionHash>;
