@@ -7,15 +7,27 @@ use near_primitives_core::{
     profile::ProfileData,
     types::Gas,
 };
+use std::collections::HashMap;
 use std::fmt;
 
 #[cfg(feature = "costs_counting")]
 thread_local! {
-    pub static EXT_COSTS_COUNTER: std::cell::RefCell<std::collections::HashMap<ExtCosts, u64>> =
-        Default::default();
-
     #[cfg(feature = "protocol_feature_evm")]
     pub static EVM_GAS_COUNTER: std::cell::RefCell<EvmGas> = Default::default();
+}
+
+#[inline]
+pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
+    #[cfg(feature = "costs_counting")]
+    {
+        thread_local! {
+            static EXT_COSTS_COUNTER: std::cell::RefCell<HashMap<ExtCosts, u64>> =
+                Default::default();
+        }
+        EXT_COSTS_COUNTER.with(|rc| f(&mut *rc.borrow_mut()));
+    }
+    #[cfg(not(feature = "costs_counting"))]
+    let _ = f;
 }
 
 #[cfg(all(feature = "costs_counting", feature = "protocol_feature_evm"))]
@@ -106,10 +118,7 @@ impl GasCounter {
 
     #[inline]
     fn inc_ext_costs_counter(&mut self, cost: ExtCosts, value: u64) {
-        #[cfg(feature = "costs_counting")]
-        EXT_COSTS_COUNTER.with(|f| {
-            *f.borrow_mut().entry(cost).or_default() += value;
-        });
+        with_ext_cost_counter(|cc| *cc.entry(cost).or_default() += value)
     }
 
     #[inline]
