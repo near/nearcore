@@ -96,6 +96,13 @@ impl StateRecord {
                 Some(StateRecord::DelayedReceipt(Box::new(receipt)))
             }
             col::DELAYED_RECEIPT_INDICES => None,
+            // Return None for the following since if we dump the state and restart the network,
+            // there is no need to keep the data since they are used solely for checking transaction
+            // validity.
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            col::ACCOUNT_TRANSACTION_HASH => None,
+            #[cfg(feature = "protocol_feature_transaction_hashes_in_state")]
+            col::BLOCK_TRANSACTION_HASH => None,
             _ => unreachable!(),
         }
     }

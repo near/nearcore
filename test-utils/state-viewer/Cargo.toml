@@ -23,3 +23,6 @@ neard = { path = "../../neard" }
 [dev-dependencies]
 serde_json = "1"
 near-client = { path = "../../chain/client" }
+
+[features]
+protocol_feature_transaction_hashes_in_state = ["neard/protocol_feature_transaction_hashes_in_state"]
