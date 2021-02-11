@@ -27,7 +27,7 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::rpc::{
     RpcBroadcastTxSyncResponse, RpcLightClientExecutionProofRequest,
-    RpcLightClientExecutionProofResponse, RpcQueryRequest, RpcStateChangesInBlockRequest,
+    RpcLightClientExecutionProofResponse, RpcStateChangesInBlockRequest,
     RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
     RpcValidatorsOrderedRequest, TransactionInfo,
 };
@@ -38,12 +38,10 @@ use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{from_base, from_base64, BaseEncode};
+use near_primitives::serialize::{from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference, MaybeBlockId};
-use near_primitives::views::{
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, QueryRequest,
-};
+use near_primitives::types::{AccountId, MaybeBlockId};
+use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum};
 use near_runtime_utils::is_valid_account_id;
 
 mod metrics;
@@ -102,10 +100,6 @@ impl RpcConfig {
     pub fn new(addr: &str) -> Self {
         RpcConfig { addr: addr.to_owned(), ..Default::default() }
     }
-}
-
-fn from_base_or_parse_err(encoded: String) -> Result<Vec<u8>, RpcError> {
-    from_base(&encoded).map_err(|err| RpcError::parse_error(err.to_string()))
 }
 
 fn from_base64_or_parse_err(encoded: String) -> Result<Vec<u8>, RpcError> {
@@ -251,6 +245,9 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
             "EXPERIMENTAL_check_tx" => self.check_tx(request.params).await,
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
+            "EXPERIMENTAL_light_client_proof" => {
+                self.light_client_execution_outcome_proof(request.params).await
+            }
             "EXPERIMENTAL_protocol_config" => {
                 let rpc_protocol_config_request =
                     near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest::parse(
@@ -258,9 +255,6 @@ impl JsonRpcHandler {
                     )?;
                 let config = self.protocol_config(rpc_protocol_config_request).await?;
                 serde_json::to_value(config).map_err(|err| RpcError::parse_error(err.to_string()))
-            }
-            "EXPERIMENTAL_light_client_proof" => {
-                self.light_client_execution_outcome_proof(request.params).await
             }
             "EXPERIMENTAL_receipt" => {
                 let rpc_receipt_request =
@@ -277,7 +271,13 @@ impl JsonRpcHandler {
             "light_client_proof" => self.light_client_execution_outcome_proof(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
-            "query" => self.query(request.params).await,
+            "query" => {
+                let rpc_query_request =
+                    near_jsonrpc_primitives::types::query::RpcQueryRequest::parse(request.params)?;
+                let query_response = self.query(rpc_query_request).await?;
+                serde_json::to_value(query_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "status" => self.status().await,
             "tx" => self.tx_status_common(request.params, false).await,
             "validators" => {
@@ -580,90 +580,16 @@ impl JsonRpcHandler {
         Ok(RpcProtocolConfigResponse { config_view })
     }
 
-    async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let query_request = if let Ok((path, data)) =
-            parse_params::<(String, String)>(params.clone())
-        {
-            // Handle a soft-deprecated version of the query API, which is based on
-            // positional arguments with a "path"-style first argument.
-            //
-            // This whole block can be removed one day, when the new API is 100% adopted.
-            let data = from_base_or_parse_err(data)?;
-            let query_data_size = path.len() + data.len();
-            if query_data_size > QUERY_DATA_MAX_SIZE {
-                return Err(RpcError::server_error(Some(format!(
-                    "Query data size {} is too large",
-                    query_data_size
-                ))));
-            }
-            let mut path_parts = path.splitn(3, '/');
-            let make_err =
-                || RpcError::server_error(Some("Not enough query parameters provided".to_string()));
-            let query_command = path_parts.next().ok_or_else(make_err)?;
-            let account_id = AccountId::from(path_parts.next().ok_or_else(make_err)?);
-            let maybe_extra_arg = path_parts.next();
-
-            let request = match query_command {
-                "account" => QueryRequest::ViewAccount { account_id },
-                "code" => QueryRequest::ViewCode { account_id },
-                "access_key" => match maybe_extra_arg {
-                    None => QueryRequest::ViewAccessKeyList { account_id },
-                    Some(pk) => QueryRequest::ViewAccessKey {
-                        account_id,
-                        public_key: pk
-                            .parse()
-                            .map_err(|_| RpcError::server_error(Some("Invalid public key")))?,
-                    },
-                },
-                "contract" => QueryRequest::ViewState { account_id, prefix: data.into() },
-                "call" => match maybe_extra_arg {
-                    Some(method_name) => QueryRequest::CallFunction {
-                        account_id,
-                        method_name: method_name.to_string(),
-                        args: data.into(),
-                    },
-                    None => {
-                        return Err(RpcError::server_error(Some(
-                            "Method name is missing".to_string(),
-                        )))
-                    }
-                },
-                _ => {
-                    return Err(RpcError::server_error(Some(format!(
-                        "Unknown path {}",
-                        query_command
-                    ))))
-                }
-            };
-            // Use Finality::None here to make backward compatibility tests work
-            RpcQueryRequest { request, block_reference: BlockReference::latest() }
-        } else {
-            parse_params::<RpcQueryRequest>(params.clone())?
-        };
-        let query = Query::new(query_request.block_reference, query_request.request);
-        timeout(self.polling_config.polling_timeout, async {
-            loop {
-                let result = self.view_client_addr.send(query.clone()).await;
-                match result {
-                    Ok(ref r) => match r {
-                        Ok(Some(_)) => break jsonify(result),
-                        Ok(None) => {}
-                        Err(e) => break Err(RpcError::server_error(Some(e))),
-                    },
-                    Err(e) => break Err(RpcError::server_error(Some(e.to_string()))),
-                }
-                sleep(self.polling_config.polling_interval).await;
-            }
-        })
-        .await
-        .map_err(|_| {
-            near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
-            tracing::warn!(
-                target: "jsonrpc", "Timeout: query method. params {:?}",
-                params,
-            );
-            RpcError::server_error(Some("query has timed out".to_string()))
-        })?
+    async fn query(
+        &self,
+        request_data: near_jsonrpc_primitives::types::query::RpcQueryRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::query::RpcQueryResponse,
+        near_jsonrpc_primitives::types::query::RpcQueryError,
+    > {
+        let query = Query::new(request_data.block_reference, request_data.request);
+        let query_response = self.view_client_addr.send(query.clone()).await??;
+        Ok(near_jsonrpc_primitives::types::query::RpcQueryResponse { query_response })
     }
 
     async fn tx_status_common(

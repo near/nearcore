@@ -4,6 +4,12 @@ use near_chain::near_chain_primitives::error::QueryError;
 #[error(transparent)]
 pub struct RuntimeQueryError(#[from] pub QueryError);
 
+impl From<RuntimeQueryError> for QueryError {
+    fn from(error: RuntimeQueryError) -> Self {
+        error.0
+    }
+}
+
 impl From<node_runtime::state_viewer::errors::ViewAccountError> for RuntimeQueryError {
     fn from(error: node_runtime::state_viewer::errors::ViewAccountError) -> Self {
         match error {
@@ -20,7 +26,7 @@ impl From<node_runtime::state_viewer::errors::ViewAccountError> for RuntimeQuery
     }
 }
 
-impl From<node_runtime::state_viewer::errors::ViewContractCodeError> for QueryError {
+impl From<node_runtime::state_viewer::errors::ViewContractCodeError> for RuntimeQueryError {
     fn from(error: node_runtime::state_viewer::errors::ViewContractCodeError) -> Self {
         match error {
             node_runtime::state_viewer::errors::ViewContractCodeError::InvalidAccountId(
@@ -39,7 +45,7 @@ impl From<node_runtime::state_viewer::errors::ViewContractCodeError> for QueryEr
     }
 }
 
-impl From<node_runtime::state_viewer::errors::CallFunctionError> for QueryError {
+impl From<node_runtime::state_viewer::errors::CallFunctionError> for RuntimeQueryError {
     fn from(error: node_runtime::state_viewer::errors::CallFunctionError) -> Self {
         match error {
             node_runtime::state_viewer::errors::CallFunctionError::InvalidAccountId(account_id) => {
@@ -58,7 +64,7 @@ impl From<node_runtime::state_viewer::errors::CallFunctionError> for QueryError 
     }
 }
 
-impl From<node_runtime::state_viewer::errors::ViewStateError> for QueryError {
+impl From<node_runtime::state_viewer::errors::ViewStateError> for RuntimeQueryError {
     fn from(error: node_runtime::state_viewer::errors::ViewStateError) -> Self {
         match error {
             node_runtime::state_viewer::errors::ViewStateError::InvalidAccountId(account_id) => {
@@ -68,5 +74,11 @@ impl From<node_runtime::state_viewer::errors::ViewStateError> for QueryError {
                 Self(QueryError::StorageError(storage_error))
             }
         }
+    }
+}
+
+impl From<near_primitives::errors::EpochError> for RuntimeQueryError {
+    fn from(error: near_primitives::errors::EpochError) -> Self {
+        Self(QueryError::InternalError(error.to_string()))
     }
 }

@@ -16,5 +16,6 @@ uuid = { version = "~0.8", features = ["v4"] }
 
 near-client-primitives = { path = "../client-primitives" }
 near-primitives = { path = "../../core/primitives" }
+near-primitives-core = { path = "../../core/primitives-core" }
 near-metrics = { path = "../../core/metrics" }
 near-chain-configs = { path = "../../core/chain-configs" }

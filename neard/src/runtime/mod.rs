@@ -1275,7 +1275,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let (epoch_height, current_protocol_version) = {
                     let mut epoch_manager =
                         self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-                    let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+                    let epoch_info = epoch_manager
+                        .get_epoch_info(&epoch_id)
+                        .map_err(errors::RuntimeQueryError::from)?;
                     (epoch_info.epoch_height, epoch_info.protocol_version)
                 };
 

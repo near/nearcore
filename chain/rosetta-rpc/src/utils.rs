@@ -313,23 +313,15 @@ pub(crate) async fn query_account(
         block_id,
         near_primitives::views::QueryRequest::ViewAccount { account_id },
     );
-    let account_info_response = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        loop {
-            match view_client_addr.send(query.clone()).await? {
-                Ok(Some(query_response)) => return Ok(query_response),
-                Ok(None) => {}
-                // TODO: update this once we return structured errors from the view_client handlers
-                Err(err) => {
-                    if err.contains("does not exist") {
-                        return Err(crate::errors::ErrorKind::NotFound(err));
-                    }
-                    return Err(crate::errors::ErrorKind::InternalError(err));
-                }
+    let account_info_response = match view_client_addr.send(query.clone()).await? {
+        Ok(query_response) => query_response,
+        Err(err) => match err {
+            near_client_primitives::types::QueryError::AccountDoesNotExist(_) => {
+                return Err(crate::errors::ErrorKind::NotFound(err.to_string()))
             }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-    })
-    .await??;
+            _ => return Err(crate::errors::ErrorKind::InternalError(err.to_string())),
+        },
+    };
 
     match account_info_response.kind {
         near_primitives::views::QueryResponseKind::ViewAccount(account_info) => {
@@ -399,26 +391,18 @@ pub(crate) async fn query_access_key(
         block_id,
         near_primitives::views::QueryRequest::ViewAccessKey { account_id, public_key },
     );
-
-    let access_key_query_response =
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            loop {
-                match view_client_addr.send(access_key_query.clone()).await? {
-                    Ok(Some(query_response)) => return Ok(query_response),
-                    Ok(None) => {}
-                    // TODO: update this once we return structured errors in the
-                    // view_client handlers
-                    Err(err) => {
-                        if err.contains("does not exist") {
-                            return Err(crate::errors::ErrorKind::NotFound(err));
-                        }
-                        return Err(crate::errors::ErrorKind::InternalError(err));
-                    }
+    let access_key_query_response = match view_client_addr.send(access_key_query.clone()).await? {
+        Ok(query_response) => query_response,
+        Err(err) => {
+            return match err {
+                near_client_primitives::types::QueryError::AccountDoesNotExist(_)
+                | near_client_primitives::types::QueryError::AccessKeyDoesNotExist(_) => {
+                    Err(crate::errors::ErrorKind::NotFound(err.to_string()))
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                _ => Err(crate::errors::ErrorKind::InternalError(err.to_string())),
             }
-        })
-        .await??;
+        }
+    };
 
     match access_key_query_response.kind {
         near_primitives::views::QueryResponseKind::AccessKey(access_key) => Ok((
