@@ -28,15 +28,15 @@ use near_primitives::{
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
 #[cfg(feature = "protocol_feature_evm")]
-/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161556.json
+/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/eip155-1313161556.json
 pub const BETANET_EVM_CHAIN_ID: u64 = 1313161556;
 
 #[cfg(feature = "protocol_feature_evm")]
-/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
+/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/eip155-1313161555.json
 pub const TESTNET_EVM_CHAIN_ID: u64 = 1313161555;
 
 #[cfg(feature = "protocol_feature_evm")]
-/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161554.json
+/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/eip155-1313161554.json
 pub const MAINNET_EVM_CHAIN_ID: u64 = 1313161554;
 
 fn default_online_min_threshold() -> Rational {
