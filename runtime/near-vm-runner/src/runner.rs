@@ -272,7 +272,7 @@ pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) -> bool {
             compile_module(code)
         }
         #[cfg(not(feature = "wasmer1_vm"))]
-        VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasm1_vm'"),
+        VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
     };
     false
 }
