@@ -153,7 +153,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             }
             RuntimeError::User(data) => {
                 if let Some(err) = data.downcast_ref::<VMLogicError>() {
-                    err.into_vm_error()
+                    err.into()
                 } else {
                     panic!(
                         "Bad error case! Output is non-deterministic {:?} {:?}",

@@ -91,7 +91,7 @@ impl IntoVMError for wasmer::RuntimeError {
         let error_msg = self.message();
         let trap_code = self.clone().to_trap();
         match self.downcast::<VMLogicError>() {
-            Ok(e) => e.into_vm_error(),
+            Ok(e) => (&e).into(),
             _ => {
                 if let Some(trap_code) = trap_code {
                     // A trap

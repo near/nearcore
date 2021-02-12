@@ -314,6 +314,19 @@ impl From<PrepareError> for VMError {
     }
 }
 
+impl From<&VMLogicError> for VMError {
+    fn from(err: &VMLogicError) -> Self {
+        match err {
+            VMLogicError::HostError(h) => {
+                VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+            }
+            VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
+            VMLogicError::InconsistentStateError(e) => VMError::InconsistentStateError(e.clone()),
+            VMLogicError::EvmError(_) => unreachable!("Wasm can't return EVM error"),
+        }
+    }
+}
+
 impl fmt::Display for VMLogicError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(f, "{:?}", self)
