@@ -4,6 +4,7 @@ use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
+use crate::cache::compile_and_serialize_wasmer1;
 
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
@@ -227,11 +228,15 @@ pub fn precompile<'a>(
             let result = compile_and_serialize_wasmer(code, wasm_config, code_hash, cache);
             result.err()
         }
-        VMKind::Wasmer1 => Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-            CompilationError::UnsupportedCompiler {
-                msg: "Precompilation not supported in Wasmer 1.x yet".to_string(),
-            },
-        ))),
+        #[cfg(feature = "wasmer1_vm")]
+        VMKind::Wasmer1 => {
+            let engine = wasmer::JIT::new(wasmer_compiler_singlepass::Singlepass::default()).engine();
+            let store = wasmer::Store::new(&engine);
+            let result = compile_and_serialize_wasmer1(code, code_hash, cache, &store);
+            result.err()
+        }
+        #[cfg(not(feature = "wasmer1_vm"))]
+        VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
         VMKind::Wasmtime => Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
             CompilationError::UnsupportedCompiler {
                 msg: "Precompilation not supported in Wasmtime yet".to_string(),
