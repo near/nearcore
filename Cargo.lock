@@ -3627,10 +3627,12 @@ dependencies = [
  "near-evm-runner",
  "near-primitives",
  "near-runtime-fees",
+ "near-store",
  "near-vm-errors",
  "near-vm-logic",
  "parity-wasm",
  "pwasm-utils",
+ "tempfile",
  "wabt",
  "wasmer",
  "wasmer-compiler-singlepass",
@@ -6324,8 +6326,6 @@ checksum = "dd4945e4943ae02d15c13962b38a5b1e81eadd4b71214eee75af64a4d6a4fd64"
 [[package]]
 name = "wasmer"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a70cfae554988d904d64ca17ab0e7cd652ee5c8a0807094819c1ea93eb9d6866"
 dependencies = [
  "cfg-if 0.1.10",
  "indexmap",
@@ -6347,8 +6347,6 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b7732a9cab472bd921d5a0c422f45b3d03f62fa2c40a89e0770cef6d47e383e"
 dependencies = [
  "enumset",
  "serde",
@@ -6358,14 +6356,12 @@ dependencies = [
  "thiserror",
  "wasmer-types",
  "wasmer-vm",
- "wasmparser 0.65.0",
+ "wasmparser 0.74.0",
 ]
 
 [[package]]
 name = "wasmer-compiler-cranelift"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48cb9395f094e1d81534f4c5e330ed4cdb424e8df870d29ad585620284f5fddb"
 dependencies = [
  "cranelift-codegen 0.68.0",
  "cranelift-frontend 0.68.0",
@@ -6383,8 +6379,6 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-singlepass"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "426ae6ef0f606ca815510f3e2ef6f520e217514bfb7a664defe180b9a9e75d07"
 dependencies = [
  "byteorder",
  "dynasm 1.0.1",
@@ -6402,8 +6396,6 @@ dependencies = [
 [[package]]
 name = "wasmer-derive"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8b86dcd2c3efdb8390728a2b56f762db07789aaa5aa872a9dc776ba3a7912ed"
 dependencies = [
  "proc-macro-error",
  "proc-macro2 1.0.24",
@@ -6414,8 +6406,6 @@ dependencies = [
 [[package]]
 name = "wasmer-engine"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efe4667d6bd888f26ae8062a63a9379fa697415b4b4e380f33832e8418fd71b5"
 dependencies = [
  "backtrace",
  "bincode",
@@ -6435,8 +6425,6 @@ dependencies = [
 [[package]]
 name = "wasmer-engine-jit"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26770be802888011b4a3072f2a282fc2faa68aa48c71b3db6252a3937a85f3da"
 dependencies = [
  "bincode",
  "cfg-if 0.1.10",
@@ -6453,8 +6441,6 @@ dependencies = [
 [[package]]
 name = "wasmer-engine-native"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bb4083a6c69f2cd4b000b82a80717f37c6cc2e536aee3a8ffe9af3edc276a8b"
 dependencies = [
  "bincode",
  "cfg-if 0.1.10",
@@ -6474,8 +6460,6 @@ dependencies = [
 [[package]]
 name = "wasmer-object"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abf8e0c12b82ff81ebecd30d7e118be5fec871d6de885a90eeb105df0a769a7b"
 dependencies = [
  "object 0.22.0",
  "thiserror",
@@ -6548,8 +6532,6 @@ dependencies = [
 [[package]]
 name = "wasmer-types"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f4ac28c2951cd792c18332f03da523ed06b170f5cf6bb5b1bdd7e36c2a8218"
 dependencies = [
  "cranelift-entity 0.68.0",
  "serde",
@@ -6559,8 +6541,6 @@ dependencies = [
 [[package]]
 name = "wasmer-vm"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7635ba0b6d2fd325f588d69a950ad9fa04dddbf6ad08b6b2a183146319bf6ae"
 dependencies = [
  "backtrace",
  "cc",
@@ -6596,9 +6576,9 @@ checksum = "a950e6a618f62147fd514ff445b2a0b53120d382751960797f85f058c7eda9b9"
 
 [[package]]
 name = "wasmparser"
-version = "0.65.0"
+version = "0.74.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87cc2fe6350834b4e528ba0901e7aa405d78b89dc1fa3145359eb4de0e323fcf"
+checksum = "4a4d63608421d9a22d4bce220f2841f3b609a5aaabd3ed3aeeb5fed2702c3c78"
 
 [[package]]
 name = "wasmtime"

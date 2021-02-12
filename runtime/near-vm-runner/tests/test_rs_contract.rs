@@ -5,6 +5,8 @@ use near_vm_logic::types::{Balance, ReturnData};
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, with_vm_variants, VMError};
 use std::mem::size_of;
+use std::collections::HashMap;
+use near_store::{StoreCompiledContractCache, create_store};
 
 pub mod test_utils;
 
@@ -246,4 +248,50 @@ pub fn test_out_of_memory() {
         None,
     );
     assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)));
+}
+
+const EVM_CONTRACT: &'static [u8] = include_bytes!("../tests/res/near_evm.wasm");
+
+#[test]
+pub fn test_call_evm_deploy_code() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let code = &EVM_CONTRACT;
+        let mut fake_external = MockedExternal::new();
+
+        let context = create_context(&arr_u64_to_u8(&[10u64, 20u64]));
+        let config = VMConfig::default();
+        let fees = RuntimeFeesConfig::default();
+
+        let promise_results = vec![];
+        let tmp_dir = tempfile::Builder::new().prefix("test_contract_cache_perf").tempdir().unwrap();
+        let store = create_store(tmp_dir.path().to_str().unwrap());
+        let mut cache = StoreCompiledContractCache { store };
+
+        let result = run_vm(
+            vec![],
+            &code,
+            b"deploy_code",
+            &mut fake_external,
+            context.clone(),
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind.clone(),
+            LATEST_PROTOCOL_VERSION,
+            Some(&cache),
+        );
+        let result = run_vm(
+            vec![],
+            &code,
+            b"deploy_code",
+            &mut fake_external,
+            context,
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind.clone(),
+            LATEST_PROTOCOL_VERSION,
+            Some(&cache),
+        );
+    });
 }

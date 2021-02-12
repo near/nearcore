@@ -166,7 +166,12 @@ fn compile_module_wasmer1(
     prepared_code: &[u8],
     store: &wasmer::Store,
 ) -> Result<wasmer::Module, VMError> {
-    wasmer::Module::new(&store, prepared_code).map_err(|err| err.into_vm_error())
+    #[cfg(feature = "compile_timing")]
+    let start = std::time::Instant::now();
+    let r = wasmer::Module::new(&store, prepared_code).map_err(|err| err.into_vm_error());
+    #[cfg(feature = "compile_timing")]
+    println!("compile = {:?}", start.elapsed());
+    return r
 }
 
 #[cfg(feature = "wasmer1_vm")]
@@ -176,6 +181,8 @@ pub(crate) fn compile_and_serialize_wasmer1(
     cache: &dyn CompiledContractCache,
     store: &wasmer::Store,
 ) -> Result<wasmer::Module, VMError> {
+    #[cfg(feature = "compile_timing")]
+    let start = std::time::Instant::now();
     let module =
         compile_module_wasmer1(wasm_code, store).map_err(|e| cache_error(e, &key, cache))?;
     let code = module
@@ -183,6 +190,8 @@ pub(crate) fn compile_and_serialize_wasmer1(
         .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
     let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
     cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
+    #[cfg(feature = "compile_timing")]
+    println!("compile, serialize and cache = {:?}", start.elapsed());
     Ok(module)
 }
 
@@ -217,8 +226,12 @@ fn compile_module_cached_wasmer1_impl(
     match cache.get(&(key.0).0) {
         Ok(serialized) => match serialized {
             Some(serialized) => {
-                deserialize_wasmer1(serialized.as_slice(), store).map_err(VMError::CacheError)?
-            }
+                #[cfg(feature = "compile_timing")]
+                let start = std::time::Instant::now();
+                let r = deserialize_wasmer1(serialized.as_slice(), &store).map_err(VMError::CacheError)?;
+                #[cfg(feature = "compile_timing")]
+                println!("deserialize from cache = {:?}", start.elapsed());
+                r            }
             None => compile_and_serialize_wasmer1(wasm_code, &key, cache, store),
         },
         Err(_) => Err(VMError::CacheError(ReadError)),
