@@ -3602,6 +3602,7 @@ name = "near-vm-logic"
 version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
+ "blake2",
  "borsh",
  "bs58",
  "byteorder",
@@ -3609,6 +3610,7 @@ dependencies = [
  "near-primitives-core",
  "near-runtime-utils",
  "near-vm-errors",
+ "ripemd160",
  "serde",
  "serde_json",
  "sha2 0.9.3",

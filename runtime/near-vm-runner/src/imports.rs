@@ -221,6 +221,8 @@ wrapped_imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    blake2b<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     // #####################
     // # Miscellaneous API #
     // #####################

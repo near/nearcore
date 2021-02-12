@@ -14,9 +14,11 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 base64 = "0.13"
+blake2 = "0.9.1"
 borsh = "0.8.1"
 bs58 = "0.4"
 byteorder = "1.2"
+ripemd160 = "0.9.0"
 serde = { version = "1", features = ["derive"] }
 sha2 = ">=0.8,<0.10"
 sha3 = ">=0.8,<0.10"

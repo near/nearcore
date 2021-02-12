@@ -951,6 +951,50 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
+    /// Hashes the given value using RIPEMD-160 and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_byte * num_bytes`
+    pub fn ripemd160(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(ripemd160_base)?;
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        self.gas_counter.pay_per_byte(ripemd160_byte, value.len() as u64)?;
+
+        use ripemd160::Digest;
+
+        let value_hash = ripemd160::Ripemd160::digest(&value);
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
+    }
+
+    /// Hashes the given value using BLAKE2b and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + blake2b_base + blake2b_byte * num_bytes`
+    pub fn blake2b(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(blake2b_base)?;
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        self.gas_counter.pay_per_byte(blake2b_byte, value.len() as u64)?;
+
+        use blake2::{Blake2b, Digest};
+
+        let mut hasher = Blake2b::new();
+        hasher.update(&value);
+        let value_hash = hasher.finalize();
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
+    }
+
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
     ///
     /// # Errors

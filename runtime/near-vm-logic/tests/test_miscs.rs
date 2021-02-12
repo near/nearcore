@@ -531,6 +531,69 @@ fn test_keccak512() {
 }
 
 #[test]
+fn test_ripemd160() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let data = b"tesdsst";
+
+    logic.ripemd160(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &vec![0u8; 20];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(
+        res,
+        &[21, 102, 156, 115, 232, 3, 58, 215, 35, 84, 129, 30, 143, 86, 212, 104, 70, 97, 14, 225,]
+    );
+    let len = data.len() as u64;
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 20,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 20,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 20,
+        ExtCosts::ripemd160_base: 1,
+        ExtCosts::ripemd160_byte: len,
+    });
+}
+
+#[test]
+fn test_blake2b() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let data = b"tesdsst";
+
+    logic.blake2b(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &vec![0u8; 64];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(
+        res,
+        &[
+            144, 12, 165, 192, 98, 246, 37, 228, 134, 61, 43, 212, 111, 32, 204, 204, 186, 212, 47,
+            44, 209, 53, 167, 80, 195, 200, 226, 84, 34, 162, 249, 135, 172, 3, 90, 122, 205, 96,
+            211, 100, 188, 18, 134, 125, 111, 130, 31, 143, 25, 108, 194, 209, 205, 73, 169, 10,
+            132, 222, 75, 219, 103, 234, 67, 180
+        ]
+    );
+    let len = data.len() as u64;
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 64,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 64,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 64,
+        ExtCosts::blake2b_base: 1,
+        ExtCosts::blake2b_byte: len,
+    });
+}
+
+#[test]
 fn test_hash256_register() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));

@@ -223,6 +223,16 @@ pub struct ExtCostsConfig {
     /// Cost of getting sha256 per byte
     pub keccak512_byte: Gas,
 
+    /// Cost of getting ripemd160 base
+    pub ripemd160_base: Gas,
+    /// Cost of getting ripemd160 per byte
+    pub ripemd160_byte: Gas,
+
+    /// Cost of getting blake2b base
+    pub blake2b_base: Gas,
+    /// Cost of getting blake2b per byte
+    pub blake2b_byte: Gas,
+
     /// Cost for calling logging.
     pub log_base: Gas,
     /// Cost for logging per byte
@@ -353,6 +363,10 @@ impl Default for ExtCostsConfig {
             keccak256_byte: SAFETY_MULTIPLIER * 7157035,
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
             keccak512_byte: SAFETY_MULTIPLIER * 12216567,
+            ripemd160_base: SAFETY_MULTIPLIER * 1513656750, // TODO
+            ripemd160_byte: SAFETY_MULTIPLIER * 8039117,    // TODO
+            blake2b_base: SAFETY_MULTIPLIER * 1513656750,   // TODO
+            blake2b_byte: SAFETY_MULTIPLIER * 8039117,      // TODO
             log_base: SAFETY_MULTIPLIER * 1181104350,
             log_byte: SAFETY_MULTIPLIER * 4399597,
             storage_write_base: SAFETY_MULTIPLIER * 21398912000,
@@ -423,6 +437,10 @@ impl ExtCostsConfig {
             keccak256_byte: 0,
             keccak512_base: 0,
             keccak512_byte: 0,
+            ripemd160_base: 0,
+            ripemd160_byte: 0,
+            blake2b_base: 0,
+            blake2b_byte: 0,
             log_base: 0,
             log_byte: 0,
             storage_write_base: 0,
@@ -494,6 +512,10 @@ pub enum ExtCosts {
     keccak256_byte,
     keccak512_base,
     keccak512_byte,
+    ripemd160_base,
+    ripemd160_byte,
+    blake2b_base,
+    blake2b_byte,
     log_base,
     log_byte,
     storage_write_base,
@@ -618,6 +640,10 @@ impl ExtCosts {
             keccak256_byte => config.keccak256_byte,
             keccak512_base => config.keccak512_base,
             keccak512_byte => config.keccak512_byte,
+            ripemd160_base => config.ripemd160_base,
+            ripemd160_byte => config.ripemd160_byte,
+            blake2b_base => config.blake2b_base,
+            blake2b_byte => config.blake2b_byte,
             log_base => config.log_base,
             log_byte => config.log_byte,
             storage_write_base => config.storage_write_base,
@@ -692,6 +718,10 @@ impl ExtCosts {
             "keccak256_byte",
             "keccak512_base",
             "keccak512_byte",
+            "ripemd160_base",
+            "ripemd160_byte",
+            "blake2b_base",
+            "blake2b_byte",
             "log_base",
             "log_byte",
             "storage_write_base",
