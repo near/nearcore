@@ -32,7 +32,7 @@ serde_json = {version= "1", features= ["preserve_order"]}
 [features]
 default = ["costs_counting"]
 protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm"]
-wasmer_default = []
+wasmer0_default = []
 wasmtime_default = []
 wasmer1_default = []
 

@@ -36,6 +36,7 @@ macro_rules! rust2wasm {
 
 macro_rules! wrapped_imports {
         ( $($(#[$feature_name:tt, $feature:ident])* $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
+            #[cfg(feature = "wasmer0_vm")]
             pub mod wasmer_ext {
                 use near_vm_logic::VMLogic;
                 use wasmer_runtime::Ctx;
@@ -58,6 +59,7 @@ macro_rules! wrapped_imports {
             type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
             $(
                 #[allow(unused_parens)]
+                $(#[cfg(feature = $feature_name)])*
                 pub fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
                     let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
@@ -104,6 +106,7 @@ macro_rules! wrapped_imports {
             }
 
             #[allow(unused_variables)]
+            #[cfg(feature = "wasmer0_vm")]
             pub(crate) fn build_wasmer(
                 memory: wasmer_runtime::memory::Memory,
                 logic: &mut VMLogic<'_>,

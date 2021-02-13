@@ -109,10 +109,14 @@ rosetta_rpc = ["neard/rosetta_rpc"]
 protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_parts"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 # enable this to build neard with wasmer 1.0 runner
+# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer1 would be default
 wasmer1_default = ["node-runtime/wasmer1_default"]
-# enable these two to run runtime tests with wasmer 1.0 and wasmtime vm enabled
-# but neard would still use wasmer 0.x runner
+wasmer0_default = ["node-runtime/wasmer0_default"]
+wasmtime_default = ["node-runtime/wasmtime_default"]
+# enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
+# but would not change default runner used by neard
 wasmer1_vm = ["node-runtime/wasmer1_vm"]
+wasmer0_vm = ["node-runtime/wasmer0_vm"]
 wasmtime_vm = ["node-runtime/wasmtime_vm"]
 nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3"]
 protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]

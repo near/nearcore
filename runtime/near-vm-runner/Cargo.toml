@@ -14,7 +14,8 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 borsh = "0.8.1"
-wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near" }
+wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
+# Always used even for wasmer 1.0 for validating wasm, will be replaced when refactor prepare.rs
 wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }
 wasmer = { version = "1.0.2", optional = true }
 wasmer-types = { version = "1.0.2", optional = true }
@@ -38,6 +39,7 @@ bencher = "^0.1.5"
 
 [features]
 default = []
+wasmer0_vm = [ "wasmer-runtime" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass" ]
 lightbeam = ["wasmtime/lightbeam"]

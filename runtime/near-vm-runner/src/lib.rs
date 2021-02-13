@@ -1,9 +1,13 @@
 mod cache;
 mod errors;
 mod imports;
+#[cfg(feature = "wasmer0_vm")]
 mod memory;
+
 pub mod prepare;
 mod runner;
+
+#[cfg(feature = "wasmer0_vm")]
 mod wasmer_runner;
 
 #[cfg(feature = "wasmtime_vm")]

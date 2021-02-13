@@ -4,7 +4,6 @@ use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
-use crate::cache::compile_and_serialize_wasmer1;
 
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
@@ -75,6 +74,7 @@ pub fn run_vm<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;
 
     #[cfg(feature = "wasmtime_vm")]
@@ -84,6 +84,7 @@ pub fn run_vm<'a>(
     use crate::wasmer1_runner::run_wasmer1;
 
     match vm_kind {
+        #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => run_wasmer(
             code_hash,
             code,
@@ -97,6 +98,8 @@ pub fn run_vm<'a>(
             current_protocol_version,
             cache,
         ),
+        #[cfg(not(feature = "wasmer0_vm"))]
+        VMKind::Wasmer0 => panic!("Wasmer0 is not supported, compile with '--features wasmer0_vm'"),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => run_wasmtime(
             code_hash,
@@ -148,6 +151,7 @@ pub fn run_vm_profiled<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;
 
     #[cfg(feature = "wasmtime_vm")]
@@ -156,6 +160,7 @@ pub fn run_vm_profiled<'a>(
     #[cfg(feature = "wasmer1_vm")]
     use crate::wasmer1_runner::run_wasmer1;
     let (outcome, error) = match vm_kind {
+        #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => run_wasmer(
             code_hash,
             code,
@@ -169,6 +174,8 @@ pub fn run_vm_profiled<'a>(
             current_protocol_version,
             cache,
         ),
+        #[cfg(not(feature = "wasmer0_vm"))]
+        VMKind::Wasmer0 => panic!("Wasmer0 is not supported, compile with '--features wasmer0_vm'"),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => run_wasmtime(
             code_hash,
@@ -222,17 +229,19 @@ pub fn precompile<'a>(
     cache: &'a dyn CompiledContractCache,
     vm_kind: VMKind,
 ) -> Option<VMError> {
-    use crate::cache::compile_and_serialize_wasmer;
     match vm_kind {
+        #[cfg(not(feature = "wasmer0_vm"))]
+        VMKind::Wasmer0 => panic!("Wasmer0 is not supported, compile with '--features wasmer0_vm'"),
+        #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => {
-            let result = compile_and_serialize_wasmer(code, wasm_config, code_hash, cache);
+            let result = crate::cache::wasmer0_cache::compile_and_serialize_wasmer(code, wasm_config, code_hash, cache);
             result.err()
         }
         #[cfg(feature = "wasmer1_vm")]
         VMKind::Wasmer1 => {
             let engine = wasmer::JIT::new(wasmer_compiler_singlepass::Singlepass::default()).engine();
             let store = wasmer::Store::new(&engine);
-            let result = compile_and_serialize_wasmer1(code, code_hash, cache, &store);
+            let result = crate::cache::wasmer1_cache::compile_and_serialize_wasmer1(code, code_hash, cache, &store);
             result.err()
         }
         #[cfg(not(feature = "wasmer1_vm"))]
@@ -258,10 +267,13 @@ pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
 /// Used for testing cost of compiling a module
 pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) -> bool {
     match vm_kind {
+        #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => {
             use crate::wasmer_runner::compile_module;
             compile_module(code)
         }
+        #[cfg(not(feature = "wasmer0_vm"))]
+        VMKind::Wasmer0 => panic!("Wasmer0 is not supported, compile with '--features wasmer0_vm'"),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => {
             use crate::wasmtime_runner::compile_module;

@@ -17,7 +17,7 @@ pub enum VMKind {
 
 impl Default for VMKind {
     #[cfg(all(
-        feature = "wasmer_default",
+        feature = "wasmer0_default",
         not(feature = "wasmer1_default"),
         not(feature = "wasmtime_default")
     ))]
@@ -26,7 +26,7 @@ impl Default for VMKind {
     }
 
     #[cfg(all(
-        not(feature = "wasmer_default"),
+        not(feature = "wasmer0_default"),
         feature = "wasmer1_default",
         not(feature = "wasmtime_default")
     ))]
@@ -35,7 +35,7 @@ impl Default for VMKind {
     }
 
     #[cfg(all(
-        not(feature = "wasmer_default"),
+        not(feature = "wasmer0_default"),
         not(feature = "wasmer1_default"),
         feature = "wasmtime_default"
     ))]
@@ -44,22 +44,22 @@ impl Default for VMKind {
     }
 
     #[cfg(all(
-        not(feature = "wasmer_default"),
+        not(feature = "wasmer0_default"),
         not(feature = "wasmer1_default"),
         not(feature = "wasmtime_default")
     ))]
     fn default() -> Self {
-        VMKind::Wasmer0
+        VMKind::Wasmer1
     }
 
-    // These features should be mutually exclusive, but implement this to --all-features
+    // These features should be mutually exclusive, but implement this for cargo test --all-features
     #[cfg(all(
-        feature = "wasmer_default",
+        feature = "wasmer0_default",
         feature = "wasmer1_default",
         feature = "wasmtime_default"
     ))]
     fn default() -> Self {
-        VMKind::Wasmer0
+        VMKind::Wasmer1
     }
 }
 
