@@ -223,27 +223,38 @@ def_test_ext!(
 
 #[test]
 pub fn test_out_of_memory() {
-    // TODO: currently we only run this test on Wasmer.
-    let code = &TEST_CONTRACT;
-    let mut fake_external = MockedExternal::new();
+    with_vm_variants(|vm_kind: VMKind| {
+        // TODO: currently we only run this test on Wasmer.
+        match vm_kind {
+            VMKind::Wasmtime => return,
+            _ => {}
+        }
 
-    let context = create_context(&[]);
-    let config = VMConfig::free();
-    let fees = RuntimeFeesConfig::free();
+        let code = &TEST_CONTRACT;
+        let mut fake_external = MockedExternal::new();
 
-    let promise_results = vec![];
-    let result = run_vm(
-        vec![],
-        &code,
-        b"out_of_memory",
-        &mut fake_external,
-        context,
-        &config,
-        &fees,
-        &promise_results,
-        VMKind::Wasmer0,
-        LATEST_PROTOCOL_VERSION,
-        None,
-    );
-    assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)));
+        let context = create_context(&[]);
+        let config = VMConfig::free();
+        let fees = RuntimeFeesConfig::free();
+
+        let promise_results = vec![];
+        let result = run_vm(
+            vec![],
+            &code,
+            b"out_of_memory",
+            &mut fake_external,
+            context,
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind,
+            LATEST_PROTOCOL_VERSION,
+            None,
+        );
+        assert_eq!(result.1, match vm_kind {
+            VMKind::Wasmer0 => Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)),
+            VMKind::Wasmer1 => Some(VMError::FunctionCallError(FunctionCallError::Wasmer1Trap("unreachable".to_string()))),
+            _ => unreachable!(),
+        });
+    })
 }

@@ -255,6 +255,7 @@ pub fn precompile<'a>(
 }
 
 pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
+    #[cfg(feature = "wasmer0_vm")]
     runner(VMKind::Wasmer0);
 
     #[cfg(feature = "wasmtime_vm")]

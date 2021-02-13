@@ -136,14 +136,17 @@ macro_rules! wrapped_imports {
             pub(crate) fn build_wasmer1(store: &wasmer::Store, memory: wasmer::Memory, logic: &mut VMLogic<'_>) ->
                 wasmer::ImportObject {
                 let env = NearWasmerEnv {logic: ImportReference(logic as * mut _ as * mut c_void), memory: memory.clone()};
-                wasmer::imports! {
-                    "env" => {
-                        "memory" => memory,
-                        $(
-                            stringify!($func) => wasmer::Function::new_native_with_env(&store, env.clone(), wasmer1_ext::$func),
-                        )*
-                    },
-                }
+                let mut import_object = wasmer::ImportObject::new();
+                let mut namespace = wasmer::Exports::new();
+                namespace.insert("memory", memory);
+                $({
+                    $(#[cfg(feature = $feature_name)])*
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
+                        namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), wasmer1_ext::$func));
+                    }
+                })*
+                import_object.register("env", namespace);
+                import_object
             }
 
             #[cfg(feature = "wasmtime_vm")]
