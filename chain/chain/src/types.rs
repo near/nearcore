@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use num_rational::Rational;
 use serde::Serialize;
 
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::{GenesisConfig, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
@@ -603,6 +603,8 @@ pub trait RuntimeAdapter: Send + Sync {
 
     #[cfg(feature = "protocol_feature_evm")]
     fn evm_chain_id(&self) -> u64;
+
+    fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`

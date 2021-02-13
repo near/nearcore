@@ -1,9 +1,9 @@
-use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::FunctionCallError;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::types::Balance;
+use near_vm_errors::{FunctionCallError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::types::{Balance, ReturnData};
-use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
-use near_vm_runner::{run_vm, with_vm_variants, VMError};
+use near_vm_logic::{types::ReturnData, VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_runner::{run_vm, with_vm_variants};
 use std::mem::size_of;
 
 pub mod test_utils;
@@ -251,10 +251,16 @@ pub fn test_out_of_memory() {
             LATEST_PROTOCOL_VERSION,
             None,
         );
-        assert_eq!(result.1, match vm_kind {
-            VMKind::Wasmer0 => Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)),
-            VMKind::Wasmer1 => Some(VMError::FunctionCallError(FunctionCallError::Wasmer1Trap("unreachable".to_string()))),
-            _ => unreachable!(),
-        });
+        assert_eq!(
+            result.1,
+            match vm_kind {
+                VMKind::Wasmer0 =>
+                    Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)),
+                VMKind::Wasmer1 => Some(VMError::FunctionCallError(
+                    FunctionCallError::Wasmer1Trap("unreachable".to_string())
+                )),
+                _ => unreachable!(),
+            }
+        );
     })
 }

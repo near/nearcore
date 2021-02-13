@@ -1,12 +1,14 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
-use near_primitives::types::CompiledContractCache;
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::{
+    config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
+};
 use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
-use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::Module;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
@@ -199,7 +201,12 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::wasmer0_cache::compile_module_cached_wasmer(&code_hash, code, wasm_config, cache) {
+    let module = match cache::wasmer0_cache::compile_module_cached_wasmer(
+        &code_hash,
+        code,
+        wasm_config,
+        cache,
+    ) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };

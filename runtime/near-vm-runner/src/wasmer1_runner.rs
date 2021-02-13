@@ -1,11 +1,11 @@
 use crate::errors::IntoVMError;
 use crate::{cache, imports, prepare};
-use near_primitives::types::CompiledContractCache;
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::{profile::ProfileData, types::CompiledContractCache};
 use near_vm_errors::{
     CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError,
 };
-use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
+use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer::{Bytes, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
 use wasmer_compiler_singlepass::Singlepass;

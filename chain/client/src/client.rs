@@ -120,7 +120,7 @@ impl Client {
         );
         let block_sync =
             BlockSync::new(network_adapter.clone(), config.block_fetch_horizon, config.archive);
-        let state_sync = StateSync::new(network_adapter.clone());
+        let state_sync = StateSync::new(network_adapter.clone(), config.state_sync_timeout);
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
         let parity_parts = runtime_adapter.num_total_parts() - data_parts;
@@ -462,6 +462,8 @@ impl Client {
             seen: to_timestamp(Utc::now()),
         })?;
 
+        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
+
         Ok(Some(block))
     }
 
@@ -569,7 +571,7 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
+        near_metrics::inc_counter(&metrics::CHUNK_PRODUCED_TOTAL);
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
@@ -1524,10 +1526,11 @@ impl Client {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter1 = self.network_adapter.clone();
 
-            let (state_sync, new_shard_sync) = self
-                .catchup_state_syncs
-                .entry(sync_hash)
-                .or_insert_with(|| (StateSync::new(network_adapter1), HashMap::new()));
+            let state_sync_timeout = self.config.state_sync_timeout;
+            let (state_sync, new_shard_sync) =
+                self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
+                    (StateSync::new(network_adapter1, state_sync_timeout), HashMap::new())
+                });
 
             debug!(
                 target: "client",

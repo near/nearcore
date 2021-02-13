@@ -1,9 +1,11 @@
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::CompiledContractCache;
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::{
+    config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
+};
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
-use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
 
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
@@ -234,14 +236,22 @@ pub fn precompile<'a>(
         VMKind::Wasmer0 => panic!("Wasmer0 is not supported, compile with '--features wasmer0_vm'"),
         #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => {
-            let result = crate::cache::wasmer0_cache::compile_and_serialize_wasmer(code, wasm_config, code_hash, cache);
+            let result = crate::cache::wasmer0_cache::compile_and_serialize_wasmer(
+                code,
+                wasm_config,
+                code_hash,
+                cache,
+            );
             result.err()
         }
         #[cfg(feature = "wasmer1_vm")]
         VMKind::Wasmer1 => {
-            let engine = wasmer::JIT::new(wasmer_compiler_singlepass::Singlepass::default()).engine();
+            let engine =
+                wasmer::JIT::new(wasmer_compiler_singlepass::Singlepass::default()).engine();
             let store = wasmer::Store::new(&engine);
-            let result = crate::cache::wasmer1_cache::compile_and_serialize_wasmer1(code, code_hash, cache, &store);
+            let result = crate::cache::wasmer1_cache::compile_and_serialize_wasmer1(
+                code, code_hash, cache, &store,
+            );
             result.err()
         }
         #[cfg(not(feature = "wasmer1_vm"))]

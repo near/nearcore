@@ -46,10 +46,10 @@ fn cache_error(error: VMError, key: &CryptoHash, cache: &dyn CompiledContractCac
 
 #[cfg(feature = "wasmer0_vm")]
 pub mod wasmer0_cache {
+    use super::*;
     use wasmer_runtime::{compiler_for_backend, Backend};
     use wasmer_runtime_core::cache::Artifact;
     use wasmer_runtime_core::load_cache_with;
-    use super::*;
 
     pub(crate) fn compile_module(
         code: &[u8],
@@ -66,8 +66,9 @@ pub mod wasmer0_cache {
         cache: &dyn CompiledContractCache,
     ) -> Result<wasmer_runtime::Module, VMError> {
         let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
-        let artifact =
-            module.cache().map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
+        let artifact = module
+            .cache()
+            .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
         let code = artifact
             .serialize()
             .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
@@ -148,9 +149,9 @@ pub mod wasmer0_cache {
     ) -> Result<wasmer_runtime::Module, VMError> {
         let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer0, config);
         #[cfg(not(feature = "no_cache"))]
-            return memcache_compile_module_cached_wasmer(key, wasm_code, config, cache);
+        return memcache_compile_module_cached_wasmer(key, wasm_code, config, cache);
         #[cfg(feature = "no_cache")]
-            return compile_module_cached_wasmer_impl(key, wasm_code, config, cache);
+        return compile_module_cached_wasmer_impl(key, wasm_code, config, cache);
     }
 }
 
@@ -220,9 +221,8 @@ pub mod wasmer1_cache {
         let cache = cache.unwrap();
         match cache.get(&(key.0).0) {
             Ok(serialized) => match serialized {
-                Some(serialized) => {
-                    deserialize_wasmer1(serialized.as_slice(), store).map_err(VMError::CacheError)?
-                }
+                Some(serialized) => deserialize_wasmer1(serialized.as_slice(), store)
+                    .map_err(VMError::CacheError)?,
                 None => compile_and_serialize_wasmer1(wasm_code, &key, cache, store),
             },
             Err(_) => Err(VMError::CacheError(ReadError)),
