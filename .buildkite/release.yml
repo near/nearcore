@@ -1,14 +1,14 @@
 steps:
-  - command: scripts/docker-release.sh
-    plugins:
-    - docker-login#v2.0.1:
-        username: nearprotocol
-        password-env: DOCKER_LOGIN_PASSWORD
-    label: "docker build"
-    key: "docker"
-    timeout: 60
-    agents:
-    - "distro=amazonlinux"
+  # - command: scripts/docker-release.sh
+  #   plugins:
+  #   - docker-login#v2.0.1:
+  #       username: nearprotocol
+  #       password-env: DOCKER_LOGIN_PASSWORD
+  #   label: "docker build"
+  #   key: "docker"
+  #   timeout: 60
+  #   agents:
+  #   - "distro=amazonlinux"
 
   - command: |
       source ~/.cargo/env
