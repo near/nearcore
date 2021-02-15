@@ -33,8 +33,8 @@ use near_primitives::syncing::{
     ShardStateSyncResponseV2,
 };
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, ShardId,
-    TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
+    ShardId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
@@ -47,11 +47,12 @@ use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
+use near_chain::types::EpochIdentifier;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
     GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
     GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError,
-    GetStateChangesWithCauseInBlock, Query, TxStatus, TxStatusError,
+    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, TxStatus, TxStatusError,
 };
 use near_performance_metrics_macros::perf;
 use near_performance_metrics_macros::perf_with_debug;
@@ -564,13 +565,20 @@ impl Handler<TxStatus> for ViewClientActor {
 }
 
 impl Handler<GetValidatorInfo> for ViewClientActor {
-    type Result = Result<EpochValidatorInfo, String>;
+    type Result = Result<EpochValidatorInfo, GetValidatorInfoError>;
 
     #[perf]
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Self::Context) -> Self::Result {
-        self.maybe_block_id_to_block_hash(msg.block_id)
-            .and_then(|block_hash| self.runtime_adapter.get_validator_info(&block_hash))
-            .map_err(|err| err.to_string())
+        let epoch_identifier = match msg.epoch_reference {
+            EpochReference::EpochId(id) => EpochIdentifier::EpochId(id),
+            EpochReference::Latest => {
+                // use header head because this is latest from the perspective of epoch manager
+                EpochIdentifier::BlockHash(self.chain.header_head()?.last_block_hash)
+            }
+        };
+        self.runtime_adapter
+            .get_validator_info(epoch_identifier)
+            .map_err(GetValidatorInfoError::from)
     }
 }
 

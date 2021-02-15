@@ -146,6 +146,7 @@ pub struct EpochInfo {
     pub protocol_version: ProtocolVersion,
 }
 
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct EpochSummary {
     pub prev_epoch_last_block_hash: CryptoHash,
     /// Proposals from the epoch, only the latest one per account

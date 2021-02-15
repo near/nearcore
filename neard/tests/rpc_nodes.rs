@@ -484,39 +484,36 @@ fn test_get_validator_info_rpc() {
                 let dirs = (0..num_nodes)
                     .map(|i| {
                         tempfile::Builder::new()
-                            .prefix(&format!("tx_propagation{}", i))
+                            .prefix(&format!("validator_info_rpc{}", i))
                             .tempdir()
                             .unwrap()
                     })
                     .collect::<Vec<_>>();
                 let (_, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 0, 10, 0);
-                let view_client = clients[0].1.clone();
 
                 WaitOrTimeout::new(
                     Box::new(move |_ctx| {
                         let rpc_addrs_copy = rpc_addrs.clone();
-                        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                            let res = res.unwrap().unwrap();
-                            if res.header.height > 1 {
+                        let view_client = clients[0].1.clone();
+                        actix::spawn(async move {
+                            let block_view =
+                                view_client.send(GetBlock::latest()).await.unwrap().unwrap();
+                            if block_view.header.height > 1 {
                                 let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
-                                let block_hash = res.header.hash;
-                                actix::spawn(
-                                    client
-                                        .validators(Some(BlockId::Hash(block_hash)))
-                                        .map_err(|err| panic_on_rpc_error!(err))
-                                        .map_ok(move |result| {
-                                            assert_eq!(result.current_validators.len(), 1);
-                                            assert!(result
-                                                .current_validators
-                                                .iter()
-                                                .any(|r| r.account_id == "near.0".to_string()));
-                                            System::current().stop();
-                                        })
-                                        .map(drop),
-                                );
+                                let block_hash = block_view.header.hash;
+                                let invalid_res =
+                                    client.validators(Some(BlockId::Hash(block_hash))).await;
+                                assert!(invalid_res.is_err());
+                                let res = client.validators(None).await.unwrap();
+
+                                assert_eq!(res.current_validators.len(), 1);
+                                assert!(res
+                                    .current_validators
+                                    .iter()
+                                    .any(|r| r.account_id == "near.0".to_string()));
+                                System::current().stop();
                             }
-                            future::ready(())
-                        }));
+                        });
                     }),
                     100,
                     20000,

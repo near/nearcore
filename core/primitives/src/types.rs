@@ -371,6 +371,7 @@ impl StateRootNode {
     BorshSerialize,
     BorshDeserialize,
     Serialize,
+    Deserialize,
 )]
 #[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
@@ -506,10 +507,17 @@ pub struct ValidatorStats {
     pub expected: NumBlocks,
 }
 
-#[derive(Debug)]
+#[derive(Debug, BorshSerialize, BorshDeserialize)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
     pub chunk_stats: ValidatorStats,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum EpochReference {
+    EpochId(EpochId),
+    Latest,
 }
 
 /// Reasons for removing a validator from the validator set.

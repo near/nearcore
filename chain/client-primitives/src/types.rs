@@ -16,7 +16,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, MaybeBlockId, ShardId, TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockReference, EpochReference, MaybeBlockId, ShardId,
+    TransactionOrReceiptId,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
@@ -345,11 +346,36 @@ impl Message for TxStatus {
 }
 
 pub struct GetValidatorInfo {
-    pub block_id: MaybeBlockId,
+    pub epoch_reference: EpochReference,
 }
 
 impl Message for GetValidatorInfo {
-    type Result = Result<EpochValidatorInfo, String>;
+    type Result = Result<EpochValidatorInfo, GetValidatorInfoError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetValidatorInfoError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    #[error("Unknown epoch")]
+    UnknownEpoch,
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetValidatorInfoError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::DBNotFoundErr(_)
+            | near_chain_primitives::ErrorKind::EpochOutOfBounds => Self::UnknownEpoch,
+            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
 }
 
 pub struct GetValidatorOrdered {

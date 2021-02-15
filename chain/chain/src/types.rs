@@ -544,7 +544,7 @@ pub trait RuntimeAdapter: Send + Sync {
         request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
-    fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
+    fn get_validator_info(&self, epoch_id: EpochIdentifier) -> Result<EpochValidatorInfo, Error>;
 
     /// Get the part of the state from given state root.
     fn obtain_state_part(
@@ -642,6 +642,13 @@ pub trait RuntimeAdapter: Send + Sync {
 pub struct LatestKnown {
     pub height: BlockHeight,
     pub seen: u64,
+}
+
+/// Either an epoch id or latest block hash
+#[derive(Debug)]
+pub enum EpochIdentifier {
+    EpochId(EpochId),
+    BlockHash(CryptoHash),
 }
 
 #[cfg(test)]
