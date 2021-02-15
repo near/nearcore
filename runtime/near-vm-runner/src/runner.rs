@@ -1,9 +1,11 @@
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::CompiledContractCache;
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::{
+    config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
+};
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
-use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
 
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)

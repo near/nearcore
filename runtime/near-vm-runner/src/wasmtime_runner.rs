@@ -5,12 +5,16 @@ use wasmtime::Module;
 pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
     use crate::{imports, prepare};
-    use near_primitives::types::CompiledContractCache;
-    use near_runtime_fees::RuntimeFeesConfig;
+    use near_primitives::runtime::fees::RuntimeFeesConfig;
+    use near_primitives::{
+        config::VMConfig, profile::ProfileData, types::CompiledContractCache,
+        version::ProtocolVersion,
+    };
     use near_vm_errors::FunctionCallError::{LinkError, WasmUnknownError};
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
-    use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
-    use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+    use near_vm_logic::{
+        types::PromiseResult, External, MemoryLike, VMContext, VMLogic, VMOutcome,
+    };
     use std::ffi::c_void;
     use std::str;
     use wasmtime::ExternType::Func;

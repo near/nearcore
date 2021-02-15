@@ -8,6 +8,10 @@ lazy_static! {
         "near_block_produced_total",
         "Total number of blocks produced since starting this node"
     );
+    pub static ref CHUNK_PRODUCED_TOTAL: near_metrics::Result<IntCounter> = try_create_int_counter(
+        "near_chunk_produced_total",
+        "Total number of chunks produced since starting this node"
+    );
     pub static ref IS_VALIDATOR: near_metrics::Result<IntGauge> =
         try_create_int_gauge("near_is_validator", "Bool to denote if it is currently validating");
     pub static ref RECEIVED_BYTES_PER_SECOND: near_metrics::Result<IntGauge> = try_create_int_gauge(

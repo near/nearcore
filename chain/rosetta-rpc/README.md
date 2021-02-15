@@ -66,7 +66,7 @@ rosetta-cli check:construction --configuration-file=./rosetta.cfg
 
 ## How to Compile
 
-Follow [the standard nearcore procedures to run a node compiled from the source code](https://docs.near.org/docs/contribution/nearcore)
+Follow [the standard nearcore procedures to run a node compiled from the source code](https://docs.near.org/docs/community/contribute/contribute-nearcore)
 enabling `rosetta_rpc` feature:
 
 ```bash

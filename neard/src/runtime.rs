@@ -16,7 +16,7 @@ use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_chain::{Doomslug, DoomslugThresholdMode};
-use near_chain_configs::{Genesis, GenesisConfig};
+use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig};
 #[cfg(feature = "protocol_feature_evm")]
 use near_chain_configs::{BETANET_EVM_CHAIN_ID, MAINNET_EVM_CHAIN_ID, TESTNET_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
@@ -56,7 +56,7 @@ use node_runtime::{
 };
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_runtime_configs::RuntimeConfig;
+use near_primitives::runtime::config::RuntimeConfig;
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use near_epoch_manager::NUM_SECONDS_IN_A_YEAR;
@@ -1451,6 +1451,17 @@ impl RuntimeAdapter for NightshadeRuntime {
             _ => BETANET_EVM_CHAIN_ID,
         }
     }
+
+    fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
+        let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
+        let mut config = self.genesis_config.clone();
+        config.protocol_version = protocol_version;
+        // Currently only runtime config is changed through protocol upgrades.
+        let runtime_config =
+            RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
+        config.runtime_config = (*runtime_config).clone();
+        Ok(config)
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1576,6 +1587,7 @@ mod test {
     use near_logger_utils::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
+    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{
         Action, CreateAccountAction, DeleteAccountAction, StakeAction,
     };
@@ -1585,7 +1597,6 @@ mod test {
         AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
     };
     use near_store::create_store;
-    use node_runtime::config::RuntimeConfig;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::get_store_path;

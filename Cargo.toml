@@ -9,11 +9,10 @@ members = [
     "core/chain-configs",
     "core/crypto",
     "core/primitives",
-    "core/runtime-configs",
+    "core/primitives-core",
     "core/store",
     "core/metrics",
     "runtime/near-evm-runner",
-    "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
@@ -111,4 +110,9 @@ nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_pr
 nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3"]
 protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
-costs_counting = ["neard/costs_counting", "testlib/costs_counting", "node-runtime/costs_counting"]
+costs_counting = [
+    "near-primitives/costs_counting",
+    "neard/costs_counting",
+    "node-runtime/costs_counting",
+    "testlib/costs_counting"
+]

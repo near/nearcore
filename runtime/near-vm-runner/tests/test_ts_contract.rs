@@ -1,10 +1,10 @@
 use crate::test_utils::LATEST_PROTOCOL_VERSION;
-use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::FunctionCallError;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_vm_errors::{FunctionCallError, HostError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{External, HostError, VMConfig, VMContext, VMKind};
-use near_vm_runner::{run_vm, with_vm_variants, VMError};
+use near_vm_logic::{External, VMConfig, VMContext, VMKind};
+use near_vm_runner::{run_vm, with_vm_variants};
 
 pub mod test_utils;
 

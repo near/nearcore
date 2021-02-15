@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ethereum_types::{Address, H256, U256};
 use evm::ActionParams;
 use keccak_hash::keccak;
-use near_runtime_fees::EvmCostConfig;
+use near_primitives::runtime::fees::EvmCostConfig;
 use parity_bytes::Bytes;
 use vm::{
     ActionType, ContractCreateResult, CreateContractAddress, EnvInfo, Error as VmError,
