@@ -7,7 +7,7 @@ then
 	release=$1
 fi
 
-if [ "$release" != "release" ] && [ "$release" != "nightly-release" ]
+if [ "$release" != "release" ] && [ "$release" != "nightly-release" ] && [ "$release" != "perf-release" ]
 then
 	echo "Please provide no argument for normal release or provide nightly-release for nightly"
 	exit 1
@@ -28,6 +28,9 @@ function upload_binary {
 		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/$1
 		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/$1
 		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/stable/$1
+	elif [ "$release" == "perf" ]
+	then
+		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/perf/$1
 	else
 		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/nightly/$1
 	fi
