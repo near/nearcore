@@ -55,7 +55,7 @@ pub const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
 pub const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
 const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
 const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
-const ACCEPTING_SEAL_PERIOD_MS: i64 = 60_000;
+const ACCEPTING_SEAL_PERIOD_MS: i64 = 20_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
 const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
 const PAST_SEAL_HEIGHT_HORIZON: BlockHeightDelta = 1024;
@@ -388,9 +388,9 @@ impl<T: TimeProvider> SealsManager<T> {
                 // record the chunk producer that failed to make parts available and
                 // move the seal to the past_seals set. We also stop requesting
                 // this chunk since we assume the seal failure means it is unavailable.
-                requested_chunks.remove(&chunk_hash);
-                warn!(target: "client", "Couldn't reconstruct chunk {:?} from {:?}, I'm {:?}", chunk_hash, seal.chunk_producer, me);
-                dont_include_chunks_from.cache_set(seal.chunk_producer, ());
+                // requested_chunks.remove(&chunk_hash);
+                // warn!(target: "client", "Couldn't reconstruct chunk {:?} from {:?}, I'm {:?}", chunk_hash, seal.chunk_producer, me);
+                // dont_include_chunks_from.cache_set(seal.chunk_producer, ());
                 Self::insert_past_seal(past_seals, seal.height, chunk_hash);
             }
             expired_entry = self.expiry_index.pop_before(&now);
