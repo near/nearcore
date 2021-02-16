@@ -33,20 +33,18 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
     MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
+    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, get_genesis_hash, get_genesis_state_roots, set_genesis_hash,
-    set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store,
-    StoreCompiledContractCache, Trie, WrappedTrieChanges,
+    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ColState,
+    PartialStorage, ShardTries, Store, StoreCompiledContractCache, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -1253,7 +1251,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             QueryRequest::ViewAccount { account_id } => {
                 let account = self
                     .view_account(shard_id, *state_root, account_id)
-                    .map_err(errors::RuntimeQueryError::from)?;
+                    .map_err(errors::WrappedQueryError::from)?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewAccount(account.into()),
                     block_height,
@@ -1263,7 +1261,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             QueryRequest::ViewCode { account_id } => {
                 let contract_code = self
                     .view_contract_code(shard_id, *state_root, account_id)
-                    .map_err(errors::RuntimeQueryError::from)?;
+                    .map_err(errors::WrappedQueryError::from)?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewCode(contract_code.into()),
                     block_height,
@@ -1277,98 +1275,76 @@ impl RuntimeAdapter for NightshadeRuntime {
                         self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
                     let epoch_info = epoch_manager
                         .get_epoch_info(&epoch_id)
-                        .map_err(errors::RuntimeQueryError::from)?;
+                        .map_err(errors::WrappedQueryError::from)?;
                     (epoch_info.epoch_height, epoch_info.protocol_version)
                 };
 
-                match self.call_function(
-                    shard_id,
-                    *state_root,
+                let call_function_result = self
+                    .call_function(
+                        shard_id,
+                        *state_root,
+                        block_height,
+                        block_timestamp,
+                        prev_block_hash,
+                        block_hash,
+                        epoch_height,
+                        epoch_id,
+                        account_id,
+                        method_name,
+                        args.as_ref(),
+                        &mut logs,
+                        &self.epoch_manager,
+                        current_protocol_version,
+                        #[cfg(feature = "protocol_feature_evm")]
+                        self.evm_chain_id(),
+                    )
+                    .map_err(errors::WrappedQueryError::from)?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::CallResult(CallResult {
+                        result: call_function_result,
+                        logs,
+                    }),
                     block_height,
-                    block_timestamp,
-                    prev_block_hash,
-                    block_hash,
-                    epoch_height,
-                    epoch_id,
-                    account_id,
-                    method_name,
-                    args.as_ref(),
-                    &mut logs,
-                    &self.epoch_manager,
-                    current_protocol_version,
-                    #[cfg(feature = "protocol_feature_evm")]
-                    self.evm_chain_id(),
-                ) {
-                    Ok(result) => Ok(QueryResponse {
-                        kind: QueryResponseKind::CallResult(CallResult { result, logs }),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
-                    Err(err) => Ok(QueryResponse {
-                        kind: QueryResponseKind::Error(QueryError { error: err.to_string(), logs }),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
-                }
+                    block_hash: *block_hash,
+                })
             }
             QueryRequest::ViewState { account_id, prefix } => {
-                match self.view_state(shard_id, *state_root, account_id, prefix.as_ref()) {
-                    Ok(result) => Ok(QueryResponse {
-                        kind: QueryResponseKind::ViewState(result),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
-                    Err(err) => Ok(QueryResponse {
-                        kind: QueryResponseKind::Error(QueryError {
-                            error: err.to_string(),
-                            logs: vec![],
-                        }),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
-                }
+                let view_state_result = self
+                    .view_state(shard_id, *state_root, account_id, prefix.as_ref())
+                    .map_err(errors::WrappedQueryError::from)?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::ViewState(view_state_result),
+                    block_height,
+                    block_hash: *block_hash,
+                })
             }
             QueryRequest::ViewAccessKeyList { account_id } => {
-                match self.view_access_keys(shard_id, *state_root, account_id) {
-                    Ok(result) => Ok(QueryResponse {
-                        kind: QueryResponseKind::AccessKeyList(
-                            result
-                                .into_iter()
-                                .map(|(public_key, access_key)| AccessKeyInfoView {
-                                    public_key,
-                                    access_key: access_key.into(),
-                                })
-                                .collect(),
-                        ),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
-                    Err(err) => Ok(QueryResponse {
-                        kind: QueryResponseKind::Error(QueryError {
-                            error: err.to_string(),
-                            logs: vec![],
-                        }),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
-                }
+                let access_key_list = self
+                    .view_access_keys(shard_id, *state_root, account_id)
+                    .map_err(errors::WrappedQueryError::from)?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::AccessKeyList(
+                        access_key_list
+                            .into_iter()
+                            .map(|(public_key, access_key)| AccessKeyInfoView {
+                                public_key,
+                                access_key: access_key.into(),
+                            })
+                            .collect(),
+                    ),
+                    block_height,
+                    block_hash: *block_hash,
+                })
             }
             QueryRequest::ViewAccessKey { account_id, public_key } => {
-                match self.view_access_key(shard_id, *state_root, account_id, public_key) {
-                    Ok(access_key) => Ok(QueryResponse {
-                        kind: QueryResponseKind::AccessKey(access_key.into()),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
-                    Err(err) => Ok(QueryResponse {
-                        kind: QueryResponseKind::Error(QueryError {
-                            error: err.to_string(),
-                            logs: vec![],
-                        }),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
-                }
+                let access_key = self
+                    .view_access_key(shard_id, *state_root, account_id, public_key)
+                    .map_err(errors::WrappedQueryError::from)?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::AccessKey(access_key.into()),
+                    block_height,
+                    block_hash: *block_hash,
+                })
             }
         }
     }

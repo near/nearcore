@@ -46,9 +46,6 @@ use near_runtime_utils::is_valid_account_id;
 
 mod metrics;
 
-/// Max size of the query path (soft-deprecated)
-const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
-
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
     pub polling_interval: Duration,
@@ -588,7 +585,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::query::RpcQueryError,
     > {
         let query = Query::new(request_data.block_reference, request_data.request);
-        let query_response = self.view_client_addr.send(query.clone()).await??;
+        let query_response = self.view_client_addr.send(query).await??;
         Ok(near_jsonrpc_primitives::types::query::RpcQueryResponse { query_response })
     }
 

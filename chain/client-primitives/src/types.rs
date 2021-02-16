@@ -272,35 +272,39 @@ impl Message for Query {
 
 #[derive(thiserror::Error, Debug)]
 pub enum QueryError {
-    #[error("IO Error: {0}")]
-    IOError(String),
+    #[error("IO Error: #{error_message}")]
+    IOError { error_message: String },
     #[error("There are no fully synchronized blocks yet")]
     NotSyncedYet,
-    #[error("The node does not track the shard")]
-    DoesNotTrackShard,
-    #[error("Invalid account ID {0}")]
-    InvalidAccount(near_primitives::types::AccountId),
-    #[error("Account ID {0} has never been observed on the node")]
-    AccountDoesNotExist(near_primitives::types::AccountId),
-    #[error("Contract code for contract ID {0} has never been observed on the node")]
-    ContractCodeDoesNotExist(near_primitives::types::AccountId),
-    #[error("Access key for public key {0} has never been observed on the node")]
-    AccessKeyDoesNotExist(String),
-    #[error("VM error occurred: {0}")]
-    VMError(String),
+    #[error("The node does not track the shard #{requested_shard_id} where the requested account resides")]
+    UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
+    #[error("Invalid account ID #{requested_account_id}")]
+    InvalidAccount { requested_account_id: near_primitives::types::AccountId },
+    #[error("Account ID #{requested_account_id} has never been observed on the node")]
+    AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
+    #[error(
+        "Contract code for contract ID #{contract_account_id} has never been observed on the node"
+    )]
+    ContractCodeDoesNotExist { contract_account_id: near_primitives::types::AccountId },
+    #[error("Access key for public key #{public_key} has never been observed on the node")]
+    AccessKeyDoesNotExist { public_key: String },
+    #[error("VM error occurred: #{error_message}")]
+    VMError { error_message: String },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
     // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
-    Unreachable(String),
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: #{error_message}")]
+    Unreachable { error_message: String },
 }
 
 impl From<near_chain_primitives::Error> for QueryError {
     fn from(error: near_chain_primitives::Error) -> Self {
         match error.kind() {
-            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
-            _ => Self::Unreachable(error.to_string()),
+            near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                Self::IOError { error_message }
+            }
+            _ => Self::Unreachable { error_message: error.to_string() },
         }
     }
 }

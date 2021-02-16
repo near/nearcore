@@ -35,11 +35,16 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<Account, errors::ViewAccountError> {
         if !is_valid_account_id(account_id) {
-            return Err(errors::ViewAccountError::InvalidAccountId(account_id.clone()));
+            return Err(errors::ViewAccountError::InvalidAccountId {
+                requested_account_id: account_id.clone(),
+            });
         }
 
-        get_account(state_update, &account_id)?
-            .ok_or_else(|| errors::ViewAccountError::AccountDoesNotExist(account_id.clone()))
+        get_account(state_update, &account_id)?.ok_or_else(|| {
+            errors::ViewAccountError::AccountDoesNotExist {
+                requested_account_id: account_id.clone(),
+            }
+        })
     }
 
     pub fn view_contract_code(
@@ -49,7 +54,9 @@ impl TrieViewer {
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
         get_code(state_update, account_id, Some(account.code_hash))?.ok_or_else(|| {
-            errors::ViewContractCodeError::ContractCodeDoesNotExist(account_id.clone())
+            errors::ViewContractCodeError::NoContractCode {
+                contract_account_id: account_id.clone(),
+            }
         })
     }
 
@@ -60,11 +67,14 @@ impl TrieViewer {
         public_key: &PublicKey,
     ) -> Result<AccessKey, errors::ViewAccessKeyError> {
         if !is_valid_account_id(account_id) {
-            return Err(errors::ViewAccessKeyError::InvalidAccountId(account_id.clone()));
+            return Err(errors::ViewAccessKeyError::InvalidAccountId {
+                requested_account_id: account_id.clone(),
+            });
         }
 
-        get_access_key(state_update, account_id, public_key)?
-            .ok_or_else(|| errors::ViewAccessKeyError::AccessKeyDoesNotExist(public_key.clone()))
+        get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
+            errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
+        })
     }
 
     pub fn view_access_keys(
@@ -73,34 +83,33 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
         if !is_valid_account_id(account_id) {
-            return Err(errors::ViewAccessKeyError::InvalidAccountId(account_id.clone()));
+            return Err(errors::ViewAccessKeyError::InvalidAccountId {
+                requested_account_id: account_id.clone(),
+            });
         }
 
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let raw_prefix: &[u8] = prefix.as_ref();
-        let access_keys = match state_update.iter(&prefix) {
-            Ok(iter) => iter
+        let access_keys =
+            state_update
+                .iter(&prefix)?
                 .map(|key| {
                     let key = key?;
                     let public_key = &key[raw_prefix.len()..];
                     let access_key = near_store::get_access_key_raw(&state_update, &key)?
-                        .ok_or_else(|| {
-                            errors::ViewAccessKeyError::InternalError(
-                                "Unexpected missing key from iterator".to_string(),
-                            )
+                        .ok_or_else(|| errors::ViewAccessKeyError::InternalError {
+                            error_message: "Unexpected missing key from iterator".to_string(),
                         })?;
                     PublicKey::try_from_slice(public_key)
-                        .map_err(|_| {
-                            errors::ViewAccessKeyError::InternalError(format!(
+                        .map_err(|_| errors::ViewAccessKeyError::InternalError {
+                            error_message: format!(
                                 "Unexpected invalid public key {:?} received from store",
                                 public_key
-                            ))
+                            ),
                         })
                         .map(|key| (key, access_key))
                 })
-                .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>(),
-            Err(e) => Err(e.into()),
-        };
+                .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>();
         access_keys
     }
 
@@ -111,7 +120,9 @@ impl TrieViewer {
         prefix: &[u8],
     ) -> Result<ViewStateResult, errors::ViewStateError> {
         if !is_valid_account_id(account_id) {
-            return Err(errors::ViewStateError::InvalidAccountId(account_id.clone()));
+            return Err(errors::ViewStateError::InvalidAccountId {
+                requested_account_id: account_id.clone(),
+            });
         }
         let mut values = vec![];
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
@@ -145,11 +156,16 @@ impl TrieViewer {
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
-            return Err(errors::CallFunctionError::InvalidAccountId(contract_id.clone()));
+            return Err(errors::CallFunctionError::InvalidAccountId {
+                requested_account_id: contract_id.clone(),
+            });
         }
         let root = state_update.get_root();
-        let mut account = get_account(&state_update, contract_id)?
-            .ok_or_else(|| errors::CallFunctionError::AccountDoesNotExist(contract_id.clone()))?;
+        let mut account = get_account(&state_update, contract_id)?.ok_or_else(|| {
+            errors::CallFunctionError::AccountDoesNotExist {
+                requested_account_id: contract_id.clone(),
+            }
+        })?;
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty(KeyType::ED25519);

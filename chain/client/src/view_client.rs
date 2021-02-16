@@ -250,7 +250,7 @@ impl ViewClientActor {
                 )
                 .map_err(RuntimeQueryError::from)?)
         } else {
-            Err(QueryError::DoesNotTrackShard)
+            Err(QueryError::UnavailableShard { requested_shard_id: shard_id })
         }
     }
 
@@ -455,25 +455,27 @@ struct RuntimeQueryError(#[from] pub near_chain::near_chain_primitives::error::Q
 impl From<RuntimeQueryError> for near_client_primitives::types::QueryError {
     fn from(error: RuntimeQueryError) -> Self {
         match error.0 {
-            near_chain::near_chain_primitives::error::QueryError::InternalError(s) => {
-                Self::Unreachable(s)
-            }
-            near_chain::near_chain_primitives::error::QueryError::InvalidAccount(account_id) => {
-                Self::InvalidAccount(account_id)
-            }
-            near_chain::near_chain_primitives::error::QueryError::AccountDoesNotExist(
-                account_id,
-            ) => Self::AccountDoesNotExist(account_id),
-            near_chain::near_chain_primitives::error::QueryError::ContractCodeDoesNotExist(
-                account_id,
-            ) => Self::ContractCodeDoesNotExist(account_id),
-            near_chain::near_chain_primitives::error::QueryError::AccessKeyDoesNotExist(
+            near_chain::near_chain_primitives::error::QueryError::InternalError {
+                error_message,
+            } => Self::Unreachable { error_message },
+            near_chain::near_chain_primitives::error::QueryError::InvalidAccount {
+                requested_account_id,
+            } => Self::InvalidAccount { requested_account_id },
+            near_chain::near_chain_primitives::error::QueryError::AccountDoesNotExist {
+                requested_account_id,
+            } => Self::AccountDoesNotExist { requested_account_id },
+            near_chain::near_chain_primitives::error::QueryError::ContractCodeDoesNotExist {
+                contract_account_id,
+            } => Self::ContractCodeDoesNotExist { contract_account_id },
+            near_chain::near_chain_primitives::error::QueryError::AccessKeyDoesNotExist {
                 public_key,
-            ) => Self::AccessKeyDoesNotExist(public_key),
+            } => Self::AccessKeyDoesNotExist { public_key },
             near_chain::near_chain_primitives::error::QueryError::StorageError(storage_error) => {
-                Self::IOError(storage_error.to_string())
+                Self::IOError { error_message: storage_error.to_string() }
             }
-            near_chain::near_chain_primitives::error::QueryError::VMError(s) => Self::VMError(s),
+            near_chain::near_chain_primitives::error::QueryError::VMError(error_message) => {
+                Self::VMError { error_message }
+            }
         }
     }
 }

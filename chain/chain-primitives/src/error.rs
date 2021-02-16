@@ -14,18 +14,18 @@ use near_primitives::types::{BlockHeight, EpochId, ShardId};
 
 #[derive(thiserror::Error, Debug)]
 pub enum QueryError {
-    #[error("Invalid account ID {0}")]
-    InvalidAccount(near_primitives::types::AccountId),
-    #[error("Account ID {0} does not exist while viewing")]
-    AccountDoesNotExist(near_primitives::types::AccountId),
-    #[error("Contract ID {0} code does not exist while viewing")]
-    ContractCodeDoesNotExist(near_primitives::types::AccountId),
-    #[error("Access key for public key {0} does not exist while viewing")]
-    AccessKeyDoesNotExist(String),
+    #[error("Invalid account ID #{requested_account_id}")]
+    InvalidAccount { requested_account_id: near_primitives::types::AccountId },
+    #[error("Account ID #{requested_account_id} does not exist while viewing")]
+    AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
+    #[error("Contract ID #{contract_account_id} code does not exist while viewing")]
+    ContractCodeDoesNotExist { contract_account_id: near_primitives::types::AccountId },
+    #[error("Access key for public key #{public_key} does not exist while viewing")]
+    AccessKeyDoesNotExist { public_key: String },
     #[error("Storage error occurred: {0:?}")]
     StorageError(#[from] near_primitives::errors::StorageError),
-    #[error("Internal error occurred: {0}")]
-    InternalError(String),
+    #[error("Internal error occurred: #{error_message}")]
+    InternalError { error_message: String },
     #[error("VM error occurred: {0}")]
     VMError(String),
 }
