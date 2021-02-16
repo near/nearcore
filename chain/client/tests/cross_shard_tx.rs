@@ -471,7 +471,9 @@ mod tests {
                 let account_id1 = flat_validators[i].clone();
                 let block_stats1 = block_stats.clone();
                 actix::spawn(
-                    connectors_[i + *presumable_epoch.read().unwrap() * 8]
+                    connectors_[account_id_to_shard_id(&flat_validators[i].to_string(), 8)
+                        as usize
+                        + *presumable_epoch.read().unwrap() * 8]
                         .1
                         .send(Query::new(
                             BlockReference::latest(),
@@ -513,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(64, false, false, false, 80, Some(2.4), None);
+        test_cross_shard_tx_common(64, false, false, false, 70, Some(2.3), None);
     }
 
     #[test]
