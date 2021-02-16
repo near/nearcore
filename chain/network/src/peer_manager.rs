@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use actix::io::FramedWrite;
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Recipient, Running, StreamHandler, SyncArbiter, SyncContext, SystemService, WrapFuture,
+    Recipient, Running, StreamHandler, SyncArbiter, SyncContext, WrapFuture,
 };
 use chrono::Utc;
 use futures::task::Poll;
@@ -1647,32 +1647,22 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
         let _d = DelayDetector::new("outbound tcp connect".into());
         debug!(target: "network", "Trying to connect to {}", msg.peer_info);
         if let Some(addr) = msg.peer_info.addr {
-            #[allow(deprecated)]
-            // There is not clear migration path at the moment: https://github.com/actix/actix/issues/451
-            actix::actors::resolver::Resolver::from_registry()
-                .send(actix::actors::resolver::ConnectAddr(addr))
+            TcpStream::connect(addr)
                 .into_actor(self)
                 .then(move |res, act, ctx| match res {
-                    Ok(res) => match res {
-                        Ok(stream) => {
-                            debug!(target: "network", "Connecting to {}", msg.peer_info);
-                            let edge_info = act.propose_edge(msg.peer_info.id.clone(), None);
+                    Ok(stream) => {
+                        debug!(target: "network", "Connecting to {}", msg.peer_info);
+                        let edge_info = act.propose_edge(msg.peer_info.id.clone(), None);
 
-                            act.try_connect_peer(
-                                ctx.address(),
-                                stream,
-                                PeerType::Outbound,
-                                Some(msg.peer_info),
-                                Some(edge_info),
-                            );
-                            actix::fut::ready(())
-                        }
-                        Err(err) => {
-                            info!(target: "network", "Error connecting to {}: {}", addr, err);
-                            act.outgoing_peers.remove(&msg.peer_info.id);
-                            actix::fut::ready(())
-                        }
-                    },
+                        act.try_connect_peer(
+                            ctx.address(),
+                            stream,
+                            PeerType::Outbound,
+                            Some(msg.peer_info),
+                            Some(edge_info),
+                        );
+                        actix::fut::ready(())
+                    }
                     Err(err) => {
                         info!(target: "network", "Error connecting to {}: {}", addr, err);
                         act.outgoing_peers.remove(&msg.peer_info.id);
