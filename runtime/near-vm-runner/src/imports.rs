@@ -277,7 +277,10 @@ wrapped_imports! {
     // ###############
     validator_stake<[account_id_len: u64, account_id_ptr: u64, stake_ptr: u64] -> []>,
     validator_total_stake<[stake_ptr: u64] -> []>,
-    // ###############
-    // An example to add a protocol feature guarded host method
-    // #["protocol_feature_evm", EVM] test_api<[a: u64] -> []>,
+    // #############
+    // # Alt BN128 #
+    // #############
+    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
 }

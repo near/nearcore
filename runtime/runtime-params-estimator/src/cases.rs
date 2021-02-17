@@ -127,10 +127,11 @@ fn measure_function(
 }
 
 macro_rules! calls_helper(
-    { $($el:ident => $method_name:ident),* } => {
+    { $($(#[$feature_name:tt])* $el:ident => $method_name:ident),* } => {
     {
         let mut v: Vec<(Metric, &str)> = vec![];
         $(
+            $(#[cfg(feature = $feature_name)])*
             v.push((Metric::$el, stringify!($method_name)));
         )*
         v
@@ -182,11 +183,17 @@ pub enum Metric {
     keccak256_10kib_10k,
     keccak512_10b_10k,
     keccak512_10kib_10k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_1_1k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_10_1k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_1_1k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_10_1k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_pairing_check_1_1k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_pairing_check_10_1k,
     storage_write_10b_key_10b_value_1k,
     storage_write_10kib_key_10b_value_1k,
@@ -541,58 +548,58 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
 
     // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
     let v = calls_helper! {
-    cpu_ram_soak_test => cpu_ram_soak_test,
-    base_1M => base_1M,
-    read_memory_10b_10k => read_memory_10b_10k,
-    read_memory_1Mib_10k => read_memory_1Mib_10k,
-    write_memory_10b_10k => write_memory_10b_10k,
-    write_memory_1Mib_10k => write_memory_1Mib_10k,
-    read_register_10b_10k => read_register_10b_10k,
-    read_register_1Mib_10k => read_register_1Mib_10k,
-    write_register_10b_10k => write_register_10b_10k,
-    write_register_1Mib_10k => write_register_1Mib_10k,
-    utf8_log_10b_10k => utf8_log_10b_10k,
-    utf8_log_10kib_10k => utf8_log_10kib_10k,
-    nul_utf8_log_10b_10k => nul_utf8_log_10b_10k,
-    nul_utf8_log_10kib_10k => nul_utf8_log_10kib_10k,
-    utf16_log_10b_10k => utf16_log_10b_10k,
-    utf16_log_10kib_10k => utf16_log_10kib_10k,
-    nul_utf16_log_10b_10k => nul_utf16_log_10b_10k,
-    nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
-    sha256_10b_10k => sha256_10b_10k,
-    sha256_10kib_10k => sha256_10kib_10k,
-    keccak256_10b_10k => keccak256_10b_10k,
-    keccak256_10kib_10k => keccak256_10kib_10k,
-    keccak512_10b_10k => keccak512_10b_10k,
-    keccak512_10kib_10k => keccak512_10kib_10k,
-    alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
-    alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
-    alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
-    alt_bn128_g1_sum_10_1k => alt_bn128_g1_sum_10_1k,
-    alt_bn128_pairing_check_1_1k => alt_bn128_pairing_check_1_1k,
-    alt_bn128_pairing_check_10_1k => alt_bn128_pairing_check_10_1k,
-    storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
-    storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
-    storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
-    storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
-    storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
-    storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
-    storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
-    storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
-    storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
-    storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
-    storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
-    storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
-    storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k ,
-    promise_and_100k => promise_and_100k,
-    promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
-    promise_return_100k => promise_return_100k,
-    data_producer_10b => data_producer_10b,
-    data_producer_100kib => data_producer_100kib,
-    data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
-    data_receipt_10b_1000 => data_receipt_10b_1000,
-    data_receipt_100kib_1000 => data_receipt_100kib_1000
-        };
+        cpu_ram_soak_test => cpu_ram_soak_test,
+        base_1M => base_1M,
+        read_memory_10b_10k => read_memory_10b_10k,
+        read_memory_1Mib_10k => read_memory_1Mib_10k,
+        write_memory_10b_10k => write_memory_10b_10k,
+        write_memory_1Mib_10k => write_memory_1Mib_10k,
+        read_register_10b_10k => read_register_10b_10k,
+        read_register_1Mib_10k => read_register_1Mib_10k,
+        write_register_10b_10k => write_register_10b_10k,
+        write_register_1Mib_10k => write_register_1Mib_10k,
+        utf8_log_10b_10k => utf8_log_10b_10k,
+        utf8_log_10kib_10k => utf8_log_10kib_10k,
+        nul_utf8_log_10b_10k => nul_utf8_log_10b_10k,
+        nul_utf8_log_10kib_10k => nul_utf8_log_10kib_10k,
+        utf16_log_10b_10k => utf16_log_10b_10k,
+        utf16_log_10kib_10k => utf16_log_10kib_10k,
+        nul_utf16_log_10b_10k => nul_utf16_log_10b_10k,
+        nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
+        sha256_10b_10k => sha256_10b_10k,
+        sha256_10kib_10k => sha256_10kib_10k,
+        keccak256_10b_10k => keccak256_10b_10k,
+        keccak256_10kib_10k => keccak256_10kib_10k,
+        keccak512_10b_10k => keccak512_10b_10k,
+        keccak512_10kib_10k => keccak512_10kib_10k,
+        #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
+        #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
+        #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
+        #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_10_1k => alt_bn128_g1_sum_10_1k,
+        #["protocol_feature_alt_bn128"] alt_bn128_pairing_check_1_1k => alt_bn128_pairing_check_1_1k,
+        #["protocol_feature_alt_bn128"] alt_bn128_pairing_check_10_1k => alt_bn128_pairing_check_10_1k,
+        storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
+        storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
+        storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
+        storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
+        storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
+        storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
+        storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
+        storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
+        storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
+        storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
+        storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
+        storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
+        storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k ,
+        promise_and_100k => promise_and_100k,
+        promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
+        promise_return_100k => promise_return_100k,
+        data_producer_10b => data_producer_10b,
+        data_producer_100kib => data_producer_100kib,
+        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+        data_receipt_10b_1000 => data_receipt_10b_1000,
+        data_receipt_100kib_1000 => data_receipt_100kib_1000
+    };
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
@@ -729,25 +736,6 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
         keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
         keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
-        alt_bn128_g1_sum_base: measured_to_gas(metric, &measured, alt_bn128_g1_sum_base),
-        alt_bn128_g1_sum_byte: measured_to_gas(metric, &measured, alt_bn128_g1_sum_byte),
-        alt_bn128_g1_multiexp_base: measured_to_gas(metric, &measured, alt_bn128_g1_multiexp_base),
-        alt_bn128_g1_multiexp_byte: measured_to_gas(metric, &measured, alt_bn128_g1_multiexp_byte),
-        alt_bn128_g1_multiexp_sublinear: measured_to_gas(
-            metric,
-            &measured,
-            alt_bn128_g1_multiexp_sublinear,
-        ),
-        alt_bn128_pairing_check_base: measured_to_gas(
-            metric,
-            &measured,
-            alt_bn128_pairing_check_base,
-        ),
-        alt_bn128_pairing_check_byte: measured_to_gas(
-            metric,
-            &measured,
-            alt_bn128_pairing_check_byte,
-        ),
         log_base: measured_to_gas(metric, &measured, log_base),
         log_byte: measured_to_gas(metric, &measured, log_byte),
         storage_write_base: measured_to_gas(metric, &measured, storage_write_base),
@@ -785,6 +773,32 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         // TODO: accurately price host functions that expose validator information.
         validator_stake_base: 303944908800,
         validator_total_stake_base: 303944908800,
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_g1_sum_base: measured_to_gas(metric, &measured, alt_bn128_g1_sum_base),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_g1_sum_byte: measured_to_gas(metric, &measured, alt_bn128_g1_sum_byte),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_g1_multiexp_base: measured_to_gas(metric, &measured, alt_bn128_g1_multiexp_base),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_g1_multiexp_byte: measured_to_gas(metric, &measured, alt_bn128_g1_multiexp_byte),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_g1_multiexp_sublinear: measured_to_gas(
+            metric,
+            &measured,
+            alt_bn128_g1_multiexp_sublinear,
+        ),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_pairing_check_base: measured_to_gas(
+            metric,
+            &measured,
+            alt_bn128_pairing_check_base,
+        ),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_pairing_check_byte: measured_to_gas(
+            metric,
+            &measured,
+            alt_bn128_pairing_check_byte,
+        ),
     }
 }
 
