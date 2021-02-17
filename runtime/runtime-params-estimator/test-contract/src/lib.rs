@@ -47,6 +47,8 @@ extern "C" {
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
+    fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
+    fn blake2b(value_len: u64, value_ptr: u64, register_id: u64);
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -421,6 +423,52 @@ pub unsafe fn keccak512_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
         keccak512(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Function to measure `ripemd160_base` and `ripemd160_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute ripemd160 on 10b 10k times.
+#[no_mangle]
+pub unsafe fn ripemd160_10b_10k() {
+    let buffer = [65u8; 10];
+    for _ in 0..10_000 {
+        ripemd160(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+// Function to measure `ripemd160_base` and `ripemd160_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute ripemd160 on 10kib 10k times.
+#[no_mangle]
+pub unsafe fn ripemd160_10kib_10k() {
+    let buffer = [65u8; 10240];
+    for _ in 0..10_000 {
+        ripemd160(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Function to measure `blake2b_base` and `blake2b_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `blake2b` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute blake2b on 10b 10k times.
+#[no_mangle]
+pub unsafe fn blake2b_10b_10k() {
+    let buffer = [65u8; 10];
+    for _ in 0..10_000 {
+        blake2b(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+// Function to measure `blake2b_base` and `blake2b_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `blake2b` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute blake2b on 10kib 10k times.
+#[no_mangle]
+pub unsafe fn blake2b_10kib_10k() {
+    let buffer = [65u8; 10240];
+    for _ in 0..10_000 {
+        blake2b(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
     }
 }
 

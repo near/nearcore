@@ -198,6 +198,19 @@ pub enum Metric {
     keccak256_10kib_10k,
     keccak512_10b_10k,
     keccak512_10kib_10k,
+    #[cfg(feature = "protocol_feature_evm")]
+    ripemd160_10b_10k,
+    #[cfg(feature = "protocol_feature_evm")]
+    ripemd160_10kib_10k,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2b_10b_10k,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2b_10kib_10k,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2b_f_10b_10k,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2b_f_10kib_10k,
+    #[cfg(feature = "protocol_feature_evm")]
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_1_1k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
