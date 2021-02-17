@@ -933,8 +933,8 @@ impl EpochManager {
                             .map(|stats| stats.block_stats.clone())
                             .unwrap_or_else(|| ValidatorStats { produced: 0, expected: 0 });
                         let mut shards = validator_to_shard[validator_id]
-                            .clone()
-                            .into_iter()
+                            .iter()
+                            .cloned()
                             .collect::<Vec<ShardId>>();
                         shards.sort();
                         Ok(CurrentEpochValidatorInfo {
