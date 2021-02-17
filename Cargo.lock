@@ -3141,7 +3141,7 @@ dependencies = [
  "rlp",
  "serde",
  "serde_json",
- "sha2 0.8.2",
+ "sha2 0.9.3",
  "sha3",
  "vm",
 ]
@@ -3497,8 +3497,9 @@ dependencies = [
  "near-vm-errors",
  "serde",
  "serde_json",
- "sha2 0.8.2",
+ "sha2 0.9.3",
  "sha3",
+ "zeropool-bn",
 ]
 
 [[package]]
@@ -4298,6 +4299,15 @@ name = "radium"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "643f8f41a8ebc4c5dc4515c82bb8abd397b527fc20fd681b7c011c2aee5d44fb"
+
+[[package]]
+name = "rand"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c618c47cd3ebd209790115ab837de41425723956ad3ce2e6a7f09890947cacb9"
+dependencies = [
+ "rand_core 0.3.1",
+]
 
 [[package]]
 name = "rand"
@@ -6555,4 +6565,18 @@ dependencies = [
  "quote 1.0.8",
  "syn 1.0.60",
  "synstructure",
+]
+
+[[package]]
+name = "zeropool-bn"
+version = "0.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20ac9988e2c02f306b274baa3a50a00b0a98386b6ba56b063b8f1a7a08ebc184"
+dependencies = [
+ "borsh",
+ "byteorder",
+ "crunchy",
+ "lazy_static",
+ "rand 0.5.6",
+ "rustc-hex 2.1.0",
 ]

@@ -25,10 +25,7 @@ near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" 
 near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
 near-runtime-utils = { path = "../near-runtime-utils", version = "3.0.0" }
 
-[dependencies.bn]
-package = "zeropool-bn"
-version = "0.5.7"
-features = []
+bn = { package = "zeropool-bn", version = "0.5.8", features = [], optional = true }
 
 [dev-dependencies]
 serde_json = {version= "1", features= ["preserve_order"]}
@@ -37,9 +34,7 @@ serde_json = {version= "1", features= ["preserve_order"]}
 default = []
 protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
 wasmtime_default = []
-protocol_feature_alt_bn128 = []
-nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_alt_bn128"]
+protocol_feature_alt_bn128 = ["bn", "near-primitives-core/protocol_feature_alt_bn128"]
 
 
 # Use this feature to enable counting of fees and costs applied.

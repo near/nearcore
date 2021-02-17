@@ -32,7 +32,7 @@ near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" 
 [features]
 default = []
 no_cache = ["near-vm-runner/no_cache"]
-protocol_feature_alt_bn128 = []
+protocol_feature_alt_bn128 = ["near-vm-logic/protocol_feature_alt_bn128", "near-vm-runner/protocol_feature_alt_bn128"]
 
 [package.metadata.workspaces]
 independent = true
