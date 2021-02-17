@@ -48,4 +48,14 @@ impl Default for VMKind {
     fn default() -> Self {
         VMKind::Wasmer0
     }
+
+    // These features should be mutually exclusive, but implement this to work around CI cargo check --all-features
+    #[cfg(all(
+        feature = "wasmer0_default",
+        feature = "wasmer1_default",
+        feature = "wasmtime_default"
+    ))]
+    fn default() -> Self {
+        VMKind::Wasmer0
+    }
 }
