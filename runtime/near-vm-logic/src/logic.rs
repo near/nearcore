@@ -995,6 +995,21 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
+    /// TODO
+    ///
+    /// # Errors
+    ///
+    /// TODO
+    ///
+    /// # Cost
+    ///
+    /// TODO
+    pub fn ecrecover(&mut self, hash_ptr: u64, v: u8, r_ptr: u64, s_ptr: u64, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(ecrecover_base)?;
+
+        Ok(()) // TODO
+    }
+
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
     ///
     /// # Errors

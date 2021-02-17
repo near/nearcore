@@ -764,6 +764,8 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         ripemd160_byte: measured_to_gas(metric, &measured, ripemd160_byte),
         blake2b_base: measured_to_gas(metric, &measured, blake2b_base),
         blake2b_byte: measured_to_gas(metric, &measured, blake2b_byte),
+        ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
+        ecrecover_byte: measured_to_gas(metric, &measured, ecrecover_byte),
         log_base: measured_to_gas(metric, &measured, log_base),
         log_byte: measured_to_gas(metric, &measured, log_byte),
         storage_write_base: measured_to_gas(metric, &measured, storage_write_base),

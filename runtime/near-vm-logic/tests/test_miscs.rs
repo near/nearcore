@@ -594,6 +594,11 @@ fn test_blake2b() {
 }
 
 #[test]
+fn test_ecrecover() {
+    // TODO
+}
+
+#[test]
 fn test_hash256_register() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));

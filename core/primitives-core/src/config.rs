@@ -233,6 +233,11 @@ pub struct ExtCostsConfig {
     /// Cost of getting blake2b per byte
     pub blake2b_byte: Gas,
 
+    /// Cost of getting ecrecover base
+    pub ecrecover_base: Gas,
+    /// Cost of getting ecrecover per byte
+    pub ecrecover_byte: Gas,
+
     /// Cost for calling logging.
     pub log_base: Gas,
     /// Cost for logging per byte
@@ -367,6 +372,8 @@ impl Default for ExtCostsConfig {
             ripemd160_byte: SAFETY_MULTIPLIER * 8039117,    // TODO
             blake2b_base: SAFETY_MULTIPLIER * 1513656750,   // TODO
             blake2b_byte: SAFETY_MULTIPLIER * 8039117,      // TODO
+            ecrecover_base: SAFETY_MULTIPLIER * 1000000000, // TODO
+            ecrecover_byte: SAFETY_MULTIPLIER * 1000000000, // TODO
             log_base: SAFETY_MULTIPLIER * 1181104350,
             log_byte: SAFETY_MULTIPLIER * 4399597,
             storage_write_base: SAFETY_MULTIPLIER * 21398912000,
@@ -441,6 +448,8 @@ impl ExtCostsConfig {
             ripemd160_byte: 0,
             blake2b_base: 0,
             blake2b_byte: 0,
+            ecrecover_base: 0,
+            ecrecover_byte: 0,
             log_base: 0,
             log_byte: 0,
             storage_write_base: 0,
@@ -516,6 +525,8 @@ pub enum ExtCosts {
     ripemd160_byte,
     blake2b_base,
     blake2b_byte,
+    ecrecover_base,
+    ecrecover_byte,
     log_base,
     log_byte,
     storage_write_base,
@@ -644,6 +655,8 @@ impl ExtCosts {
             ripemd160_byte => config.ripemd160_byte,
             blake2b_base => config.blake2b_base,
             blake2b_byte => config.blake2b_byte,
+            ecrecover_base => config.ecrecover_base,
+            ecrecover_byte => config.ecrecover_byte,
             log_base => config.log_base,
             log_byte => config.log_byte,
             storage_write_base => config.storage_write_base,
@@ -722,6 +735,8 @@ impl ExtCosts {
             "ripemd160_byte",
             "blake2b_base",
             "blake2b_byte",
+            "ecrecover_base",
+            "ecrecover_byte",
             "log_base",
             "log_byte",
             "storage_write_base",
