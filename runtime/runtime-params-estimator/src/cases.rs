@@ -691,7 +691,7 @@ fn measured_to_gas(
 ) -> u64 {
     match measured.get(&cost) {
         Some(value) => ratio_to_gas(gas_metric, *value),
-        None => panic!("cost {} not found", cost as u32),
+        None => panic!("cost {:?} not found", cost),
     }
 }
 
