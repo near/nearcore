@@ -287,7 +287,7 @@ pub enum QueryError {
     )]
     ContractCodeDoesNotExist { contract_account_id: near_primitives::types::AccountId },
     #[error("Access key for public key #{public_key} has never been observed on the node")]
-    AccessKeyDoesNotExist { public_key: String },
+    AccessKeyDoesNotExist { public_key: near_crypto::PublicKey },
     #[error("VM error occurred: #{error_message}")]
     VMError { error_message: String },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle

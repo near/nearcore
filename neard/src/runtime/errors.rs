@@ -90,7 +90,7 @@ impl From<node_runtime::state_viewer::errors::ViewAccessKeyError> for WrappedQue
             } => Self(QueryError::StorageError { storage_error }),
             node_runtime::state_viewer::errors::ViewAccessKeyError::AccessKeyDoesNotExist {
                 public_key,
-            } => Self(QueryError::AccessKeyDoesNotExist { public_key: public_key.to_string() }),
+            } => Self(QueryError::AccessKeyDoesNotExist { public_key }),
             node_runtime::state_viewer::errors::ViewAccessKeyError::InternalError {
                 error_message,
             } => Self(QueryError::InternalError { error_message }),

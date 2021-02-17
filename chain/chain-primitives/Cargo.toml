@@ -14,3 +14,4 @@ log = "0.4"
 thiserror = "1.0"
 
 near-primitives = { path = "../../core/primitives" }
+near-crypto = { path = "../../core/crypto" }

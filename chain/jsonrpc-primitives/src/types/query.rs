@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tracing::error;
 
 /// Max size of the query path (soft-deprecated)
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
@@ -29,7 +30,7 @@ pub enum RpcQueryError {
     )]
     NoContractCode { contract_account_id: near_primitives::types::AccountId },
     #[error("Access key for public key #{public_key} has never been observed on the node")]
-    UnknownAccessKey { public_key: String },
+    UnknownAccessKey { public_key: near_crypto::PublicKey },
     #[error("Function call returned an error: #{vm_error}")]
     FunctionCall { vm_error: String },
     #[error("The node reached its limits. Try again later. More details: #{error_message}")]
@@ -148,6 +149,7 @@ impl From<near_client_primitives::types::QueryError> for RpcQueryError {
                 Self::FunctionCall { vm_error: error_message }
             }
             near_client_primitives::types::QueryError::Unreachable { error_message } => {
+                error!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcQueryError", &error_message],

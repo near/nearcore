@@ -3050,6 +3050,7 @@ dependencies = [
  "failure",
  "failure_derive",
  "log",
+ "near-crypto",
  "near-primitives",
  "thiserror",
 ]
@@ -3128,6 +3129,7 @@ dependencies = [
  "near-chain-configs",
  "near-chain-primitives",
  "near-chunks",
+ "near-crypto",
  "near-network",
  "near-primitives",
  "serde",
@@ -3290,12 +3292,14 @@ dependencies = [
  "lazy_static",
  "near-chain-configs",
  "near-client-primitives",
+ "near-crypto",
  "near-metrics",
  "near-primitives",
  "near-primitives-core",
  "serde",
  "serde_json",
  "thiserror",
+ "tracing",
  "uuid",
 ]
 

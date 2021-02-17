@@ -14,14 +14,14 @@ use near_primitives::types::{BlockHeight, EpochId, ShardId};
 
 #[derive(thiserror::Error, Debug)]
 pub enum QueryError {
-    #[error("Invalid account ID #{requested_account_id}")]
+    #[error("Account ID #{requested_account_id} is invalid")]
     InvalidAccount { requested_account_id: near_primitives::types::AccountId },
     #[error("Account ID #{requested_account_id} does not exist while viewing")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
     #[error("Contract ID #{contract_account_id} code does not exist while viewing")]
     ContractCodeDoesNotExist { contract_account_id: near_primitives::types::AccountId },
     #[error("Access key for public key #{public_key} does not exist while viewing")]
-    AccessKeyDoesNotExist { public_key: String },
+    AccessKeyDoesNotExist { public_key: near_crypto::PublicKey },
     #[error("Storage error occurred: #{storage_error:?}")]
     StorageError {
         #[from]

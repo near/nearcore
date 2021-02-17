@@ -708,3 +708,42 @@ fn test_protocol_config_rpc() {
         });
     });
 }
+
+#[test]
+fn test_query_rpc() {
+    init_integration_logger();
+    heavy_test(|| {
+        System::builder()
+            .stop_on_panic(true)
+            .run(move || {
+                let num_nodes = 1;
+                let dirs = (0..num_nodes)
+                    .map(|i| {
+                        tempfile::Builder::new()
+                            .prefix(&format!("protocol_config{}", i))
+                            .tempdir()
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                let (_genesis, rpc_addrs, _) = start_nodes(1, &dirs, 1, 0, 10, 0);
+
+                actix::spawn(async move {
+                    let client = new_client(&format!("http://{}", rpc_addrs[0]));
+                    let query_response = client
+                        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                            block_reference: near_primitives::types::BlockReference::Finality(
+                                Finality::Final,
+                            ),
+                            request: near_primitives::views::QueryRequest::ViewAccount {
+                                account_id: "test.near".to_string(),
+                            },
+                        })
+                        .await
+                        .unwrap();
+                    assert_eq!(false, true);
+                    System::current().stop();
+                });
+            })
+            .unwrap();
+    });
+}

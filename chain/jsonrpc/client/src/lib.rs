@@ -8,8 +8,9 @@ use serde::Serialize;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_jsonrpc_primitives::rpc::{
-    RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
+    RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
 };
+use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::{
@@ -198,7 +199,10 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "query", [path, data])
     }
 
-    pub fn query(&self, request: RpcQueryRequest) -> RpcRequest<QueryResponse> {
+    pub fn query(
+        &self,
+        request: near_jsonrpc_primitives::types::query::RpcQueryRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::query::RpcQueryResponse> {
         call_method(&self.client, &self.server_addr, "query", request)
     }
 

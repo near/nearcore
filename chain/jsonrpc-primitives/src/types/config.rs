@@ -1,6 +1,7 @@
 use crate::types::blocks::BlockReference;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tracing::error;
 
 #[derive(Serialize, Deserialize)]
 pub struct RpcProtocolConfigRequest {
@@ -46,12 +47,13 @@ impl From<near_client_primitives::types::GetProtocolConfigError> for RpcProtocol
             near_client_primitives::types::GetProtocolConfigError::IOError(s) => {
                 Self::InternalError(s)
             }
-            near_client_primitives::types::GetProtocolConfigError::Unreachable(s) => {
+            near_client_primitives::types::GetProtocolConfigError::Unreachable(error_message) => {
+                error!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcProtocolConfigError", &s],
+                    &["RpcProtocolConfigError", &error_message],
                 );
-                Self::Unreachable(s)
+                Self::Unreachable(error_message)
             }
         }
     }
