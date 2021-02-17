@@ -470,10 +470,10 @@ impl From<RuntimeQueryError> for near_client_primitives::types::QueryError {
             near_chain::near_chain_primitives::error::QueryError::AccessKeyDoesNotExist {
                 public_key,
             } => Self::AccessKeyDoesNotExist { public_key },
-            near_chain::near_chain_primitives::error::QueryError::StorageError(storage_error) => {
-                Self::IOError { error_message: storage_error.to_string() }
-            }
-            near_chain::near_chain_primitives::error::QueryError::VMError(error_message) => {
+            near_chain::near_chain_primitives::error::QueryError::StorageError {
+                storage_error,
+            } => Self::IOError { error_message: storage_error.to_string() },
+            near_chain::near_chain_primitives::error::QueryError::VMError { error_message } => {
                 Self::VMError { error_message }
             }
         }

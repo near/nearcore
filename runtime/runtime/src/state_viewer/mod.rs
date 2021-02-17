@@ -240,7 +240,7 @@ impl TrieViewer {
             }
             let message = format!("wasm execution failed with error: {:?}", err);
             debug!(target: "runtime", "(exec time {}) {}", time_str, message);
-            Err(errors::CallFunctionError::VMError(message))
+            Err(errors::CallFunctionError::VMError { error_message: message })
         } else {
             let outcome = outcome.unwrap();
             debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);

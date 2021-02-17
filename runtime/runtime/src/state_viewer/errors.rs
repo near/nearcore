@@ -4,8 +4,11 @@ pub enum ViewAccountError {
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Account ID #{requested_account_id} does not exist")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
-    #[error("Storage error: {0}")]
-    StorageError(#[from] near_primitives::errors::StorageError),
+    #[error("Storage error: #{storage_error}")]
+    StorageError {
+        #[from]
+        storage_error: near_primitives::errors::StorageError,
+    },
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -14,8 +17,11 @@ pub enum ViewContractCodeError {
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Account ID #{requested_account_id} does not exist")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
-    #[error("Storage error: {0}")]
-    StorageError(#[from] near_primitives::errors::StorageError),
+    #[error("Storage error: #{storage_error}")]
+    StorageError {
+        #[from]
+        storage_error: near_primitives::errors::StorageError,
+    },
     #[error("Contract code for contract ID #{contract_account_id} does not exist")]
     NoContractCode { contract_account_id: near_primitives::types::AccountId },
 }
@@ -24,8 +30,11 @@ pub enum ViewContractCodeError {
 pub enum ViewAccessKeyError {
     #[error("Account ID #{requested_account_id} is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
-    #[error("Storage error: {0}")]
-    StorageError(#[from] near_primitives::errors::StorageError),
+    #[error("Storage error: #{storage_error:?}")]
+    StorageError {
+        #[from]
+        storage_error: near_primitives::errors::StorageError,
+    },
     #[error("Access key for public key #{public_key} does not exist")]
     AccessKeyDoesNotExist { public_key: near_crypto::PublicKey },
     #[error("Internal error occurred: #{error_message}")]
@@ -36,8 +45,11 @@ pub enum ViewAccessKeyError {
 pub enum ViewStateError {
     #[error("Account ID #{requested_account_id} is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
-    #[error("Storage error: {0}")]
-    StorageError(#[from] near_primitives::errors::StorageError),
+    #[error("Storage error: #{storage_error}")]
+    StorageError {
+        #[from]
+        storage_error: near_primitives::errors::StorageError,
+    },
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -48,8 +60,8 @@ pub enum CallFunctionError {
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
     #[error("Storage error: {0}")]
     StorageError(#[from] near_primitives::errors::StorageError),
-    #[error("VM error occurred: {0}")]
-    VMError(String),
+    #[error("VM error occurred: #{error_message}")]
+    VMError { error_message: String },
 }
 
 impl From<ViewAccountError> for ViewContractCodeError {
@@ -61,7 +73,9 @@ impl From<ViewAccountError> for ViewContractCodeError {
             ViewAccountError::AccountDoesNotExist { requested_account_id } => {
                 Self::AccountDoesNotExist { requested_account_id }
             }
-            ViewAccountError::StorageError(storage_error) => Self::StorageError(storage_error),
+            ViewAccountError::StorageError { storage_error } => {
+                Self::StorageError { storage_error }
+            }
         }
     }
 }

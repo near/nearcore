@@ -313,7 +313,7 @@ pub(crate) async fn query_account(
         block_id,
         near_primitives::views::QueryRequest::ViewAccount { account_id },
     );
-    let account_info_response = match view_client_addr.send(query.clone()).await? {
+    let account_info_response = match view_client_addr.send(query).await? {
         Ok(query_response) => query_response,
         Err(err) => match err {
             near_client_primitives::types::QueryError::AccountDoesNotExist { .. } => {
@@ -391,7 +391,7 @@ pub(crate) async fn query_access_key(
         block_id,
         near_primitives::views::QueryRequest::ViewAccessKey { account_id, public_key },
     );
-    let access_key_query_response = match view_client_addr.send(access_key_query.clone()).await? {
+    let access_key_query_response = match view_client_addr.send(access_key_query).await? {
         Ok(query_response) => query_response,
         Err(err) => {
             return match err {

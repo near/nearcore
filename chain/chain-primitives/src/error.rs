@@ -22,12 +22,15 @@ pub enum QueryError {
     ContractCodeDoesNotExist { contract_account_id: near_primitives::types::AccountId },
     #[error("Access key for public key #{public_key} does not exist while viewing")]
     AccessKeyDoesNotExist { public_key: String },
-    #[error("Storage error occurred: {0:?}")]
-    StorageError(#[from] near_primitives::errors::StorageError),
+    #[error("Storage error occurred: #{storage_error:?}")]
+    StorageError {
+        #[from]
+        storage_error: near_primitives::errors::StorageError,
+    },
     #[error("Internal error occurred: #{error_message}")]
     InternalError { error_message: String },
-    #[error("VM error occurred: {0}")]
-    VMError(String),
+    #[error("VM error occurred: #{error_message}")]
+    VMError { error_message: String },
 }
 
 #[derive(Debug)]
