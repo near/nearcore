@@ -1,5 +1,5 @@
 use crate::errors::IntoVMError;
-use crate::{cache, imports, prepare};
+use crate::{cache, imports};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{profile::ProfileData, types::CompiledContractCache};
 use near_vm_errors::{
@@ -174,13 +174,9 @@ pub fn run_wasmer1<'a>(
 
     let engine = JIT::new(Singlepass::default()).engine();
     let store = Store::new(&engine);
-    let prepared_code = match prepare::prepare_contract(code, wasm_config) {
-        Ok(code) => code,
-        Err(e) => return (None, Some(e.into())),
-    };
     let module = match cache::wasmer1_cache::compile_module_cached_wasmer1(
         &code_hash,
-        &prepared_code,
+        &code,
         wasm_config,
         cache,
         &store,

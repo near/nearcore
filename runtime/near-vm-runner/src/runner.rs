@@ -250,7 +250,11 @@ pub fn precompile<'a>(
                 wasmer::JIT::new(wasmer_compiler_singlepass::Singlepass::default()).engine();
             let store = wasmer::Store::new(&engine);
             let result = crate::cache::wasmer1_cache::compile_and_serialize_wasmer1(
-                code, code_hash, cache, &store,
+                code,
+                code_hash,
+                wasm_config,
+                cache,
+                &store,
             );
             result.err()
         }

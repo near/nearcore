@@ -37,7 +37,7 @@ wabt = "0.9"
 bencher = "^0.1.5"
 
 [features]
-default = []
+default = ["wasmer1_vm"]
 wasmer0_vm = [ "wasmer-runtime" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass" ]
