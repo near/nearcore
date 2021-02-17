@@ -337,6 +337,7 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(target: "jsonrpc", "Timeout: tx_exists method");
             ServerError::Timeout
         })?
     }
@@ -382,6 +383,7 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(target: "jsonrpc", "Timeout: tx_status_fetch method");
             TxStatusError::TimeoutError
         })?
     }
@@ -404,6 +406,7 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(target: "jsonrpc", "Timeout: tx_polling method");
             timeout_err()
         })?
     }
