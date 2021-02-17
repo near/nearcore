@@ -919,8 +919,8 @@ impl EpochManager {
         // This ugly code arises because of the incompatible types between `block_tracker` in `EpochInfoAggregator`
         // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no support for Either type
         // in std.
-        let (current_validators, next_epoch_id, all_proposals) = match epoch_identifier {
-            EpochIdentifier::EpochId(ref id) => {
+        let (current_validators, next_epoch_id, all_proposals) = match &epoch_identifier {
+            EpochIdentifier::EpochId(id) => {
                 let epoch_summary = self.get_epoch_validator_info(id)?;
                 let cur_validators = cur_epoch_info
                     .validators
