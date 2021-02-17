@@ -163,3 +163,6 @@ steps:
     
   - trigger: nearcore-nightly-release
     branches: "master"
+
+  - trigger: nearcore-perf-release
+    branches: "master"

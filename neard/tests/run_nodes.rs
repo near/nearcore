@@ -29,7 +29,8 @@ fn run_nodes(
                 .collect::<Vec<_>>();
             let (_, _, clients) =
                 start_nodes(num_shards, &dirs, num_validators, 0, epoch_length, genesis_height);
-            let view_client = clients[clients.len() - 1].1.clone();
+            let view_client = clients.last().unwrap().1.clone();
+
             WaitOrTimeout::new(
                 Box::new(move |_ctx| {
                     actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
@@ -47,6 +48,16 @@ fn run_nodes(
             .start();
         })
         .unwrap();
+
+    // See https://github.com/near/nearcore/issues/3925 for why it is here.
+    //
+    // The TL;DR is that actix doesn't allow to cleanly shut down multi-arbiter
+    // actor systems, and that might cause RocksDB destructors to run when the
+    // test binary exits, breaking stuff. This sleep here is a best-effort to
+    // let those destructors finish. This should make the tests less flaky.
+    // Hopefully, we'll be able to fix this properly by replacing actix actor
+    // framework with something that handles cancellation gracefully.
+    std::thread::sleep(std::time::Duration::from_millis(250));
 }
 
 /// Runs two nodes that should produce blocks one after another.
