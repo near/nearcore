@@ -9,7 +9,9 @@ use near_vm_logic::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::os::raw::c_void;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Get account id from its index.
@@ -18,7 +20,7 @@ pub fn get_account_id(account_index: usize) -> String {
 }
 
 /// Total number of transactions that we need to prepare.
-fn total_transactions(config: &Config) -> usize {
+pub fn total_transactions(config: &Config) -> usize {
     config.block_sizes.iter().sum::<usize>() * config.iter_per_block
 }
 
@@ -46,7 +48,7 @@ pub struct Config {
     /// Number of the transactions in the block.
     pub block_sizes: Vec<usize>,
     /// Where state dump is located in case we need to create a testbed.
-    pub state_dump_path: String,
+    pub state_dump_path: PathBuf,
     /// Metric used for counting.
     pub metric: GasMetric,
     /// VMKind used
@@ -62,12 +64,12 @@ pub fn measure_actions(
     metric: Metric,
     measurements: &mut Measurements,
     config: &Config,
-    testbed: Option<RuntimeTestbed>,
+    testbed: Option<Arc<Mutex<RuntimeTestbed>>>,
     actions: Vec<Action>,
     sender_is_receiver: bool,
     use_unique_accounts: bool,
-) -> RuntimeTestbed {
-    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    nonces: &mut HashMap<usize, u64>,
+) -> Arc<Mutex<RuntimeTestbed>> {
     let mut accounts_used = HashSet::new();
     let mut f = || {
         let account_idx = loop {
@@ -107,19 +109,26 @@ pub fn measure_actions(
     measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
-// TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
-#[cfg(any(target_arch = "x86_64"))]
-#[inline(always)]
-pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
-    llvm_asm!("syscall"
-         : "+{rax}"(n)
-         : "{rdi}"(a1) "{rsi}"(a2) "{rdx}"(a3)
-         : "rcx", "r11", "memory"
-         : "volatile");
-    n
-}
+// We use several "magical" file descriptors to interact with the plugin in QEMU
+// intercepting read syscall. Plugin counts instructions executed and amount of data transferred
+// by IO operations. We "normalize" all those costs into instruction count.
+const CATCH_BASE: u32 = 0xcafebabe;
+const HYPERCALL_START_COUNTING: u32 = 0;
+const HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED: u32 = 1;
+const HYPERCALL_GET_BYTES_READ: u32 = 2;
+const HYPERCALL_GET_BYTES_WRITTEN: u32 = 3;
 
-const CATCH_BASE: usize = 0xcafebabe;
+// See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
+const READ_BYTE_COST: u64 = 27;
+const WRITE_BYTE_COST: u64 = 47;
+
+fn hypercall(index: u32) -> u64 {
+    let mut result: u64 = 0;
+    unsafe {
+        libc::read((CATCH_BASE + index) as i32, &mut result as *mut _ as *mut c_void, 8);
+    }
+    result
+}
 
 pub enum Consumed {
     Instant(Instant),
@@ -127,29 +136,21 @@ pub enum Consumed {
 }
 
 fn start_count_instructions() -> Consumed {
-    let mut buf: i8 = 0;
-    unsafe {
-        syscall3(
-            0, /* sys_read */
-            CATCH_BASE,
-            std::mem::transmute::<*mut i8, usize>(&mut buf),
-            1,
-        );
-    }
+    hypercall(HYPERCALL_START_COUNTING);
     Consumed::None
 }
 
 fn end_count_instructions() -> u64 {
-    let mut result: u64 = 0;
-    unsafe {
-        syscall3(
-            0, /* sys_read */
-            CATCH_BASE + 1,
-            std::mem::transmute::<*mut u64, usize>(&mut result),
-            8,
-        );
+    const USE_IO_COSTS: bool = true;
+    if USE_IO_COSTS {
+        let result_insn = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED);
+        let result_read = hypercall(HYPERCALL_GET_BYTES_READ);
+        let result_written = hypercall(HYPERCALL_GET_BYTES_WRITTEN);
+
+        result_insn + result_read * READ_BYTE_COST + result_written * WRITE_BYTE_COST
+    } else {
+        hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)
     }
-    result
 }
 
 fn start_count_time() -> Consumed {
@@ -183,24 +184,24 @@ pub fn measure_transactions<F>(
     metric: Metric,
     measurements: &mut Measurements,
     config: &Config,
-    testbed: Option<RuntimeTestbed>,
+    testbed: Option<Arc<Mutex<RuntimeTestbed>>>,
     f: &mut F,
     allow_failures: bool,
-) -> RuntimeTestbed
+) -> Arc<Mutex<RuntimeTestbed>>
 where
     F: FnMut() -> SignedTransaction,
 {
-    let mut testbed = match testbed {
+    let testbed = match testbed.clone() {
         Some(x) => {
             println!("{:?}. Reusing testbed.", metric);
             x
         }
         None => {
-            let path = PathBuf::from(config.state_dump_path.as_str());
             println!("{:?}. Preparing testbed. Loading state.", metric);
-            RuntimeTestbed::from_state_dump(&path)
+            Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)))
         }
     };
+    let testbed_clone = testbed.clone();
 
     if config.warmup_iters_per_block > 0 {
         let bar = ProgressBar::new(warmup_total_transactions(config) as _);
@@ -210,12 +211,14 @@ where
         for block_size in config.block_sizes.clone() {
             for _ in 0..config.warmup_iters_per_block {
                 let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-                testbed.process_block(&block, allow_failures);
+                let mut testbed_inner = testbed_clone.lock().unwrap();
+                testbed_inner.process_block(&block, allow_failures);
                 bar.inc(block_size as _);
                 bar.set_message(format!("Block size: {}", block_size).as_str());
             }
         }
-        testbed.process_blocks_until_no_receipts(allow_failures);
+        let mut testbed_inner = testbed_clone.lock().unwrap();
+        testbed_inner.process_blocks_until_no_receipts(allow_failures);
         bar.finish();
     }
 
@@ -223,15 +226,17 @@ where
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
     ));
+    #[cfg(feature = "costs_counting")]
     node_runtime::EXT_COSTS_COUNTER.with(|f| {
         f.borrow_mut().clear();
     });
     for _ in 0..config.iter_per_block {
         for block_size in config.block_sizes.clone() {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
+            let mut testbed_inner = testbed_clone.lock().unwrap();
             let start = start_count(config.metric);
-            testbed.process_block(&block, allow_failures);
-            testbed.process_blocks_until_no_receipts(allow_failures);
+            testbed_inner.process_block(&block, allow_failures);
+            testbed_inner.process_blocks_until_no_receipts(allow_failures);
             let measured = end_count(config.metric, &start);
             measurements.record_measurement(metric.clone(), block_size, measured);
             bar.inc(block_size as _);

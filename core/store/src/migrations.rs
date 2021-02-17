@@ -20,7 +20,7 @@ use crate::migrations::v6_to_v7::{
 use crate::migrations::v8_to_v9::{
     recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
 };
-use crate::{create_store, Store, StoreUpdate, Trie, FINAL_HEAD_KEY, HEAD_KEY};
+use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 
 use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
@@ -31,9 +31,9 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::StateRoot;
 use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use std::rc::Rc;
 
 pub mod v6_to_v7;
 pub mod v8_to_v9;
@@ -307,6 +307,35 @@ where
     Ok(())
 }
 
+#[allow(unused)]
+fn map_col_from_key<U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
+where
+    U: BorshSerialize,
+    F: Fn(&[u8]) -> U,
+{
+    let mut store_update = store.store_update();
+    let batch_size_limit = 10_000_000;
+    let mut batch_size = 0;
+    for (key, _) in store.iter(col) {
+        let new_value = f(&key);
+        let new_bytes = new_value.try_to_vec()?;
+        batch_size += key.as_ref().len() + new_bytes.len() + 8;
+        store_update.set(col, key.as_ref(), &new_bytes);
+
+        if batch_size > batch_size_limit {
+            store_update.commit()?;
+            store_update = store.store_update();
+            batch_size = 0;
+        }
+    }
+
+    if batch_size > 0 {
+        store_update.commit()?;
+    }
+
+    Ok(())
+}
+
 /// Lift all chunks to the versioned structure
 pub fn migrate_13_to_14(path: &String) {
     let store = create_store(path);
@@ -332,7 +361,7 @@ pub fn migrate_13_to_14(path: &String) {
 pub fn migrate_14_to_15(path: &String) {
     let store = create_store(path);
     let trie_store = Box::new(TrieCachingStorage::new(store.clone(), TrieCache::new(), 0));
-    let trie = Trie::new(trie_store, 0);
+    let trie = Rc::new(Trie::new(trie_store, 0));
 
     let mut store_update = store.store_update();
     let batch_size_limit = 10_000_000;
@@ -380,6 +409,7 @@ pub fn migrate_14_to_15(path: &String) {
                         protocol_version,
                         transaction,
                         &block.header().prev_hash(),
+                        &block.header().hash(),
                     );
                     if execution_outcome_ids.contains(&local_receipt_id) {
                         local_receipt_ids.push(local_receipt_id);
@@ -392,78 +422,68 @@ pub fn migrate_14_to_15(path: &String) {
             // Step 1: local receipts
             new_execution_outcome_ids.extend(local_receipt_ids);
 
+            let mut state_update = TrieUpdate::new(trie.clone(), chunk.prev_state_root());
+
             let mut process_receipt =
-                |receipt: &Receipt, trie: &Trie, state_root: &StateRoot| match &receipt.receipt {
+                |receipt: &Receipt, state_update: &mut TrieUpdate| match &receipt.receipt {
                     ReceiptEnum::Action(_) => {
                         if execution_outcome_ids.contains(&receipt.receipt_id) {
                             new_execution_outcome_ids.push(receipt.receipt_id);
                         }
                     }
                     ReceiptEnum::Data(data_receipt) => {
-                        if let Some(bytes) = trie
-                            .get(
-                                state_root,
-                                &TrieKey::PostponedReceiptId {
-                                    receiver_id: receipt.receiver_id.clone(),
-                                    data_id: data_receipt.data_id,
-                                }
-                                .to_vec(),
-                            )
-                            .unwrap()
-                        {
+                        if let Ok(Some(bytes)) = state_update.get(&TrieKey::PostponedReceiptId {
+                            receiver_id: receipt.receiver_id.clone(),
+                            data_id: data_receipt.data_id,
+                        }) {
                             let receipt_id = CryptoHash::try_from_slice(&bytes).unwrap();
-                            let pending_receipt_count = u32::try_from_slice(
-                                &trie
-                                    .get(
-                                        state_root,
-                                        &TrieKey::PendingDataCount {
-                                            receiver_id: receipt.receiver_id.clone(),
-                                            receipt_id,
-                                        }
-                                        .to_vec(),
-                                    )
-                                    .unwrap()
-                                    .unwrap(),
-                            )
-                            .unwrap();
+                            let trie_key = TrieKey::PendingDataCount {
+                                receiver_id: receipt.receiver_id.clone(),
+                                receipt_id,
+                            };
+                            let pending_receipt_count =
+                                u32::try_from_slice(&state_update.get(&trie_key).unwrap().unwrap())
+                                    .unwrap();
                             if pending_receipt_count == 1
                                 && execution_outcome_ids.contains(&receipt_id)
                             {
                                 new_execution_outcome_ids.push(receipt_id);
                             }
+                            state_update
+                                .set(trie_key, (pending_receipt_count - 1).try_to_vec().unwrap())
                         }
                     }
                 };
 
             // Step 2: delayed receipts
-            let state_root = chunk.prev_state_root();
             if !local_receipt_congestion {
-                let mut delayed_receipt_indices: DelayedReceiptIndices = trie
-                    .get(&state_root, &TrieKey::DelayedReceiptIndices.to_vec())
-                    .unwrap()
-                    .map(|bytes| DelayedReceiptIndices::try_from_slice(&bytes).unwrap())
+                let mut delayed_receipt_indices: DelayedReceiptIndices = state_update
+                    .get(&TrieKey::DelayedReceiptIndices)
+                    .map(|bytes| {
+                        bytes
+                            .map(|b| DelayedReceiptIndices::try_from_slice(&b).unwrap())
+                            .unwrap_or_default()
+                    })
                     .unwrap_or_default();
 
                 while delayed_receipt_indices.first_index
                     < delayed_receipt_indices.next_available_index
                 {
-                    let receipt: Receipt = trie
-                        .get(
-                            &state_root,
-                            &TrieKey::DelayedReceipt { index: delayed_receipt_indices.first_index }
-                                .to_vec(),
-                        )
+                    let receipt: Receipt = state_update
+                        .get(&TrieKey::DelayedReceipt {
+                            index: delayed_receipt_indices.first_index,
+                        })
                         .unwrap()
                         .map(|bytes| Receipt::try_from_slice(&bytes).unwrap())
                         .unwrap();
-                    process_receipt(&receipt, &trie, &state_root);
+                    process_receipt(&receipt, &mut state_update);
                     delayed_receipt_indices.first_index += 1;
                 }
             }
 
             // Step 3: receipts
             for receipt in chunk.receipts() {
-                process_receipt(receipt, &trie, &state_root);
+                process_receipt(receipt, &mut state_update);
             }
             assert_eq!(
                 new_execution_outcome_ids.len(),
@@ -490,4 +510,46 @@ pub fn migrate_14_to_15(path: &String) {
     }
     store_update.commit().unwrap();
     set_store_version(&store, 15);
+}
+
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+pub fn migrate_16_to_rectify_inflation(path: &String) {
+    use near_primitives::epoch_manager::BlockInfo;
+    use near_primitives::epoch_manager::SlashState;
+    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
+    use near_primitives::version::ProtocolVersion;
+    #[derive(BorshDeserialize)]
+    struct OldBlockInfo {
+        pub height: BlockHeight,
+        pub last_finalized_height: BlockHeight,
+        pub last_final_block_hash: CryptoHash,
+        pub prev_hash: CryptoHash,
+        pub epoch_first_block: CryptoHash,
+        pub epoch_id: EpochId,
+        pub proposals: Vec<ValidatorStake>,
+        pub chunk_mask: Vec<bool>,
+        pub latest_protocol_version: ProtocolVersion,
+        pub slashed: HashMap<AccountId, SlashState>,
+        pub total_supply: Balance,
+    }
+    let store = create_store(path);
+    map_col_from_key(&store, DBCol::ColBlockInfo, |key| {
+        let block_header =
+            store.get_ser::<BlockHeader>(DBCol::ColBlockHeader, key).unwrap().unwrap();
+        let old_block_info =
+            store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
+        BlockInfo::new(
+            block_header.height(),
+            old_block_info.last_finalized_height,
+            *block_header.last_final_block(),
+            *block_header.prev_hash(),
+            block_header.validator_proposals().to_vec(),
+            block_header.chunk_mask().to_vec(),
+            vec![],
+            block_header.total_supply(),
+            block_header.latest_protocol_version(),
+            block_header.raw_timestamp(),
+        )
+    })
+    .unwrap();
 }

@@ -14,7 +14,7 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -23,6 +23,7 @@ use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
@@ -33,7 +34,6 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_runtime_configs::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
 
 /// Initial balance used in tests.
@@ -128,6 +128,9 @@ pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 
 /// Number of epochs before protocol upgrade.
 pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
+
+#[cfg(feature = "protocol_feature_evm")]
+pub const TESTNET_EVM_CHAIN_ID: u64 = 0x99;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -285,6 +288,10 @@ fn default_header_sync_stall_ban_timeout() -> Duration {
     Duration::from_secs(120)
 }
 
+fn default_state_sync_timeout() -> Duration {
+    Duration::from_secs(60)
+}
+
 fn default_header_sync_expected_height_per_second() -> u64 {
     10
 }
@@ -345,6 +352,9 @@ pub struct Consensus {
     /// How much time to wait before banning a peer in header sync if sync is too slow
     #[serde(default = "default_header_sync_stall_ban_timeout")]
     pub header_sync_stall_ban_timeout: Duration,
+    /// How much to wait for a state sync response before re-requesting
+    #[serde(default = "default_state_sync_timeout")]
+    pub state_sync_timeout: Duration,
     /// Expected increase of header head weight per second during header sync
     #[serde(default = "default_header_sync_expected_height_per_second")]
     pub header_sync_expected_height_per_second: u64,
@@ -377,6 +387,7 @@ impl Default for Consensus {
             header_sync_initial_timeout: default_header_sync_initial_timeout(),
             header_sync_progress_timeout: default_header_sync_progress_timeout(),
             header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
+            state_sync_timeout: default_state_sync_timeout(),
             header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
             ),
             sync_check_period: default_sync_check_period(),
@@ -403,6 +414,7 @@ pub struct Config {
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
     pub archive: bool,
+    pub log_summary_style: LogSummaryStyle,
     #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
     #[serde(default = "default_view_client_threads")]
@@ -425,6 +437,7 @@ impl Default for Config {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
+            log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
             view_client_threads: 4,
         }
@@ -473,16 +486,13 @@ impl Genesis {
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records.extend(
-                state_records_account_with_key(
-                    account,
-                    &signer.public_key.clone(),
-                    TESTING_INIT_BALANCE
-                        - if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
-                    if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
-                    CryptoHash::default(),
-                )
-                .into_iter(),
+            add_account_with_key(
+                &mut records,
+                account,
+                &signer.public_key.clone(),
+                TESTING_INIT_BALANCE - if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
+                if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
+                CryptoHash::default(),
             );
         }
         add_protocol_account(&mut records);
@@ -575,6 +585,7 @@ impl NearConfig {
                 header_sync_expected_height_per_second: config
                     .consensus
                     .header_sync_expected_height_per_second,
+                state_sync_timeout: config.consensus.state_sync_timeout,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -592,6 +603,7 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
+                log_summary_style: config.log_summary_style,
                 gc_blocks_limit: config.gc_blocks_limit,
                 view_client_threads: config.view_client_threads,
             },
@@ -675,37 +687,37 @@ fn add_protocol_account(records: &mut Vec<StateRecord>) {
         KeyType::ED25519,
         PROTOCOL_TREASURY_ACCOUNT,
     );
-    records.extend(state_records_account_with_key(
+    add_account_with_key(
+        records,
         PROTOCOL_TREASURY_ACCOUNT,
         &signer.public_key,
         TESTING_INIT_BALANCE,
         0,
         CryptoHash::default(),
-    ));
+    );
 }
 
 fn random_chain_id() -> String {
     format!("test-chain-{}", generate_random_string(5))
 }
 
-fn state_records_account_with_key(
+fn add_account_with_key(
+    records: &mut Vec<StateRecord>,
     account_id: &str,
     public_key: &PublicKey,
     amount: u128,
     staked: u128,
     code_hash: CryptoHash,
-) -> Vec<StateRecord> {
-    vec![
-        StateRecord::Account {
-            account_id: account_id.to_string(),
-            account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
-        },
-        StateRecord::AccessKey {
-            account_id: account_id.to_string(),
-            public_key: public_key.clone(),
-            access_key: AccessKey::full_access(),
-        },
-    ]
+) {
+    records.push(StateRecord::Account {
+        account_id: account_id.to_string(),
+        account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
+    });
+    records.push(StateRecord::AccessKey {
+        account_id: account_id.to_string(),
+        public_key: public_key.clone(),
+        access_key: AccessKey::full_access(),
+    });
 }
 
 /// Generate a validator key and save it to the file path.
@@ -824,11 +836,24 @@ pub fn init_configs(
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
-            let mut records = state_records_account_with_key(
+            let mut records = vec![];
+            add_account_with_key(
+                &mut records,
                 &account_id,
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
+                CryptoHash::default(),
+            );
+            #[cfg(feature = "protocol_feature_evm")]
+            // EVM account is created here only for new generated genesis
+            // For existing network, evm account has to be created with linkdrop
+            add_account_with_key(
+                &mut records,
+                "evm",
+                &signer.public_key(),
+                TESTING_INIT_BALANCE,
+                0,
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
@@ -995,9 +1020,9 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
         // In case where the genesis is bigger than the specified limit Overflow Error is thrown
         let body = response
             .body()
-            .limit(2_500_000_000)
+            .limit(10_000_000_000)
             .await
-            .expect("Genesis file is bigger than 2.5GB. Please make the limit higher.");
+            .expect("Genesis file is bigger than 10GB. Please make the limit higher.");
 
         std::fs::write(&path, &body).expect("Failed to create / write a config file.");
 
@@ -1043,24 +1068,4 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer)
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    /// make sure testnet genesis can be deserialized
-    #[test]
-    fn test_deserialize_state() {
-        let genesis_config_str = include_str!("../res/genesis_config.json");
-        let genesis_config = GenesisConfig::from_json(&genesis_config_str);
-        assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
-    }
-
-    #[test]
-    fn test_res_genesis_fees_are_default() {
-        let genesis_config_str = include_str!("../res/genesis_config.json");
-        let genesis_config = GenesisConfig::from_json(&genesis_config_str);
-        assert_eq!(genesis_config.runtime_config, RuntimeConfig::default());
-    }
 }

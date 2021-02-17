@@ -2,11 +2,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::time::Duration;
 
-use actix::{Actor, ActorContext, AsyncContext, Context, Handler, MailboxError, Message};
+use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::{future, FutureExt};
 use log::debug;
 use rand::{thread_rng, RngCore};
-use tokio::time::delay_for;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
@@ -108,7 +107,7 @@ impl PeerInfo {
 /// Useful in tests to prevent them from running forever.
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(delay_for(Duration::from_millis(max_wait_ms)).then(|_| {
+    actix::spawn(tokio::time::sleep(Duration::from_millis(max_wait_ms)).then(|_| {
         panic!("Timeout exceeded.");
         future::ready(())
     }));
@@ -124,7 +123,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 /// use near_network::test_utils::WaitOrTimeout;
 /// use std::time::{Instant, Duration};
 ///
-/// System::run(|| {
+/// System::builder().stop_on_panic(true).run(|| {
 ///     let start = Instant::now();
 ///     WaitOrTimeout::new(Box::new(move |ctx| {
 ///             if start.elapsed() > Duration::from_millis(10) {
@@ -154,14 +153,21 @@ impl WaitOrTimeout {
 
     fn wait_or_timeout(&mut self, ctx: &mut Context<Self>) {
         (self.f)(ctx);
-        ctx.run_later(Duration::from_millis(self.check_interval_ms), move |act, ctx| {
-            act.ms_slept += act.check_interval_ms;
-            if act.ms_slept > act.max_wait_ms {
-                println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
-                panic!("Timed out waiting for the condition");
-            }
-            act.wait_or_timeout(ctx);
-        });
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            Duration::from_millis(self.check_interval_ms),
+            move |act, ctx| {
+                act.ms_slept += act.check_interval_ms;
+                if act.ms_slept > act.max_wait_ms {
+                    println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
+                    panic!("Timed out waiting for the condition");
+                }
+                act.wait_or_timeout(ctx);
+            },
+        );
     }
 }
 
@@ -187,7 +193,7 @@ pub fn random_epoch_id() -> EpochId {
 }
 
 pub fn expected_routing_tables(
-    current: HashMap<PeerId, HashSet<PeerId>>,
+    current: HashMap<PeerId, Vec<PeerId>>,
     expected: Vec<(PeerId, Vec<PeerId>)>,
 ) -> bool {
     if current.len() != expected.len() {

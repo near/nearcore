@@ -8,7 +8,7 @@ use tracing::{debug, info};
 
 pub use near_primitives::views;
 
-use crate::IndexerConfig;
+use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
@@ -16,8 +16,8 @@ use self::fetchers::{
     fetch_status,
 };
 pub use self::types::{
-    ExecutionOutcomesWithReceipts, IndexerChunkView, IndexerExecutionOutcomeWithReceipt,
-    IndexerTransactionWithOutcome, StreamerMessage,
+    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome,
+    StreamerMessage,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
 
@@ -51,20 +51,26 @@ async fn build_streamer_message(
     let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
 
     let mut local_receipts: Vec<views::ReceiptView> = vec![];
-    let mut outcomes = fetch_outcomes(&client, block.header.hash).await?;
+    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
     let mut indexer_chunks: Vec<IndexerChunkView> = vec![];
 
     for chunk in chunks {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
+        let mut outcomes = shards_outcomes
+            .remove(&header.shard_id)
+            .expect("Execution outcomes for given shard should be present");
+        let mut receipt_outcomes = outcomes.split_off(transactions.len());
 
         let indexer_transactions = transactions
             .into_iter()
-            .map(|transaction| {
-                IndexerTransactionWithOutcome {
-                    outcome: outcomes.remove(&transaction.hash).expect("The transaction execution outcome should always present in the same block as the transaction itself"),
-                    transaction,
-                }
+            .zip(outcomes.into_iter())
+            .map(|(transaction, outcome)| {
+                assert_eq!(
+                    outcome.execution_outcome.id, transaction.hash,
+                    "This ExecutionOutcome must have the same id as Transaction hash"
+                );
+                IndexerTransactionWithOutcome { outcome, transaction }
             })
             .collect::<Vec<IndexerTransactionWithOutcome>>();
 
@@ -84,30 +90,29 @@ async fn build_streamer_message(
         let mut chunk_receipts = chunk_local_receipts;
         chunk_receipts.extend(chunk_non_local_receipts);
 
+        // Add local receipts to corresponding outcomes
+        for receipt in &local_receipts {
+            if let Some(outcome) = receipt_outcomes
+                .iter_mut()
+                .find(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
+            {
+                debug_assert!(outcome.receipt.is_none());
+                outcome.receipt = Some(receipt.clone());
+            }
+        }
+
         indexer_chunks.push(IndexerChunkView {
             author,
             header,
             transactions: indexer_transactions,
             receipts: chunk_receipts,
+            receipt_execution_outcomes: receipt_outcomes,
         });
-    }
-
-    // Add local receipts to corresponding outcomes
-    for receipt in &local_receipts {
-        if let Some(outcome) = outcomes.get_mut(&receipt.receipt_id) {
-            debug_assert!(outcome.receipt.is_none());
-            outcome.receipt = Some(receipt.clone());
-        }
     }
 
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
-    Ok(StreamerMessage {
-        block,
-        chunks: indexer_chunks,
-        receipt_execution_outcomes: outcomes,
-        state_changes,
-    })
+    Ok(StreamerMessage { block, chunks: indexer_chunks, state_changes })
 }
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
@@ -119,7 +124,7 @@ pub(crate) async fn start(
     client: Addr<near_client::ClientActor>,
     near_config: neard::NearConfig,
     indexer_config: IndexerConfig,
-    mut blocks_sink: mpsc::Sender<StreamerMessage>,
+    blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
     let mut indexer_db_path = neard::get_store_path(&indexer_config.home_dir);
@@ -130,13 +135,18 @@ pub(crate) async fn start(
     let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
 
     'main: loop {
-        time::delay_for(INTERVAL).await;
-        let status = fetch_status(&client).await;
-        if let Ok(status) = status {
-            if status.sync_info.syncing {
-                continue;
+        time::sleep(INTERVAL).await;
+        match indexer_config.await_for_node_synced {
+            AwaitForNodeSyncedEnum::WaitForFullSync => {
+                let status = fetch_status(&client).await;
+                if let Ok(status) = status {
+                    if status.sync_info.syncing {
+                        continue;
+                    }
+                }
             }
-        }
+            AwaitForNodeSyncedEnum::StreamWhileSyncing => {}
+        };
 
         let block = if let Ok(block) = fetch_latest_block(&view_client).await {
             block

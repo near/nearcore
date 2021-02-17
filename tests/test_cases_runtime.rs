@@ -5,6 +5,8 @@ mod test {
     use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
+    #[cfg(feature = "protocol_feature_evm")]
+    use testlib::standard_evm_cases::*;
     use testlib::standard_test_cases::*;
 
     fn create_runtime_node() -> RuntimeNode {
@@ -302,5 +304,69 @@ mod test {
     fn test_smart_contract_free_runtime() {
         let node = create_free_runtime_node();
         test_smart_contract_free(node);
+    }
+
+    // cargo test --test test_cases_runtime test::test_evm_deploy_call_runtime --features nightly_protocol_features -- --exact --nocapture
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_deploy_call_runtime() {
+        let node = create_runtime_node();
+        test_evm_deploy_call(node);
+    }
+
+    // cargo test --test test_cases_runtime test::test_evm_fibonacci_gas_limit_runtime --features nightly_protocol_features -- --exact --nocapture
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_fibonacci_gas_limit_runtime() {
+        let node = create_runtime_node();
+        test_evm_fibonacci_gas_limit(node);
+    }
+
+    // cargo test --test test_cases_runtime test::test_evm_infinite_loop_gas_limit_runtime --features nightly_protocol_features -- --exact --nocapture
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_infinite_loop_gas_limit_runtime() {
+        let node = create_runtime_node();
+        test_evm_infinite_loop_gas_limit(node);
+    }
+
+    // cargo test --test test_cases_runtime test::test_evm_fibonacci_16_runtime --features nightly_protocol_features -- --exact --nocapture
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_fibonacci_16_runtime() {
+        let node = create_runtime_node();
+        test_evm_fibonacci_16(node);
+    }
+
+    // cargo test --test test_cases_runtime test::test_evm_crypto_zombies_contract_ownership_transfer_runtime --features nightly_protocol_features -- --exact --nocapture
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_crypto_zombies_contract_ownership_transfer_runtime() {
+        let node = create_runtime_node();
+        test_evm_crypto_zombies_contract_ownership_transfer(node);
+    }
+
+    // cargo test --test test_cases_runtime test::test_evm_crypto_zombies_contract_level_up_runtime --features nightly_protocol_features -- --exact --nocapture
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_crypto_zombies_contract_level_up_runtime() {
+        let node = create_runtime_node();
+        test_evm_crypto_zombies_contract_level_up(node);
+    }
+
+    // cargo test --test test_cases_runtime test::test_evm_crypto_zombies_contract_transfer_erc721_runtime --features nightly_protocol_features -- --exact --nocapture
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_crypto_zombies_contract_transfer_erc721_runtime() {
+        let node = create_runtime_node();
+        test_evm_crypto_zombies_contract_transfer_erc721(node);
+    }
+
+    // cargo test --test test_cases_runtime test::test_evm_call_standard_precompiles_runtime --features nightly_protocol_features -- --exact --nocapture
+    #[cfg(feature = "protocol_feature_evm")]
+    #[test]
+    fn test_evm_call_standard_precompiles_runtime() {
+        let node = create_runtime_node();
+        test_evm_call_standard_precompiles(node);
     }
 }

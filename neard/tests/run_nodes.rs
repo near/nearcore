@@ -16,35 +16,48 @@ fn run_nodes(
 ) {
     let mut rng = thread_rng();
     let genesis_height = rng.gen_range(0, 10000);
-    let system = System::new("NEAR");
-    let dirs = (0..num_nodes)
-        .map(|i| {
-            tempfile::Builder::new()
-                .prefix(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i))
-                .tempdir()
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-    let (_, _, clients) =
-        start_nodes(num_shards, &dirs, num_validators, 0, epoch_length, genesis_height);
-    let view_client = clients[clients.len() - 1].1.clone();
-    WaitOrTimeout::new(
-        Box::new(move |_ctx| {
-            actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                match &res {
-                    Ok(Ok(b)) if b.header.height > num_blocks => System::current().stop(),
-                    Err(_) => return future::ready(()),
-                    _ => {}
-                };
-                future::ready(())
-            }));
-        }),
-        100,
-        40000,
-    )
-    .start();
+    System::builder()
+        .stop_on_panic(true)
+        .run(move || {
+            let dirs = (0..num_nodes)
+                .map(|i| {
+                    tempfile::Builder::new()
+                        .prefix(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i))
+                        .tempdir()
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            let (_, _, clients) =
+                start_nodes(num_shards, &dirs, num_validators, 0, epoch_length, genesis_height);
+            let view_client = clients.last().unwrap().1.clone();
 
-    system.run().unwrap();
+            WaitOrTimeout::new(
+                Box::new(move |_ctx| {
+                    actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                        match &res {
+                            Ok(Ok(b)) if b.header.height > num_blocks => System::current().stop(),
+                            Err(_) => return future::ready(()),
+                            _ => {}
+                        };
+                        future::ready(())
+                    }));
+                }),
+                100,
+                40000,
+            )
+            .start();
+        })
+        .unwrap();
+
+    // See https://github.com/near/nearcore/issues/3925 for why it is here.
+    //
+    // The TL;DR is that actix doesn't allow to cleanly shut down multi-arbiter
+    // actor systems, and that might cause RocksDB destructors to run when the
+    // test binary exits, breaking stuff. This sleep here is a best-effort to
+    // let those destructors finish. This should make the tests less flaky.
+    // Hopefully, we'll be able to fix this properly by replacing actix actor
+    // framework with something that handles cancellation gracefully.
+    std::thread::sleep(std::time::Duration::from_millis(250));
 }
 
 /// Runs two nodes that should produce blocks one after another.

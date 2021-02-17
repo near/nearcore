@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 
+use near_chain::missing_chunks::MissingChunksPool;
 use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
@@ -26,6 +27,7 @@ use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
+use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -49,6 +51,7 @@ fn test_verify_block_double_sign_challenge() {
         PROTOCOL_VERSION,
         genesis.header(),
         2,
+        genesis.header().block_ordinal() + 1,
         genesis.chunks().iter().cloned().collect(),
         b1.header().epoch_id().clone(),
         b1.header().next_epoch_id().clone(),
@@ -347,6 +350,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         PROTOCOL_VERSION,
         &last_block.header(),
         last_block.header().height() + 1,
+        last_block.header().block_ordinal() + 1,
         vec![invalid_chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
@@ -368,6 +372,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         let adapter = chain.runtime_adapter.clone();
         let epoch_length = chain.epoch_length;
         let empty_block_pool = OrphanBlockPool::new();
+        let empty_chunks_pool = MissingChunksPool::new();
         let chain_genesis = ChainGenesis::from(&genesis);
         let economics_config = BlockEconomicsConfig::from(&chain_genesis);
 
@@ -375,7 +380,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             chain.mut_store(),
             adapter,
             &empty_block_pool,
-            &empty_block_pool,
+            &empty_chunks_pool,
             epoch_length,
             &economics_config,
             DoomslugThresholdMode::NoApprovals,
@@ -475,7 +480,9 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         one_part_receipt_proofs,
         &vec![merkle_paths[0].clone()],
     );
-    assert!(env.clients[1].process_partial_encoded_chunk(partial_encoded_chunk).is_ok());
+    assert!(env.clients[1]
+        .process_partial_encoded_chunk(MaybeValidated::NotValidated(partial_encoded_chunk))
+        .is_ok());
     env.process_block(1, block.clone(), Provenance::NONE);
 
     // At this point we should create a challenge and send it out.

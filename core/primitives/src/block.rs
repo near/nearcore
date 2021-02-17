@@ -8,7 +8,7 @@ use primitive_types::U256;
 use serde::Serialize;
 
 use crate::block::BlockValidityError::{
-    InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidNumChunksIncluded, InvalidReceiptRoot,
+    InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
 };
 pub use crate::block_header::*;
@@ -19,7 +19,7 @@ use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
 };
-use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
+use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
@@ -39,7 +39,7 @@ pub enum BlockValidityError {
     InvalidReceiptRoot,
     InvalidChunkHeaderRoot,
     InvalidTransactionRoot,
-    InvalidNumChunksIncluded,
+    InvalidChunkMask,
     InvalidChallengeRoot,
 }
 
@@ -154,6 +154,9 @@ impl Block {
         next_bp_hash: CryptoHash,
     ) -> Self {
         let challenges = vec![];
+        for chunk in &chunks {
+            assert_eq!(chunk.height_included(), height);
+        }
         let header = BlockHeader::genesis(
             genesis_protocol_version,
             height,
@@ -161,7 +164,7 @@ impl Block {
             Block::compute_chunk_receipts_root(&chunks),
             Block::compute_chunk_headers_root(&chunks).0,
             Block::compute_chunk_tx_root(&chunks),
-            Block::compute_chunks_included(&chunks, 0),
+            chunks.len() as u64,
             Block::compute_challenges_root(&challenges),
             timestamp,
             initial_gas_price,
@@ -186,6 +189,7 @@ impl Block {
         protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
+        block_ordinal: NumBlocks,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
@@ -245,6 +249,15 @@ impl Block {
                 prev.last_final_block()
             };
 
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        match prev {
+            BlockHeader::BlockHeaderV1(_) => debug_assert_eq!(prev.block_ordinal(), 0),
+            BlockHeader::BlockHeaderV2(_) => debug_assert_eq!(prev.block_ordinal(), 0),
+            BlockHeader::BlockHeaderV3(_) => {
+                debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
+            }
+        };
+
         let header = BlockHeader::new(
             protocol_version,
             height,
@@ -255,11 +268,11 @@ impl Block {
             Block::compute_chunk_tx_root(&chunks),
             Block::compute_outcome_root(&chunks),
             time,
-            Block::compute_chunks_included(&chunks, height),
             Block::compute_challenges_root(&challenges),
             random_value,
             validator_proposals,
             chunk_mask,
+            block_ordinal,
             epoch_id,
             next_epoch_id,
             new_gas_price,
@@ -271,6 +284,8 @@ impl Block {
             approvals,
             next_bp_hash,
             block_merkle_root,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            prev.height(),
         );
 
         Self::block_from_protocol_version(
@@ -365,13 +380,6 @@ impl Block {
         chunks: T,
     ) -> CryptoHash {
         merklize(&chunks.into_iter().map(|chunk| chunk.tx_root()).collect::<Vec<CryptoHash>>()).0
-    }
-
-    pub fn compute_chunks_included<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-        height: BlockHeight,
-    ) -> u64 {
-        chunks.into_iter().filter(|chunk| chunk.height_included() == height).count() as u64
     }
 
     pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
@@ -495,10 +503,13 @@ impl Block {
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
-        let num_chunks_included =
-            Block::compute_chunks_included(self.chunks().iter(), self.header().height());
-        if self.header().chunks_included() != num_chunks_included {
-            return Err(InvalidNumChunksIncluded);
+        let chunk_mask: Vec<bool> = self
+            .chunks()
+            .iter()
+            .map(|chunk| chunk.height_included() == self.header().height())
+            .collect();
+        if self.header().chunk_mask() != &chunk_mask[..] {
+            return Err(InvalidChunkMask);
         }
 
         // Check that challenges root stored in the header matches the challenges root of the challenges

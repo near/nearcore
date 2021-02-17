@@ -6,7 +6,7 @@ use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
+use std::path::PathBuf;
 
 fn main() {
     let default_home = get_default_home();
@@ -21,7 +21,15 @@ fn main() {
         .arg(
             Arg::with_name("warmup-iters")
                 .long("warmup-iters")
-                .default_value("3")
+                .default_value("0")
+                .required(true)
+                .takes_value(true)
+                .help("How many warm up iterations per block should we run."),
+        )
+        .arg(
+            Arg::with_name("warmup-transactions")
+                .long("warmup-transactions")
+                .default_value("0")
                 .required(true)
                 .takes_value(true)
                 .help("How many warm up iterations per block should we run."),
@@ -71,9 +79,10 @@ fn main() {
                 .long("transaction")
                 .help("Disables transaction measurements"),
         )
+        .arg(Arg::with_name("evm-only").long("evm-only").help("only test evm related cost"))
         .get_matches();
 
-    let state_dump_path = matches.value_of("home").unwrap().to_string();
+    let state_dump_path: PathBuf = matches.value_of_os("home").unwrap().into();
     let warmup_iters_per_block = matches.value_of("warmup-iters").unwrap().parse().unwrap();
     let iter_per_block = matches.value_of("iters").unwrap().parse().unwrap();
     let active_accounts = matches.value_of("accounts-num").unwrap().parse().unwrap();
@@ -102,6 +111,7 @@ fn main() {
             disable_measure_transaction,
         },
         matches.is_present("compile-only"),
+        matches.is_present("evm-only"),
     );
 
     println!("Generated RuntimeConfig:");
@@ -109,8 +119,8 @@ fn main() {
 
     let str = serde_json::to_string_pretty(&runtime_config)
         .expect("Failed serializing the runtime config");
-    let mut file = File::create(Path::new(&state_dump_path).join("runtime_config.json"))
-        .expect("Failed to create file");
+    let mut file =
+        File::create(state_dump_path.join("runtime_config.json")).expect("Failed to create file");
     if let Err(err) = file.write_all(str.as_bytes()) {
         panic!("Failed to write runtime config to file {}", err);
     }

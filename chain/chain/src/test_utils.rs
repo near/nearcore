@@ -9,6 +9,7 @@ use log::debug;
 use num_rational::Rational;
 use serde::Serialize;
 
+use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -29,8 +30,8 @@ use near_primitives::types::{
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
-    AccessKeyInfoView, AccessKeyList, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewStateResult,
+    AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
+    QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
@@ -38,10 +39,14 @@ use near_store::{
 };
 
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
-use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use near_chain_configs::ProtocolConfig;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::block_header::{Approval, ApprovalInner};
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -324,6 +329,41 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    fn verify_approvals_and_threshold_orphan(
+        &self,
+        epoch_id: &EpochId,
+        doomslug_threshold_mode: DoomslugThresholdMode,
+        prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Signature>],
+    ) -> Result<(), Error> {
+        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
+        let message_to_sign = Approval::get_data_for_sig(
+            &if prev_block_height + 1 == block_height {
+                ApprovalInner::Endorsement(prev_block_hash.clone())
+            } else {
+                ApprovalInner::Skip(prev_block_height)
+            },
+            block_height,
+        );
+
+        for (validator, may_be_signature) in validators.iter().zip(approvals.iter()) {
+            if let Some(signature) = may_be_signature {
+                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
+                    return Err(ErrorKind::InvalidApprovals.into());
+                }
+            }
+        }
+        let stakes = validators.iter().map(|stake| (stake.stake, 0, false)).collect::<Vec<_>>();
+        if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
+            Err(ErrorKind::NotEnoughApprovals.into())
+        } else {
+            Ok(())
+        }
+    }
+
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
@@ -336,7 +376,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<ApprovalStake>, Error> {
+    ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
         let (_cur_epoch, cur_valset, next_epoch) =
             self.get_epoch_and_valset(parent_hash.clone())?;
         let mut validators = self.validators[cur_valset]
@@ -354,6 +394,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     .map(|x| x.get_approval_stake(true)),
             );
         }
+        let validators = validators.into_iter().map(|stake| (stake, false)).collect::<Vec<_>>();
         Ok(validators)
     }
 
@@ -703,6 +744,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
+        _prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         _epoch_id: &EpochId,
         request: &QueryRequest,
@@ -721,6 +763,14 @@ impl RuntimeAdapter for KeyValueRuntime {
                     }
                     .into(),
                 ),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewCode { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewCode(ContractCodeView {
+                    code: vec![],
+                    hash: CryptoHash::default(),
+                }),
                 block_height,
                 block_hash: *block_hash,
             }),
@@ -879,8 +929,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
     }
 
-    fn epoch_exists(&self, _epoch_id: &EpochId) -> bool {
-        true
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
+        self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
 
     fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
@@ -958,6 +1008,16 @@ impl RuntimeAdapter for KeyValueRuntime {
         _account_id: &String,
     ) -> Result<(ValidatorStake, bool), Error> {
         Err(ErrorKind::NotAValidator.into())
+    }
+
+    #[cfg(feature = "protocol_feature_evm")]
+    fn evm_chain_id(&self) -> u64 {
+        // See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
+        1313161555
+    }
+
+    fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
+        unreachable!("get_protocol_config should not be called in KeyValueRuntime");
     }
 }
 
@@ -1148,16 +1208,20 @@ impl ChainGenesis {
 
 #[cfg(test)]
 mod test {
-    use super::KeyValueRuntime;
-    use crate::RuntimeAdapter;
+    use std::time::Instant;
+
     use borsh::BorshSerialize;
+    use rand::Rng;
+
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
     use near_primitives::types::NumShards;
     use near_store::test_utils::create_test_store;
-    use rand::Rng;
-    use std::time::Instant;
+
+    use crate::RuntimeAdapter;
+
+    use super::KeyValueRuntime;
 
     impl KeyValueRuntime {
         fn naive_build_receipt_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {

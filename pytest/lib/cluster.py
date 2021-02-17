@@ -12,15 +12,15 @@ import requests
 import time
 import base58
 import base64
-import retry
-import retrying
+from retrying import retry
 import rc
 from rc import gcloud
 import traceback
 import uuid
 import network
-import logging
 from proxy import NodesProxy
+from bridge import GanacheNode, RainbowBridge, alice, bob, carol
+from key import Key
 
 os.environ["ADVERSARY_CONSENT"] = "1"
 
@@ -51,37 +51,18 @@ def atexit_cleanup_remote():
             rc.pmap(atexit_cleanup, remote_nodes)
 
 
-class Key(object):
-
-    def __init__(self, account_id, pk, sk):
-        super(Key, self).__init__()
-        self.account_id = account_id
-        self.pk = pk
-        self.sk = sk
-
-    def decoded_pk(self):
-        key = self.pk.split(':')[1] if ':' in self.pk else self.pk
-        return base58.b58decode(key.encode('ascii'))
-
-    def decoded_sk(self):
-        key = self.sk.split(':')[1] if ':' in self.sk else self.sk
-        return base58.b58decode(key.encode('ascii'))
-
-    @classmethod
-    def from_json(self, j):
-        return Key(j['account_id'], j['public_key'], j['secret_key'])
-
-    @classmethod
-    def from_json_file(self, jf):
-        with open(jf) as f:
-            return Key.from_json(json.loads(f.read()))
-
-    def to_json(self):
-        return {
-            'account_id': self.account_id,
-            'public_key': self.pk,
-            'secret_key': self.sk
-        }
+# custom retry that is used in wait_for_rpc() and get_status()
+def nretry(fn, timeout):
+    started = time.time()
+    delay = 0.05
+    while True:
+        try:
+            return fn()
+        except:
+            if time.time() - started >= timeout:
+                raise
+            time.sleep(delay)
+            delay *= 1.2
 
 
 class BaseNode(object):
@@ -115,7 +96,7 @@ class BaseNode(object):
             ]
 
     def wait_for_rpc(self, timeout=1):
-        retrying.retry(lambda: self.get_status(), timeout=timeout)
+        nretry(lambda: self.get_status(), timeout=timeout)
 
     def json_rpc(self, method, params, timeout=2):
         j = {
@@ -179,14 +160,14 @@ class BaseNode(object):
             "finality": finality
         })
 
-    def call_function(self, acc, method, args, finality='optimistic'):
+    def call_function(self, acc, method, args, finality='optimistic', timeout=2):
         return self.json_rpc('query', {
             "request_type": "call_function",
             "account_id": acc,
             "method_name": method,
             "args_base64": args,
             "finality": finality
-        })
+        }, timeout=timeout)
 
     def get_access_key_list(self, acc, finality='optimistic'):
         return self.json_rpc(
@@ -312,7 +293,7 @@ class LocalNode(BaseNode):
     def start(self, boot_key, boot_node_addr, skip_starting_proxy=False):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
-                logging.debug(f'Waiting for previous proxy instance to close')
+                print(f'Waiting for previous proxy instance to close')
                 time.sleep(1)
 
 
@@ -451,7 +432,7 @@ class GCloudNode(BaseNode):
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
 
-    @retry.retry(delay=1, tries=3)
+    @retry(wait_fixed=1000, stop_max_attempt_number=3)
     def _download_binary(self, binary):
         p = self.machine.run('bash',
                              input=f'''
@@ -500,7 +481,7 @@ chmod +x near
         return super().json_rpc(method, params, timeout=timeout)
 
     def get_status(self):
-        r = retrying.retry(lambda: requests.get(
+        r = nretry(lambda: requests.get(
             "http://%s:%s/status" % self.rpc_addr(), timeout=15),
                            timeout=45)
         r.raise_for_status()
@@ -890,14 +871,64 @@ def start_cluster(num_nodes,
 
     return ret
 
+def start_bridge(nodes, start_local_ethereum=True, handle_contracts=True, handle_relays=True, config=None):
+    if not config:
+        config = load_config()
+
+    config['bridge']['bridge_dir'] = os.path.abspath(os.path.expanduser(os.path.expandvars(config['bridge']['bridge_dir'])))
+    config['bridge']['config_dir'] = os.path.abspath(os.path.expanduser(os.path.expandvars(config['bridge']['config_dir'])))
+
+    # Run bridge.__init__() here.
+    # It will create necessary folders, download repos and install services automatically.
+    bridge = RainbowBridge(config['bridge'], nodes[0])
+
+    ganache_node = None
+    if start_local_ethereum:
+        ganache_node = GanacheNode(config['bridge'])
+        ganache_node.start()
+        # TODO wait until ganache actually starts
+        time.sleep(2)
+
+    # Allow the Bridge to fill the blockchains with initial contracts
+    # such as ed25519, erc20, lockers, token factory, etc.
+    # If false, contracts initialization should be completed in the test explicitly.
+    if handle_contracts:
+        # TODO implement initialization to non-Ganache Ethereum node when required
+        assert start_local_ethereum
+        bridge.init_near_contracts()
+        bridge.init_eth_contracts()
+        bridge.init_near_token_factory()
+
+    # Initial test ERC20 tokens distribution
+    billion_tokens = 1000000000
+    bridge.mint_erc20_tokens(alice, billion_tokens)
+    bridge.mint_erc20_tokens(bob, billion_tokens)
+    bridge.mint_erc20_tokens(carol, billion_tokens)
+
+    # Allow the Bridge to start Relays and handle them in a proper way.
+    # If false, Relays handling should be provided in the test explicitly.
+    if handle_relays:
+        bridge.start_near2eth_block_relay()
+        bridge.start_eth2near_block_relay()
+
+    return (bridge, ganache_node)
 
 DEFAULT_CONFIG = {
     'local': True,
     'preexist': False,
     'near_root': '../target/debug/',
     'binary_name': 'neard',
-    'release': False
+    'release': False,
+    'bridge': {
+        'bridge_repo': 'https://github.com/near/rainbow-bridge.git',
+        'bridge_dir': '~/.rainbow-bridge',
+        'config_dir': '~/.rainbow',
+        'ganache_dir': 'testing/vendor/ganache',
+        'ganache_bin': 'testing/vendor/ganache/node_modules/.bin/ganache-cli',
+        'ganache_block_prod_time': 10,
+    }
 }
+
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 

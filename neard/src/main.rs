@@ -13,14 +13,25 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
+use near_performance_metrics;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
+#[cfg(feature = "memory_stats")]
+use near_rust_allocator_proxy::allocator::MyAllocator;
 use neard::config::init_testnet_configs;
 use neard::genesis_validate::validate_genesis;
 use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 
+#[cfg(feature = "memory_stats")]
+#[global_allocator]
+static ALLOC: MyAllocator = MyAllocator;
+
+#[cfg(all(not(feature = "memory_stats"), jemallocator))]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 fn init_logging(verbose: Option<&str>) {
     let mut env_filter = EnvFilter::new(
-        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info",
+        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,\
+         near-performance-metrics=info,near-rust-allocator-proxy=info",
     );
 
     if let Some(module) = verbose {
@@ -63,13 +74,16 @@ fn main() {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
+    near_performance_metrics::process::schedule_printing_performance_stats(60);
 
     let default_home = get_default_home();
-    let version =
-        Version { version: crate_version!().to_string(), build: git_version!().to_string() };
+    let version = Version {
+        version: crate_version!().to_string(),
+        build: git_version!(fallback = "unknown").to_string(),
+    };
     let matches = App::new("NEAR Protocol Node")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .version(format!("{} (build {})", version.version, version.build).as_str())
+        .version(format!("{} (build {}) (protocol {})", version.version, version.build, PROTOCOL_VERSION).as_str())
         .arg(Arg::with_name("verbose").long("verbose").help("Verbose logging").takes_value(true))
         .arg(
             Arg::with_name("home")
@@ -228,10 +242,13 @@ fn main() {
                 near_config.client_config.archive = true;
             }
 
-            let system = System::new("NEAR");
-            let (_, _, arbiters) = start_with_config(home_dir, near_config);
-            system.run().unwrap();
-            arbiters.into_iter().for_each(|mut a| a.join().unwrap());
+            System::builder()
+                .name("NEAR")
+                .stop_on_panic(true)
+                .run(move || {
+                    start_with_config(home_dir, near_config);
+                })
+                .unwrap();
         }
         ("unsafe_reset_data", Some(_args)) => {
             let store_path = get_store_path(home_dir);

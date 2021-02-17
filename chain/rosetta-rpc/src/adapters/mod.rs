@@ -152,7 +152,7 @@ pub(crate) async fn convert_block_to_transactions(
 }
 
 fn convert_block_changes_to_transactions(
-    runtime_config: &near_runtime_configs::RuntimeConfig,
+    runtime_config: &near_primitives::runtime::config::RuntimeConfig,
     block_hash: &near_primitives::hash::CryptoHash,
     accounts_changes: near_primitives::views::StateChangesView,
     mut accounts_previous_state: std::collections::HashMap<
@@ -888,7 +888,7 @@ mod tests {
 
     #[test]
     fn test_convert_block_changes_to_transactions() {
-        let runtime_config = near_runtime_configs::RuntimeConfig::default();
+        let runtime_config = near_primitives::runtime::config::RuntimeConfig::default();
         let block_hash = near_primitives::hash::CryptoHash::default();
         let nfvalidator1_receipt_processing_hash =
             near_primitives::hash::CryptoHash::try_from(vec![1u8; 32]).unwrap();

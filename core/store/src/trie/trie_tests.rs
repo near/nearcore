@@ -1,20 +1,19 @@
 use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
-use crate::trie::POISONED_LOCK_ERR;
 use crate::{PartialStorage, Trie, TrieUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use rand::seq::SliceRandom;
 use rand::Rng;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 /// TrieMemoryPartialStorage, but contains only the first n requested nodes.
 pub struct IncompletePartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Vec<u8>>,
-    pub(crate) visited_nodes: Arc<Mutex<HashSet<CryptoHash>>>,
+    pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
     pub node_count_to_fail_after: usize,
 }
 
@@ -38,11 +37,10 @@ impl TrieStorage for IncompletePartialStorage {
             .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()));
 
         if result.is_ok() {
-            self.visited_nodes.lock().expect(POISONED_LOCK_ERR).insert(*hash);
+            self.visited_nodes.borrow_mut().insert(*hash);
         }
 
-        if self.visited_nodes.lock().expect(POISONED_LOCK_ERR).len() > self.node_count_to_fail_after
-        {
+        if self.visited_nodes.borrow().len() > self.node_count_to_fail_after {
             Err(StorageError::TrieNodeMissing)
         } else {
             result

@@ -1,19 +1,11 @@
-use crate::{ActionCosts, ExtCosts};
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
-use std::rc::Rc;
 
-pub type AccountId = String;
+pub use near_primitives_core::types::*;
+
 pub type PublicKey = Vec<u8>;
-pub type BlockHeight = u64;
-pub type EpochHeight = u64;
-pub type Balance = u128;
-pub type Gas = u64;
 pub type PromiseIndex = u64;
 pub type ReceiptIndex = u64;
 pub type IteratorIndex = u64;
-pub type StorageUsage = u64;
-pub type ProtocolVersion = u32;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub enum ReturnData {
@@ -29,6 +21,16 @@ pub enum ReturnData {
     None,
 }
 
+impl ReturnData {
+    /// Function to extract value from ReturnData.
+    pub fn as_value(self) -> Option<Vec<u8>> {
+        match self {
+            ReturnData::Value(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
 /// When there is a callback attached to one or more contract calls the execution results of these
 /// calls are available to the contract invoked through the callback.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -39,6 +41,3 @@ pub enum PromiseResult {
     Successful(Vec<u8>),
     Failed,
 }
-
-/// Profile of gas consumption.
-pub type ProfileData = Rc<RefCell<[u64; ActionCosts::count() + ExtCosts::count()]>>;

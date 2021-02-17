@@ -12,14 +12,20 @@ use log::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
+
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
-use near_chain_configs::{Genesis, GenesisConfig};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_chain::{Doomslug, DoomslugThresholdMode};
+use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig};
+#[cfg(feature = "protocol_feature_evm")]
+use near_chain_configs::{BETANET_EVM_CHAIN_ID, MAINNET_EVM_CHAIN_ID, TESTNET_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
+use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -35,14 +41,14 @@ use near_primitives::types::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewStateResult,
+    QueryResponseKind, ViewApplyState, ViewStateResult,
 };
 use near_store::{
     get_access_key_raw, get_genesis_hash, get_genesis_state_roots, set_genesis_hash,
-    set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges,
+    set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store,
+    StoreCompiledContractCache, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::cache::StoreCompiledContractCache;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
@@ -50,7 +56,10 @@ use node_runtime::{
 };
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_runtime_configs::RuntimeConfig;
+use near_primitives::runtime::config::RuntimeConfig;
+
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+use near_epoch_manager::NUM_SECONDS_IN_A_YEAR;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -169,6 +178,8 @@ impl NightshadeRuntime {
             protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
             online_max_threshold: genesis.config.online_max_threshold,
             online_min_threshold: genesis.config.online_min_threshold,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         };
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
@@ -434,7 +445,8 @@ impl NightshadeRuntime {
 
         let apply_state = ApplyState {
             block_index: block_height,
-            last_block_hash: *prev_block_hash,
+            prev_block_hash: *prev_block_hash,
+            block_hash: *block_hash,
             epoch_id,
             epoch_height,
             gas_price,
@@ -447,6 +459,10 @@ impl NightshadeRuntime {
                 current_protocol_version,
             ),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: self.evm_chain_id(),
+            #[cfg(feature = "costs_counting")]
+            profile: None,
         };
 
         let apply_result = self
@@ -766,6 +782,48 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    fn verify_approvals_and_threshold_orphan(
+        &self,
+        epoch_id: &EpochId,
+        doomslug_threshold_mode: DoomslugThresholdMode,
+        prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Signature>],
+    ) -> Result<(), Error> {
+        let info = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_heuristic_block_approvers_ordered(epoch_id).map_err(Error::from)?
+        };
+
+        let message_to_sign = Approval::get_data_for_sig(
+            &if prev_block_height + 1 == block_height {
+                ApprovalInner::Endorsement(prev_block_hash.clone())
+            } else {
+                ApprovalInner::Skip(prev_block_height)
+            },
+            block_height,
+        );
+
+        for (validator, may_be_signature) in info.iter().zip(approvals.iter()) {
+            if let Some(signature) = may_be_signature {
+                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
+                    return Err(ErrorKind::InvalidApprovals.into());
+                }
+            }
+        }
+        let stakes = info
+            .iter()
+            .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch, false))
+            .collect::<Vec<_>>();
+        if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
+            Err(ErrorKind::NotEnoughApprovals.into())
+        } else {
+            Ok(())
+        }
+    }
+
     fn verify_approval(
         &self,
         prev_block_hash: &CryptoHash,
@@ -773,9 +831,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_height: BlockHeight,
         approvals: &[Option<Signature>],
     ) -> Result<bool, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let info =
-            epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?;
+        let info = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?
+        };
         if approvals.len() > info.len() {
             return Ok(false);
         }
@@ -789,9 +848,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_height,
         );
 
-        for (validator, may_be_signature) in info.into_iter().zip(approvals.iter()) {
+        for ((validator, is_slashed), may_be_signature) in info.into_iter().zip(approvals.iter()) {
             if let Some(signature) = may_be_signature {
-                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
+                if is_slashed || !signature.verify(message_to_sign.as_ref(), &validator.public_key)
+                {
                     return Ok(false);
                 }
             }
@@ -805,15 +865,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .get_all_block_producers_ordered(epoch_id, last_known_block_hash)
-            .map_err(Error::from)
+        Ok(epoch_manager.get_all_block_producers_ordered(epoch_id, last_known_block_hash)?.to_vec())
     }
 
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<ApprovalStake>, Error> {
+    ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
     }
@@ -1016,6 +1074,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_header_info.slashed_validators,
             block_header_info.total_supply,
             block_header_info.latest_protocol_version,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            block_header_info.timestamp_nanosec,
         );
         let rng_seed = (block_header_info.random_value.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
@@ -1112,6 +1172,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
@@ -1121,6 +1182,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                 match self.view_account(shard_id, *state_root, account_id) {
                     Ok(r) => Ok(QueryResponse {
                         kind: QueryResponseKind::ViewAccount(r.into()),
+                        block_height,
+                        block_hash: *block_hash,
+                    }),
+                    Err(e) => Err(e),
+                }
+            }
+            QueryRequest::ViewCode { account_id } => {
+                match self.view_contract_code(shard_id, *state_root, account_id) {
+                    Ok(r) => Ok(QueryResponse {
+                        kind: QueryResponseKind::ViewCode(r.into()),
                         block_height,
                         block_hash: *block_hash,
                     }),
@@ -1141,6 +1212,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     *state_root,
                     block_height,
                     block_timestamp,
+                    prev_block_hash,
                     block_hash,
                     epoch_height,
                     epoch_id,
@@ -1150,6 +1222,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &mut logs,
                     &self.epoch_manager,
                     current_protocol_version,
+                    #[cfg(feature = "protocol_feature_evm")]
+                    self.evm_chain_id(),
                 ) {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::CallResult(CallResult { result, logs }),
@@ -1245,8 +1319,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
-                    "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                    state_root, part_id, num_parts, e
+                       "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
+                       state_root, part_id, num_parts, e
                 );
                 return Err(e.to_string().into());
             }
@@ -1367,6 +1441,27 @@ impl RuntimeAdapter for NightshadeRuntime {
             && chunk_next_epoch_id != head_epoch_id
             && chunk_epoch_id != head_next_epoch_id)
     }
+
+    #[cfg(feature = "protocol_feature_evm")]
+    /// ID of the EVM chain: https://github.com/ethereum-lists/chains
+    fn evm_chain_id(&self) -> u64 {
+        match self.genesis_config.chain_id.as_str() {
+            "mainnet" => MAINNET_EVM_CHAIN_ID,
+            "testnet" => TESTNET_EVM_CHAIN_ID,
+            _ => BETANET_EVM_CHAIN_ID,
+        }
+    }
+
+    fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
+        let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
+        let mut config = self.genesis_config.clone();
+        config.protocol_version = protocol_version;
+        // Currently only runtime config is changed through protocol upgrades.
+        let runtime_config =
+            RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
+        config.runtime_config = (*runtime_config).clone();
+        Ok(config)
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1380,13 +1475,24 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         self.trie_viewer.view_account(&state_update, account_id)
     }
 
+    fn view_contract_code(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<ContractCode, Box<dyn std::error::Error>> {
+        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        self.trie_viewer.view_contract_code(&state_update, account_id)
+    }
+
     fn call_function(
         &self,
         shard_id: ShardId,
         state_root: MerkleHash,
         height: BlockHeight,
         block_timestamp: u64,
-        last_block_hash: &CryptoHash,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
         contract_id: &AccountId,
@@ -1395,21 +1501,29 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u64,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let view_state = ViewApplyState {
+            block_height: height,
+            prev_block_hash: *prev_block_hash,
+            block_hash: *block_hash,
+            epoch_id: epoch_id.clone(),
+            epoch_height,
+            block_timestamp,
+            current_protocol_version,
+            cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id,
+        };
         self.trie_viewer.call_function(
             state_update,
-            height,
-            block_timestamp,
-            last_block_hash,
-            epoch_height,
-            epoch_id,
+            view_state,
             contract_id,
             method_name,
             args,
             logs,
             epoch_info_provider,
-            current_protocol_version,
         )
     }
 
@@ -1473,6 +1587,7 @@ mod test {
     use near_logger_utils::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
+    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{
         Action, CreateAccountAction, DeleteAccountAction, StakeAction,
     };
@@ -1482,12 +1597,14 @@ mod test {
         AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
     };
     use near_store::create_store;
-    use node_runtime::config::RuntimeConfig;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::get_store_path;
 
     use super::*;
+
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    use primitive_types::U256;
 
     fn stake(
         nonce: Nonce,
@@ -1554,6 +1671,8 @@ mod test {
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
         pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
         pub last_proposals: Vec<ValidatorStake>,
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        time: u64,
     }
 
     impl TestEnv {
@@ -1608,6 +1727,8 @@ mod test {
                     chunk_mask: vec![],
                     total_supply: genesis_total_supply,
                     latest_protocol_version: genesis_protocol_version,
+                    #[cfg(feature = "protocol_feature_rectify_inflation")]
+                    timestamp_nanosec: 0,
                 })
                 .unwrap();
             Self {
@@ -1623,6 +1744,8 @@ mod test {
                 last_receipts: HashMap::default(),
                 last_proposals: vec![],
                 last_shard_proposals: HashMap::default(),
+                #[cfg(feature = "protocol_feature_rectify_inflation")]
+                time: 0,
             }
         }
 
@@ -1676,10 +1799,17 @@ mod test {
                     chunk_mask,
                     total_supply: self.runtime.genesis_config.total_supply,
                     latest_protocol_version: self.runtime.genesis_config.protocol_version,
+                    #[cfg(feature = "protocol_feature_rectify_inflation")]
+                    timestamp_nanosec: self.time + 10u64.pow(9),
                 })
                 .unwrap();
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                self.time += 10u64.pow(9);
+            }
+
             self.head = Tip {
                 last_block_hash: new_hash,
                 prev_block_hash: self.head.last_block_hash,
@@ -1707,19 +1837,47 @@ mod test {
         }
 
         /// Compute per epoch per validator reward and per epoch protocol treasury reward
-        pub fn compute_reward(&self, num_validators: usize) -> (Balance, Balance) {
-            let per_epoch_total_reward = *self.runtime.genesis_config.max_inflation_rate.numer()
-                as u128
-                * self.runtime.genesis_config.total_supply
-                * self.runtime.genesis_config.epoch_length as u128
-                / (self.runtime.genesis_config.num_blocks_per_year as u128
-                    * *self.runtime.genesis_config.max_inflation_rate.denom() as u128);
-            let per_epoch_protocol_treasury = per_epoch_total_reward
-                * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
-                / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
-            let per_epoch_per_validator_reward =
-                (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
-            (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
+        pub fn compute_reward(
+            &self,
+            num_validators: usize,
+            #[cfg(feature = "protocol_feature_rectify_inflation")] epoch_duration: u64,
+        ) -> (Balance, Balance) {
+            #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
+            {
+                let per_epoch_total_reward = *self.runtime.genesis_config.max_inflation_rate.numer()
+                    as u128
+                    * self.runtime.genesis_config.total_supply
+                    * self.runtime.genesis_config.epoch_length as u128
+                    / (self.runtime.genesis_config.num_blocks_per_year as u128
+                        * *self.runtime.genesis_config.max_inflation_rate.denom() as u128);
+                let per_epoch_protocol_treasury = per_epoch_total_reward
+                    * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
+                    / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
+                let per_epoch_per_validator_reward =
+                    (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
+                (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
+            }
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                let num_seconds_per_year = 60 * 60 * 24 * 365;
+                let num_ns_in_second = 1_000_000_000;
+                let per_epoch_total_reward =
+                    (U256::from(*self.runtime.genesis_config.max_inflation_rate.numer() as u64)
+                        * U256::from(self.runtime.genesis_config.total_supply)
+                        * U256::from(epoch_duration)
+                        / (U256::from(num_seconds_per_year)
+                            * U256::from(
+                                *self.runtime.genesis_config.max_inflation_rate.denom() as u128
+                            )
+                            * U256::from(num_ns_in_second)))
+                    .as_u128();
+                let per_epoch_protocol_treasury = per_epoch_total_reward
+                    * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
+                    / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
+                let per_epoch_per_validator_reward =
+                    (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
+                (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
+            }
         }
     }
 
@@ -2051,12 +2209,11 @@ mod test {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
-        let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
@@ -2064,7 +2221,7 @@ mod test {
         let state_part = env.runtime.obtain_state_part(0, &env.state_roots[0], 0, 1).unwrap();
         let root_node = env.runtime.get_state_root_node(0, &env.state_roots[0]).unwrap();
         let mut new_env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], false);
         for i in 1..=2 {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
@@ -2091,12 +2248,18 @@ mod test {
                     chunk_mask: vec![true],
                     total_supply: new_env.runtime.genesis_config.total_supply,
                     latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
+                    #[cfg(feature = "protocol_feature_rectify_inflation")]
+                    timestamp_nanosec: new_env.time,
                 })
                 .unwrap();
             new_env.head.height = i;
             new_env.head.last_block_hash = cur_hash;
             new_env.head.prev_block_hash = prev_hash;
             new_env.last_proposals = proposals;
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            {
+                new_env.time += 10u64.pow(9);
+            }
         }
         assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]));
         let mut root_node_wrong = root_node.clone();
@@ -2114,11 +2277,11 @@ mod test {
 
         let account = new_env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
-        assert_eq!(account.locked, TESTING_INIT_STAKE + 1 + 2 * per_epoch_per_validator_reward);
+        assert_eq!(account.locked, TESTING_INIT_STAKE + 1);
 
         let account = new_env.view_account(&block_producers[1].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-        assert_eq!(account.locked, TESTING_INIT_STAKE + 2 * per_epoch_per_validator_reward);
+        assert_eq!(account.locked, TESTING_INIT_STAKE);
     }
 
     /// Test two shards: the first shard has 2 validators (test1, test4) and the second shard
@@ -2183,13 +2346,12 @@ mod test {
             2,
             vec![],
             vec![],
-            true,
+            false,
         );
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
-        let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
         env.step_default(vec![staking_transaction]);
@@ -2257,7 +2419,7 @@ mod test {
             vec![NextEpochValidatorInfo {
                 account_id: "test2".to_string(),
                 public_key: block_producers[1].public_key(),
-                stake: TESTING_INIT_STAKE + per_epoch_per_validator_reward,
+                stake: TESTING_INIT_STAKE,
                 shards: vec![0],
             }
             .into()]
@@ -2671,11 +2833,12 @@ mod test {
     fn test_validator_reward() {
         init_test_logger();
         let num_nodes = 4;
+        let epoch_length = 4;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new(
             "test_validator_reward",
             vec![validators.clone()],
-            4,
+            epoch_length,
             vec![],
             vec![],
             true,
@@ -2689,7 +2852,11 @@ mod test {
             env.step_default(vec![]);
         }
 
+        #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
         let (validator_reward, protocol_treasury_reward) = env.compute_reward(num_nodes);
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        let (validator_reward, protocol_treasury_reward) =
+            env.compute_reward(num_nodes, epoch_length * 10u64.pow(9));
         for i in 0..4 {
             let account = env.view_account(&block_producers[i].validator_id());
             assert_eq!(account.locked, TESTING_INIT_STAKE + validator_reward);

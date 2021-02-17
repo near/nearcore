@@ -1,9 +1,6 @@
-use crate::types::Gas;
 use borsh::{BorshDeserialize, BorshSerialize};
-use core::fmt;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 #[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum VMKind {
@@ -187,27 +184,6 @@ impl Default for VMLimitConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct ExtCostsConfig {
-    // Base cost for multiexp
-    pub alt_bn128_g1_multiexp_base: Gas,
-
-    // byte cost for multiexp
-    pub alt_bn128_g1_multiexp_byte: Gas,
-
-    // Base cost for sum
-    pub alt_bn128_g1_sum_base: Gas,
-
-    // byte cost for sum
-    pub alt_bn128_g1_sum_byte: Gas,
-
-    // sublinear cost for items
-    pub alt_bn128_g1_multiexp_sublinear: Gas,
-
-    // Base cost for pairing check
-    pub alt_bn128_pairing_check_base: Gas,
-
-    // Cost for pairing check per byte
-    pub alt_bn128_pairing_check_byte: Gas,
-
     /// Base cost for calling a host function.
     pub base: Gas,
 
@@ -345,13 +321,6 @@ const SAFETY_MULTIPLIER: u64 = 3;
 impl Default for ExtCostsConfig {
     fn default() -> ExtCostsConfig {
         ExtCostsConfig {
-            alt_bn128_g1_multiexp_base: SAFETY_MULTIPLIER * 5345163514,
-            alt_bn128_g1_multiexp_byte: SAFETY_MULTIPLIER * 21665818,
-            alt_bn128_g1_multiexp_sublinear: SAFETY_MULTIPLIER * 1422687,
-            alt_bn128_pairing_check_base: SAFETY_MULTIPLIER * 2281902410880,
-            alt_bn128_pairing_check_byte: SAFETY_MULTIPLIER * 10267480326,
-            alt_bn128_g1_sum_base: SAFETY_MULTIPLIER * 5345163514,
-            alt_bn128_g1_sum_byte: SAFETY_MULTIPLIER * 21665818,
             base: SAFETY_MULTIPLIER * 88256037,
             contract_compile_base: SAFETY_MULTIPLIER * 11815321,
             contract_compile_bytes: SAFETY_MULTIPLIER * 72250,
@@ -408,13 +377,6 @@ impl Default for ExtCostsConfig {
 impl ExtCostsConfig {
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
-            alt_bn128_g1_multiexp_base: 0,
-            alt_bn128_g1_multiexp_byte: 0,
-            alt_bn128_g1_multiexp_sublinear: 0,
-            alt_bn128_pairing_check_base: 0,
-            alt_bn128_pairing_check_byte: 0,
-            alt_bn128_g1_sum_base: 0,
-            alt_bn128_g1_sum_byte: 0,
             base: 0,
             contract_compile_base: 0,
             contract_compile_bytes: 0,
@@ -472,13 +434,6 @@ impl ExtCostsConfig {
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
-    alt_bn128_g1_multiexp_base,
-    alt_bn128_g1_multiexp_byte,
-    alt_bn128_g1_multiexp_sublinear,
-    alt_bn128_pairing_check_base,
-    alt_bn128_pairing_check_byte,
-    alt_bn128_g1_sum_base,
-    alt_bn128_g1_sum_byte,
     base,
     contract_compile_base,
     contract_compile_bytes,
@@ -583,13 +538,6 @@ impl ExtCosts {
     pub fn value(self, config: &ExtCostsConfig) -> Gas {
         use ExtCosts::*;
         match self {
-            alt_bn128_g1_multiexp_base => config.alt_bn128_g1_multiexp_base,
-            alt_bn128_g1_multiexp_byte => config.alt_bn128_g1_multiexp_byte,
-            alt_bn128_g1_multiexp_sublinear => config.alt_bn128_g1_multiexp_sublinear,
-            alt_bn128_pairing_check_base => config.alt_bn128_pairing_check_base,
-            alt_bn128_pairing_check_byte => config.alt_bn128_pairing_check_byte,
-            alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
-            alt_bn128_g1_sum_byte => config.alt_bn128_g1_sum_byte,
             base => config.base,
             contract_compile_base => config.contract_compile_base,
             contract_compile_bytes => config.contract_compile_bytes,

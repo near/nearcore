@@ -16,10 +16,10 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 15;
+pub const DB_VERSION: DbVersion = 16;
 
 /// Protocol version type.
-pub type ProtocolVersion = u32;
+pub use near_primitives_core::types::ProtocolVersion;
 
 /// Oldest supported version by this client.
 pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
@@ -47,7 +47,13 @@ pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
 /// Updates the way receipt ID, data ID and random seeds are constructed.
 pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
 
-pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 40;
+/// Fix the storage usage of the delete key action.
+pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
+
+pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
+
+/// Updates the way receipt ID is constructed to use current block hash instead of last block hash
+pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
 
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
@@ -67,28 +73,41 @@ impl ProtocolVersionRange {
 /// New Protocol features should go here. Features are guarded by their corresponding feature flag.
 /// For example, if we have `ProtocolFeature::EVM` and a corresponding feature flag `evm`, it will look
 /// like
-/// ```
-/// #[cfg(feature = "evm")]
-/// EVM
-/// ```
+///
+/// #[cfg(feature = "protocol_feature_evm")]
+/// EVM code
+///
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     ForwardChunkParts,
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    RectifyInflation,
+    #[cfg(feature = "protocol_feature_evm")]
+    EVM,
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    BlockHeaderV3,
+    /// Decreases the storage cost of 1 byte by 10X.
+    #[cfg(feature = "protocol_feature_lower_storage_cost")]
+    LowerStorageCost,
 }
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 40;
+pub const PROTOCOL_VERSION: ProtocolVersion = 42;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 41;
+pub const PROTOCOL_VERSION: ProtocolVersion = 104;
 
 lazy_static! {
-    static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = vec![
-        /* add mapping here */
-    ].into_iter().collect();
+    static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
+        vec![
+            #[cfg(feature = "protocol_feature_lower_storage_cost")]
+            (ProtocolFeature::LowerStorageCost, 42),
+        ]
+        .into_iter()
+        .collect();
 }
 
 #[cfg(not(feature = "nightly_protocol"))]
@@ -103,18 +122,33 @@ lazy_static! {
 #[cfg(feature = "nightly_protocol")]
 lazy_static! {
     pub static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = {
-        let nightly_protocol_features_to_version_mapping: HashMap<
+        let mut nightly_protocol_features_to_version_mapping: HashMap<
             ProtocolFeature,
             ProtocolVersion,
-        > = vec![(ProtocolFeature::ForwardChunkParts, 41)].into_iter().collect();
+        > = vec![
+            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+            (ProtocolFeature::ForwardChunkParts, 101),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            (ProtocolFeature::RectifyInflation, 102),
+            #[cfg(feature = "protocol_feature_evm")]
+            (ProtocolFeature::EVM, 103),
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            (ProtocolFeature::BlockHeaderV3, 104),
+        ]
+        .into_iter()
+        .collect();
         for (stable_protocol_feature, stable_protocol_version) in
             STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
         {
             assert!(
-                PROTOCOL_FEATURES_TO_VERSION_MAPPING[&stable_protocol_feature]
+                *nightly_protocol_features_to_version_mapping
+                    .get(&stable_protocol_feature)
+                    .unwrap_or(&stable_protocol_version)
                     >= *stable_protocol_version
             );
         }
+        nightly_protocol_features_to_version_mapping
+            .extend(STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter());
         nightly_protocol_features_to_version_mapping
     };
 }
@@ -123,9 +157,9 @@ lazy_static! {
 macro_rules! checked_feature {
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
         #[cfg(feature = $feature_name)]
-        let is_feature_enabled = near_primitives::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-            [&near_primitives::version::ProtocolFeature::$feature]
-            >= $current_protocol_version;
+        let is_feature_enabled = $crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
+            [&$crate::version::ProtocolFeature::$feature]
+            <= $current_protocol_version;
         #[cfg(not(feature = $feature_name))]
         let is_feature_enabled = {
             // Workaround unused variable warning
@@ -137,14 +171,23 @@ macro_rules! checked_feature {
     }};
 
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{
+        checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {})
+    }};
+
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
         #[cfg(feature = $feature_name)]
         {
             if checked_feature!($feature_name, $feature, $current_protocol_version) {
                 $feature_block
+            } else {
+                $non_feature_block
             }
         }
         // Workaround unused variable warning
         #[cfg(not(feature = $feature_name))]
-        let _ = $current_protocol_version;
+        {
+            let _ = $current_protocol_version;
+            $non_feature_block
+        }
     }};
 }

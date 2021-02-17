@@ -476,6 +476,7 @@ pub fn setup_mock_all_validators(
                             known_producers: vec![],
                             #[cfg(feature = "metric_recorder")]
                             metric_recorder: MetricRecorder::default(),
+                            peer_counter: 0,
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }
@@ -1056,6 +1057,7 @@ impl TestEnv {
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
+                last_block.header().prev_hash(),
                 last_block.header().hash(),
                 last_block.header().epoch_id(),
                 &QueryRequest::ViewAccount { account_id },
@@ -1185,6 +1187,7 @@ pub fn create_chunk(
         PROTOCOL_VERSION,
         &last_block.header(),
         2,
+        last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),

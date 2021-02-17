@@ -19,11 +19,10 @@ impl Codec {
     }
 }
 
-impl Encoder for Codec {
-    type Item = Vec<u8>;
+impl Encoder<Vec<u8>> for Codec {
     type Error = Error;
 
-    fn encode(&mut self, item: Self::Item, buf: &mut BytesMut) -> Result<(), Error> {
+    fn encode(&mut self, item: Vec<u8>, buf: &mut BytesMut) -> Result<(), Error> {
         if item.len() > self.max_length as usize {
             Err(Error::new(ErrorKind::InvalidInput, "Input is too long"))
         } else {
@@ -66,7 +65,7 @@ impl Decoder for Codec {
     }
 }
 
-pub fn peer_message_to_bytes(peer_message: PeerMessage) -> Result<Vec<u8>, std::io::Error> {
+pub fn peer_message_to_bytes(peer_message: &PeerMessage) -> Result<Vec<u8>, std::io::Error> {
     peer_message.try_to_vec()
 }
 
@@ -148,7 +147,7 @@ mod test {
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
-        codec.encode(peer_message_to_bytes(msg.clone()).unwrap(), &mut buffer).unwrap();
+        codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
         assert_eq!(bytes_to_peer_message(&decoded).unwrap(), msg);
     }
@@ -290,7 +289,7 @@ mod test {
 
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
-        codec.encode(peer_message_to_bytes(msg.clone()).unwrap(), &mut buffer).unwrap();
+        codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
 
         let err = bytes_to_peer_message(&decoded).unwrap_err();

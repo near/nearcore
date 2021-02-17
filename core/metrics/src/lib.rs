@@ -109,8 +109,16 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
 
 /// Attempts to create a `HistogramVector`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
-pub fn try_create_histogram_vec(name: &str, help: &str, labels: &[&str]) -> Result<HistogramVec> {
-    let opts = HistogramOpts::new(name, help);
+pub fn try_create_histogram_vec(
+    name: &str,
+    help: &str,
+    labels: &[&str],
+    buckets: Option<Vec<f64>>,
+) -> Result<HistogramVec> {
+    let mut opts = HistogramOpts::new(name, help);
+    if let Some(buckets) = buckets {
+        opts = opts.buckets(buckets);
+    }
     let histogram = HistogramVec::new(opts, labels)?;
     prometheus::register(Box::new(histogram.clone()))?;
     Ok(histogram)
@@ -177,7 +185,7 @@ pub fn inc_counter_opt(counter: Option<&IntCounter>) {
     }
 }
 
-pub fn get_counter(counter: &Result<IntCounter>) -> std::result::Result<i64, String> {
+pub fn get_counter(counter: &Result<IntCounter>) -> std::result::Result<u64, String> {
     if let Ok(counter) = counter {
         Ok(counter.get())
     } else {
@@ -185,7 +193,7 @@ pub fn get_counter(counter: &Result<IntCounter>) -> std::result::Result<i64, Str
     }
 }
 
-pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
+pub fn inc_counter_by(counter: &Result<IntCounter>, value: u64) {
     if let Ok(counter) = counter {
         counter.inc_by(value);
     } else {
@@ -193,7 +201,7 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
     }
 }
 
-pub fn inc_counter_by_opt(counter: Option<&IntCounter>, value: i64) {
+pub fn inc_counter_by_opt(counter: Option<&IntCounter>, value: u64) {
     if let Some(counter) = counter {
         counter.inc_by(value);
     }

@@ -6,6 +6,7 @@ use std::io::{Error, ErrorKind, Write};
 use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use ed25519_dalek::ed25519::signature::{Signature as _, Signer as _, Verifier as _};
 use lazy_static::lazy_static;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
@@ -104,6 +105,12 @@ impl AsRef<[u8]> for Secp256K1PublicKey {
 impl std::fmt::Debug for Secp256K1PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
+    }
+}
+
+impl From<Secp256K1PublicKey> for [u8; 64] {
+    fn from(pubkey: Secp256K1PublicKey) -> Self {
+        pubkey.0
     }
 }
 
@@ -566,6 +573,12 @@ impl Debug for Secp256K1Signature {
     }
 }
 
+impl From<Secp256K1Signature> for [u8; 65] {
+    fn from(sig: Secp256K1Signature) -> [u8; 65] {
+        sig.0
+    }
+}
+
 /// Signature container supporting different curves.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Signature {
@@ -613,7 +626,7 @@ impl Signature {
                 .unwrap();
                 let sig = rsig.to_standard(&SECP256K1);
                 let pdata: [u8; 65] = {
-                    // code borrowed from https://github.com/paritytech/parity-ethereum/blob/98b7c07171cd320f32877dfa5aa528f585dc9a72/ethkey/src/signature.rs#L210
+                    // code borrowed from https://github.com/openethereum/openethereum/blob/98b7c07171cd320f32877dfa5aa528f585dc9a72/ethkey/src/signature.rs#L210
                     let mut temp = [4u8; 65];
                     temp[1..65].copy_from_slice(&public_key.0);
                     temp

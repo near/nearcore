@@ -1,19 +1,20 @@
-use crate::config::ActionCosts;
-use crate::config::ExtCosts::*;
-use crate::config::VMConfig;
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
-use crate::types::{
-    AccountId, Balance, EpochHeight, Gas, ProfileData, PromiseIndex, PromiseResult,
-    ProtocolVersion, ReceiptIndex, ReturnData, StorageUsage,
-};
+use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
-use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
+use crate::ValuePtr;
 use byteorder::ByteOrder;
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives_core::config::ExtCosts::*;
+use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
+use near_primitives_core::profile::ProfileData;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::types::{
+    AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
+};
 use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::InconsistentStateError;
+use near_vm_errors::{HostError, VMLogicError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
@@ -904,7 +905,7 @@ impl<'a> VMLogic<'a> {
         use sha2::Digest;
 
         let value_hash = sha2::Sha256::digest(&value);
-        self.internal_write_register(register_id, value_hash.as_ref().to_vec())
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
     /// Hashes the given value using keccak256 and returns it into `register_id`.
@@ -925,7 +926,7 @@ impl<'a> VMLogic<'a> {
         use sha3::Digest;
 
         let value_hash = sha3::Keccak256::digest(&value);
-        self.internal_write_register(register_id, value_hash.as_ref().to_vec())
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
     /// Hashes the given value using keccak512 and returns it into `register_id`.
@@ -946,7 +947,7 @@ impl<'a> VMLogic<'a> {
         use sha3::Digest;
 
         let value_hash = sha3::Keccak512::digest(&value);
-        self.internal_write_register(register_id, value_hash.as_ref().to_vec())
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.

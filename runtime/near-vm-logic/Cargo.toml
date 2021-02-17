@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-logic"
-version = "2.2.0"
+version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -13,17 +13,17 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
-base64 = "0.11"
-borsh = "0.7.1"
-bs58 = "0.3"
+base64 = "0.13"
+borsh = "0.8.1"
+bs58 = "0.4"
 byteorder = "1.2"
 serde = { version = "1", features = ["derive"] }
-sha2 = "0.8"
-sha3 = "0.8"
+sha2 = ">=0.8,<0.10"
+sha3 = ">=0.8,<0.10"
 
-near-runtime-fees = { path = "../near-runtime-fees", version = "2.2.0" }
-near-vm-errors = { path = "../near-vm-errors", version = "2.2.0" }
-near-runtime-utils = { path = "../near-runtime-utils", version = "2.2.0" }
+near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" }
+near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
+near-runtime-utils = { path = "../near-runtime-utils", version = "3.0.0" }
 
 [dependencies.bn]
 package = "zeropool-bn"
@@ -34,14 +34,16 @@ features = []
 serde_json = {version= "1", features= ["preserve_order"]}
 
 [features]
-default = ["costs_counting"]
+default = []
+protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
 wasmtime_default = []
 protocol_feature_alt_bn128 = []
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_alt_bn128"]
 
+
 # Use this feature to enable counting of fees and costs applied.
-costs_counting = []
+costs_counting = ["near-primitives-core/costs_counting"]
 
 [[test]]
 name = "test_storage_read_write"
@@ -71,3 +73,6 @@ path = "tests/test_promises.rs"
 [[test]]
 name = "test_iterators"
 path = "tests/test_iterators.rs"
+
+[package.metadata.workspaces]
+independent = true

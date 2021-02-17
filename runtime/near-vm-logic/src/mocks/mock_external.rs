@@ -1,10 +1,10 @@
-use crate::types::{AccountId, Balance, Gas, PublicKey};
 use crate::{External, ValuePtr};
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 /// Emulates the trie and the mock handling code.
 pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
@@ -47,6 +47,7 @@ impl MockedExternal {
 }
 
 use crate::dependencies::Result;
+use crate::types::PublicKey;
 
 impl External for MockedExternal {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
@@ -63,6 +64,18 @@ impl External for MockedExternal {
 
     fn storage_remove(&mut self, key: &[u8]) -> Result<()> {
         self.fake_trie.remove(key);
+        Ok(())
+    }
+
+    fn storage_remove_subtree(&mut self, prefix: &[u8]) -> Result<()> {
+        let keys: Vec<_> = self
+            .fake_trie
+            .iter()
+            .filter_map(|(key, _)| if key.starts_with(prefix) { Some(key.clone()) } else { None })
+            .collect();
+        for key in keys {
+            self.fake_trie.remove(&key);
+        }
         Ok(())
     }
 

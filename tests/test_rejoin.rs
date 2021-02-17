@@ -8,9 +8,9 @@ mod test {
     use std::time::Duration;
 
     use near_chain_configs::Genesis;
+    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
-    use node_runtime::config::RuntimeConfig;
     use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig};
     use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
@@ -53,7 +53,6 @@ mod test {
 
     fn test_kill_1(num_nodes: usize, num_trials: usize, two_shards: bool, test_prefix: &str) {
         warmup();
-        near_actix_utils::init_stop_on_panic();
 
         // Start all nodes, crash node#2, proceed, restart node #2 but crash node #3
         let crash1 = 2;

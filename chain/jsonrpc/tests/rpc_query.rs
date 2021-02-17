@@ -2,18 +2,18 @@ use std::convert::TryFrom;
 
 use actix::{Actor, System};
 use futures::{future, FutureExt};
+use serde_json::json;
 
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
+use near_jsonrpc_primitives::rpc::RpcQueryRequest;
+use near_jsonrpc_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::RpcQueryRequest;
-use near_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[macro_use]
@@ -344,6 +344,28 @@ fn test_query_call_function() {
     });
 }
 
+/// query contract code
+#[test]
+fn test_query_contract_code() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let query_response = client
+            .query(RpcQueryRequest {
+                block_reference: BlockReference::latest(),
+                request: QueryRequest::ViewCode { account_id: "test".to_string() },
+            })
+            .await
+            .unwrap();
+        assert_eq!(query_response.block_height, 0);
+        let code = if let QueryResponseKind::ViewCode(code) = query_response.kind {
+            code
+        } else {
+            panic!("queried code, but received something else: {:?}", query_response.kind);
+        };
+        assert_eq!(code.code, Vec::<u8>::new());
+        assert_eq!(code.hash.to_string(), "11111111111111111111111111111111");
+    });
+}
+
 /// Retrieve client status via JSON RPC.
 #[test]
 fn test_status() {
@@ -360,25 +382,27 @@ fn test_status() {
 fn test_status_fail() {
     init_test_logger();
 
-    System::run(|| {
-        let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
+    System::builder()
+        .stop_on_panic(true)
+        .run(|| {
+            let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
-        let client = new_client(&format!("http://{}", addr));
-        WaitOrTimeout::new(
-            Box::new(move |_| {
-                actix::spawn(client.health().then(|res| {
-                    if res.is_err() {
-                        System::current().stop();
-                    }
-                    future::ready(())
-                }));
-            }),
-            100,
-            10000,
-        )
-        .start();
-    })
-    .unwrap();
+            let client = new_client(&format!("http://{}", addr));
+            WaitOrTimeout::new(
+                Box::new(move |_| {
+                    actix::spawn(client.health().then(|res| {
+                        if res.is_err() {
+                            System::current().stop();
+                        }
+                        future::ready(())
+                    }));
+                }),
+                100,
+                10000,
+            )
+            .start();
+        })
+        .unwrap();
 }
 
 /// Check health fails when node is absent.
@@ -386,15 +410,17 @@ fn test_status_fail() {
 fn test_health_fail() {
     init_test_logger();
 
-    System::run(|| {
-        let client = new_client(&"http://127.0.0.1:12322/health");
-        actix::spawn(client.health().then(|res| {
-            assert!(res.is_err());
-            System::current().stop();
-            future::ready(())
-        }));
-    })
-    .unwrap();
+    System::builder()
+        .stop_on_panic(true)
+        .run(|| {
+            let client = new_client(&"http://127.0.0.1:12322/health");
+            actix::spawn(client.health().then(|res| {
+                assert!(res.is_err());
+                System::current().stop();
+                future::ready(())
+            }));
+        })
+        .unwrap();
 }
 
 /// Health fails when node doesn't produce block for period of time.
@@ -402,25 +428,27 @@ fn test_health_fail() {
 fn test_health_fail_no_blocks() {
     init_test_logger();
 
-    System::run(|| {
-        let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
+    System::builder()
+        .stop_on_panic(true)
+        .run(|| {
+            let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
-        let client = new_client(&format!("http://{}", addr));
-        WaitOrTimeout::new(
-            Box::new(move |_| {
-                actix::spawn(client.health().then(|res| {
-                    if res.is_err() {
-                        System::current().stop();
-                    }
-                    future::ready(())
-                }));
-            }),
-            300,
-            10000,
-        )
-        .start();
-    })
-    .unwrap();
+            let client = new_client(&format!("http://{}", addr));
+            WaitOrTimeout::new(
+                Box::new(move |_| {
+                    actix::spawn(client.health().then(|res| {
+                        if res.is_err() {
+                            System::current().stop();
+                        }
+                        future::ready(())
+                    }));
+                }),
+                300,
+                10000,
+            )
+            .start();
+        })
+        .unwrap();
 }
 
 /// Retrieve client health.
@@ -452,7 +480,13 @@ fn test_validators_ordered() {
 fn test_genesis_config() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
-        assert_eq!(genesis_config["protocol_version"].as_u64().unwrap(), PROTOCOL_VERSION as u64);
+        #[cfg(not(feature = "nightly_protocol"))]
+        {
+            assert_eq!(
+                genesis_config["protocol_version"].as_u64().unwrap(),
+                near_primitives::version::PROTOCOL_VERSION as u64
+            );
+        }
         assert!(!genesis_config["chain_id"].as_str().unwrap().is_empty());
         assert!(!genesis_config.as_object().unwrap().contains_key("records"));
     });
@@ -654,5 +688,42 @@ fn test_validators_non_existing_block_hash() {
             validators_response.is_err(),
             "validators for non exsiting block hash, but received success instead of error"
         );
+    });
+}
+
+#[test]
+fn test_get_chunk_with_object_in_params() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let chunk: near_primitives::views::ChunkView = test_utils::call_method(
+            &client.client,
+            &client.server_addr,
+            "chunk",
+            json!({
+                "block_id": 0u64,
+                "shard_id": 0u64,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(chunk.author, "test2");
+        assert_eq!(chunk.header.balance_burnt, 0);
+        assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
+        assert_eq!(chunk.header.encoded_length, 8);
+        assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
+        assert_eq!(chunk.header.gas_limit, 1000000);
+        assert_eq!(chunk.header.gas_used, 0);
+        assert_eq!(chunk.header.height_created, 0);
+        assert_eq!(chunk.header.height_included, 0);
+        assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
+        assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
+        assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
+        assert_eq!(chunk.header.rent_paid, 0);
+        assert_eq!(chunk.header.shard_id, 0);
+        assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
+        assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
+        assert_eq!(chunk.header.validator_proposals, vec![]);
+        assert_eq!(chunk.header.validator_reward, 0);
+        let same_chunk = client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).await.unwrap();
+        assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
     });
 }

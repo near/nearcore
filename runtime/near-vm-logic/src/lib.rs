@@ -3,17 +3,20 @@ pub mod alt_bn128;
 mod config;
 mod context;
 mod dependencies;
-mod gas_counter;
+pub mod gas_counter;
 mod logic;
 pub mod mocks;
 pub mod serde_with;
 pub mod types;
 mod utils;
 
-pub use config::{ActionCosts, ExtCosts, ExtCostsConfig, VMConfig, VMKind, VMLimitConfig};
+pub use config::VMKind;
 pub use context::VMContext;
 pub use dependencies::{External, MemoryLike, ValuePtr};
 pub use logic::{VMLogic, VMOutcome};
+pub use near_primitives_core::config::*;
+pub use near_primitives_core::profile;
+pub use near_primitives_core::types::ProtocolVersion;
 pub use near_vm_errors::{HostError, VMLogicError};
 pub use types::ReturnData;
 

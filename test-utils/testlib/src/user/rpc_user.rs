@@ -11,6 +11,7 @@ use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_jsonrpc::ServerError;
+use near_jsonrpc_client::ChunkId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
@@ -19,12 +20,12 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
 };
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeView,
-    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
+    EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
+    ViewStateResult,
 };
 
 use crate::user::User;
-use near_jsonrpc_client::ChunkId;
 
 pub struct RpcUser {
     account_id: AccountId,
@@ -39,7 +40,10 @@ impl RpcUser {
         F: FnOnce(JsonRpcClient) -> Fut + 'static,
     {
         let addr = self.addr.clone();
-        System::new("actix")
+        System::builder()
+            .stop_on_panic(true)
+            .name("NEAR")
+            .build()
             .block_on(async move { f(new_client(&format!("http://{}", addr))).await })
     }
 
@@ -68,6 +72,20 @@ impl User for RpcUser {
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         self.query(format!("contract/{}", account_id), prefix)?.try_into()
+    }
+
+    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
+        self.query(format!("code/{}", account_id), &[])?.try_into()
+    }
+
+    fn view_call(
+        &self,
+        account_id: &AccountId,
+        method_name: &str,
+        args: &[u8],
+    ) -> Result<CallResult, String> {
+        self.query(format!("call/{}/{}", account_id, method_name), args)
+            .and_then(|value| value.try_into())
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {

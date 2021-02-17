@@ -28,16 +28,57 @@ It will be mounted under `/host` in the Docker container.
 Start container and build estimator with:
 
     host> ./run.sh
-    docker> cd /host/nearcore/runtime/runtime-params-estimator
-    docker> cargo run --release --package neard --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
+    docker> cd /host/nearcore
+    docker> cargo run --release --package neard --features protocol_feature_evm,nightly_protocol_features --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
     docker> cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
-    docker> cargo build --release --package runtime-params-estimator
+    docker> cd /host/nearcore/runtime/runtime-params-estimator
+    docker> cargo build --release --package runtime-params-estimator --features required
 
 Now start the estimator under QEMU with the counter plugin enabled (note, that Rust compiler produces SSE4, so specify recent CPU):
 
-    docker> ./emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
+    docker> ./emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so \
+         ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
 
 Note that it may take some time, as we execute instrumented code under the binary translator.
+
+
+## IO cost calibration
+
+We need to calibrate IO operations cost to instruction counts. Technically instruction count and IO costs are orthogonal,
+however, as we measure our gas in instructions, we have to compute abstract scaling coefficients binding
+the number of bytes read/written in IO to instructions executed.
+We do that by computing following operation:
+
+    ./emu-cost/counter_plugin/qemu-x86_64  -d plugin -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so \
+        ../../target/release/genesis-populate --home /tmp/data --additional-accounts-num <NUM_ACCOUNTS>
+
+and checking how much data to be read/written depending on number of create accounts.
+Then we could figure out:
+   * 1 account creation cost in instructions
+   * 1 account creation cost in bytes read and written
+For example, experiments performed in mid Oct 2020 shown the following numbers:
+10M accounts:
+    * 6_817_684_914_212 instructions executed
+    * 168_398_590_013 bytes read
+    * 48_486_537_178 bytes written
+
+Thus 1 account approximately costs:
+    * 681_768 instructions executed
+    * 16840 bytes read
+    * 4849 bytes written
+
+Let's presume that execution, read and write each takes following shares in account cost creation.
+   * Execution: *3/6*
+   * Read: *2/6*
+   * Write: *1/6*
+
+Then we could conclude that:
+   * 1 byte read costs 681768 * 2 / 3 / 16840 = 27 instructions
+   * 1 byte written costs 681768 * 1 / 3 / 4849 = 47 instructions
+
+Thus, when measuring costs we set the operation cost to be:
+
+    cost = number_of_instructions + bytes_read * 27 + bytes_written * 47
 
 ## Optional: re-building QEMU and the instruction counter plugin
 

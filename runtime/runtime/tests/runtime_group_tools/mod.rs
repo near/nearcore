@@ -58,7 +58,8 @@ impl StandaloneRuntime {
 
         let apply_state = ApplyState {
             block_index: 0,
-            last_block_hash: Default::default(),
+            prev_block_hash: Default::default(),
+            block_hash: Default::default(),
             epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: 100,
@@ -68,6 +69,10 @@ impl StandaloneRuntime {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             cache: None,
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
+            #[cfg(feature = "costs_counting")]
+            profile: None,
         };
 
         Self {

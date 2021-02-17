@@ -7,15 +7,14 @@
 //! See the [example] for further details.
 //!
 //! [example]: https://github.com/nearprotocol/nearcore/tree/master/tools/indexer/example
-use actix::System;
 use tokio::sync::mpsc;
 
 pub use neard::{get_default_home, init_configs, NearConfig};
 mod streamer;
 
 pub use self::streamer::{
-    ExecutionOutcomesWithReceipts, IndexerChunkView, IndexerExecutionOutcomeWithReceipt,
-    IndexerTransactionWithOutcome, StreamerMessage,
+    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome,
+    StreamerMessage,
 };
 pub use near_primitives;
 
@@ -30,6 +29,15 @@ pub enum SyncModeEnum {
     BlockHeight(u64),
 }
 
+/// Enum to define whether await for node to be fully synced or stream while syncing (useful for indexing from genesis)
+#[derive(Debug, Clone)]
+pub enum AwaitForNodeSyncedEnum {
+    /// Don't stream until the node is fully synced
+    WaitForFullSync,
+    /// Stream while node is syncing
+    StreamWhileSyncing,
+}
+
 /// NEAR Indexer configuration to be provided to `Indexer::new(IndexerConfig)`
 #[derive(Debug, Clone)]
 pub struct IndexerConfig {
@@ -37,13 +45,14 @@ pub struct IndexerConfig {
     pub home_dir: std::path::PathBuf,
     /// Mode of syncing for NEAR Indexer instance
     pub sync_mode: SyncModeEnum,
+    /// Whether await for node to be synced or not
+    pub await_for_node_synced: AwaitForNodeSyncedEnum,
 }
 
 /// This is the core component, which handles `nearcore` and internal `streamer`.
 pub struct Indexer {
     indexer_config: IndexerConfig,
     near_config: neard::NearConfig,
-    actix_runtime: actix::SystemRunner,
     view_client: actix::Addr<near_client::ViewClientActor>,
     client: actix::Addr<near_client::ClientActor>,
 }
@@ -52,7 +61,6 @@ impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
     pub fn new(indexer_config: IndexerConfig) -> Self {
         let near_config = neard::load_config(&indexer_config.home_dir);
-        let system = System::new("NEAR Indexer");
         neard::genesis_validate::validate_genesis(&near_config.genesis);
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),
@@ -63,7 +71,7 @@ impl Indexer {
         );
         let (client, view_client, _) =
             neard::start_with_config(&indexer_config.home_dir, near_config.clone());
-        Self { actix_runtime: system, view_client, client, near_config, indexer_config }
+        Self { view_client, client, near_config, indexer_config }
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
@@ -89,10 +97,5 @@ impl Indexer {
         &self,
     ) -> (actix::Addr<near_client::ViewClientActor>, actix::Addr<near_client::ClientActor>) {
         (self.view_client.clone(), self.client.clone())
-    }
-
-    /// Start Indexer.
-    pub fn start(self) {
-        self.actix_runtime.run().unwrap();
     }
 }
