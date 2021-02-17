@@ -46,16 +46,6 @@ impl Default for VMKind {
         not(feature = "wasmtime_default")
     ))]
     fn default() -> Self {
-        VMKind::Wasmer1
-    }
-
-    // These features should be mutually exclusive, but implement this for cargo test --all-features
-    #[cfg(all(
-        feature = "wasmer0_default",
-        feature = "wasmer1_default",
-        feature = "wasmtime_default"
-    ))]
-    fn default() -> Self {
-        VMKind::Wasmer1
+        VMKind::Wasmer0
     }
 }
