@@ -109,7 +109,7 @@ protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_pa
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128"]
 protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
-protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128"]
+protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128", "testlib/protocol_feature_alt_bn128", "runtime-params-estimator/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
 costs_counting = [
     "near-primitives/costs_counting",

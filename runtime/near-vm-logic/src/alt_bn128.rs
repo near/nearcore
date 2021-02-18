@@ -81,8 +81,6 @@ struct WrapG1(pub G1);
 #[derive(Copy, Clone)]
 struct WrapG2(pub G2);
 
-
-
 impl BorshSerialize for WrapU256 {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         self.0 .0.serialize(writer)
@@ -157,7 +155,6 @@ impl BorshSerialize for WrapG1 {
         Ok(())
     }
 }
-
 
 impl BorshDeserialize for WrapG1 {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, io::Error> {
@@ -256,7 +253,9 @@ pub fn alt_bn128_g1_multiexp(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
         .into_iter()
         .map(|e| (e.0 .0, e.1 .0))
         .collect::<Vec<_>>();
-    let result = WrapG1(G1::multiexp(&items)).try_to_vec().map_err(|e| HostError::AltBn128SerializationError { msg: format!("{}", e) })?;
+    let result = WrapG1(G1::multiexp(&items))
+        .try_to_vec()
+        .map_err(|e| HostError::AltBn128SerializationError { msg: format!("{}", e) })?;
     Ok(result)
 }
 
@@ -307,7 +306,9 @@ pub fn alt_bn128_g1_sum(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
             acc = acc + e;
         }
     }
-    let result = WrapG1(acc).try_to_vec().map_err(|e| HostError::AltBn128SerializationError { msg: format!("{}", e) })?;
+    let result = WrapG1(acc)
+        .try_to_vec()
+        .map_err(|e| HostError::AltBn128SerializationError { msg: format!("{}", e) })?;
     Ok(result)
 }
 

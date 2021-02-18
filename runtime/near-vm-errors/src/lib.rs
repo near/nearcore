@@ -183,10 +183,10 @@ pub enum HostError {
     Deprecated { method_name: String },
     /// Deserialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    AltBn128DeserializationError  { msg: String },
+    AltBn128DeserializationError { msg: String },
     /// Serialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    AltBn128SerializationError  { msg: String },
+    AltBn128SerializationError { msg: String },
 }
 
 /// Errors specifically from native EVM.

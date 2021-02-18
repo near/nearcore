@@ -780,7 +780,6 @@ impl<'a> VMLogic<'a> {
     // # Math API #
     // ############
 
-    
     /// Compute multiexp on alt_bn128 curve.
     /// See more detailed description at `alt_bn128::alt_bn128_g1_multiexp`.
     ///
@@ -792,12 +791,12 @@ impl<'a> VMLogic<'a> {
     /// AltBn128SerializationError, AltBn128DeserializationError
     ///
     /// # Cost
-    /// 
-    /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_g1_multiexp_base + 
-    /// alt_bn128_g1_multiexp_byte * num_bytes + alt_bn128_g1_multiexp_sublinear * 
-    /// alt_bn128_g1_multiexp_sublinear_complexity_estimate(num_bytes, (alt_bn128_g1_multiexp_base * 
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_g1_multiexp_base +
+    /// alt_bn128_g1_multiexp_byte * num_bytes + alt_bn128_g1_multiexp_sublinear *
+    /// alt_bn128_g1_multiexp_sublinear_complexity_estimate(num_bytes, (alt_bn128_g1_multiexp_base *
     /// alt_bn128_g1_multiexp_byte * num_bytes) / alt_bn128_g1_multiexp_sublinear)`
-    #[cfg(feature="protocol_feature_alt_bn128")]
+    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_g1_multiexp(
         &mut self,
         value_len: u64,
@@ -834,7 +833,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_g1_sum_base + alt_bn128_g1_sum_byte * num_bytes`
-    #[cfg(feature="protocol_feature_alt_bn128")]
+    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_g1_sum(
         &mut self,
         value_len: u64,
@@ -863,7 +862,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_byte * num_bytes`
-    #[cfg(feature="protocol_feature_alt_bn128")]
+    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
         let value_buf = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -871,7 +870,6 @@ impl<'a> VMLogic<'a> {
 
         Ok(crate::alt_bn128::alt_bn128_pairing_check(&value_buf)? as u64)
     }
-
 
     /// Writes random seed into the register.
     ///
