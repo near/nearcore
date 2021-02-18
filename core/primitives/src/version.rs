@@ -52,6 +52,9 @@ pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
 pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
 
+/// See [#3954: Extend the Math API with EVM precompiles](https://github.com/near/nearcore/pull/3954)
+pub const MATH_API_FOR_EVM_ISTANBUL_PROTOCOL_VERSION: ProtocolVersion = 43;
+
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
     upper: Option<ProtocolVersion>,
