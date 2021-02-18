@@ -71,6 +71,8 @@ impl ExtCostsGenerator {
         self.extract(blake2b_10b_10k, blake2b_base);
         self.extract(blake2b_10kib_10k, blake2b_byte);
 
+        self.extract(ecrecover_10k, ecrecover_base);
+
         #[cfg(feature = "protocol_feature_alt_bn128")]
         {
             self.extract(alt_bn128_g1_multiexp_1_1k, alt_bn128_g1_multiexp_base);

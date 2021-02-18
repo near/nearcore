@@ -49,6 +49,7 @@ extern "C" {
     fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     fn blake2b(value_len: u64, value_ptr: u64, register_id: u64);
+    fn ecrecover(hash_ptr: u64, v: u8, r_ptr: u64, s_ptr: u64, register_id: u64);
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -469,6 +470,17 @@ pub unsafe fn blake2b_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
         blake2b(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Function to measure `ecrecover_base`. Also measures `base`, `write_register_base`, and
+// `write_register_byte`. However `ecrecover` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute ecrecover 10k times.
+#[no_mangle]
+pub unsafe fn ecrecover_10k() {
+    for _ in 0..10_000 {
+        // TODO
     }
 }
 

@@ -211,6 +211,7 @@ pub enum Metric {
     #[cfg(feature = "protocol_feature_evm")]
     blake2b_f_10kib_10k,
     #[cfg(feature = "protocol_feature_evm")]
+    ecrecover_10k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_1_1k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -778,7 +779,6 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         blake2b_base: measured_to_gas(metric, &measured, blake2b_base),
         blake2b_byte: measured_to_gas(metric, &measured, blake2b_byte),
         ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
-        ecrecover_byte: measured_to_gas(metric, &measured, ecrecover_byte),
         log_base: measured_to_gas(metric, &measured, log_base),
         log_byte: measured_to_gas(metric, &measured, log_byte),
         storage_write_base: measured_to_gas(metric, &measured, storage_write_base),
