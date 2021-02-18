@@ -49,7 +49,7 @@ extern "C" {
     fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     fn blake2b(value_len: u64, value_ptr: u64, register_id: u64);
-    fn ecrecover(hash_ptr: u64, v: u8, r_ptr: u64, s_ptr: u64, register_id: u64);
+    fn ecrecover(hash_ptr: u64, v: u32, r_ptr: u64, s_ptr: u64, register_id: u64);
     // #####################
     // # Miscellaneous API #
     // #####################

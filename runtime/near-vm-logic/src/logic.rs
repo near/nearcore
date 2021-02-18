@@ -1004,7 +1004,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// TODO
-    pub fn ecrecover(&mut self, hash_ptr: u64, v: u8, r_ptr: u64, s_ptr: u64, register_id: u64) -> Result<()> {
+    pub fn ecrecover(&mut self, hash_ptr: u64, v: u32, r_ptr: u64, s_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(ecrecover_base)?;
 
         Ok(()) // TODO
