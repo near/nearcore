@@ -134,7 +134,7 @@ fn run_vm_impl(
     let (outcome, error) = match vm_kind {
         #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => run_wasmer(
-            code_hash,
+            &code_hash,
             code,
             method_name,
             ext,
@@ -150,7 +150,7 @@ fn run_vm_impl(
         VMKind::Wasmer0 => panic!("Wasmer0 is not supported, compile with '--features wasmer0_vm'"),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => run_wasmtime(
-            code_hash,
+            &code_hash,
             code,
             method_name,
             ext,
@@ -168,7 +168,7 @@ fn run_vm_impl(
         }
         #[cfg(feature = "wasmer1_vm")]
         VMKind::Wasmer1 => run_wasmer1(
-            code_hash,
+            &code_hash,
             code,
             method_name,
             ext,

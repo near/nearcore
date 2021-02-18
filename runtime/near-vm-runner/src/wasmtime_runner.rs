@@ -112,7 +112,7 @@ pub mod wasmtime_runner {
     }
 
     pub fn run_wasmtime<'a>(
-        _code_hash: Vec<u8>,
+        _code_hash: &[u8],
         code: &[u8],
         method_name: &[u8],
         ext: &mut dyn External,

@@ -141,7 +141,7 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
 }
 
 pub fn run_wasmer1<'a>(
-    code_hash: Vec<u8>,
+    code_hash: &[u8],
     code: &[u8],
     method_name: &[u8],
     ext: &mut dyn External,
@@ -175,7 +175,7 @@ pub fn run_wasmer1<'a>(
     let engine = JIT::new(Singlepass::default()).engine();
     let store = Store::new(&engine);
     let module = match cache::wasmer1_cache::compile_module_cached_wasmer1(
-        &code_hash,
+        code_hash,
         &code,
         wasm_config,
         cache,
