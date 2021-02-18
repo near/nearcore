@@ -3510,6 +3510,7 @@ dependencies = [
  "bencher",
  "borsh",
  "cached",
+ "lazy_static",
  "log",
  "near-evm-runner",
  "near-primitives",

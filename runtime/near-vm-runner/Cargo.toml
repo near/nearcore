@@ -26,6 +26,7 @@ near-primitives = { path = "../../core/primitives" }
 log = "0.4"
 near-evm-runner = { path = "../near-evm-runner", optional = true }
 cached = "0.23.0"
+lazy_static = "1.4"
 
 [dev-dependencies]
 assert_matches = "1.3"
