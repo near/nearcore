@@ -20,7 +20,7 @@ pub enum RpcQueryError {
     #[error("There are no fully synchronized blocks on the node yet")]
     NoSyncedBlocks,
     #[error("The node does not track the shard")]
-    DoesNotTrackShard { requested_shard_id: near_primitives::types::ShardId },
+    UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
     #[error("Account ID #{requested_account_id} is invalid")]
     InvalidAccount { requested_account_id: near_primitives::types::AccountId },
     #[error("account #{requested_account_id} does not exist while viewing")]
@@ -32,7 +32,7 @@ pub enum RpcQueryError {
     #[error("Access key for public key #{public_key} has never been observed on the node")]
     UnknownAccessKey { public_key: near_crypto::PublicKey },
     #[error("Function call returned an error: #{vm_error}")]
-    FunctionCall { vm_error: String },
+    ContractExecutionError { vm_error: String },
     #[error("The node reached its limits. Try again later. More details: #{error_message}")]
     InternalError { error_message: String },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
@@ -129,24 +129,24 @@ impl From<near_client_primitives::types::QueryError> for RpcQueryError {
             near_client_primitives::types::QueryError::IOError { error_message } => {
                 Self::InternalError { error_message }
             }
-            near_client_primitives::types::QueryError::NotSyncedYet => Self::NoSyncedBlocks,
+            near_client_primitives::types::QueryError::NoSyncedBlocks => Self::NoSyncedBlocks,
             near_client_primitives::types::QueryError::UnavailableShard { requested_shard_id } => {
-                Self::DoesNotTrackShard { requested_shard_id }
+                Self::UnavailableShard { requested_shard_id }
             }
             near_client_primitives::types::QueryError::InvalidAccount { requested_account_id } => {
                 Self::InvalidAccount { requested_account_id }
             }
-            near_client_primitives::types::QueryError::AccountDoesNotExist {
-                requested_account_id,
-            } => Self::UnknownAccount { requested_account_id },
-            near_client_primitives::types::QueryError::ContractCodeDoesNotExist {
-                contract_account_id,
-            } => Self::NoContractCode { contract_account_id },
-            near_client_primitives::types::QueryError::AccessKeyDoesNotExist { public_key } => {
+            near_client_primitives::types::QueryError::UnknownAccount { requested_account_id } => {
+                Self::UnknownAccount { requested_account_id }
+            }
+            near_client_primitives::types::QueryError::NoContractCode { contract_account_id } => {
+                Self::NoContractCode { contract_account_id }
+            }
+            near_client_primitives::types::QueryError::UnknownAccessKey { public_key } => {
                 Self::UnknownAccessKey { public_key }
             }
-            near_client_primitives::types::QueryError::VMError { error_message } => {
-                Self::FunctionCall { vm_error: error_message }
+            near_client_primitives::types::QueryError::ContractExecutionError { vm_error } => {
+                Self::ContractExecutionError { vm_error }
             }
             near_client_primitives::types::QueryError::Unreachable { error_message } => {
                 error!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);

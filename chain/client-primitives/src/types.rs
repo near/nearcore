@@ -274,22 +274,22 @@ impl Message for Query {
 pub enum QueryError {
     #[error("IO Error: #{error_message}")]
     IOError { error_message: String },
-    #[error("There are no fully synchronized blocks yet")]
-    NotSyncedYet,
-    #[error("The node does not track the shard #{requested_shard_id} where the requested account resides")]
+    #[error("There are no fully synchronized blocks on the node yet")]
+    NoSyncedBlocks,
+    #[error("The node does not track the shard")]
     UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
-    #[error("Invalid account ID #{requested_account_id}")]
+    #[error("Account ID #{requested_account_id} is invalid")]
     InvalidAccount { requested_account_id: near_primitives::types::AccountId },
-    #[error("Account ID #{requested_account_id} has never been observed on the node")]
-    AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
+    #[error("account #{requested_account_id} does not exist while viewing")]
+    UnknownAccount { requested_account_id: near_primitives::types::AccountId },
     #[error(
         "Contract code for contract ID #{contract_account_id} has never been observed on the node"
     )]
-    ContractCodeDoesNotExist { contract_account_id: near_primitives::types::AccountId },
+    NoContractCode { contract_account_id: near_primitives::types::AccountId },
     #[error("Access key for public key #{public_key} has never been observed on the node")]
-    AccessKeyDoesNotExist { public_key: near_crypto::PublicKey },
-    #[error("VM error occurred: #{error_message}")]
-    VMError { error_message: String },
+    UnknownAccessKey { public_key: near_crypto::PublicKey },
+    #[error("Function call returned an error: #{vm_error}")]
+    ContractExecutionError { vm_error: String },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.

@@ -10,7 +10,6 @@ use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_jsonrpc_primitives::rpc::{
     RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
 };
-use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::{

@@ -211,7 +211,7 @@ impl ViewClientActor {
                 {
                     self.chain.get_block_header(&block_hash)
                 } else {
-                    return Err(QueryError::NotSyncedYet);
+                    return Err(QueryError::NoSyncedBlocks);
                 }
             }
         };
@@ -463,18 +463,18 @@ impl From<RuntimeQueryError> for near_client_primitives::types::QueryError {
             } => Self::InvalidAccount { requested_account_id },
             near_chain::near_chain_primitives::error::QueryError::AccountDoesNotExist {
                 requested_account_id,
-            } => Self::AccountDoesNotExist { requested_account_id },
+            } => Self::UnknownAccount { requested_account_id },
             near_chain::near_chain_primitives::error::QueryError::ContractCodeDoesNotExist {
                 contract_account_id,
-            } => Self::ContractCodeDoesNotExist { contract_account_id },
+            } => Self::NoContractCode { contract_account_id },
             near_chain::near_chain_primitives::error::QueryError::AccessKeyDoesNotExist {
                 public_key,
-            } => Self::AccessKeyDoesNotExist { public_key },
+            } => Self::UnknownAccessKey { public_key },
             near_chain::near_chain_primitives::error::QueryError::StorageError {
                 storage_error,
             } => Self::IOError { error_message: storage_error.to_string() },
             near_chain::near_chain_primitives::error::QueryError::VMError { error_message } => {
-                Self::VMError { error_message }
+                Self::ContractExecutionError { vm_error: error_message }
             }
         }
     }

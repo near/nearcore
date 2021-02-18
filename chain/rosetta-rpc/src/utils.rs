@@ -316,7 +316,7 @@ pub(crate) async fn query_account(
     let account_info_response = match view_client_addr.send(query).await? {
         Ok(query_response) => query_response,
         Err(err) => match err {
-            near_client_primitives::types::QueryError::AccountDoesNotExist { .. } => {
+            near_client_primitives::types::QueryError::UnknownAccount { .. } => {
                 return Err(crate::errors::ErrorKind::NotFound(err.to_string()))
             }
             _ => return Err(crate::errors::ErrorKind::InternalError(err.to_string())),
@@ -395,8 +395,8 @@ pub(crate) async fn query_access_key(
         Ok(query_response) => query_response,
         Err(err) => {
             return match err {
-                near_client_primitives::types::QueryError::AccountDoesNotExist { .. }
-                | near_client_primitives::types::QueryError::AccessKeyDoesNotExist { .. } => {
+                near_client_primitives::types::QueryError::UnknownAccount { .. }
+                | near_client_primitives::types::QueryError::UnknownAccessKey { .. } => {
                     Err(crate::errors::ErrorKind::NotFound(err.to_string()))
                 }
                 _ => Err(crate::errors::ErrorKind::InternalError(err.to_string())),
