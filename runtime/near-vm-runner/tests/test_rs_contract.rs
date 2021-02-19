@@ -5,6 +5,7 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{types::ReturnData, VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, with_vm_variants};
 use std::mem::size_of;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 
 pub mod test_utils;
 
@@ -69,6 +70,7 @@ pub fn test_read_write() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
+            InMemoryContracts::new(&vec![]),
         );
         assert_run_result(result, 0);
 
@@ -85,6 +87,7 @@ pub fn test_read_write() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
+            InMemoryContracts::new(&vec![]),
         );
         assert_run_result(result, 20);
     });
@@ -143,6 +146,7 @@ fn run_test_ext(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
+        InMemoryContracts::new(&vec![]),
     );
 
     if let Some(_) = err {
@@ -244,6 +248,7 @@ pub fn test_out_of_memory() {
         VMKind::Wasmer,
         LATEST_PROTOCOL_VERSION,
         None,
+        InMemoryContracts::new(&vec![]),
     );
     assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)));
 }

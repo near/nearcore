@@ -151,6 +151,7 @@ pub fn run_vm_profiled<'a>(
             Some(profile.clone()),
             current_protocol_version,
             cache,
+            in_mem_contract,
         ),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => run_wasmtime(

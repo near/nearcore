@@ -5,7 +5,7 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
 use near_vm_logic::{External, VMConfig, VMContext, VMKind};
 use near_vm_runner::{run_vm, with_vm_variants};
-
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 pub mod test_utils;
 
 fn create_context(input: &[u8]) -> VMContext {
@@ -39,6 +39,7 @@ pub fn test_ts_contract() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
+            InMemoryContracts::new(&vec![]),
         );
         assert_eq!(
             result.1,
@@ -61,6 +62,7 @@ pub fn test_ts_contract() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
+            InMemoryContracts::new(&vec![]),
         )
         .0
         .unwrap();
@@ -87,6 +89,7 @@ pub fn test_ts_contract() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
+            InMemoryContracts::new(&vec![]),
         );
 
         if let ReturnData::Value(value) = result.0.unwrap().return_data {

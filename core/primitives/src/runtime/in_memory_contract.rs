@@ -7,7 +7,14 @@ use crate::{
 };
 use near_vm_errors::VMError;
 
-pub type InMemoryContracts = Arc<RwLock<HashMap<AccountId, Option<(CryptoHash, Result<wasmer_runtime::Module, VMError>)>>>>;
+#[derive(Clone)]
+pub struct InMemoryContracts(pub Arc<RwLock<HashMap<AccountId, Option<(CryptoHash, Result<wasmer_runtime::Module, VMError>)>>>>);
+
+impl std::fmt::Debug for InMemoryContracts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "InMemoryContracts")
+    }
+}
 
 impl InMemoryContracts {
     pub fn new(in_memory_account_ids: &Vec<AccountId>) -> Self {
@@ -15,7 +22,7 @@ impl InMemoryContracts {
         for account_id in in_memory_account_ids {
             map.insert(account_id.clone(), None);
         }
-        Arc::new(RwLock::new(map))
+        Self(Arc::new(RwLock::new(map)))
     }
 
     pub fn get(
@@ -23,7 +30,7 @@ impl InMemoryContracts {
         account_id: &AccountId,
         key: &CryptoHash,
     ) -> Option<Option<Result<wasmer_runtime::Module, VMError>>> {
-        match self.read().unwrap().get(account_id) {
+        match self.0.read().unwrap().get(account_id) {
             Some(Some((k, r))) => {
                 if k == key {
                     Some(Some(r.clone()))
@@ -42,7 +49,7 @@ impl InMemoryContracts {
         key: CryptoHash,
         contract: Result<wasmer_runtime::Module, VMError>,
     ) {
-        let mut in_mem = self.write().unwrap();
+        let mut in_mem = self.0.write().unwrap();
         in_mem.insert(account_id, Some((key, contract)));
     }
 }

@@ -10,6 +10,7 @@ use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VM
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::Module;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
