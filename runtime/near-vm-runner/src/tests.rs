@@ -3,9 +3,8 @@ mod invalid_contracts;
 mod rs_contract;
 mod ts_contract;
 
-use std::collections::hash_map::{DefaultHasher, HashMap};
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
 
 use wabt::Wat2Wasm;
 
@@ -98,24 +97,6 @@ fn make_simple_contract_call_vm(
 
 fn wat2wasm_no_validate(wat: &str) -> Vec<u8> {
     Wat2Wasm::new().validate(false).convert(wat).unwrap().as_ref().to_vec()
-}
-
-struct MockCompiledContractCache {
-    store: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
-}
-
-impl CompiledContractCache for MockCompiledContractCache {
-    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error> {
-        self.store.lock().unwrap().insert(key.to_vec(), value.to_vec());
-        Ok(())
-    }
-
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
-        match self.store.lock().unwrap().get(key) {
-            Some(value) => Ok(Some(value.clone())),
-            None => Ok(None),
-        }
-    }
 }
 
 fn make_cached_contract_call_vm(
