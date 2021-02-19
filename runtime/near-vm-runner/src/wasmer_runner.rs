@@ -259,6 +259,59 @@ pub fn run_wasmer<'a>(
     }
 }
 
+pub(crate) fn run_wasmer_module<'a>(
+    module: Module,
+    method_name: &str,
+    ext: &mut dyn External,
+    context: VMContext,
+    wasm_config: &'a VMConfig,
+    fees_config: &'a RuntimeFeesConfig,
+    promise_results: &'a [PromiseResult],
+    profile: ProfileData,
+    current_protocol_version: ProtocolVersion,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    if method_name.is_empty() {
+        return (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ))),
+        );
+    }
+    let mut memory = WasmerMemory::new(
+        wasm_config.limit_config.initial_memory_pages,
+        wasm_config.limit_config.max_memory_pages,
+    )
+        .expect("Cannot create memory for a contract call");
+    // Note that we don't clone the actual backing memory, just increase the RC.
+    let memory_copy = memory.clone();
+
+    let mut logic = VMLogic::new_with_protocol_version(
+        ext,
+        context,
+        wasm_config,
+        fees_config,
+        promise_results,
+        &mut memory,
+        profile,
+        current_protocol_version,
+    );
+
+    let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
+
+    if let Err(e) = check_method(&module, method_name) {
+        return (None, Some(e));
+    }
+
+    match module.instantiate(&import_object) {
+        Ok(instance) => match instance.call(&method_name, &[]) {
+            Ok(_) => (Some(logic.outcome()), None),
+            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+        },
+        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+    }
+}
+
 pub fn compile_module(code: &[u8]) -> bool {
     wasmer_runtime::compile(code).is_ok()
 }

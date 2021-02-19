@@ -7,6 +7,7 @@ mod imports;
 #[cfg(feature = "wasmer0_vm")]
 mod memory;
 
+mod preload;
 pub mod prepare;
 mod runner;
 
@@ -20,6 +21,7 @@ mod wasmtime_runner;
 mod wasmer1_runner;
 
 pub use near_vm_errors::VMError;
+pub use preload::{ContractCallPrepareRequest, ContractCallPrepareResult, ContractCaller};
 pub use runner::compile_module;
 pub use runner::run;
 pub use runner::run_vm;
