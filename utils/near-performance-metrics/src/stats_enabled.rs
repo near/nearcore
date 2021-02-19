@@ -23,7 +23,7 @@ const MEMORY_LIMIT: usize = 512 * MEBIBYTE;
 const MIN_MEM_USAGE_REPORT_SIZE: usize = 100 * MEBIBYTE;
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
-const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.02;
+const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.002;
 
 pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::new(Stats::new())));
 pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
@@ -168,6 +168,17 @@ pub(crate) fn get_entry() -> Arc<Mutex<ThreadStats>> {
     LOCAL_STATS.with(|x| (*x).clone())
 }
 
+#[cfg(target_os = "linux")]
+fn get_rocksdb_memory_usage() -> usize {
+    // hack to get memory usage stats for rocksdb
+    unsafe { libc::malloc(usize::MAX - 1) as usize }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn get_rocksdb_memory_usage() -> usize {
+    0
+}
+
 impl Stats {
     fn new() -> Self {
         Self { stats: HashMap::new() }
@@ -206,6 +217,10 @@ impl Stats {
             other_memory_size / MEBIBYTE,
             other_memory_count
         );
+        let rocksdb_memory_usage = get_rocksdb_memory_usage();
+        if rocksdb_memory_usage > 0 {
+            info!("    RocksDB memory usage: {}MiB", rocksdb_memory_usage / MEBIBYTE);
+        }
         info!("Total ratio = {:.3}", ratio);
     }
 }
