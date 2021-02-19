@@ -16,11 +16,12 @@ use std::task::Poll;
 use std::time::Duration;
 use std::time::Instant;
 
+use bytesize::ByteSize;
 use strum::AsStaticRef;
 
-const MEBIBYTE: usize = 1024 * 1024;
-const MEMORY_LIMIT: usize = 512 * MEBIBYTE;
-const MIN_MEM_USAGE_REPORT_SIZE: usize = 100 * MEBIBYTE;
+static MEMORY_LIMIT: u64 = 512 * bytesize::MIB;
+static MIN_MEM_USAGE_REPORT_SIZE: u64 = 100 * bytesize::MIB;
+
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
 const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.002;
@@ -48,19 +49,19 @@ pub struct ThreadStats {
     classes: HashSet<&'static str>,
     in_progress_since: Option<Instant>,
     last_check: Instant,
-    rocksdb_mem: Option<usize>,
+    rocksdb_mem: ByteSize,
 }
 
 impl ThreadStats {
     fn new() -> Self {
         Self {
-            stat: HashMap::new(),
-            cnt: 0,
+            stat: Default::default(),
+            cnt: Default::default(),
             time: Duration::default(),
-            classes: HashSet::new(),
-            in_progress_since: None,
+            classes: Default::default(),
+            in_progress_since: Default::default(),
             last_check: Instant::now(),
-            rocksdb_mem: None,
+            rocksdb_mem: Default::default(),
         }
     }
 
@@ -78,7 +79,7 @@ impl ThreadStats {
         msg_text: &'static str,
     ) {
         self.in_progress_since = None;
-        self.rocksdb_mem = Some(get_rocksdb_memory_usage_cur_thread());
+        self.rocksdb_mem = get_rocksdb_memory_usage_cur_thread();
 
         let took_since_last_check = min(took, max(self.last_check, now) - self.last_check);
 
@@ -109,20 +110,21 @@ impl ThreadStats {
         }
         ratio /= sleep_time.as_nanos() as f64;
 
-        let tmu = thread_memory_usage(tid);
-        let show_stats = ratio >= MIN_OCCUPANCY_RATIO_THRESHOLD || tmu >= MIN_MEM_USAGE_REPORT_SIZE;
+        let tmu = ByteSize::b(thread_memory_usage(tid) as u64);
+        let show_stats =
+            ratio >= MIN_OCCUPANCY_RATIO_THRESHOLD || tmu >= ByteSize::b(MIN_MEM_USAGE_REPORT_SIZE);
 
         if show_stats {
             let class_name = format!("{:?}", self.classes);
             warn!(
-                "    Thread:{} ratio: {:.3} {}:{} memory: {}MiB({}) RockDB: {}MiB",
+                "    Thread:{} ratio: {:.3} {}:{} memory: {}({}) RockDB: {}",
                 tid,
                 ratio,
                 class_name,
                 get_tid(),
-                tmu / MEBIBYTE,
+                tmu,
                 thread_memory_count(tid),
-                self.rocksdb_mem.map(|x| x / MEBIBYTE).unwrap_or(0),
+                self.rocksdb_mem,
             );
             let mut stat: Vec<_> = self.stat.iter().collect();
             stat.sort_by(|x, y| (*x).0.cmp(&(*y).0));
@@ -141,7 +143,7 @@ impl ThreadStats {
             }
         }
         self.last_check = now;
-        self.rocksdb_mem = None;
+        self.rocksdb_mem = ByteSize::b(0);
         self.clear();
 
         if show_stats {
@@ -174,31 +176,31 @@ pub(crate) fn get_entry() -> Arc<Mutex<ThreadStats>> {
 }
 
 #[cfg(target_os = "linux")]
-fn get_rocksdb_memory_usage_cur_thread() -> usize {
+fn get_rocksdb_memory_usage_cur_thread() -> ByteSize {
     // hack to get memory usage stats for rocksdb
     // This feature will only work if near is started with environment
     // LD_PRELOAD=${PWD}/bins/near-c-allocator-proxy.so nearup ...
     // from https://github.com/near/near-memory-tracker/blob/master/near-dump-analyzer
-    unsafe { libc::malloc(usize::MAX - 1) as usize }
+    unsafe { ByteSize::b(libc::malloc(usize::MAX - 1) as u64) }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn get_rocksdb_memory_usage_cur_thread() -> usize {
-    0
+fn get_rocksdb_memory_usage_cur_thread() -> BytesSize {
+    Default::default()
 }
 
 #[cfg(target_os = "linux")]
-fn get_rocksdb_memory_usage() -> usize {
+fn get_rocksdb_memory_usage() -> ByteSize {
     // hack to get memory usage stats for rocksdb
     // This feature will only work if near is started with environment
     // LD_PRELOAD=${PWD}/bins/near-c-allocator-proxy.so nearup ...
     // from https://github.com/near/near-memory-tracker/blob/master/near-dump-analyzer
-    unsafe { libc::malloc(usize::MAX) as usize }
+    unsafe { ByteSize::b(libc::malloc(usize::MAX) as u64) }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn get_rocksdb_memory_usage() -> usize {
-    0
+fn get_rocksdb_memory_usage() -> ByteSize {
+    Default::default()
 }
 
 impl Stats {
@@ -234,14 +236,12 @@ impl Stats {
             other_memory_count += tmp_other_memory_count;
         }
         info!(
-            "    Other threads ratio {:.3} memory: {}MiB({})",
-            other_ratio,
-            other_memory_size / MEBIBYTE,
-            other_memory_count
+            "    Other threads ratio {:.3} memory: {}({})",
+            other_ratio, other_memory_size, other_memory_count
         );
         let rocksdb_memory_usage = get_rocksdb_memory_usage();
-        if rocksdb_memory_usage > 0 {
-            info!("    RocksDB memory usage: {}MiB", rocksdb_memory_usage / MEBIBYTE);
+        if rocksdb_memory_usage > ByteSize::default() {
+            info!("    RocksDB memory usage: {}", rocksdb_memory_usage);
         }
         info!("Total ratio = {:.3}", ratio);
     }
@@ -290,30 +290,31 @@ where
 
     let took = now.elapsed();
 
-    let peak_memory = current_thread_peak_memory_usage() - initial_memory_usage;
+    let peak_memory =
+        ByteSize::b((current_thread_peak_memory_usage() - initial_memory_usage) as u64);
 
-    if peak_memory >= MEMORY_LIMIT {
+    if peak_memory >= ByteSize::b(MEMORY_LIMIT) {
         warn!(
-            "Function exceeded memory limit {}:{} {:?} took: {}ms peak_memory: {}MiB",
+            "Function exceeded memory limit {}:{} {:?} took: {}ms peak_memory: {}",
             class_name,
             get_tid(),
             std::any::type_name::<Message>(),
             took.as_millis(),
-            peak_memory / MEBIBYTE,
+            peak_memory,
         );
     }
 
     if took >= SLOW_CALL_THRESHOLD {
         let text_field = msg_text.map(|x| format!(" msg: {}", x)).unwrap_or(format!(""));
-        if peak_memory > 0 {
+        if peak_memory > ByteSize::default() {
             warn!(
-                "Function exceeded time limit {}:{} {:?} took: {}ms {} peak_memory: {}MiB",
+                "Function exceeded time limit {}:{} {:?} took: {}ms {} peak_memory: {}",
                 class_name,
                 get_tid(),
                 std::any::type_name::<Message>(),
                 took.as_millis(),
                 text_field,
-                peak_memory / MEBIBYTE,
+                peak_memory,
             );
         } else {
             warn!(

@@ -16,6 +16,7 @@ strum = "0.20"
 near-rust-allocator-proxy = "0.2.7"
 nix = "0.15.0"
 libc = "0.2"
+bytesize = "1.0.1"
 
 [features]
 performance_stats = []
