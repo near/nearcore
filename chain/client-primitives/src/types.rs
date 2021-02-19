@@ -280,7 +280,7 @@ pub enum QueryError {
     UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
     #[error("Account ID #{requested_account_id} is invalid")]
     InvalidAccount { requested_account_id: near_primitives::types::AccountId },
-    #[error("account #{requested_account_id} does not exist while viewing")]
+    #[error("Account #{requested_account_id} does not exist while viewing")]
     UnknownAccount { requested_account_id: near_primitives::types::AccountId },
     #[error(
         "Contract code for contract ID #{contract_account_id} has never been observed on the node"

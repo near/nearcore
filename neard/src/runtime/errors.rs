@@ -20,10 +20,10 @@ impl From<node_runtime::state_viewer::errors::ViewAccountError> for WrappedQuery
             } => Self(QueryError::InvalidAccount { requested_account_id }),
             node_runtime::state_viewer::errors::ViewAccountError::AccountDoesNotExist {
                 requested_account_id,
-            } => Self(QueryError::AccountDoesNotExist { requested_account_id }),
-            node_runtime::state_viewer::errors::ViewAccountError::StorageError {
-                storage_error,
-            } => Self(QueryError::StorageError { storage_error }),
+            } => Self(QueryError::UnknownAccount { requested_account_id }),
+            node_runtime::state_viewer::errors::ViewAccountError::InternalError {
+                error_message,
+            } => Self(QueryError::InternalError { error_message }),
         }
     }
 }
@@ -36,13 +36,13 @@ impl From<node_runtime::state_viewer::errors::ViewContractCodeError> for Wrapped
             } => Self(QueryError::InvalidAccount { requested_account_id }),
             node_runtime::state_viewer::errors::ViewContractCodeError::AccountDoesNotExist {
                 requested_account_id,
-            } => Self(QueryError::AccountDoesNotExist { requested_account_id }),
-            node_runtime::state_viewer::errors::ViewContractCodeError::StorageError {
-                storage_error,
-            } => Self(QueryError::StorageError { storage_error }),
+            } => Self(QueryError::UnknownAccount { requested_account_id }),
+            node_runtime::state_viewer::errors::ViewContractCodeError::InternalError {
+                error_message,
+            } => Self(QueryError::InternalError { error_message }),
             node_runtime::state_viewer::errors::ViewContractCodeError::NoContractCode {
                 contract_account_id,
-            } => Self(QueryError::ContractCodeDoesNotExist { contract_account_id }),
+            } => Self(QueryError::NoContractCode { contract_account_id }),
         }
     }
 }
@@ -55,12 +55,12 @@ impl From<node_runtime::state_viewer::errors::CallFunctionError> for WrappedQuer
             } => Self(QueryError::InvalidAccount { requested_account_id }),
             node_runtime::state_viewer::errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id,
-            } => Self(QueryError::AccountDoesNotExist { requested_account_id }),
-            node_runtime::state_viewer::errors::CallFunctionError::StorageError(storage_error) => {
-                Self(QueryError::StorageError { storage_error })
-            }
+            } => Self(QueryError::UnknownAccount { requested_account_id }),
+            node_runtime::state_viewer::errors::CallFunctionError::InternalError {
+                error_message,
+            } => Self(QueryError::InternalError { error_message }),
             node_runtime::state_viewer::errors::CallFunctionError::VMError { error_message } => {
-                Self(QueryError::VMError { error_message })
+                Self(QueryError::ContractExecutionError { error_message })
             }
         }
     }
@@ -72,8 +72,8 @@ impl From<node_runtime::state_viewer::errors::ViewStateError> for WrappedQueryEr
             node_runtime::state_viewer::errors::ViewStateError::InvalidAccountId {
                 requested_account_id,
             } => Self(QueryError::InvalidAccount { requested_account_id }),
-            node_runtime::state_viewer::errors::ViewStateError::StorageError { storage_error } => {
-                Self(QueryError::StorageError { storage_error })
+            node_runtime::state_viewer::errors::ViewStateError::InternalError { error_message } => {
+                Self(QueryError::InternalError { error_message })
             }
         }
     }
@@ -85,12 +85,9 @@ impl From<node_runtime::state_viewer::errors::ViewAccessKeyError> for WrappedQue
             node_runtime::state_viewer::errors::ViewAccessKeyError::InvalidAccountId {
                 requested_account_id,
             } => Self(QueryError::InvalidAccount { requested_account_id }),
-            node_runtime::state_viewer::errors::ViewAccessKeyError::StorageError {
-                storage_error,
-            } => Self(QueryError::StorageError { storage_error }),
             node_runtime::state_viewer::errors::ViewAccessKeyError::AccessKeyDoesNotExist {
                 public_key,
-            } => Self(QueryError::AccessKeyDoesNotExist { public_key }),
+            } => Self(QueryError::UnknownAccessKey { public_key }),
             node_runtime::state_viewer::errors::ViewAccessKeyError::InternalError {
                 error_message,
             } => Self(QueryError::InternalError { error_message }),

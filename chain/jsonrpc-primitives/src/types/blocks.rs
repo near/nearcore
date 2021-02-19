@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -66,7 +65,7 @@ impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
             near_client_primitives::types::GetBlockError::NotSyncedYet => Self::NotSyncedYet,
             near_client_primitives::types::GetBlockError::IOError(s) => Self::InternalError(s),
             near_client_primitives::types::GetBlockError::Unreachable(error_message) => {
-                error!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
+                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcBlockError", &error_message],

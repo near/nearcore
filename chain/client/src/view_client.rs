@@ -236,7 +236,7 @@ impl ViewClientActor {
         ) {
             let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id)?;
             let state_root = chunk_extra.state_root;
-            Ok(self
+            match self
                 .runtime_adapter
                 .query(
                     shard_id,
@@ -247,8 +247,29 @@ impl ViewClientActor {
                     header.hash(),
                     header.epoch_id(),
                     &msg.request,
-                )
-                .map_err(RuntimeQueryError::from)?)
+                ) {
+                Ok(query_response) => Ok(query_response),
+                Err(query_error) => Err(match query_error {
+                    near_chain::near_chain_primitives::error::QueryError::InternalError {
+                        error_message,
+                    } => QueryError::Unreachable { error_message },
+                    near_chain::near_chain_primitives::error::QueryError::InvalidAccount {
+                        requested_account_id,
+                    } => QueryError::InvalidAccount { requested_account_id },
+                    near_chain::near_chain_primitives::error::QueryError::UnknownAccount {
+                        requested_account_id,
+                    } => QueryError::UnknownAccount { requested_account_id },
+                    near_chain::near_chain_primitives::error::QueryError::NoContractCode {
+                        contract_account_id,
+                    } => QueryError::NoContractCode { contract_account_id },
+                    near_chain::near_chain_primitives::error::QueryError::UnknownAccessKey {
+                        public_key,
+                    } => QueryError::UnknownAccessKey { public_key },
+                    near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
+                        error_message,
+                    } => QueryError::ContractExecutionError { vm_error: error_message },
+                })
+            }
         } else {
             Err(QueryError::UnavailableShard { requested_shard_id: shard_id })
         }
@@ -445,38 +466,6 @@ impl Handler<Query> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: Query, _: &mut Self::Context) -> Self::Result {
         self.handle_query(msg)
-    }
-}
-
-#[derive(thiserror::Error, Debug)]
-#[error(transparent)]
-struct RuntimeQueryError(#[from] pub near_chain::near_chain_primitives::error::QueryError);
-
-impl From<RuntimeQueryError> for near_client_primitives::types::QueryError {
-    fn from(error: RuntimeQueryError) -> Self {
-        match error.0 {
-            near_chain::near_chain_primitives::error::QueryError::InternalError {
-                error_message,
-            } => Self::Unreachable { error_message },
-            near_chain::near_chain_primitives::error::QueryError::InvalidAccount {
-                requested_account_id,
-            } => Self::InvalidAccount { requested_account_id },
-            near_chain::near_chain_primitives::error::QueryError::AccountDoesNotExist {
-                requested_account_id,
-            } => Self::UnknownAccount { requested_account_id },
-            near_chain::near_chain_primitives::error::QueryError::ContractCodeDoesNotExist {
-                contract_account_id,
-            } => Self::NoContractCode { contract_account_id },
-            near_chain::near_chain_primitives::error::QueryError::AccessKeyDoesNotExist {
-                public_key,
-            } => Self::UnknownAccessKey { public_key },
-            near_chain::near_chain_primitives::error::QueryError::StorageError {
-                storage_error,
-            } => Self::IOError { error_message: storage_error.to_string() },
-            near_chain::near_chain_primitives::error::QueryError::VMError { error_message } => {
-                Self::ContractExecutionError { vm_error: error_message }
-            }
-        }
     }
 }
 

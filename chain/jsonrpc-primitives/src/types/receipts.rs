@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReceiptReference {
@@ -54,7 +53,7 @@ impl From<near_client_primitives::types::GetReceiptError> for RpcReceiptError {
                 Self::UnknownReceipt(hash)
             }
             near_client_primitives::types::GetReceiptError::Unreachable(error_message) => {
-                error!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
+                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcReceiptError", &error_message],

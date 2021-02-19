@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::error;
 
 /// Max size of the query path (soft-deprecated)
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
@@ -149,7 +148,7 @@ impl From<near_client_primitives::types::QueryError> for RpcQueryError {
                 Self::ContractExecutionError { vm_error }
             }
             near_client_primitives::types::QueryError::Unreachable { error_message } => {
-                error!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
+                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcQueryError", &error_message],
