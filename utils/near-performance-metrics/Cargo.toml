@@ -21,3 +21,4 @@ bytesize = "1.0.1"
 [features]
 performance_stats = []
 memory_stats = []
+c_memory_stats = []

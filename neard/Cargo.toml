@@ -56,6 +56,7 @@ primitive-types = "0.9"
 [features]
 performance_stats = ["near-performance-metrics/performance_stats"]
 memory_stats = ["near-performance-metrics/memory_stats"]
+c_memory_stats = ["near-performance-metrics/c_memory_stats"]
 adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-store/adversarial"]
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]

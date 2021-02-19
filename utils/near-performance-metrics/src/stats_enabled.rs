@@ -181,7 +181,7 @@ pub(crate) fn get_entry() -> Arc<Mutex<ThreadStats>> {
     LOCAL_STATS.with(|x| (*x).clone())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "c_memory_stats"))]
 fn get_c_memory_usage_cur_thread() -> ByteSize {
     // hack to get memory usage stats for c memory usage per thread
     // This feature will only work if near is started with environment
@@ -190,12 +190,12 @@ fn get_c_memory_usage_cur_thread() -> ByteSize {
     unsafe { ByteSize::b(libc::malloc(usize::MAX - 1) as u64) }
 }
 
-#[cfg(not(target_os = "linux"))]
-fn get_c_memory_usage_cur_thread() -> BytesSize {
+#[cfg(any(not(target_os = "linux"), not(feature = "c_memory_stats")))]
+fn get_c_memory_usage_cur_thread() -> ByteSize {
     Default::default()
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "c_memory_stats"))]
 fn get_c_memory_usage() -> ByteSize {
     // hack to get memory usage stats for c memory usage
     // This feature will only work if near is started with environment
@@ -204,7 +204,7 @@ fn get_c_memory_usage() -> ByteSize {
     unsafe { ByteSize::b(libc::malloc(usize::MAX) as u64) }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(not(target_os = "linux"), not(feature = "c_memory_stats")))]
 fn get_c_memory_usage() -> ByteSize {
     Default::default()
 }
