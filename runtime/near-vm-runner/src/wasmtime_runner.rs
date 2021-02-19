@@ -120,7 +120,7 @@ pub mod wasmtime_runner {
         wasm_config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
-        profile: Option<ProfileData>,
+        profile: ProfileData,
         current_protocol_version: ProtocolVersion,
         _cache: Option<&'a dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
