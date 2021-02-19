@@ -629,7 +629,7 @@ impl JsonRpcHandler {
             // Use Finality::None here to make backward compatibility tests work
             RpcQueryRequest { request, block_reference: BlockReference::latest() }
         } else {
-            parse_params::<RpcQueryRequest>(params)?
+            parse_params::<RpcQueryRequest>(params.clone())?
         };
         let query = Query::new(query_request.block_reference, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
@@ -649,6 +649,10 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: query method. params {:?}",
+                params,
+            );
             RpcError::server_error(Some("query has timed out".to_string()))
         })?
     }
