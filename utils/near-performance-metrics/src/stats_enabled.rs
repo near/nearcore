@@ -111,8 +111,8 @@ impl ThreadStats {
         ratio /= sleep_time.as_nanos() as f64;
 
         let tmu = ByteSize::b(thread_memory_usage(tid) as u64);
-        let show_stats =
-            ratio >= MIN_OCCUPANCY_RATIO_THRESHOLD || tmu >= ByteSize::b(MIN_MEM_USAGE_REPORT_SIZE);
+        let show_stats = ratio >= MIN_OCCUPANCY_RATIO_THRESHOLD
+            || tmu + self.c_mem >= ByteSize::b(MIN_MEM_USAGE_REPORT_SIZE);
 
         if show_stats {
             let class_name = format!("{:?}", self.classes);
