@@ -3,7 +3,6 @@ use crate::prepare;
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(not(feature = "no_cache"))]
 use cached::{cached_key, SizedCache};
-use lazy_static::lazy_static;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
 use near_primitives::types::CompiledContractCache;
@@ -16,41 +15,6 @@ use std::sync::RwLock;
 use wasmer_runtime::{compiler_for_backend, Backend};
 use wasmer_runtime_core::cache::Artifact;
 use wasmer_runtime_core::load_cache_with;
-
-lazy_static! {
-    static ref ALWAYS_IN_MEM_CONTRACT: RwLock<HashMap<AccountId, Option<(CryptoHash, Result<wasmer_runtime::Module, VMError>)>>> = {
-        let mut m = HashMap::new();
-        m.insert("evm".to_string(), None);
-        // Add more always in memory contract account ids
-        RwLock::new(m)
-    };
-}
-
-fn is_mem_contract(
-    account_id: &AccountId,
-    key: &CryptoHash,
-) -> Option<Option<Result<wasmer_runtime::Module, VMError>>> {
-    match ALWAYS_IN_MEM_CONTRACT.read().unwrap().get(account_id) {
-        Some(Some((k, r))) => {
-            if k == key {
-                Some(Some(r.clone()))
-            } else {
-                None
-            }
-        }
-        Some(None) => Some(None),
-        None => None,
-    }
-}
-
-fn set_mem_contract(
-    account_id: AccountId,
-    key: CryptoHash,
-    contract: Result<wasmer_runtime::Module, VMError>,
-) {
-    let mut in_mem = ALWAYS_IN_MEM_CONTRACT.write().unwrap();
-    in_mem.insert(account_id, Some((key, contract)));
-}
 
 pub(crate) fn compile_module(
     code: &[u8],
@@ -180,9 +144,10 @@ pub(crate) fn compile_module_cached_wasmer(
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
     account_id: &AccountId,
+    in_mem_contract: InMemoryContracts,
 ) -> Result<wasmer_runtime::Module, VMError> {
     let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer, config);
-    match is_mem_contract(account_id, &key) {
+    match in_mem_contract.get(account_id, &key) {
         Some(Some(r)) => r,
         Some(None) => {
             #[cfg(not(feature = "no_cache"))]
@@ -190,7 +155,7 @@ pub(crate) fn compile_module_cached_wasmer(
 
             #[cfg(feature = "no_cache")]
             let r = compile_module_cached_wasmer_impl(key.clone(), wasm_code, config, cache);
-            set_mem_contract(account_id.into(), key, r.clone());
+            in_mem_contract.set(account_id.into(), key, r.clone());
             r
         }
         None => {

@@ -30,6 +30,7 @@ jemallocator = { version = "0.3", optional = true }
 hex = "0.4"
 num-rational = { version = "0.3", features = ["serde"]}
 primitive-types = "0.9"
+wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near" }
 
 borsh = "0.8.1"
 

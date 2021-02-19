@@ -57,6 +57,7 @@ use node_runtime::{
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use near_epoch_manager::NUM_SECONDS_IN_A_YEAR;
@@ -128,6 +129,7 @@ pub struct NightshadeRuntime {
     genesis_runtime_config: Arc<RuntimeConfig>,
 
     store: Arc<Store>,
+    in_memory_contracts: InMemoryContracts,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
@@ -143,6 +145,7 @@ impl NightshadeRuntime {
         genesis: &Genesis,
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
+        always_in_mem_contracts: &Vec<AccountId>,
     ) -> Self {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new();
@@ -220,6 +223,7 @@ impl NightshadeRuntime {
             genesis_config,
             genesis_runtime_config,
             store,
+            in_memory_contracts: InMemoryContracts::new(always_in_mem_contracts),
             tries,
             runtime,
             trie_viewer,
@@ -458,6 +462,7 @@ impl NightshadeRuntime {
                 &self.genesis_runtime_config,
                 current_protocol_version,
             ),
+            always_in_mem_contracts: self.in_memory_contracts.clone(),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),

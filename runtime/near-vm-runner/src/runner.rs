@@ -6,6 +6,7 @@ use near_primitives::{
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
@@ -30,6 +31,7 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
+    in_mem_contract: InMemoryContracts,
     #[cfg(feature = "costs_counting")] profile: Option<&ProfileData>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     #[cfg(feature = "costs_counting")]
@@ -47,6 +49,7 @@ pub fn run<'a>(
             profile.clone(),
             current_protocol_version,
             cache,
+            in_mem_contract,
         );
     }
     run_vm(
@@ -61,6 +64,7 @@ pub fn run<'a>(
         VMKind::default(),
         current_protocol_version,
         cache,
+        in_mem_contract
     )
 }
 pub fn run_vm<'a>(
@@ -75,6 +79,7 @@ pub fn run_vm<'a>(
     vm_kind: VMKind,
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
+    in_mem_contract: InMemoryContracts,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     use crate::wasmer_runner::run_wasmer;
     #[cfg(feature = "wasmtime_vm")]
@@ -92,6 +97,7 @@ pub fn run_vm<'a>(
             None,
             current_protocol_version,
             cache,
+            in_mem_contract,
         ),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => run_wasmtime(
@@ -127,6 +133,7 @@ pub fn run_vm_profiled<'a>(
     profile: ProfileData,
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
+    in_mem_contract: InMemoryContracts,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     use crate::wasmer_runner::run_wasmer;
     #[cfg(feature = "wasmtime_vm")]

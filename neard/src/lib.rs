@@ -221,6 +221,7 @@ pub fn start_with_config(
         &config.genesis,
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),
+        &config.cache_config.always_in_mem_contract_accounts,
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();

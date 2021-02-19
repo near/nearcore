@@ -23,7 +23,7 @@ use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::config::{RuntimeConfig, CacheConfig};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
@@ -419,6 +419,7 @@ pub struct Config {
     pub gc_blocks_limit: NumBlocks,
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
+    pub always_in_mem_contract_accounts: Vec<AccountId>,
 }
 
 impl Default for Config {
@@ -440,6 +441,7 @@ impl Default for Config {
             log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
             view_client_threads: 4,
+            always_in_mem_contract_accounts: vec!["evm".to_string()],
         }
     }
 }
@@ -550,6 +552,7 @@ pub struct NearConfig {
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
+    pub cache_config: CacheConfig,
     #[cfg(feature = "rosetta_rpc")]
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
@@ -653,6 +656,7 @@ impl NearConfig {
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
+            cache_config: CacheConfig { always_in_mem_contract_accounts: config.always_in_mem_contract_accounts },
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,

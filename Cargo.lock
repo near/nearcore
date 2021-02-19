@@ -3347,6 +3347,7 @@ dependencies = [
  "sha2 0.9.3",
  "smart-default",
  "validator",
+ "wasmer-runtime-near",
 ]
 
 [[package]]

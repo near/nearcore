@@ -3,6 +3,7 @@ use crate::{
     runtime::config::RuntimeConfig,
     types::{Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId, Gas},
     version::ProtocolVersion,
+    runtime::in_memory_contract::InMemoryContracts,
 };
 use std::sync::Arc;
 
@@ -32,6 +33,8 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
+    /// Always in memory contracts
+    pub always_in_mem_contracts: InMemoryContracts,
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
     /// Ethereum chain id.

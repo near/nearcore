@@ -27,6 +27,12 @@ pub struct RuntimeConfig {
     pub account_creation_config: AccountCreationConfig,
 }
 
+/// Information about cache, does not change protocol behavior but affect performance
+#[derive(Debug, Clone)]
+pub struct CacheConfig {
+    pub always_in_mem_contract_accounts: Vec<AccountId>,
+}
+
 impl Default for RuntimeConfig {
     fn default() -> Self {
         RuntimeConfig {
