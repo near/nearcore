@@ -171,7 +171,7 @@ pub(crate) fn get_entry() -> Arc<Mutex<ThreadStats>> {
 #[cfg(target_os = "linux")]
 fn get_rocksdb_memory_usage() -> usize {
     // hack to get memory usage stats for rocksdb
-    unsafe { libc::malloc(usize::MAX - 1) as usize }
+    unsafe { libc::malloc(usize::MAX) as usize }
 }
 
 #[cfg(not(target_os = "linux"))]
