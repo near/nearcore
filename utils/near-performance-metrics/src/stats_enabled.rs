@@ -170,8 +170,13 @@ pub(crate) fn get_entry() -> Arc<Mutex<ThreadStats>> {
 
 #[cfg(target_os = "linux")]
 fn get_rocksdb_memory_usage() -> usize {
-    // hack to get memory usage stats for rocksdb
-    unsafe { libc::malloc(usize::MAX) as usize }
+    /// hack to get memory usage stats for rocksdb
+    /// This feature will only work if near is started with environment
+    /// LD_PRELOAD=${PWD}/bins/near-c-allocator-proxy.so nearup ...
+    /// from https://github.com/near/near-memory-tracker/blob/master/near-dump-analyzer
+    unsafe {
+        libc::malloc(usize::MAX) as usize
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
