@@ -252,7 +252,7 @@ impl Stats {
             "    Other threads ratio {:.3} memory: {}({})",
             other_ratio, other_memory_size, other_memory_count
         );
-        info!("    Rust total memory usage: {}", rust_memory_size);
+        info!("    Rust total memory usage: {}", ByteSize::b(rust_memory_size as u64));
         let c_memory_usage = get_c_memory_usage();
         if c_memory_usage > ByteSize::default() {
             info!("    C total memory usage: {}", c_memory_usage);
