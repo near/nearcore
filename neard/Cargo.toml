@@ -26,7 +26,7 @@ tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
 num-rational = { version = "0.3", features = ["serde"] }
 openssl-probe = { version = "0.1.2" }
-near-rust-allocator-proxy = "0.2.7"
+near-rust-allocator-proxy = "0.2.8"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
@@ -56,6 +56,7 @@ primitive-types = "0.9"
 [features]
 performance_stats = ["near-performance-metrics/performance_stats"]
 memory_stats = ["near-performance-metrics/memory_stats"]
+c_memory_stats = ["near-performance-metrics/c_memory_stats"]
 adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-store/adversarial"]
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
