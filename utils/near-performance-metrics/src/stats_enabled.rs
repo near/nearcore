@@ -102,7 +102,7 @@ impl ThreadStats {
         tid: usize,
         sleep_time: Duration,
         now: Instant,
-    ) -> (f64, f64, usize, usize) {
+    ) -> (f64, f64, ByteSize, usize) {
         let mut ratio = self.time.as_nanos() as f64;
         if let Some(in_progress_since) = self.in_progress_since {
             let from = max(in_progress_since, self.last_check);
@@ -147,9 +147,9 @@ impl ThreadStats {
         self.clear();
 
         if show_stats {
-            (ratio, 0.0, 0, 0)
+            (ratio, 0.0, ByteSize::default(), 0)
         } else {
-            (ratio, ratio, thread_memory_usage(tid), thread_memory_count(tid))
+            (ratio, ratio, ByteSize::b(thread_memory_usage(tid) as u64), thread_memory_count(tid))
         }
     }
 
@@ -224,7 +224,7 @@ impl Stats {
 
         let mut ratio = 0.0;
         let mut other_ratio = 0.0;
-        let mut other_memory_size = 0;
+        let mut other_memory_size = ByteSize::default();
         let mut other_memory_count = 0;
         let now = Instant::now();
         for entry in s {
@@ -232,7 +232,7 @@ impl Stats {
                 entry.1.lock().unwrap().print_stats_and_clear(*entry.0, sleep_time, now);
             ratio += tmp_ratio;
             other_ratio += tmp_other_ratio;
-            other_memory_size += tmp_other_memory_size;
+            other_memory_size = other_memory_size + tmp_other_memory_size;
             other_memory_count += tmp_other_memory_count;
         }
         info!(
