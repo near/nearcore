@@ -48,6 +48,7 @@ pub struct ThreadStats {
     classes: HashSet<&'static str>,
     in_progress_since: Option<Instant>,
     last_check: Instant,
+    rocksdb_mem: Option<usize>,
 }
 
 impl ThreadStats {
@@ -59,6 +60,7 @@ impl ThreadStats {
             classes: HashSet::new(),
             in_progress_since: None,
             last_check: Instant::now(),
+            rocksdb_mem: None,
         }
     }
 
@@ -76,6 +78,9 @@ impl ThreadStats {
         msg_text: &'static str,
     ) {
         self.in_progress_since = None;
+        if self.rocksdb_mem == None {
+            self.rocksdb_mem = Some(get_rocksdb_memory_usage_cur_thread());
+        }
 
         let took_since_last_check = min(took, max(self.last_check, now) - self.last_check);
 
@@ -112,13 +117,14 @@ impl ThreadStats {
         if show_stats {
             let class_name = format!("{:?}", self.classes);
             warn!(
-                "    Thread:{} ratio: {:.3} {}:{} memory: {}MiB({})",
+                "    Thread:{} ratio: {:.3} {}:{} memory: {}MiB({}) RockDB: {}MiB",
                 tid,
                 ratio,
                 class_name,
                 get_tid(),
                 tmu / MEBIBYTE,
                 thread_memory_count(tid),
+                self.rocksdb_mem.map(|x| x / MEBIBYTE).unwrap_or(0),
             );
             let mut stat: Vec<_> = self.stat.iter().collect();
             stat.sort_by(|x, y| (*x).0.cmp(&(*y).0));
@@ -137,6 +143,7 @@ impl ThreadStats {
             }
         }
         self.last_check = now;
+        self.rocksdb_mem = None;
         self.clear();
 
         if show_stats {
@@ -169,14 +176,26 @@ pub(crate) fn get_entry() -> Arc<Mutex<ThreadStats>> {
 }
 
 #[cfg(target_os = "linux")]
+fn get_rocksdb_memory_usage_cur_thread() -> usize {
+    // hack to get memory usage stats for rocksdb
+    // This feature will only work if near is started with environment
+    // LD_PRELOAD=${PWD}/bins/near-c-allocator-proxy.so nearup ...
+    // from https://github.com/near/near-memory-tracker/blob/master/near-dump-analyzer
+    unsafe { libc::malloc(usize::MAX - 1) as usize }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn get_rocksdb_memory_usage_cur_thread() -> usize {
+    0
+}
+
+#[cfg(target_os = "linux")]
 fn get_rocksdb_memory_usage() -> usize {
-    /// hack to get memory usage stats for rocksdb
-    /// This feature will only work if near is started with environment
-    /// LD_PRELOAD=${PWD}/bins/near-c-allocator-proxy.so nearup ...
-    /// from https://github.com/near/near-memory-tracker/blob/master/near-dump-analyzer
-    unsafe {
-        libc::malloc(usize::MAX) as usize
-    }
+    // hack to get memory usage stats for rocksdb
+    // This feature will only work if near is started with environment
+    // LD_PRELOAD=${PWD}/bins/near-c-allocator-proxy.so nearup ...
+    // from https://github.com/near/near-memory-tracker/blob/master/near-dump-analyzer
+    unsafe { libc::malloc(usize::MAX) as usize }
 }
 
 #[cfg(not(target_os = "linux"))]
