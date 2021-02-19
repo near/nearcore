@@ -479,8 +479,11 @@ pub unsafe fn blake2b_10kib_10k() {
 // Compute ecrecover 10k times.
 #[no_mangle]
 pub unsafe fn ecrecover_10k() {
+    let hash = [0u8; 32];
+    let signature = [0u8; 65];
+    let (r, s, v) = (&signature[0..32], &signature[32..64], 27);
     for _ in 0..10_000 {
-        // TODO
+        ecrecover(hash.as_ptr() as _, v, r.as_ptr() as _, s.as_ptr() as _, 0);
     }
 }
 

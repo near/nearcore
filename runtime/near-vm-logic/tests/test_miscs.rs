@@ -1,5 +1,6 @@
 use fixtures::get_context;
 use helpers::*;
+use hex_literal::hex;
 use near_vm_errors::HostError;
 use near_vm_logic::ExtCosts;
 use vm_logic_builder::VMLogicBuilder;
@@ -534,8 +535,8 @@ fn test_keccak512() {
 fn test_ripemd160() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    let data = b"tesdsst";
 
+    let data = b"tesdsst";
     logic.ripemd160(data.len() as _, data.as_ptr() as _, 0).unwrap();
     let res = &vec![0u8; 20];
     logic.read_register(0, res.as_ptr() as _).expect("OK");
@@ -563,8 +564,8 @@ fn test_ripemd160() {
 fn test_blake2b() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    let data = b"tesdsst";
 
+    let data = b"tesdsst";
     logic.blake2b(data.len() as _, data.as_ptr() as _, 0).unwrap();
     let res = &vec![0u8; 64];
     logic.read_register(0, res.as_ptr() as _).expect("OK");
@@ -595,7 +596,34 @@ fn test_blake2b() {
 
 #[test]
 fn test_ecrecover() {
-    // TODO
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    // See: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/test/cryptography/ECDSA.test.js
+    use sha3::Digest;
+    let hash = sha3::Keccak256::digest(b"OpenZeppelin");
+    let signature = hex!("5d99b6f7f6d1f73d1a26497f2b1c89b24c0993913f86e9a2d02cd69887d9c94f3c880358579d811b21dd1b7fd9bb01c1d81d10e69f0384e675c32b39643be8921b");
+    let signer = hex!("2cc1166f6212628A0deEf2B33BEFB2187D35b86c");
+
+    let (r, s, v) = (&signature[0..32], &signature[32..64], signature[64] as u32);
+    logic.ecrecover(hash.as_ptr() as _, v, r.as_ptr() as _, s.as_ptr() as _, 0).unwrap();
+
+    let result = &vec![0u8; 20];
+    logic.read_register(0, result.as_ptr() as _).expect("OK");
+
+    assert_eq!(result.to_vec(), signer);
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 3,
+        ExtCosts::read_memory_byte: 96,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 20,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 20,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 20,
+        ExtCosts::ecrecover_base: 1,
+    });
 }
 
 #[test]
