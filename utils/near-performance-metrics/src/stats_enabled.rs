@@ -24,7 +24,7 @@ static MIN_MEM_USAGE_REPORT_SIZE: u64 = 100 * bytesize::MIB;
 
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
-const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.002;
+const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.02;
 
 pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::new(Stats::new())));
 pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
