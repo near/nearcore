@@ -49,7 +49,7 @@ pub struct ThreadStats {
     classes: HashSet<&'static str>,
     in_progress_since: Option<Instant>,
     last_check: Instant,
-    rocksdb_mem: ByteSize,
+    c_mem: ByteSize,
 }
 
 impl ThreadStats {
@@ -61,7 +61,7 @@ impl ThreadStats {
             classes: Default::default(),
             in_progress_since: Default::default(),
             last_check: Instant::now(),
-            rocksdb_mem: Default::default(),
+            c_mem: Default::default(),
         }
     }
 
@@ -79,7 +79,7 @@ impl ThreadStats {
         msg_text: &'static str,
     ) {
         self.in_progress_since = None;
-        self.rocksdb_mem = get_rocksdb_memory_usage_cur_thread();
+        self.c_mem = get_c_memory_usage_cur_thread();
 
         let took_since_last_check = min(took, max(self.last_check, now) - self.last_check);
 
@@ -117,14 +117,14 @@ impl ThreadStats {
         if show_stats {
             let class_name = format!("{:?}", self.classes);
             warn!(
-                "    Thread:{} ratio: {:.3} {}:{} memory: {}({}) RockDB: {}",
+                "    Thread:{} ratio: {:.3} {}:{} Rust mem: {}({}) C mem: {}",
                 tid,
                 ratio,
                 class_name,
                 get_tid(),
                 tmu,
                 thread_memory_count(tid),
-                self.rocksdb_mem,
+                self.c_mem,
             );
             let mut stat: Vec<_> = self.stat.iter().collect();
             stat.sort_by(|x, y| (*x).0.cmp(&(*y).0));
@@ -143,7 +143,7 @@ impl ThreadStats {
             }
         }
         self.last_check = now;
-        self.rocksdb_mem = ByteSize::b(0);
+        self.c_mem = ByteSize::b(0);
         self.clear();
 
         if show_stats {
@@ -176,8 +176,8 @@ pub(crate) fn get_entry() -> Arc<Mutex<ThreadStats>> {
 }
 
 #[cfg(target_os = "linux")]
-fn get_rocksdb_memory_usage_cur_thread() -> ByteSize {
-    // hack to get memory usage stats for rocksdb
+fn get_c_memory_usage_cur_thread() -> ByteSize {
+    // hack to get memory usage stats for c memory usage per thread
     // This feature will only work if near is started with environment
     // LD_PRELOAD=${PWD}/bins/near-c-allocator-proxy.so nearup ...
     // from https://github.com/near/near-memory-tracker/blob/master/near-dump-analyzer
@@ -185,13 +185,13 @@ fn get_rocksdb_memory_usage_cur_thread() -> ByteSize {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn get_rocksdb_memory_usage_cur_thread() -> BytesSize {
+fn get_c_memory_usage_cur_thread() -> BytesSize {
     Default::default()
 }
 
 #[cfg(target_os = "linux")]
-fn get_rocksdb_memory_usage() -> ByteSize {
-    // hack to get memory usage stats for rocksdb
+fn get_c_memory_usage() -> ByteSize {
+    // hack to get memory usage stats for c memory usage
     // This feature will only work if near is started with environment
     // LD_PRELOAD=${PWD}/bins/near-c-allocator-proxy.so nearup ...
     // from https://github.com/near/near-memory-tracker/blob/master/near-dump-analyzer
@@ -199,7 +199,7 @@ fn get_rocksdb_memory_usage() -> ByteSize {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn get_rocksdb_memory_usage() -> ByteSize {
+fn get_c_memory_usage() -> ByteSize {
     Default::default()
 }
 
@@ -239,9 +239,9 @@ impl Stats {
             "    Other threads ratio {:.3} memory: {}({})",
             other_ratio, other_memory_size, other_memory_count
         );
-        let rocksdb_memory_usage = get_rocksdb_memory_usage();
-        if rocksdb_memory_usage > ByteSize::default() {
-            info!("    RocksDB memory usage: {}", rocksdb_memory_usage);
+        let c_memory_usage = get_c_memory_usage();
+        if c_memory_usage > ByteSize::default() {
+            info!("    C total memory usage: {}", c_memory_usage);
         }
         info!("Total ratio = {:.3}", ratio);
     }
