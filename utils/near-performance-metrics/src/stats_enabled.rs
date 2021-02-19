@@ -78,9 +78,7 @@ impl ThreadStats {
         msg_text: &'static str,
     ) {
         self.in_progress_since = None;
-        if self.rocksdb_mem == None {
-            self.rocksdb_mem = Some(get_rocksdb_memory_usage_cur_thread());
-        }
+        self.rocksdb_mem = Some(get_rocksdb_memory_usage_cur_thread());
 
         let took_since_last_check = min(took, max(self.last_check, now) - self.last_check);
 
