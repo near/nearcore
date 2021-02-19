@@ -3,7 +3,7 @@ use futures::task::Context;
 use log::{info, warn};
 use near_rust_allocator_proxy::allocator::{
     current_thread_memory_usage, current_thread_peak_memory_usage, get_tid, reset_memory_usage_max,
-    thread_memory_count, thread_memory_usage,
+    thread_memory_count, thread_memory_usage, total_memory_usage,
 };
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
@@ -102,7 +102,7 @@ impl ThreadStats {
         tid: usize,
         sleep_time: Duration,
         now: Instant,
-    ) -> (f64, f64, usize, usize, usize) {
+    ) -> (f64, f64, usize, usize) {
         let mut ratio = self.time.as_nanos() as f64;
         if let Some(in_progress_since) = self.in_progress_since {
             let from = max(in_progress_since, self.last_check);
@@ -147,15 +147,9 @@ impl ThreadStats {
         self.clear();
 
         if show_stats {
-            (ratio, 0.0, 0, 0, thread_memory_usage(tid))
+            (ratio, 0.0, 0, 0)
         } else {
-            (
-                ratio,
-                ratio,
-                thread_memory_usage(tid),
-                thread_memory_count(tid),
-                thread_memory_usage(tid),
-            )
+            (ratio, ratio, thread_memory_usage(tid), thread_memory_count(tid))
         }
     }
 
@@ -232,27 +226,20 @@ impl Stats {
         let mut other_ratio = 0.0;
         let mut other_memory_size = 0;
         let mut other_memory_count = 0;
-        let mut rust_memory_size = 0;
         let now = Instant::now();
         for entry in s {
-            let (
-                tmp_ratio,
-                tmp_other_ratio,
-                tmp_other_memory_size,
-                tmp_other_memory_count,
-                tmp_rust_memory_size,
-            ) = entry.1.lock().unwrap().print_stats_and_clear(*entry.0, sleep_time, now);
+            let (tmp_ratio, tmp_other_ratio, tmp_other_memory_size, tmp_other_memory_count) =
+                entry.1.lock().unwrap().print_stats_and_clear(*entry.0, sleep_time, now);
             ratio += tmp_ratio;
             other_ratio += tmp_other_ratio;
             other_memory_size += tmp_other_memory_size;
             other_memory_count += tmp_other_memory_count;
-            rust_memory_size += tmp_rust_memory_size;
         }
         info!(
             "    Other threads ratio {:.3} memory: {}({})",
             other_ratio, other_memory_size, other_memory_count
         );
-        info!("    Rust alloc total memory usage: {}", ByteSize::b(rust_memory_size as u64));
+        info!("    Rust alloc total memory usage: {}", total_memory_usage());
         let c_memory_usage = get_c_memory_usage();
         if c_memory_usage > ByteSize::default() {
             info!("    C alloc total memory usage: {}", c_memory_usage);
