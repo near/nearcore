@@ -995,15 +995,18 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
-    /// TODO
+    /// Recovers an ECDSA signer address and returns it into `register_id`.
     ///
     /// # Errors
     ///
-    /// TODO
+    /// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the registers use more
+    ///   memory than the limit, then returns `MemoryAccessViolation`.
+    /// * If `v` is invalid (not 27 or 28), then returns  `InvalidECDSASignature`.
+    /// * If the ECDSA recovery fails for any reason, then returns `InvalidECDSASignature`.
     ///
     /// # Cost
     ///
-    /// TODO
+    /// `base + write_register_base + write_register_byte * 20 + ecrecover_base`
     pub fn ecrecover(
         &mut self,
         hash_ptr: u64,
