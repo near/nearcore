@@ -1,14 +1,15 @@
-use std::collections::HashMap;
-use std::sync::RwLock;
-use std::sync::Arc;
-use crate::{
-    hash::CryptoHash,
-    types::AccountId,
-};
+use crate::{hash::CryptoHash, types::AccountId};
 use near_vm_errors::VMError;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::RwLock;
 
 #[derive(Clone)]
-pub struct InMemoryContracts(pub Arc<RwLock<HashMap<AccountId, Option<(CryptoHash, Result<wasmer_runtime::Module, VMError>)>>>>);
+pub struct InMemoryContracts(
+    pub  Arc<
+        RwLock<HashMap<AccountId, Option<(CryptoHash, Result<wasmer_runtime::Module, VMError>)>>>,
+    >,
+);
 
 impl std::fmt::Debug for InMemoryContracts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

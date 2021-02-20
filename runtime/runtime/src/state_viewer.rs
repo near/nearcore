@@ -1,5 +1,6 @@
 use log::debug;
 use near_crypto::{KeyType, PublicKey};
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_primitives::{
     account::{AccessKey, Account},
     contract::ContractCode,
@@ -142,6 +143,7 @@ impl TrieViewer {
             current_protocol_version: view_state.current_protocol_version,
             config: config.clone(),
             cache: view_state.cache,
+            always_in_mem_contracts: InMemoryContracts::new(&vec![]),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
             #[cfg(feature = "costs_counting")]

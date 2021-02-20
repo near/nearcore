@@ -129,7 +129,7 @@ pub struct NightshadeRuntime {
     genesis_runtime_config: Arc<RuntimeConfig>,
 
     store: Arc<Store>,
-    in_memory_contracts: InMemoryContracts,
+    in_memory_contracts_per_shard: Vec<InMemoryContracts>,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
@@ -186,10 +186,8 @@ impl NightshadeRuntime {
         };
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
-        let tries = ShardTries::new(
-            store.clone(),
-            genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
-        );
+        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
+        let tries = ShardTries::new(store.clone(), num_shards);
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
                 store.clone(),
@@ -223,7 +221,9 @@ impl NightshadeRuntime {
             genesis_config,
             genesis_runtime_config,
             store,
-            in_memory_contracts: InMemoryContracts::new(always_in_mem_contracts),
+            in_memory_contracts_per_shard: (0..num_shards)
+                .map(|_| InMemoryContracts::new(always_in_mem_contracts))
+                .collect(),
             tries,
             runtime,
             trie_viewer,
@@ -462,7 +462,7 @@ impl NightshadeRuntime {
                 &self.genesis_runtime_config,
                 current_protocol_version,
             ),
-            always_in_mem_contracts: self.in_memory_contracts.clone(),
+            always_in_mem_contracts: self.in_memory_contracts_per_shard[shard_id as usize].clone(),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
@@ -1716,6 +1716,7 @@ mod test {
                 &genesis,
                 initial_tracked_accounts,
                 initial_tracked_shards,
+                &vec![],
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);

@@ -23,7 +23,7 @@ use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config::{RuntimeConfig, CacheConfig};
+use near_primitives::runtime::config::{RuntimeConfig, VMCacheConfig};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
@@ -552,7 +552,7 @@ pub struct NearConfig {
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
-    pub cache_config: CacheConfig,
+    pub vm_cache_config: VMCacheConfig,
     #[cfg(feature = "rosetta_rpc")]
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
@@ -656,7 +656,9 @@ impl NearConfig {
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
-            cache_config: CacheConfig { always_in_mem_contract_accounts: config.always_in_mem_contract_accounts },
+            vm_cache_config: VMCacheConfig {
+                always_in_mem_contract_accounts: config.always_in_mem_contract_accounts,
+            },
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,

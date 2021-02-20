@@ -4,6 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(not(feature = "no_cache"))]
 use cached::{cached_key, SizedCache};
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_primitives::types::AccountId;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
@@ -15,7 +16,6 @@ use std::sync::RwLock;
 use wasmer_runtime::{compiler_for_backend, Backend};
 use wasmer_runtime_core::cache::Artifact;
 use wasmer_runtime_core::load_cache_with;
-use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 
 pub(crate) fn compile_module(
     code: &[u8],

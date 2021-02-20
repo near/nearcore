@@ -1,11 +1,11 @@
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_primitives::types::Balance;
 use near_vm_errors::{FunctionCallError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{types::ReturnData, VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, with_vm_variants};
 use std::mem::size_of;
-use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 
 pub mod test_utils;
 

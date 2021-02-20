@@ -1660,6 +1660,7 @@ mod test {
                     &genesis,
                     vec![],
                     vec![],
+                    &vec![],
                 )) as Arc<dyn RuntimeAdapter>
             })
             .collect()

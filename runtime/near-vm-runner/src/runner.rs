@@ -1,12 +1,12 @@
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_primitives::{
     config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
 };
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
-use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
@@ -64,7 +64,7 @@ pub fn run<'a>(
         VMKind::default(),
         current_protocol_version,
         cache,
-        in_mem_contract
+        in_mem_contract,
     )
 }
 pub fn run_vm<'a>(

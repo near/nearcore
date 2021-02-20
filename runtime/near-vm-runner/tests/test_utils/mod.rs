@@ -4,8 +4,8 @@ use std::hash::{Hash, Hasher};
 use wabt::Wat2Wasm;
 
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::CompiledContractCache;
 use near_primitives::runtime::in_memory_contract::InMemoryContracts;
+use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;

@@ -143,6 +143,7 @@ pub(crate) fn execute_function_call(
             promise_results,
             apply_state.current_protocol_version,
             cache,
+            apply_state.always_in_mem_contracts.clone(),
             #[cfg(feature = "costs_counting")]
             apply_state.profile.as_ref(),
         )

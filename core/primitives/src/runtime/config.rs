@@ -29,7 +29,7 @@ pub struct RuntimeConfig {
 
 /// Information about cache, does not change protocol behavior but affect performance
 #[derive(Debug, Clone)]
-pub struct CacheConfig {
+pub struct VMCacheConfig {
     pub always_in_mem_contract_accounts: Vec<AccountId>,
 }
 

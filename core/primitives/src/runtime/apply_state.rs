@@ -1,9 +1,9 @@
 use crate::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
+    runtime::in_memory_contract::InMemoryContracts,
     types::{Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId, Gas},
     version::ProtocolVersion,
-    runtime::in_memory_contract::InMemoryContracts,
 };
 use std::sync::Arc;
 

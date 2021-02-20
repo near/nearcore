@@ -7,6 +7,7 @@
 //! Optional `--context-file=/tmp/context.json --config-file=/tmp/config.json` could be added
 //! to provide custom context and VM config.
 use clap::{App, Arg};
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
 use near_vm_logic::profile::ProfileData;
@@ -261,6 +262,7 @@ fn main() {
             profile_data.clone(),
             protocol_version,
             None,
+            InMemoryContracts::new(&vec![]),
         )
     } else {
         run_vm(
@@ -275,6 +277,7 @@ fn main() {
             vm_kind,
             protocol_version,
             None,
+            InMemoryContracts::new(&vec![]),
         )
     };
     let all_gas = match outcome.clone() {

@@ -95,6 +95,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
             near_config.client_config.tracked_shards.clone(),
+            &vec![],
         );
         store.get_rocksdb().unwrap().clear_column(DBCol::ColTransactionResult);
 

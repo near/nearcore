@@ -2,6 +2,7 @@ use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_primitives::{
     config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
 };
@@ -10,7 +11,6 @@ use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VM
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::Module;
-use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
@@ -218,7 +218,7 @@ pub fn run_wasmer<'a>(
         wasm_config,
         cache,
         &context.current_account_id,
-        in_mem_contract
+        in_mem_contract,
     ) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),

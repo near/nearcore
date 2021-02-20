@@ -1,6 +1,7 @@
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use glob::glob;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
@@ -63,6 +64,7 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
         &promise_results,
         PROTOCOL_VERSION,
         None,
+        InMemoryContracts::new(&vec![]),
         #[cfg(feature = "costs_counting")]
         None,
     )

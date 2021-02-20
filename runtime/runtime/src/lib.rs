@@ -8,6 +8,7 @@ pub use near_crypto;
 use near_crypto::PublicKey;
 pub use near_primitives;
 use near_primitives::runtime::get_insufficient_storage_stake;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_primitives::{
     account::{AccessKey, Account},
     contract::ContractCode,
@@ -1520,6 +1521,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            always_in_mem_contracts: InMemoryContracts::new(&vec![]),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             #[cfg(feature = "costs_counting")]

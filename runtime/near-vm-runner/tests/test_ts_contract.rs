@@ -1,11 +1,11 @@
 use crate::test_utils::LATEST_PROTOCOL_VERSION;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_vm_errors::{FunctionCallError, HostError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
 use near_vm_logic::{External, VMConfig, VMContext, VMKind};
 use near_vm_runner::{run_vm, with_vm_variants};
-use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 pub mod test_utils;
 
 fn create_context(input: &[u8]) -> VMContext {

@@ -7,6 +7,7 @@ use borsh::BorshDeserialize;
 use near_chain_configs::Genesis;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
@@ -91,6 +92,7 @@ impl RuntimeTestbed {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            always_in_mem_contracts: InMemoryContracts::new(&vec![]),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             #[cfg(feature = "costs_counting")]
