@@ -8,10 +8,10 @@ use byteorder::ByteOrder;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
-use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};

@@ -764,6 +764,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b700ce4376041dcd0a327fd0097c41095743c4c8af8887265942faf1100bd040"
 
 [[package]]
+name = "bytesize"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81a18687293a1546b67c246452202bbbf143d239cb43494cc163da14979082da"
+
+[[package]]
 name = "bytestring"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2966,7 +2972,6 @@ dependencies = [
  "derive_more",
  "near-crypto",
  "near-primitives",
- "near-runtime-fees",
  "num-rational",
  "serde",
  "serde_json",
@@ -3052,6 +3057,7 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "chrono",
+ "near-chain-configs",
  "near-chain-primitives",
  "near-chunks",
  "near-network",
@@ -3109,7 +3115,7 @@ dependencies = [
 
 [[package]]
 name = "near-evm-runner"
-version = "2.3.0"
+version = "0.1.0"
 dependencies = [
  "bn",
  "borsh",
@@ -3131,7 +3137,6 @@ dependencies = [
  "lunarity-lexer",
  "near-crypto",
  "near-primitives",
- "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
  "near-vm-logic",
@@ -3189,6 +3194,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
  "validator",
 ]
 
@@ -3211,6 +3217,7 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "lazy_static",
+ "near-chain-configs",
  "near-client-primitives",
  "near-metrics",
  "near-primitives",
@@ -3292,7 +3299,9 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "actix-rt",
+ "bytesize",
  "futures",
+ "libc",
  "log",
  "near-rust-allocator-proxy",
  "nix",
@@ -3414,15 +3423,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-runtime-fees"
-version = "2.3.0"
-dependencies = [
- "near-primitives-core",
-]
-
-[[package]]
 name = "near-runtime-utils"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "lazy_static",
  "regex",
@@ -3430,8 +3432,9 @@ dependencies = [
 
 [[package]]
 name = "near-rust-allocator-proxy"
-version = "0.2.6"
-source = "git+https://github.com/near/near-memory-tracker.git?tag=v0.2.6#567647c4987d4f04910ab47e00f427c0c1bf3bf6"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23c662697feef8efc4c80ac3b64ac5d1ddcb385e49a49814294b7283c9fd3d72"
 dependencies = [
  "arr_macro",
  "backtrace",
@@ -3482,10 +3485,9 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "borsh",
- "ethereum-types 0.11.0",
  "hex",
  "near-rpc-error-macro",
  "serde",
@@ -3493,17 +3495,15 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
  "borsh",
  "bs58",
  "byteorder",
  "near-primitives-core",
- "near-runtime-fees",
  "near-runtime-utils",
  "near-vm-errors",
- "num-rational",
  "serde",
  "serde_json",
  "sha2 0.9.3",
@@ -3512,7 +3512,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -3522,7 +3522,6 @@ dependencies = [
  "log",
  "near-evm-runner",
  "near-primitives",
- "near-runtime-fees",
  "near-vm-errors",
  "near-vm-logic",
  "parity-wasm",
@@ -3535,11 +3534,11 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
  "clap 2.33.3",
- "near-runtime-fees",
+ "near-primitives-core",
  "near-vm-logic",
  "near-vm-runner",
  "num-rational",
@@ -3593,6 +3592,7 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-network",
  "near-performance-metrics",
@@ -3630,7 +3630,7 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
@@ -3646,7 +3646,6 @@ dependencies = [
  "near-evm-runner",
  "near-metrics",
  "near-primitives",
- "near-runtime-fees",
  "near-runtime-utils",
  "near-store",
  "near-vm-errors",
@@ -4732,7 +4731,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-params-estimator"
-version = "2.3.0"
+version = "3.0.0"
 dependencies = [
  "borsh",
  "clap 2.33.3",
@@ -4751,7 +4750,6 @@ dependencies = [
  "near-crypto",
  "near-evm-runner",
  "near-primitives",
- "near-runtime-fees",
  "near-store",
  "near-vm-logic",
  "near-vm-runner",
@@ -5446,7 +5444,6 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
- "near-runtime-fees",
  "near-store",
  "near-vm-errors",
  "neard",

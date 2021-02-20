@@ -27,7 +27,7 @@ use crate::testbed_runners::{get_account_id, measure_actions, measure_transactio
 use crate::vm_estimator::{cost_per_op, cost_to_compile, load_and_compile};
 
 use near_primitives::runtime::config::RuntimeConfig;
-use near_runtime_fees::{
+use near_primitives::runtime::fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
 };

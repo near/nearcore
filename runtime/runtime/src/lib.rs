@@ -39,8 +39,7 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
-#[cfg(feature = "costs_counting")]
-pub use near_vm_runner::EXT_COSTS_COUNTER;
+pub use near_vm_runner::with_ext_cost_counter;
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
@@ -50,8 +49,8 @@ use crate::config::{
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
-use near_runtime_fees::RuntimeFeesConfig;
 use std::borrow::Borrow;
 use std::rc::Rc;
 
@@ -64,7 +63,6 @@ pub mod ext;
 mod metrics;
 pub mod state_viewer;
 mod verifier;
-pub use near_primitives::profile::ProfileData;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 pub use near_primitives::runtime::apply_state::ApplyState;

@@ -17,8 +17,9 @@ use tokio::time::{sleep, timeout};
 use near_chain_configs::GenesisConfig;
 use near_client::{
     ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
-    GetNetworkInfo, GetNextLightClientBlock, GetReceipt, GetStateChanges, GetStateChangesInBlock,
-    GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus, TxStatusError, ViewClientActor,
+    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
+    TxStatusError, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -29,6 +30,7 @@ use near_jsonrpc_primitives::rpc::{
     RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
     RpcValidatorsOrderedRequest, TransactionInfo,
 };
+use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
@@ -248,6 +250,14 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
             "EXPERIMENTAL_check_tx" => self.check_tx(request.params).await,
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
+            "EXPERIMENTAL_protocol_config" => {
+                let rpc_protocol_config_request =
+                    near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest::parse(
+                        request.params,
+                    )?;
+                let config = self.protocol_config(rpc_protocol_config_request).await?;
+                serde_json::to_value(config).map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "EXPERIMENTAL_light_client_proof" => {
                 self.light_client_execution_outcome_proof(request.params).await
             }
@@ -327,6 +337,11 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: tx_exists method. tx_hash {:?} signer_account_id {:?}",
+                tx_hash,
+                signer_account_id
+            );
             ServerError::Timeout
         })?
     }
@@ -372,6 +387,11 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?}",
+                tx_info,
+                fetch_receipt,
+            );
             TxStatusError::TimeoutError
         })?
     }
@@ -394,6 +414,10 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: tx_polling method. tx_info {:?}",
+                tx_info,
+            );
             timeout_err()
         })?
     }
@@ -533,6 +557,20 @@ impl JsonRpcHandler {
         jsonify(Ok(Ok(&self.genesis_config)))
     }
 
+    pub async fn protocol_config(
+        &self,
+        request_data: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse,
+        near_jsonrpc_primitives::types::config::RpcProtocolConfigError,
+    > {
+        let config_view = self
+            .view_client_addr
+            .send(GetProtocolConfig(request_data.block_reference.into()))
+            .await??;
+        Ok(RpcProtocolConfigResponse { config_view })
+    }
+
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let query_request = if let Ok((path, data)) =
             parse_params::<(String, String)>(params.clone())
@@ -591,7 +629,7 @@ impl JsonRpcHandler {
             // Use Finality::None here to make backward compatibility tests work
             RpcQueryRequest { request, block_reference: BlockReference::latest() }
         } else {
-            parse_params::<RpcQueryRequest>(params)?
+            parse_params::<RpcQueryRequest>(params.clone())?
         };
         let query = Query::new(query_request.block_reference, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
@@ -611,6 +649,10 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: query method. params {:?}",
+                params,
+            );
             RpcError::server_error(Some("query has timed out".to_string()))
         })?
     }

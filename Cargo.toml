@@ -13,7 +13,6 @@ members = [
     "core/store",
     "core/metrics",
     "runtime/near-evm-runner",
-    "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
@@ -98,6 +97,7 @@ opt-level = 3 # bs58 library is too slow to use in debug
 [features]
 performance_stats = ["neard/performance_stats"]
 memory_stats = ["neard/memory_stats"]
+c_memory_stats = ["neard/c_memory_stats"]
 expensive_tests = ["neard/expensive_tests"]
 regression_tests = []
 old_tests = []

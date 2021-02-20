@@ -1,6 +1,6 @@
 [package]
 name = "runtime-params-estimator"
-version = "2.3.0"
+version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -22,7 +22,6 @@ borsh = "0.8.1"
 num-rational = "0.3"
 
 near-chain-configs = { path = "../../core/chain-configs" }
-near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic"  }
 near-vm-runner = {path = "../../runtime/near-vm-runner" }
@@ -62,7 +61,6 @@ protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "near-evm-runner/costs_counting",
                         "near-vm-runner/protocol_feature_evm",
                         "near-chain-configs/protocol_feature_evm",
-                        "near-runtime-fees/protocol_feature_evm",
                         "node-runtime/protocol_feature_evm",
                         "near-primitives/protocol_feature_evm",
                         "testlib/protocol_feature_evm"]
