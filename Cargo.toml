@@ -79,6 +79,7 @@ testlib = { path = "./test-utils/testlib" }
 lto = true        # Enable full link-time optimization.
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 overflow-checks = true
+debug = true
 
 [profile.bench]
 lto = true
