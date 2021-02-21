@@ -278,16 +278,8 @@ fn main() {
                 })
                 .unwrap();
         }
-        SubCommand::Init(config) => near_indexer::init_configs(
-            &home_dir,
-            config.chain_id.as_ref().map(AsRef::as_ref),
-            config.account_id.as_ref().map(AsRef::as_ref),
-            config.test_seed.as_ref().map(AsRef::as_ref),
-            config.num_shards,
-            config.fast,
-            config.genesis.as_ref().map(AsRef::as_ref),
-            config.download,
-            config.download_genesis_url.as_ref().map(AsRef::as_ref),
-        ),
+        SubCommand::Init(config) => {
+            near_indexer::indexer_init_configs(&home_dir, config.into())
+        }
     }
 }
