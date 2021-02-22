@@ -391,9 +391,8 @@ impl Database for RocksDB {
                     let opt_last = self.db.iterator_cf(cf_handle, IteratorMode::End).next();
                     assert_eq!(opt_first.is_some(), opt_last.is_some());
                     if let (Some((min_key, _)), Some((max_key, _))) = (opt_first, opt_last) {
-                        if min_key != max_key {
-                            batch.delete_range_cf(cf_handle, &min_key, &max_key)
-                        }
+                        batch.delete_range_cf(cf_handle, &min_key, &max_key);
+                        // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
                         batch.delete_cf(cf_handle, max_key)
                     }
                 }
