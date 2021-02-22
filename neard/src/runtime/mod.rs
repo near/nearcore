@@ -59,6 +59,8 @@ use near_primitives::runtime::config::RuntimeConfig;
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use near_epoch_manager::NUM_SECONDS_IN_A_YEAR;
 
+use errors::FromStateViewerErrors;
+
 pub mod errors;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -1251,7 +1253,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             QueryRequest::ViewAccount { account_id } => {
                 let account = self
                     .view_account(shard_id, *state_root, account_id)
-                    .map_err(errors::WrappedQueryError::from)?;
+                    .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_account_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewAccount(account.into()),
                     block_height,
@@ -1261,7 +1263,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             QueryRequest::ViewCode { account_id } => {
                 let contract_code = self
                     .view_contract_code(shard_id, *state_root, account_id)
-                    .map_err(errors::WrappedQueryError::from)?;
+                    .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_contract_code_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewCode(contract_code.into()),
                     block_height,
@@ -1273,9 +1275,13 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let (epoch_height, current_protocol_version) = {
                     let mut epoch_manager =
                         self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-                    let epoch_info = epoch_manager
-                        .get_epoch_info(&epoch_id)
-                        .map_err(errors::WrappedQueryError::from)?;
+                    let epoch_info = epoch_manager.get_epoch_info(&epoch_id).map_err(|err| {
+                        near_chain::near_chain_primitives::error::QueryError::from_epoch_error(
+                            err,
+                            block_height,
+                            *block_hash,
+                        )
+                    })?;
                     (epoch_info.epoch_height, epoch_info.protocol_version)
                 };
 
@@ -1298,7 +1304,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         #[cfg(feature = "protocol_feature_evm")]
                         self.evm_chain_id(),
                     )
-                    .map_err(errors::WrappedQueryError::from)?;
+                    .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_call_function_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::CallResult(CallResult {
                         result: call_function_result,
@@ -1311,7 +1317,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             QueryRequest::ViewState { account_id, prefix } => {
                 let view_state_result = self
                     .view_state(shard_id, *state_root, account_id, prefix.as_ref())
-                    .map_err(errors::WrappedQueryError::from)?;
+                    .map_err(|err| {
+                        near_chain::near_chain_primitives::error::QueryError::from_view_state_error(
+                            err,
+                            block_height,
+                            *block_hash,
+                        )
+                    })?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewState(view_state_result),
                     block_height,
@@ -1319,9 +1331,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                 })
             }
             QueryRequest::ViewAccessKeyList { account_id } => {
-                let access_key_list = self
-                    .view_access_keys(shard_id, *state_root, account_id)
-                    .map_err(errors::WrappedQueryError::from)?;
+                let access_key_list =
+                    self.view_access_keys(shard_id, *state_root, account_id).map_err(|err| {
+                        near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
+                            err,
+                            block_height,
+                            *block_hash,
+                        )
+                    })?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::AccessKeyList(
                         access_key_list
@@ -1339,7 +1356,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             QueryRequest::ViewAccessKey { account_id, public_key } => {
                 let access_key = self
                     .view_access_key(shard_id, *state_root, account_id, public_key)
-                    .map_err(errors::WrappedQueryError::from)?;
+                    .map_err(|err| {
+                        near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
+                            err,
+                            block_height,
+                            *block_hash,
+                        )
+                    })?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::AccessKey(access_key.into()),
                     block_height,

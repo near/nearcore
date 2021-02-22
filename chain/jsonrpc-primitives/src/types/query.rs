@@ -14,31 +14,51 @@ pub struct RpcQueryRequest {
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcQueryError {
-    #[error("IO Error: #{error_message}")]
+    #[error("IO Error: {error_message}")]
     IOError { error_message: String },
     #[error("There are no fully synchronized blocks on the node yet")]
     NoSyncedBlocks,
     #[error("The node does not track the shard")]
     UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
-    #[error("Account ID #{requested_account_id} is invalid")]
-    InvalidAccount { requested_account_id: near_primitives::types::AccountId },
-    #[error("account #{requested_account_id} does not exist while viewing")]
-    UnknownAccount { requested_account_id: near_primitives::types::AccountId },
+    #[error("Account ID {requested_account_id} is invalid")]
+    InvalidAccount {
+        requested_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("account {requested_account_id} does not exist while viewing")]
+    UnknownAccount {
+        requested_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error(
         "Contract code for contract ID #{contract_account_id} has never been observed on the node"
     )]
-    NoContractCode { contract_account_id: near_primitives::types::AccountId },
-    #[error("Access key for public key #{public_key} has never been observed on the node")]
-    UnknownAccessKey { public_key: near_crypto::PublicKey },
-    #[error("Function call returned an error: #{vm_error}")]
-    ContractExecutionError { vm_error: String },
-    #[error("The node reached its limits. Try again later. More details: #{error_message}")]
+    NoContractCode {
+        contract_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("Access key for public key {public_key} has never been observed on the node")]
+    UnknownAccessKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("Function call returned an error: {vm_error}")]
+    ContractExecutionError {
+        vm_error: String,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
     // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: #{error_message}")]
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
     Unreachable { error_message: String },
 }
 
@@ -132,21 +152,31 @@ impl From<near_client_primitives::types::QueryError> for RpcQueryError {
             near_client_primitives::types::QueryError::UnavailableShard { requested_shard_id } => {
                 Self::UnavailableShard { requested_shard_id }
             }
-            near_client_primitives::types::QueryError::InvalidAccount { requested_account_id } => {
-                Self::InvalidAccount { requested_account_id }
-            }
-            near_client_primitives::types::QueryError::UnknownAccount { requested_account_id } => {
-                Self::UnknownAccount { requested_account_id }
-            }
-            near_client_primitives::types::QueryError::NoContractCode { contract_account_id } => {
-                Self::NoContractCode { contract_account_id }
-            }
-            near_client_primitives::types::QueryError::UnknownAccessKey { public_key } => {
-                Self::UnknownAccessKey { public_key }
-            }
-            near_client_primitives::types::QueryError::ContractExecutionError { vm_error } => {
-                Self::ContractExecutionError { vm_error }
-            }
+            near_client_primitives::types::QueryError::InvalidAccount {
+                requested_account_id,
+                block_height,
+                block_hash,
+            } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
+            near_client_primitives::types::QueryError::UnknownAccount {
+                requested_account_id,
+                block_height,
+                block_hash,
+            } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            near_client_primitives::types::QueryError::NoContractCode {
+                contract_account_id,
+                block_height,
+                block_hash,
+            } => Self::NoContractCode { contract_account_id, block_height, block_hash },
+            near_client_primitives::types::QueryError::UnknownAccessKey {
+                public_key,
+                block_height,
+                block_hash,
+            } => Self::UnknownAccessKey { public_key, block_height, block_hash },
+            near_client_primitives::types::QueryError::ContractExecutionError {
+                vm_error,
+                block_height,
+                block_hash,
+            } => Self::ContractExecutionError { vm_error, block_height, block_hash },
             near_client_primitives::types::QueryError::Unreachable { error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(

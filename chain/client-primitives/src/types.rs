@@ -279,17 +279,37 @@ pub enum QueryError {
     #[error("The node does not track the shard")]
     UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
     #[error("Account ID #{requested_account_id} is invalid")]
-    InvalidAccount { requested_account_id: near_primitives::types::AccountId },
+    InvalidAccount {
+        requested_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Account #{requested_account_id} does not exist while viewing")]
-    UnknownAccount { requested_account_id: near_primitives::types::AccountId },
+    UnknownAccount {
+        requested_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error(
         "Contract code for contract ID #{contract_account_id} has never been observed on the node"
     )]
-    NoContractCode { contract_account_id: near_primitives::types::AccountId },
+    NoContractCode {
+        contract_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Access key for public key #{public_key} has never been observed on the node")]
-    UnknownAccessKey { public_key: near_crypto::PublicKey },
+    UnknownAccessKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Function call returned an error: #{vm_error}")]
-    ContractExecutionError { vm_error: String },
+    ContractExecutionError {
+        vm_error: String,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.

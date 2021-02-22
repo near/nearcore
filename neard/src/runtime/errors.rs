@@ -1,102 +1,107 @@
+use easy_ext::ext;
+
 use near_chain::near_chain_primitives::error::QueryError;
 
-// This wrapper struct is necessary because we cannot implement
-// From<> trait for the original QueryError struct since it is a foreign type
-#[derive(thiserror::Error, Debug)]
-#[error(transparent)]
-pub struct WrappedQueryError(pub QueryError);
-
-impl From<WrappedQueryError> for QueryError {
-    fn from(error: WrappedQueryError) -> Self {
-        error.0
-    }
-}
-
-impl From<node_runtime::state_viewer::errors::ViewAccountError> for WrappedQueryError {
-    fn from(error: node_runtime::state_viewer::errors::ViewAccountError) -> Self {
-        match error {
-            node_runtime::state_viewer::errors::ViewAccountError::InvalidAccountId {
-                requested_account_id,
-            } => Self(QueryError::InvalidAccount { requested_account_id }),
-            node_runtime::state_viewer::errors::ViewAccountError::AccountDoesNotExist {
-                requested_account_id,
-            } => Self(QueryError::UnknownAccount { requested_account_id }),
-            node_runtime::state_viewer::errors::ViewAccountError::InternalError {
-                error_message,
-            } => Self(QueryError::InternalError { error_message }),
-        }
-    }
-}
-
-impl From<node_runtime::state_viewer::errors::ViewContractCodeError> for WrappedQueryError {
-    fn from(error: node_runtime::state_viewer::errors::ViewContractCodeError) -> Self {
-        match error {
-            node_runtime::state_viewer::errors::ViewContractCodeError::InvalidAccountId {
-                requested_account_id,
-            } => Self(QueryError::InvalidAccount { requested_account_id }),
-            node_runtime::state_viewer::errors::ViewContractCodeError::AccountDoesNotExist {
-                requested_account_id,
-            } => Self(QueryError::UnknownAccount { requested_account_id }),
-            node_runtime::state_viewer::errors::ViewContractCodeError::InternalError {
-                error_message,
-            } => Self(QueryError::InternalError { error_message }),
-            node_runtime::state_viewer::errors::ViewContractCodeError::NoContractCode {
-                contract_account_id,
-            } => Self(QueryError::NoContractCode { contract_account_id }),
-        }
-    }
-}
-
-impl From<node_runtime::state_viewer::errors::CallFunctionError> for WrappedQueryError {
-    fn from(error: node_runtime::state_viewer::errors::CallFunctionError) -> Self {
+#[ext(FromStateViewerErrors)]
+impl QueryError {
+    pub fn from_call_function_error(
+        error: node_runtime::state_viewer::errors::CallFunctionError,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    ) -> Self {
         match error {
             node_runtime::state_viewer::errors::CallFunctionError::InvalidAccountId {
                 requested_account_id,
-            } => Self(QueryError::InvalidAccount { requested_account_id }),
+            } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
             node_runtime::state_viewer::errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id,
-            } => Self(QueryError::UnknownAccount { requested_account_id }),
+            } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
             node_runtime::state_viewer::errors::CallFunctionError::InternalError {
                 error_message,
-            } => Self(QueryError::InternalError { error_message }),
+            } => Self::InternalError { error_message, block_height, block_hash },
             node_runtime::state_viewer::errors::CallFunctionError::VMError { error_message } => {
-                Self(QueryError::ContractExecutionError { error_message })
+                Self::ContractExecutionError { error_message, block_height, block_hash }
             }
         }
     }
-}
 
-impl From<node_runtime::state_viewer::errors::ViewStateError> for WrappedQueryError {
-    fn from(error: node_runtime::state_viewer::errors::ViewStateError) -> Self {
+    pub fn from_view_account_error(
+        error: node_runtime::state_viewer::errors::ViewAccountError,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    ) -> Self {
+        match error {
+            node_runtime::state_viewer::errors::ViewAccountError::InvalidAccountId {
+                requested_account_id,
+            } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewAccountError::AccountDoesNotExist {
+                requested_account_id,
+            } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewAccountError::InternalError {
+                error_message,
+            } => Self::InternalError { error_message, block_height, block_hash },
+        }
+    }
+
+    pub fn from_view_contract_code_error(
+        error: node_runtime::state_viewer::errors::ViewContractCodeError,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    ) -> Self {
+        match error {
+            node_runtime::state_viewer::errors::ViewContractCodeError::InvalidAccountId {
+                requested_account_id,
+            } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewContractCodeError::AccountDoesNotExist {
+                requested_account_id,
+            } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewContractCodeError::InternalError {
+                error_message,
+            } => Self::InternalError { error_message, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewContractCodeError::NoContractCode {
+                contract_account_id,
+            } => Self::NoContractCode { contract_account_id, block_height, block_hash },
+        }
+    }
+
+    pub fn from_view_state_error(
+        error: node_runtime::state_viewer::errors::ViewStateError,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    ) -> Self {
         match error {
             node_runtime::state_viewer::errors::ViewStateError::InvalidAccountId {
                 requested_account_id,
-            } => Self(QueryError::InvalidAccount { requested_account_id }),
+            } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
             node_runtime::state_viewer::errors::ViewStateError::InternalError { error_message } => {
-                Self(QueryError::InternalError { error_message })
+                Self::InternalError { error_message, block_height, block_hash }
             }
         }
     }
-}
 
-impl From<node_runtime::state_viewer::errors::ViewAccessKeyError> for WrappedQueryError {
-    fn from(error: node_runtime::state_viewer::errors::ViewAccessKeyError) -> Self {
+    pub fn from_view_access_key_error(
+        error: node_runtime::state_viewer::errors::ViewAccessKeyError,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    ) -> Self {
         match error {
             node_runtime::state_viewer::errors::ViewAccessKeyError::InvalidAccountId {
                 requested_account_id,
-            } => Self(QueryError::InvalidAccount { requested_account_id }),
+            } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
             node_runtime::state_viewer::errors::ViewAccessKeyError::AccessKeyDoesNotExist {
                 public_key,
-            } => Self(QueryError::UnknownAccessKey { public_key }),
+            } => Self::UnknownAccessKey { public_key, block_height, block_hash },
             node_runtime::state_viewer::errors::ViewAccessKeyError::InternalError {
                 error_message,
-            } => Self(QueryError::InternalError { error_message }),
+            } => Self::InternalError { error_message, block_height, block_hash },
         }
     }
-}
 
-impl From<near_primitives::errors::EpochError> for WrappedQueryError {
-    fn from(error: near_primitives::errors::EpochError) -> Self {
-        Self(QueryError::InternalError { error_message: error.to_string() })
+    pub fn from_epoch_error(
+        error: near_primitives::errors::EpochError,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    ) -> Self {
+        Self::InternalError { error_message: error.to_string(), block_height, block_hash }
     }
 }

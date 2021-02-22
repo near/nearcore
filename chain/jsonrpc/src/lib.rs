@@ -586,6 +586,8 @@ impl JsonRpcHandler {
     > {
         let query = Query::new(request_data.block_reference, request_data.request);
         let query_response = self.view_client_addr.send(query).await??;
+        // view_access_key
+        // call_function
         Ok(near_jsonrpc_primitives::types::query::RpcQueryResponse { query_response })
     }
 

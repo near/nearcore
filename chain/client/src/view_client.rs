@@ -251,23 +251,23 @@ impl ViewClientActor {
                 Ok(query_response) => Ok(query_response),
                 Err(query_error) => Err(match query_error {
                     near_chain::near_chain_primitives::error::QueryError::InternalError {
-                        error_message,
+                        error_message, ..
                     } => QueryError::Unreachable { error_message },
                     near_chain::near_chain_primitives::error::QueryError::InvalidAccount {
-                        requested_account_id,
-                    } => QueryError::InvalidAccount { requested_account_id },
+                        requested_account_id, block_height, block_hash
+                    } => QueryError::InvalidAccount { requested_account_id, block_height, block_hash },
                     near_chain::near_chain_primitives::error::QueryError::UnknownAccount {
-                        requested_account_id,
-                    } => QueryError::UnknownAccount { requested_account_id },
+                        requested_account_id, block_height, block_hash
+                    } => QueryError::UnknownAccount { requested_account_id, block_height, block_hash },
                     near_chain::near_chain_primitives::error::QueryError::NoContractCode {
-                        contract_account_id,
-                    } => QueryError::NoContractCode { contract_account_id },
+                        contract_account_id, block_height, block_hash
+                    } => QueryError::NoContractCode { contract_account_id, block_height, block_hash },
                     near_chain::near_chain_primitives::error::QueryError::UnknownAccessKey {
-                        public_key,
-                    } => QueryError::UnknownAccessKey { public_key },
+                        public_key, block_height, block_hash
+                    } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
                     near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
-                        error_message,
-                    } => QueryError::ContractExecutionError { vm_error: error_message },
+                        error_message, block_hash, block_height
+                    } => QueryError::ContractExecutionError { vm_error: error_message, block_height, block_hash },
                 })
             }
         } else {
