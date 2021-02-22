@@ -278,8 +278,6 @@ fn main() {
                 })
                 .unwrap();
         }
-        SubCommand::Init(config) => {
-            near_indexer::indexer_init_configs(&home_dir, config.into())
-        }
+        SubCommand::Init(config) => near_indexer::indexer_init_configs(&home_dir, config.into()),
     }
 }
