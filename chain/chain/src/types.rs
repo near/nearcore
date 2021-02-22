@@ -572,7 +572,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
-        part: &Vec<u8>,
+        part: &[u8],
     ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.

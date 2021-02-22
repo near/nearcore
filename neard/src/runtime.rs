@@ -1358,7 +1358,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
-        data: &Vec<u8>,
+        data: &[u8],
     ) -> Result<(), Error> {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");

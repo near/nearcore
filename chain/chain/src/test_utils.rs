@@ -842,7 +842,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &StateRoot,
         part_id: u64,
         _num_parts: u64,
-        data: &Vec<u8>,
+        data: &[u8],
     ) -> Result<(), Error> {
         if part_id != 0 {
             return Ok(());

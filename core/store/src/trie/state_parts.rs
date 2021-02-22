@@ -1,4 +1,3 @@
-use std::cmp::min;
 use std::collections::HashMap;
 
 use near_primitives::challenge::PartialState;
@@ -26,13 +25,9 @@ impl Trie {
     ) -> Result<PartialState, StorageError> {
         assert!(part_id < num_parts);
         assert!(self.storage.as_caching_storage().is_some());
-        let root_node = self.retrieve_node(&state_root)?;
-        let total_size = root_node.memory_usage;
-        let size_start = (total_size + num_parts - 1) / num_parts * part_id;
-        let size_end = min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
 
         let with_recording = self.recording_reads();
-        with_recording.visit_nodes_for_size_range(&state_root, size_start, size_end)?;
+        with_recording.visit_nodes_for_state_part(&state_root, part_id, num_parts)?;
         let recorded = with_recording.recorded_storage().unwrap();
 
         let trie_nodes = recorded.nodes;
@@ -47,24 +42,19 @@ impl Trie {
     ///
     /// Creating a StatePart takes all these nodes, validating a StatePart checks that it has the
     /// right set of nodes.
-    fn visit_nodes_for_size_range(
+    fn visit_nodes_for_state_part(
         &self,
         root_hash: &CryptoHash,
-        size_start: u64,
-        size_end: u64,
+        part_id: u64,
+        num_parts: u64,
     ) -> Result<(), StorageError> {
-        let root_node = self.retrieve_node(&root_hash)?;
-        let path_begin = self.find_path(&root_node, size_start)?;
-        let path_end = if size_end == root_node.memory_usage {
-            vec![16]
-        } else {
-            self.find_path(&root_node, size_end)?
-        };
+        let path_begin = self.find_path_for_part_boundary(root_hash, part_id, num_parts)?;
+        let path_end = self.find_path_for_part_boundary(root_hash, part_id + 1, num_parts)?;
         let mut iterator = self.iter(&root_hash)?;
         iterator.visit_nodes_interval(&path_begin, &path_end)?;
 
         // Extra nodes for compatibility with the previous version of computing state parts
-        if size_end != root_node.memory_usage {
+        if part_id + 1 != num_parts {
             let mut iterator = TrieIterator::new(&self, root_hash)?;
             let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
             iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0)?;
@@ -74,6 +64,24 @@ impl Trie {
         }
 
         Ok(())
+    }
+
+    /// Part part_id has nodes with paths [ path(part_id) .. path(part_id + 1) )
+    /// path is returned as nibbles, last path is vec![16], previous paths end in nodes
+    fn find_path_for_part_boundary(
+        &self,
+        state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+    ) -> Result<Vec<u8>, StorageError> {
+        assert!(part_id <= num_parts);
+        if part_id == num_parts {
+            return Ok(vec![16]);
+        }
+        let root_node = self.retrieve_node(&state_root)?;
+        let total_size = root_node.memory_usage;
+        let size_start = (total_size + num_parts - 1) / num_parts * part_id;
+        self.find_path(&root_node, size_start)
     }
 
     fn find_child(
@@ -157,12 +165,7 @@ impl Trie {
         let num_nodes = trie_nodes.0.len();
         let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes });
 
-        let root_node = trie.retrieve_node(&state_root)?;
-        let total_size = root_node.memory_usage;
-        let size_start = (total_size + num_parts - 1) / num_parts * part_id;
-        let size_end = min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
-
-        trie.visit_nodes_for_size_range(&state_root, size_start, size_end)?;
+        trie.visit_nodes_for_state_part(&state_root, part_id, num_parts)?;
         let storage = trie.storage.as_partial_storage().unwrap();
 
         if storage.visited_nodes.borrow().len() != num_nodes {
@@ -185,16 +188,8 @@ impl Trie {
             return Ok(TrieChanges::empty(CryptoHash::default()));
         }
         let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) });
-        let root_node = trie.retrieve_node(&state_root)?;
-        let total_size = root_node.memory_usage;
-        let size_start = (total_size + num_parts - 1) / num_parts * part_id;
-        let size_end = min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
-        let path_begin = trie.find_path(&root_node, size_start)?;
-        let path_end = if size_end == root_node.memory_usage {
-            vec![16]
-        } else {
-            trie.find_path(&root_node, size_end)?
-        };
+        let path_begin = trie.find_path_for_part_boundary(state_root, part_id, num_parts)?;
+        let path_end = trie.find_path_for_part_boundary(state_root, part_id + 1, num_parts)?;
         let mut iterator = TrieIterator::new(&trie, state_root)?;
         let hashes = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
@@ -232,9 +227,9 @@ mod tests {
 
     use crate::test_utils::{create_tries, gen_changes, test_populate_trie};
     use crate::trie::iterator::CrumbStatus;
+    use crate::trie::ValueHandle;
 
     use super::*;
-    use crate::trie::ValueHandle;
 
     impl Trie {
         /// Combines all parts and returns TrieChanges that can be applied to storage.
@@ -406,7 +401,7 @@ mod tests {
             let total_size = root_node.memory_usage;
             let size_start = (total_size + num_parts - 1) / num_parts * part_id;
             let size_end =
-                min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
+                std::cmp::min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
 
             let with_recording = self.recording_reads();
             with_recording.visit_nodes_for_size_range_old(&state_root, size_start, size_end)?;
