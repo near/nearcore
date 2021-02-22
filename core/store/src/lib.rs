@@ -196,6 +196,10 @@ impl StoreUpdate {
         self.transaction.delete(column, key);
     }
 
+    pub fn delete_all(&mut self, column: DBCol) {
+        self.transaction.delete_all(column);
+    }
+
     /// Merge another store update into this one.
     pub fn merge(&mut self, other: StoreUpdate) {
         if let Some(tries) = other.tries {
@@ -221,6 +225,7 @@ impl StoreUpdate {
                 DBOp::UpdateRefcount { col, key, value } => {
                     self.transaction.update_refcount(col, &key, &value)
                 }
+                DBOp::DeleteAll { col } => self.transaction.delete_all(col),
             }
         }
     }
@@ -236,6 +241,7 @@ impl StoreUpdate {
                         DBOp::Insert { col, key, .. } => Some((*col as u8, key)),
                         DBOp::Delete { col, key } => Some((*col as u8, key)),
                         DBOp::UpdateRefcount { .. } => None,
+                        DBOp::DeleteAll { .. } => None,
                     })
                     .collect::<Vec<_>>();
                 non_refcount_keys.len()
@@ -265,6 +271,7 @@ impl fmt::Debug for StoreUpdate {
                     writeln!(f, "  +- {:?} {}", col, to_base(key))?
                 }
                 DBOp::Delete { col, key } => writeln!(f, "  - {:?} {}", col, to_base(key))?,
+                DBOp::DeleteAll { col } => writeln!(f, "  delete all {:?}", col)?,
             }
         }
         writeln!(f, "}}")

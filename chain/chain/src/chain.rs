@@ -919,15 +919,11 @@ impl Chain {
         chain_store_update.commit()?;
 
         // clear all trie data
-        let keys: Vec<Vec<u8>> =
-            self.store().store().iter_prefix(ColState, &[]).map(|kv| kv.0.into()).collect();
+
         let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
         let mut store_update = StoreUpdate::new_with_tries(tries);
-        for key in keys.iter() {
-            store_update.delete(ColState, key.as_ref());
-            chain_store_update.inc_gc_col_state();
-        }
+        store_update.delete_all(ColState);
         chain_store_update.merge(store_update);
 
         // The reason to reset tail here is not to allow Tail be greater than Head
