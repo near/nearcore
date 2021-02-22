@@ -8,7 +8,6 @@ pub use near_crypto;
 use near_crypto::PublicKey;
 pub use near_primitives;
 use near_primitives::runtime::get_insufficient_storage_stake;
-use near_primitives::runtime::in_memory_contract::InMemoryContracts;
 use near_primitives::{
     account::{AccessKey, Account},
     contract::ContractCode,
@@ -1429,6 +1428,7 @@ mod tests {
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
+    use near_primitives::runtime::in_memory_contract::InMemoryContracts;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::{
         AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
