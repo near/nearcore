@@ -439,9 +439,22 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
 
     // Measure the speed of deploying some code.
     let smallest_code = include_bytes!("../test-contract/res/smallest_contract.wasm");
+
+    #[cfg(feature = "protocol_nightly_features")]
+    let code_10k = include_bytes!("../test-contract/res/nightly_small_contract.wasm");
+    #[cfg(not(feature = "protocol_nightly_features"))]
     let code_10k = include_bytes!("../test-contract/res/small_contract.wasm");
+
+    #[cfg(feature = "protocol_nightly_features")]
+    let code_100k = include_bytes!("../test-contract/res/nightly_medium_contract.wasm");
+    #[cfg(not(feature = "protocol_nightly_features"))]
     let code_100k = include_bytes!("../test-contract/res/medium_contract.wasm");
+
+    #[cfg(feature = "protocol_nightly_features")]
+    let code_1m = include_bytes!("../test-contract/res/nightly_large_contract.wasm");
+    #[cfg(not(feature = "protocol_nightly_features"))]
     let code_1m = include_bytes!("../test-contract/res/large_contract.wasm");
+
     let curr_code = RefCell::new(smallest_code.to_vec());
     let mut accounts_deployed = HashSet::new();
     let mut good_code_accounts = HashSet::new();
