@@ -119,6 +119,22 @@ impl<'a> TrieIterator<'a> {
     }
 
     fn descend_into_node(&mut self, node: TrieNodeWithSize) {
+        match &node.node {
+            TrieNode::Empty => {}
+            TrieNode::Leaf(_, _) => {}
+            TrieNode::Branch(children, _) => {
+                let mut hashes = Vec::new();
+                for i in 0..16 {
+                    if let Some(child) = &children[i] {
+                        let hash = child.unwrap_hash();
+                        hashes.push(*hash);
+                    }
+                }
+                // println!("PREFETCHING! {:?}", hashes);
+                // self.trie.storage.prefetch(&hashes);
+            }
+            TrieNode::Extension(_, _) => {}
+        }
         self.trail.push(Crumb { status: CrumbStatus::Entering, node });
     }
 

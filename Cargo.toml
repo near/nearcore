@@ -74,8 +74,8 @@ testlib = { path = "./test-utils/testlib" }
 "ethereum-types:0.10.0" = { path = "./patches/ethereum-types-0.10.0-to-0.11.0" }
 
 [profile.release]
-lto = true        # Enable full link-time optimization.
-codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
+# lto = true        # Enable full link-time optimization.
+# codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 overflow-checks = true
 
 [profile.bench]

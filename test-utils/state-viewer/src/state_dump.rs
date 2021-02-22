@@ -5,8 +5,8 @@ use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountInfo, StateRoot};
-use near_store::TrieIterator;
 use neard::NightshadeRuntime;
+use std::time::{Duration, Instant};
 
 pub fn state_dump(
     runtime: NightshadeRuntime,
@@ -37,9 +37,14 @@ pub fn state_dump(
     let mut records = vec![];
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime.get_trie_for_shard(shard_id as u64);
-        let trie = TrieIterator::new(&trie, &state_root).unwrap();
-        for item in trie {
-            let (key, value) = item.unwrap();
+        let start_time = Instant::now();
+        let mut last_time = start_time;
+        let mut count = 0;
+        let mut size = 0;
+        // trie.for_each_1(&state_root, |(key, value)| {
+        trie.for_each_2(&state_root, |(key, value)| {
+            count += 1;
+            size += key.len() + value.len();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &mut sr {
                     if account.locked > 0 {
@@ -50,7 +55,23 @@ pub fn state_dump(
                 }
                 records.push(sr);
             }
-        }
+            if count % 100 == 0 {
+                let time = Instant::now();
+                if time - last_time > Duration::from_secs(1) {
+                    let total_elapsed = start_time.elapsed();
+                    println!(
+                        "Total time {:?}, count {:?}, size {:?} mb, {:.2} items/sec, {:.2} kb/sec",
+                        total_elapsed,
+                        count,
+                        size as f64 / 1024.0 / 1024.0,
+                        count as f64 / total_elapsed.as_secs_f64(),
+                        size as f64 / total_elapsed.as_secs_f64() / 1024.0
+                    );
+                    last_time = time;
+                }
+            }
+        })
+        .unwrap();
     }
 
     let mut genesis_config = genesis_config.clone();

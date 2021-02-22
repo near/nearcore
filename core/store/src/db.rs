@@ -302,6 +302,7 @@ pub trait Database: Sync + Send {
         DBTransaction { ops: Vec::new() }
     }
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
+    fn multi_get(&self, col: DBCol, keys: &[&[u8]]) -> Result<Vec<Option<Vec<u8>>>, DBError>;
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn iter_without_rc_logic<'a>(
         &'a self,
@@ -404,12 +405,32 @@ impl Database for RocksDB {
     fn as_rocksdb(&self) -> Option<&RocksDB> {
         Some(self)
     }
+
+    fn multi_get(&self, col: DBCol, keys: &[&[u8]]) -> Result<Vec<Option<Vec<u8>>>, DBError> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        // println!("MULTI GET {:?} keys", keys.len());
+        let read_options = rocksdb_read_options();
+        let cf_handle = unsafe { &*self.cfs[col as usize] };
+        let vec =
+            self.db.multi_get_cf_opt(keys.iter().map(|key| (cf_handle, key)), &read_options)?;
+
+        Ok(vec
+            .into_iter()
+            .map(|value| RocksDB::get_with_rc_logic(col, Some(value)))
+            .collect::<Vec<_>>())
+    }
 }
 
 impl Database for TestDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         let result = self.db.read().unwrap()[col as usize].get(key).cloned();
         Ok(RocksDB::get_with_rc_logic(col, result))
+    }
+
+    fn multi_get(&self, col: DBCol, keys: &[&[u8]]) -> Result<Vec<Option<Vec<u8>>>, DBError> {
+        keys.iter().map(|key| self.get(col, key)).collect::<Result<Vec<_>, _>>()
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
@@ -522,7 +543,7 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts.set_target_file_size_base(1024 * 1024 * 64);
     opts.set_compression_per_level(&[]);
     if col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, None);
+        opts.set_merge_operator_associative("refcount merge", RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
     opts

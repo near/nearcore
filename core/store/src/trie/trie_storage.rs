@@ -61,6 +61,10 @@ pub trait TrieStorage {
     fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
         None
     }
+
+    fn prefetch(&self, _hashes: &[CryptoHash]) -> Result<(), StorageError> {
+        Ok(())
+    }
 }
 
 /// Records every value read by retrieve_raw_bytes.
@@ -120,10 +124,10 @@ impl TrieStorage for TrieMemoryPartialStorage {
 
 /// Maximum number of cache entries.
 #[cfg(not(feature = "no_cache"))]
-const TRIE_MAX_CACHE_SIZE: usize = 10000;
+const TRIE_MAX_CACHE_SIZE: usize = 100000;
 
 #[cfg(feature = "no_cache")]
-const TRIE_MAX_CACHE_SIZE: usize = 1;
+const TRIE_MAX_CACHE_SIZE: usize = 100000;
 
 /// Values above this size (in bytes) are never cached.
 /// Note that Trie inner nodes are always smaller than this.
@@ -184,6 +188,30 @@ impl TrieStorage for TrieCachingStorage {
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         Some(self)
+    }
+
+    fn prefetch(&self, hashes: &[CryptoHash]) -> Result<(), StorageError> {
+        let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
+        let mut keys = Vec::new();
+        for hash in hashes {
+            if guard.cache_get(hash).is_some() {
+                continue;
+            }
+            let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
+            keys.push(key);
+        }
+        let seek_keys = keys.iter().map(|key| &key[..]).collect::<Vec<_>>();
+        let values = self
+            .store
+            .multi_get(ColState, &seek_keys)
+            .map_err(|_| StorageError::StorageInternalError)?;
+        for (key, value) in keys.iter().zip(values.into_iter()) {
+            if let Some(value) = value {
+                let hash = CryptoHash::try_from(&key[8..]).unwrap();
+                guard.cache_set(hash, value);
+            }
+        }
+        Ok(())
     }
 }
 

@@ -8,7 +8,7 @@ edition = "2018"
 actix = "0.11.0-beta.2"
 tracing = "0.1.13"
 futures = "0.3.5"
-rocksdb = "0.15.0"
+rocksdb = {path = "../../../rust-rocksdb"}
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1.0.55"
 tokio = { version = "1.1", features = ["time", "sync"] }

@@ -13,6 +13,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ShardId, StateRoot, StateRootNode};
 
+use crate::trie::batching_iterator::TrieBatchingIterator;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -23,6 +24,7 @@ use crate::trie::trie_storage::{
 pub(crate) use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::StorageError;
 
+mod batching_iterator;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
@@ -726,6 +728,13 @@ impl Trie {
 
     pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, StorageError> {
         TrieIterator::new(self, root)
+    }
+
+    pub fn iter_batched<'a>(
+        &'a self,
+        root: &CryptoHash,
+    ) -> Result<TrieBatchingIterator<'a>, StorageError> {
+        TrieBatchingIterator::new(self, root)
     }
 }
 

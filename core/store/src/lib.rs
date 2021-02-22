@@ -58,6 +58,14 @@ impl Store {
         self.storage.get(column, key).map_err(|e| e.into())
     }
 
+    pub fn multi_get(
+        &self,
+        column: DBCol,
+        key: &[&[u8]],
+    ) -> Result<Vec<Option<Vec<u8>>>, io::Error> {
+        self.storage.multi_get(column, key).map_err(|e| e.into())
+    }
+
     pub fn get_ser<T: BorshDeserialize>(
         &self,
         column: DBCol,
