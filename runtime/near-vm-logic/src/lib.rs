@@ -20,5 +20,4 @@ pub use near_primitives_core::types::ProtocolVersion;
 pub use near_vm_errors::{HostError, VMLogicError};
 pub use types::ReturnData;
 
-#[cfg(feature = "costs_counting")]
-pub use gas_counter::EXT_COSTS_COUNTER;
+pub use gas_counter::with_ext_cost_counter;

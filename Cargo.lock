@@ -764,6 +764,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b700ce4376041dcd0a327fd0097c41095743c4c8af8887265942faf1100bd040"
 
 [[package]]
+name = "bytesize"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81a18687293a1546b67c246452202bbbf143d239cb43494cc163da14979082da"
+
+[[package]]
 name = "bytestring"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3188,6 +3194,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
  "validator",
 ]
 
@@ -3292,7 +3299,9 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "actix-rt",
+ "bytesize",
  "futures",
+ "libc",
  "log",
  "near-rust-allocator-proxy",
  "nix",
@@ -3423,9 +3432,9 @@ dependencies = [
 
 [[package]]
 name = "near-rust-allocator-proxy"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74a52d373eeb19962f3a5e05b716957196a124de1484153f6cb081c36f54cb79"
+checksum = "23c662697feef8efc4c80ac3b64ac5d1ddcb385e49a49814294b7283c9fd3d72"
 dependencies = [
  "arr_macro",
  "backtrace",
