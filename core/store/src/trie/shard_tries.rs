@@ -73,10 +73,12 @@ impl ShardTries {
                     shards[shard_id as usize].push((hash, Some(value.clone())));
                 }
                 DBOp::Insert { col, .. } if *col == DBCol::ColState => unreachable!(),
-                DBOp::Delete { col, key } if *col == DBCol::ColState => {
+                DBOp::Delete { col, .. } if *col == DBCol::ColState => unreachable!(),
+                DBOp::DeleteAll { col } if *col == DBCol::ColState => {
                     // Delete is possible in reset_data_pre_state_sync
-                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
-                    shards[shard_id as usize].push((hash, None));
+                    for shard_id in 0..self.caches.len() {
+                        self.caches[shard_id].clear();
+                    }
                 }
                 _ => {}
             }

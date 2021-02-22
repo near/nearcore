@@ -59,3 +59,18 @@ pub(crate) fn init_logging() {
         .with_writer(std::io::stderr)
         .init();
 }
+
+impl From<InitConfigArgs> for near_indexer::InitConfigArgs {
+    fn from(config_args: InitConfigArgs) -> Self {
+        Self {
+            chain_id: config_args.chain_id,
+            account_id: config_args.account_id,
+            test_seed: config_args.test_seed,
+            num_shards: config_args.num_shards,
+            fast: config_args.fast,
+            genesis: config_args.genesis,
+            download: config_args.download,
+            download_genesis_url: config_args.download_genesis_url,
+        }
+    }
+}

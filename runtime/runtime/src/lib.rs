@@ -39,8 +39,7 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
-#[cfg(feature = "costs_counting")]
-pub use near_vm_runner::EXT_COSTS_COUNTER;
+pub use near_vm_runner::with_ext_cost_counter;
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
