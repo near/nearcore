@@ -4311,15 +4311,6 @@ checksum = "643f8f41a8ebc4c5dc4515c82bb8abd397b527fc20fd681b7c011c2aee5d44fb"
 
 [[package]]
 name = "rand"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c618c47cd3ebd209790115ab837de41425723956ad3ce2e6a7f09890947cacb9"
-dependencies = [
- "rand_core 0.3.1",
-]
-
-[[package]]
-name = "rand"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d71dacdc3c88c1fde3885a3be3fbab9f35724e6ce99467f7d9c5026132184ca"
@@ -6578,14 +6569,14 @@ dependencies = [
 
 [[package]]
 name = "zeropool-bn"
-version = "0.5.8"
+version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20ac9988e2c02f306b274baa3a50a00b0a98386b6ba56b063b8f1a7a08ebc184"
+checksum = "756e713befb81061c2eb8ad800c9c41ddfa2bbf4ea58da637aff31d47b937bf2"
 dependencies = [
  "borsh",
  "byteorder",
  "crunchy",
  "lazy_static",
- "rand 0.5.6",
+ "rand 0.8.3",
  "rustc-hex 2.1.0",
 ]
