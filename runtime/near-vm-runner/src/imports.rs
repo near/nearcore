@@ -10,6 +10,7 @@ unsafe impl Sync for ImportReference {}
 
 #[cfg(feature = "wasmer1_vm")]
 use wasmer::{Memory, WasmerEnv};
+
 #[derive(WasmerEnv, Clone)]
 #[cfg(feature = "wasmer1_vm")]
 pub struct NearWasmerEnv {
