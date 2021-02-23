@@ -337,6 +337,11 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: tx_exists method. tx_hash {:?} signer_account_id {:?}",
+                tx_hash,
+                signer_account_id
+            );
             ServerError::Timeout
         })?
     }
@@ -382,6 +387,11 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?}",
+                tx_info,
+                fetch_receipt,
+            );
             TxStatusError::TimeoutError
         })?
     }
@@ -404,6 +414,10 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: tx_polling method. tx_info {:?}",
+                tx_info,
+            );
             timeout_err()
         })?
     }
@@ -615,7 +629,7 @@ impl JsonRpcHandler {
             // Use Finality::None here to make backward compatibility tests work
             RpcQueryRequest { request, block_reference: BlockReference::latest() }
         } else {
-            parse_params::<RpcQueryRequest>(params)?
+            parse_params::<RpcQueryRequest>(params.clone())?
         };
         let query = Query::new(query_request.block_reference, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
@@ -635,6 +649,10 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: query method. params {:?}",
+                params,
+            );
             RpcError::server_error(Some("query has timed out".to_string()))
         })?
     }

@@ -23,5 +23,4 @@ pub use runner::run_vm;
 pub use runner::run_vm_profiled;
 pub use runner::with_vm_variants;
 
-#[cfg(feature = "costs_counting")]
-pub use near_vm_logic::EXT_COSTS_COUNTER;
+pub use near_vm_logic::with_ext_cost_counter;
