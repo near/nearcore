@@ -818,15 +818,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         num_parts: u64,
     ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
+        if part_id != 0 {
+            return Ok(vec![]);
+        }
         let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
         let data = state.try_to_vec().expect("should never fall");
-        let state_size = data.len() as u64;
-        let begin = state_size / num_parts * part_id;
-        let mut end = state_size / num_parts * (part_id + 1);
-        if part_id + 1 == num_parts {
-            end = state_size;
-        }
-        Ok(data[begin as usize..end as usize].to_vec())
+        Ok(data)
     }
 
     fn validate_state_part(
@@ -841,18 +838,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         true
     }
 
-    fn confirm_state(
+    fn apply_state_part(
         &self,
         _shard_id: ShardId,
         state_root: &StateRoot,
-        parts: &Vec<Vec<u8>>,
+        part_id: u64,
+        _num_parts: u64,
+        data: &[u8],
     ) -> Result<(), Error> {
-        let mut data = vec![];
-        for part in parts {
-            data.push(part.clone());
+        if part_id != 0 {
+            return Ok(());
         }
-        let data_flatten: Vec<u8> = data.iter().flatten().cloned().collect();
-        let state = KVState::try_from_slice(&data_flatten).unwrap();
+        let state = KVState::try_from_slice(data).unwrap();
         self.state.write().unwrap().insert(state_root.clone(), state.clone());
         let data = state.try_to_vec()?;
         let state_size = data.len() as u64;
