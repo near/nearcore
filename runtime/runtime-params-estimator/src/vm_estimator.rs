@@ -157,7 +157,7 @@ pub fn cost_to_compile(
         println!(
             "About to compile {}",
             match vm_kind {
-                VMKind::Wasmer => "wasmer",
+                VMKind::Wasmer0 => "wasmer",
                 VMKind::Wasmtime => {
                     if USING_LIGHTBEAM {
                         "wasmtime-lightbeam"
@@ -165,6 +165,7 @@ pub fn cost_to_compile(
                         "wasmtime"
                     }
                 }
+                VMKind::Wasmer1 => "wasmer1",
             }
         );
     };
