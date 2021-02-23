@@ -24,9 +24,11 @@ near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", default-features
 near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
 near-primitives = { path = "../../core/primitives" }
 log = "0.4"
-near-evm-runner = { path = "../near-evm-runner", optional = true }
+near-evm-runner = { path = "../near-evm-runner", opZtretional = true }
 cached = "0.23.0"
 lazy_static = "1.4"
+near-store = { path = "../../core/store" }
+tempfile = "3"
 
 [dev-dependencies]
 assert_matches = "1.3"

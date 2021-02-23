@@ -19,8 +19,11 @@ pub(crate) fn compile_module(
     code: &[u8],
     config: &VMConfig,
 ) -> Result<wasmer_runtime::Module, VMError> {
+    let start = std::time::Instant::now();
     let prepared_code = prepare::prepare_contract(code, config)?;
-    wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error())
+    let r = wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error());
+    println!("compile = {:?}", start.elapsed());
+    return r
 }
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -63,6 +66,7 @@ pub(crate) fn compile_and_serialize_wasmer(
     key: &CryptoHash,
     cache: &dyn CompiledContractCache,
 ) -> Result<wasmer_runtime::Module, VMError> {
+    let start = std::time::Instant::now();
     let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
     let artifact =
         module.cache().map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
@@ -71,6 +75,7 @@ pub(crate) fn compile_and_serialize_wasmer(
         .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
     let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
     cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
+    println!("compile, serialize and cache = {:?}", start.elapsed());
     Ok(module)
 }
 
@@ -109,7 +114,10 @@ fn compile_module_cached_wasmer_impl(
     match cache.get(&(key.0).0) {
         Ok(serialized) => match serialized {
             Some(serialized) => {
-                deserialize_wasmer(serialized.as_slice()).map_err(VMError::CacheError)?
+                let start = std::time::Instant::now();
+                let r = deserialize_wasmer(serialized.as_slice()).map_err(VMError::CacheError)?;
+                println!("deserialize from cache = {:?}", start.elapsed());
+                r
             }
             None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
         },

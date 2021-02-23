@@ -212,6 +212,7 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
+    let start = std::time::Instant::now();
     let module = match cache::compile_module_cached_wasmer(
         &code_hash,
         code,
@@ -223,6 +224,7 @@ pub fn run_wasmer<'a>(
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
+    println!("compile maybe cached = {:?}", start.elapsed());
     let mut memory = WasmerMemory::new(
         wasm_config.limit_config.initial_memory_pages,
         wasm_config.limit_config.max_memory_pages,
