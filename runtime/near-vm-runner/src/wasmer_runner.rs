@@ -155,16 +155,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             }
             RuntimeError::User(data) => {
                 if let Some(err) = data.downcast_ref::<VMLogicError>() {
-                    match err {
-                        VMLogicError::HostError(h) => {
-                            VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
-                        }
-                        VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
-                        VMLogicError::InconsistentStateError(e) => {
-                            VMError::InconsistentStateError(e.clone())
-                        }
-                        VMLogicError::EvmError(_) => unreachable!("Wasm can't return EVM error"),
-                    }
+                    err.into()
                 } else {
                     panic!(
                         "Bad error case! Output is non-deterministic {:?} {:?}",
@@ -210,7 +201,12 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::compile_module_cached_wasmer(&code_hash, code, wasm_config, cache) {
+    let module = match cache::wasmer0_cache::compile_module_cached_wasmer(
+        &code_hash,
+        code,
+        wasm_config,
+        cache,
+    ) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };

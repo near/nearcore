@@ -31,8 +31,9 @@ serde_json = {version= "1", features= ["preserve_order"]}
 [features]
 default = []
 protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
+wasmer0_default = []
 wasmtime_default = []
-
+wasmer1_default = []
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-primitives-core/costs_counting"]
