@@ -566,11 +566,13 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     /// Should be executed after accepting all the parts to set up a new state.
-    fn confirm_state(
+    fn apply_state_part(
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        parts: &Vec<Vec<u8>>,
+        part_id: u64,
+        num_parts: u64,
+        part: &[u8],
     ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
