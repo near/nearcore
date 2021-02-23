@@ -244,7 +244,7 @@ impl BorshDeserialize for WrapG2 {
 /// let multiexp = base64::decode(multiexp_data).unwrap();
 /// let multiexp_result = base64::decode(multiexp_result_data).unwrap();
 /// let result = alt_bn128_g1_multiexp(&multiexp).unwrap();
-/// assert!(multiexp_result == result);
+/// assert_eq!(multiexp_result, result);
 ///
 /// ```
 pub fn alt_bn128_g1_multiexp(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
@@ -288,7 +288,7 @@ pub fn alt_bn128_g1_multiexp(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
 /// let sum = base64::decode(sum_data).unwrap();
 /// let sum_result = base64::decode(sum_result_data).unwrap();
 /// let result = alt_bn128_g1_sum(&sum).unwrap();
-/// assert!(sum_result == result);
+/// assert_eq!(sum_result, result);
 ///
 /// ```
 pub fn alt_bn128_g1_sum(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
@@ -342,7 +342,7 @@ pub fn alt_bn128_g1_sum(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
 /// let pairs_data = "AgAAAHUK2WNxTupDt1oaOshWw3squNVY4PgSyGwGtQYcEWMHJIY1c8C0A3FM466TMq5PSpfDrArT0hpcdfZB7ahoEAQBGgPbBg3Bc03mGw3y1sMJ1WOHDKDKcoevKnSsT+oaKdRvwIF8cDlrJvTm3vAkQe6FvBMrlDvNKKGzreRYqecdEUOjM6W7ZSz6GERlXIDLvjNVCSs6iES0XG65qGuBLR67FmQRS13YfRfUC7rHzAGMhQtSLEHeFBowGoTcGdVdGU+wBJWX8wuD/el5Jt4PdnXI1q/pgrXBp/+ZqfDP6xwfU0pFswaWSENKpoJTUnN7b9DdQCvt1brrBzj7s1/pnxdtrVVnCKXr4tpPSHis+xRTecmMYqr2edoTcyqHPO8eIDGqq8zExaCeqC8Xbot73t71Yn3QRiduupL+Qrl2A04gL7PFXU/wzE7shdWtdV4/mkRZ7IoA9/LU9SH5ACP26QB8VsaiyTYTGsRL/kdG7jMCF7mYi4ZBa4Fy9C/78FDBFw==";
 /// let pairs = base64::decode(pairs_data).unwrap();
 /// let pairs_result = alt_bn128_pairing_check(&pairs).unwrap();
-/// assert_eq!(pairs_result, true);
+/// assert!(pairs_result);
 ///
 /// ```
 pub fn alt_bn128_pairing_check(data: &[u8]) -> crate::logic::Result<bool> {

@@ -33,6 +33,24 @@ use near_primitives::runtime::fees::{
 };
 use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 
+#[cfg(feature = "protocol_nightly_features")]
+lazy_static_include::lazy_static_include_bytes! {
+    SMALLEST_CODE => "../test-contract/res/smallest_contract.wasm",
+
+    CODE_10K => "../test-contract/res/nightly_small_contract.wasm",
+    CODE_100K => "../test-contract/res/nightly_medium_contract.wasm",
+    CODE_1M => "../test-contract/res/nightly_large_contract.wasm",
+}
+
+#[cfg(not(feature = "protocol_nightly_features"))]
+lazy_static_include::lazy_static_include_bytes! {
+    SMALLEST_CODE => "../test-contract/res/smallest_contract.wasm",
+
+    CODE_10K => "../test-contract/res/stable_small_contract.wasm",
+    CODE_100K => "../test-contract/res/stable_medium_contract.wasm",
+    CODE_1M => "../test-contract/res/stable_large_contract.wasm",
+}
+
 /// How much gas there is in a nanosecond worth of computation.
 const GAS_IN_MEASURE_UNIT: u128 = 1_000_000u128;
 
@@ -438,24 +456,8 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     );
 
     // Measure the speed of deploying some code.
-    let smallest_code = include_bytes!("../test-contract/res/smallest_contract.wasm");
 
-    #[cfg(feature = "protocol_nightly_features")]
-    let code_10k = include_bytes!("../test-contract/res/nightly_small_contract.wasm");
-    #[cfg(not(feature = "protocol_nightly_features"))]
-    let code_10k = include_bytes!("../test-contract/res/small_contract.wasm");
-
-    #[cfg(feature = "protocol_nightly_features")]
-    let code_100k = include_bytes!("../test-contract/res/nightly_medium_contract.wasm");
-    #[cfg(not(feature = "protocol_nightly_features"))]
-    let code_100k = include_bytes!("../test-contract/res/medium_contract.wasm");
-
-    #[cfg(feature = "protocol_nightly_features")]
-    let code_1m = include_bytes!("../test-contract/res/nightly_large_contract.wasm");
-    #[cfg(not(feature = "protocol_nightly_features"))]
-    let code_1m = include_bytes!("../test-contract/res/large_contract.wasm");
-
-    let curr_code = RefCell::new(smallest_code.to_vec());
+    let curr_code = RefCell::new(SMALLEST_CODE.to_vec());
     let mut accounts_deployed = HashSet::new();
     let mut good_code_accounts = HashSet::new();
     let good_account = RefCell::new(false);
@@ -487,7 +489,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         measure_transactions(Metric::ActionDeploySmallest, &mut m, &config, None, &mut f, false);
 
     *good_account.borrow_mut() = true;
-    *curr_code.borrow_mut() = code_10k.to_vec();
+    *curr_code.borrow_mut() = CODE_10K.to_vec();
 
     testbed = measure_transactions(
         Metric::ActionDeploy10K,
@@ -506,7 +508,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     }
 
     *good_account.borrow_mut() = false;
-    *curr_code.borrow_mut() = code_100k.to_vec();
+    *curr_code.borrow_mut() = CODE_100K.to_vec();
     testbed = measure_transactions(
         Metric::ActionDeploy100K,
         &mut m,
@@ -515,7 +517,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         &mut f,
         false,
     );
-    *curr_code.borrow_mut() = code_1m.to_vec();
+    *curr_code.borrow_mut() = CODE_1M.to_vec();
     testbed =
         measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
 
@@ -821,8 +823,10 @@ fn get_vm_config(measurement: &Measurements, config: &Config) -> VMConfig {
         // TODO: Figure out whether we need this fee at all. If we do what should be the memory
         // growth cost.
         grow_mem_cost: 1,
-        regular_op_cost: ratio_to_gas(measurement.gas_metric, cost_per_op(measurement.gas_metric))
-            as u32,
+        regular_op_cost: ratio_to_gas(
+            measurement.gas_metric,
+            cost_per_op(measurement.gas_metric, &CODE_1M),
+        ) as u32,
         limit_config: VMLimitConfig::default(),
     }
 }
