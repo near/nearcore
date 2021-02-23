@@ -26,6 +26,11 @@ impl InMemoryContracts {
         Self(Arc::new(RwLock::new(map)))
     }
 
+    /// Get contract in InMemoryContracts cache
+    /// Returns Some(ContractResult) when account is in whitelist and contract cache is valid
+    /// Returns Some(None) when account is in whitelist but contract cache isn't exist (first compile),
+    /// or invalid (another contract being deployed and compiled)
+    /// Returns None when account is not in whitelist
     pub fn get(
         &self,
         account_id: &AccountId,
@@ -36,7 +41,7 @@ impl InMemoryContracts {
                 if k == key {
                     Some(Some(r.clone()))
                 } else {
-                    None
+                    Some(None)
                 }
             }
             Some(None) => Some(None),
