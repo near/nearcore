@@ -161,6 +161,7 @@ impl Default for VMLimitConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[serde(default)]
 pub struct ExtCostsConfig {
     /// Base cost for calling a host function.
     pub base: Gas,
