@@ -1,8 +1,7 @@
 steps:
   - command: |
       source ~/.cargo/env
-      cargo test --locked --workspace
-
+      RUSTFLAGS='-D warnings' cargo test --locked --workspace
     label: "cargo test"
     timeout: 60
     agents:
@@ -11,8 +10,7 @@ steps:
 
   - command: |
       source ~/.cargo/env
-      cargo test --workspace --features nightly_protocol,nightly_protocol_features
-
+      RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features
     label: "cargo test nightly"
     timeout: 60
     agents:
@@ -96,10 +94,9 @@ steps:
       rustup target add wasm32-unknown-unknown
       ./build.sh
       cd ..
-      cargo run --release --package neard --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
-      cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
-      cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric time
-
+      RUSTFLAGS='-D warnings' cargo run --release --package neard --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
+      RUSTFLAGS='-D warnings' cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
+      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric time
     label: "runtime params estimate"
     branches: "!master !beta !stable"
     timeout: 60
@@ -133,8 +130,7 @@ steps:
   - command: |
       source ~/.cargo/env
       rm Cargo.lock
-      cargo build
-
+      RUSTFLAGS='-D warnings' cargo build
     label: "cargo release check"
     timeout: 30
     agents:
