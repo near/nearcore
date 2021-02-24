@@ -184,11 +184,9 @@ def_test_ext!(ext_prepaid_gas, b"ext_prepaid_gas", &(10_u64.pow(14)).to_le_bytes
 def_test_ext!(ext_block_index, b"ext_block_index", &10u64.to_le_bytes());
 def_test_ext!(ext_block_timestamp, b"ext_block_timestamp", &42u64.to_le_bytes());
 def_test_ext!(ext_storage_usage, b"ext_storage_usage", &12u64.to_le_bytes());
-// TODO: mock used_gas
-#[cfg(feature = "protocol_feature_alt_bn128")]
-def_test_ext!(ext_used_gas, b"ext_used_gas", &[228, 239, 71, 100, 4, 0, 0, 0]);
-#[cfg(not(feature = "protocol_feature_alt_bn128"))]
-def_test_ext!(ext_used_gas, b"ext_used_gas", &[68, 129, 90, 96, 4, 0, 0, 0]);
+// Note, the used_gas is not a global used_gas at the beginning of method, but instead a diff
+// in used_gas for computing fib(30) in a loop
+def_test_ext!(ext_used_gas, b"ext_used_gas", &[111, 10, 200, 15, 0, 0, 0, 0]);
 def_test_ext!(
     ext_sha256,
     b"ext_sha256",

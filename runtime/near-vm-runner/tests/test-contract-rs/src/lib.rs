@@ -194,7 +194,6 @@ macro_rules! ext_test_u128 {
 ext_test_u64!(ext_storage_usage, storage_usage);
 ext_test_u64!(ext_block_index, block_index);
 ext_test_u64!(ext_block_timestamp, block_timestamp);
-ext_test_u64!(ext_used_gas, used_gas);
 ext_test_u64!(ext_prepaid_gas, prepaid_gas);
 
 ext_test!(ext_random_seed, random_seed);
@@ -216,6 +215,22 @@ pub unsafe fn ext_sha256() {
     sha256(bytes.len() as u64, bytes.as_ptr() as *const u64 as u64, 0);
     let result = vec![0; register_len(0) as usize];
     read_register(0, result.as_ptr() as *const u64 as u64);
+    value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
+}
+
+#[no_mangle]
+pub unsafe fn ext_used_gas() {
+    let initial_used_gas = used_gas();
+    let mut a = 1;
+    let mut b = 1;
+    for _ in 0..30 {
+        let c = a + b;
+        a = b;
+        b = c;
+    }
+    assert_eq!(a, 1346269);
+    let gas = used_gas() - initial_used_gas;
+    let result = gas.to_le_bytes();
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 
