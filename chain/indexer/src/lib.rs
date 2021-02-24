@@ -127,13 +127,13 @@ impl Indexer {
 pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) {
     init_configs(
         dir,
-        params.chain_id.as_ref().map(AsRef::as_ref),
-        params.account_id.as_ref().map(AsRef::as_ref),
-        params.test_seed.as_ref().map(AsRef::as_ref),
+        params.chain_id.as_deref(),
+        params.account_id.as_deref(),
+        params.test_seed.as_deref(),
         params.num_shards,
         params.fast,
-        params.genesis.as_ref().map(AsRef::as_ref),
+        params.genesis.as_deref(),
         params.download,
-        params.download_genesis_url.as_ref().map(AsRef::as_ref),
+        params.download_genesis_url.as_deref(),
     )
 }
