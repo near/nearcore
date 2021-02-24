@@ -316,7 +316,6 @@ pub enum BlockHeader {
     BlockHeaderV3(Box<BlockHeaderV3>),
 }
 
-#[allow(unused_variables)]
 impl BlockHeader {
     pub fn compute_inner_hash(inner_lite: &[u8], inner_rest: &[u8]) -> CryptoHash {
         let hash_lite = hash(inner_lite);
@@ -344,7 +343,7 @@ impl BlockHeader {
         random_value: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
-        block_ordinal: NumBlocks,
+        #[allow(unused_variables)] block_ordinal: NumBlocks,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         gas_price: Balance,
