@@ -1459,10 +1459,10 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 });
 
                 self.edge_verifier_pool.send(EdgeList(edges.clone()))
-                            .into_actor(self)
-                            .then(move |response, act, ctx| {
-                                match response {
-                                    Ok(false) => act.try_ban_peer(ctx, &peer_id, ReasonForBan::InvalidEdge),
+                    .into_actor(self)
+                    .then(move |response, act, ctx| {
+                        match response {
+                            Ok(false) => act.try_ban_peer(ctx, &peer_id, ReasonForBan::InvalidEdge),
                             Ok(true) => {
                             // Filter known accounts before validating them.
                             let new_accounts = accounts
