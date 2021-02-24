@@ -169,7 +169,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
 }
 
 pub fn run_wasmer<'a>(
-    code_hash: Vec<u8>,
+    code_hash: &[u8],
     code: &[u8],
     method_name: &[u8],
     ext: &mut dyn External,
