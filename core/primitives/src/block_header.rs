@@ -316,6 +316,7 @@ pub enum BlockHeader {
     BlockHeaderV3(Box<BlockHeaderV3>),
 }
 
+#[allow(unused_variables)]
 impl BlockHeader {
     pub fn compute_inner_hash(inner_lite: &[u8], inner_rest: &[u8]) -> CryptoHash {
         let hash_lite = hash(inner_lite);

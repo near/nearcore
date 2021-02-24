@@ -6,6 +6,8 @@ docker-nearcore-nightly:
 
 RUST_OPTIONS:=+stable
 
+export RUSTFLAGS = '-D warnings'
+
 release:
 	cargo $(RUST_OPTIONS) build -p neard --release
 	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --release
