@@ -1,4 +1,5 @@
 #!/bin/bash
+set -ex
 
 # First, measure the size of the file without payload.
 rm -rf target
