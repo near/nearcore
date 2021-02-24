@@ -107,7 +107,7 @@ fn test_evil_deep_recursion() {
                 0,
             )
             .unwrap();
-        if n <= 10000 {
+        if n <= 1000 {
             assert_eq!(
                 res.status,
                 FinalExecutionStatus::SuccessValue(to_base64(&n_bytes)),

@@ -536,12 +536,19 @@ pub unsafe fn recurse() {
     value_return(data.len() as u64, data.as_ptr() as u64);
 }
 
+/// Rust compiler is getting smarter and starts to optimize my deep recursion.
+/// We're going to fight it with a more obscure implementations.
 #[no_mangle]
 fn internal_recurse(n: u64) -> u64 {
     if n <= 1 {
         n
     } else {
-        internal_recurse(n - 1) + 1
+        let a = internal_recurse(n - 1) + 1;
+        if a % 2 == 1 {
+            (a + n) / 2
+        } else {
+            a
+        }
     }
 }
 

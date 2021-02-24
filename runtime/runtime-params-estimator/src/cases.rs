@@ -837,7 +837,7 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
 
     // Compiling small test contract that was used for `noop` function call estimation.
     load_and_compile(
-        &"./test-contract/res/small_contract.wasm".into(),
+        &"./test-contract/res/stable_small_contract.wasm".into(),
         config.metric,
         config.vm_kind,
     )
