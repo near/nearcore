@@ -1449,19 +1449,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::Sync { peer_id, sync_data } => {
                 // Process edges and add new edges to the routing table. Also broadcast new edges.
-                let SyncData { edges, accounts } = sync_data;
-                let edges: Vec<_> = edges
-                    .into_iter()
-                    .filter(|edge| {
-                        if let Some(cur_edge) =
-                            self.routing_table.get_edge(edge.peer0.clone(), edge.peer1.clone())
-                        {
-                            // only consider edges with bigger nonce
-                            return cur_edge.nonce < edge.nonce;
-                        }
-                        true
-                    })
-                    .collect();
+                let SyncData { mut edges, accounts } = sync_data;
+                edges.retain(|edge| {
+                    match self.routing_table.get_edge(edge.peer0.clone(), edge.peer1.clone()) {
+                        // only consider edges with bigger nonce
+                        Some(cur_edge) => cur_edge.nonce < edge.nonce,
+                        None => true,
+                    }
+                });
 
                 self.edge_verifier_pool.send(EdgeList(edges.clone()))
                             .into_actor(self)
