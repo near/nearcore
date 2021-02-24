@@ -93,7 +93,7 @@ steps:
   - command: |
       source ~/.cargo/env
       cd runtime/runtime-params-estimator/test-contract
-      rustup add component wasm32-unknown-unknown
+      rustup target add wasm32-unknown-unknown
       ./build.sh
       cd ..
       cargo run --release --package neard --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
