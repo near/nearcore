@@ -587,17 +587,12 @@ impl JsonRpcHandler {
         let query = Query::new(request_data.block_reference, request_data.request);
         // This match is used here to give backward compatible error message for specific
         // error variants. Should be refactored once structured errors fully shipped
-        match self
-            .view_client_addr
-            .send(query)
-            .await?
-            .map_err(near_jsonrpc_primitives::types::query::RpcQueryError::from)
-        {
+        match self.view_client_addr.send(query).await? {
             Ok(query_response) => {
                 Ok(near_jsonrpc_primitives::types::query::RpcQueryResponse { query_response })
             }
             Err(err) => match err {
-                near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
+                near_client::QueryError::ContractExecutionError {
                     vm_error,
                     block_height,
                     block_hash,
@@ -610,7 +605,7 @@ impl JsonRpcHandler {
                         block_hash,
                     },
                 }),
-                near_jsonrpc_primitives::types::query::RpcQueryError::UnknownAccessKey {
+                near_client::QueryError::UnknownAccessKey {
                     public_key,
                     block_height,
                     block_hash,
@@ -629,7 +624,7 @@ impl JsonRpcHandler {
                         block_hash,
                     },
                 }),
-                _ => Err(err),
+                _ => Err(err.into()),
             },
         }
     }
