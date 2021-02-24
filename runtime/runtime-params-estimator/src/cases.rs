@@ -35,20 +35,20 @@ use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 
 #[cfg(feature = "protocol_nightly_features")]
 lazy_static_include::lazy_static_include_bytes! {
-    SMALLEST_CODE => "../test-contract/res/smallest_contract.wasm",
+    SMALLEST_CODE => "test-contract/res/smallest_contract.wasm",
 
-    CODE_10K => "../test-contract/res/nightly_small_contract.wasm",
-    CODE_100K => "../test-contract/res/nightly_medium_contract.wasm",
-    CODE_1M => "../test-contract/res/nightly_large_contract.wasm",
+    CODE_10K => "test-contract/res/nightly_small_contract.wasm",
+    CODE_100K => "test-contract/res/nightly_medium_contract.wasm",
+    CODE_1M => "test-contract/res/nightly_large_contract.wasm",
 }
 
 #[cfg(not(feature = "protocol_nightly_features"))]
 lazy_static_include::lazy_static_include_bytes! {
-    SMALLEST_CODE => "../test-contract/res/smallest_contract.wasm",
+    SMALLEST_CODE => "test-contract/res/smallest_contract.wasm",
 
-    CODE_10K => "../test-contract/res/stable_small_contract.wasm",
-    CODE_100K => "../test-contract/res/stable_medium_contract.wasm",
-    CODE_1M => "../test-contract/res/stable_large_contract.wasm",
+    CODE_10K => "test-contract/res/stable_small_contract.wasm",
+    CODE_100K => "test-contract/res/stable_medium_contract.wasm",
+    CODE_1M => "test-contract/res/stable_large_contract.wasm",
 }
 
 /// How much gas there is in a nanosecond worth of computation.

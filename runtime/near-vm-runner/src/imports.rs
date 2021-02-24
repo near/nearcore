@@ -133,6 +133,7 @@ macro_rules! wrapped_imports {
                 import_object
             }
 
+            #[allow(unused_variables)]
             #[cfg(feature = "wasmer1_vm")]
             pub(crate) fn build_wasmer1(
                 store: &wasmer::Store,

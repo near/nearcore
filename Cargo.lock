@@ -3624,9 +3624,11 @@ version = "3.0.0"
 dependencies = [
  "anyhow",
  "assert_matches",
+ "base64 0.13.0",
  "bencher",
  "borsh",
  "cached",
+ "lazy-static-include",
  "log",
  "near-evm-runner",
  "near-primitives",

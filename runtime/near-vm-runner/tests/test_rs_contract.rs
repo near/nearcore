@@ -13,7 +13,15 @@ use self::test_utils::{
     SIGNER_ACCOUNT_PK,
 };
 
-const TEST_CONTRACT: &'static [u8] = include_bytes!("../tests/res/test_contract_rs.wasm");
+#[cfg(feature = "protocol_feature_alt_bn128")]
+lazy_static_include::lazy_static_include_bytes! {
+    TEST_CONTRACT => "tests/res/nightly_test_contract_rs.wasm",
+}
+
+#[cfg(not(feature = "protocol_feature_alt_bn128"))]
+lazy_static_include::lazy_static_include_bytes! {
+    TEST_CONTRACT => "tests/res/test_contract_rs.wasm",
+}
 
 fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
     if let Some(_) = err {
@@ -177,7 +185,7 @@ def_test_ext!(ext_block_index, b"ext_block_index", &10u64.to_le_bytes());
 def_test_ext!(ext_block_timestamp, b"ext_block_timestamp", &42u64.to_le_bytes());
 def_test_ext!(ext_storage_usage, b"ext_storage_usage", &12u64.to_le_bytes());
 // TODO: mock used_gas
-def_test_ext!(ext_used_gas, b"ext_used_gas", &[132, 156, 14, 81, 4, 0, 0, 0]);
+// def_test_ext!(ext_used_gas, b"ext_used_gas", &[132, 156, 14, 81, 4, 0, 0, 0]);
 def_test_ext!(
     ext_sha256,
     b"ext_sha256",
@@ -219,6 +227,30 @@ def_test_ext!(
     &(100u128 + 1).to_le_bytes(),
     &[],
     vec![("alice", 100), ("bob", 1)]
+);
+
+#[cfg(feature = "protocol_feature_alt_bn128")]
+def_test_ext!(
+    ext_alt_bn128_pairing_check,
+    b"ext_alt_bn128_pairing_check",
+    &[1],
+    &base64::decode("AgAAAHUK2WNxTupDt1oaOshWw3squNVY4PgSyGwGtQYcEWMHJIY1c8C0A3FM466TMq5PSpfDrArT0hpcdfZB7ahoEAQBGgPbBg3Bc03mGw3y1sMJ1WOHDKDKcoevKnSsT+oaKdRvwIF8cDlrJvTm3vAkQe6FvBMrlDvNKKGzreRYqecdEUOjM6W7ZSz6GERlXIDLvjNVCSs6iES0XG65qGuBLR67FmQRS13YfRfUC7rHzAGMhQtSLEHeFBowGoTcGdVdGU+wBJWX8wuD/el5Jt4PdnXI1q/pgrXBp/+ZqfDP6xwfU0pFswaWSENKpoJTUnN7b9DdQCvt1brrBzj7s1/pnxdtrVVnCKXr4tpPSHis+xRTecmMYqr2edoTcyqHPO8eIDGqq8zExaCeqC8Xbot73t71Yn3QRiduupL+Qrl2A04gL7PFXU/wzE7shdWtdV4/mkRZ7IoA9/LU9SH5ACP26QB8VsaiyTYTGsRL/kdG7jMCF7mYi4ZBa4Fy9C/78FDBFw==").unwrap()
+);
+
+#[cfg(feature = "protocol_feature_alt_bn128")]
+def_test_ext!(
+    ext_alt_bn128_g1_sum,
+    b"ext_alt_bn128_g1_sum",
+    &base64::decode("6I9NGC6Ikzk7Xw/CIippAtOEsTx4TodcXRjzzu5TLh4EIPsrWPsfnQMtqKfMMF+SHgSphZseRKyej9jTVCT8Aw==").unwrap(),
+    &base64::decode("AgAAAADs00QWBTHQDDU1J1FtsDVGC5rDTICkFAtdvqNcFVO0EsRf4pf1kU9yNWyaj2ligWxqnoZGLtEEu3Ldp8+dgkQpAT+SS7pJZ4ql4b8tnwGv8W020cyHrmLCU15/Hp+LLCsDb34dEXKnY0BG4EoWCfaLdEAFcmAKKBbqXEqkAlbaTDA=").unwrap()
+);
+
+#[cfg(feature = "protocol_feature_alt_bn128")]
+def_test_ext!(
+    ext_alt_bn128_g1_multiexp,
+    b"ext_alt_bn128_g1_multiexp",
+    &base64::decode("qoK67D1yppH5iP0qhCrD8Ms+idcZtEry4EegUtSpIylhCyZNbRQ0xVdRe9hQBxZIovzCMwFRMAdcZ5FB+QA6Lg==").unwrap(),
+    &base64::decode("AgAAAOzTRBYFMdAMNTUnUW2wNUYLmsNMgKQUC12+o1wVU7QSxF/il/WRT3I1bJqPaWKBbGqehkYu0QS7ct2nz52CRCn3EXSIf0p4ORYJ7mRmZLWtUyGrqlKl/4DNx2kHDEUrET+SS7pJZ4ql4b8tnwGv8W020cyHrmLCU15/Hp+LLCsD2H5fx6TkvPtG6iZSiHT1Ih1TDyGsHTrOzFWN3hx0FwAaB2tgYeH+WuEKReDHNFmxyi8v597Ji5NP4PU8bZXkGQ==").unwrap()
 );
 
 #[test]
