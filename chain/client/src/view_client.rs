@@ -252,7 +252,7 @@ impl ViewClientActor {
                 Err(query_error) => Err(match query_error {
                     near_chain::near_chain_primitives::error::QueryError::InternalError {
                         error_message, ..
-                    } => QueryError::Unreachable { error_message },
+                    } => QueryError::InternalError { error_message },
                     near_chain::near_chain_primitives::error::QueryError::InvalidAccount {
                         requested_account_id, block_height, block_hash
                     } => QueryError::InvalidAccount { requested_account_id, block_height, block_hash },

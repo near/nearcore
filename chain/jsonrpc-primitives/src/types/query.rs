@@ -145,7 +145,7 @@ impl RpcQueryRequest {
 impl From<near_client_primitives::types::QueryError> for RpcQueryError {
     fn from(error: near_client_primitives::types::QueryError) -> Self {
         match error {
-            near_client_primitives::types::QueryError::IOError { error_message } => {
+            near_client_primitives::types::QueryError::InternalError { error_message } => {
                 Self::InternalError { error_message }
             }
             near_client_primitives::types::QueryError::NoSyncedBlocks => Self::NoSyncedBlocks,

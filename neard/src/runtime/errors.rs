@@ -1,8 +1,6 @@
-use easy_ext::ext;
-
 use near_chain::near_chain_primitives::error::QueryError;
 
-#[ext(FromStateViewerErrors)]
+#[easy_ext::ext(FromStateViewerErrors)]
 impl QueryError {
     pub fn from_call_function_error(
         error: node_runtime::state_viewer::errors::CallFunctionError,

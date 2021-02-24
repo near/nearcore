@@ -188,7 +188,10 @@ fn test_query_account() {
             {
                 account
             } else {
-                panic!("queried account, but received something else: {:?}", query_response.query_response.kind);
+                panic!(
+                    "queried account, but received something else: {:?}",
+                    query_response.query_response.kind
+                );
             };
             assert_eq!(account_info.amount, 0);
             assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
@@ -230,11 +233,15 @@ fn test_query_access_keys() {
             .await
             .unwrap();
         assert_eq!(query_response.query_response.block_height, 0);
-        let access_keys = if let QueryResponseKind::AccessKeyList(access_keys) = query_response.query_response.kind
+        let access_keys = if let QueryResponseKind::AccessKeyList(access_keys) =
+            query_response.query_response.kind
         {
             access_keys
         } else {
-            panic!("queried access keys, but received something else: {:?}", query_response.query_response.kind);
+            panic!(
+                "queried access keys, but received something else: {:?}",
+                query_response.query_response.kind
+            );
         };
         assert_eq!(access_keys.keys.len(), 1);
         assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
@@ -281,11 +288,15 @@ fn test_query_access_key() {
             .await
             .unwrap();
         assert_eq!(query_response.query_response.block_height, 0);
-        let access_key = if let QueryResponseKind::AccessKey(access_keys) = query_response.query_response.kind {
-            access_keys
-        } else {
-            panic!("queried access keys, but received something else: {:?}", query_response.query_response.kind);
-        };
+        let access_key =
+            if let QueryResponseKind::AccessKey(access_keys) = query_response.query_response.kind {
+                access_keys
+            } else {
+                panic!(
+                    "queried access keys, but received something else: {:?}",
+                    query_response.query_response.kind
+                );
+            };
         assert_eq!(access_key.nonce, 0);
         assert_eq!(access_key.permission, AccessKeyPermission::FullAccess.into());
     });
@@ -306,10 +317,14 @@ fn test_query_state() {
             .await
             .unwrap();
         assert_eq!(query_response.query_response.block_height, 0);
-        let state = if let QueryResponseKind::ViewState(state) = query_response.query_response.kind {
+        let state = if let QueryResponseKind::ViewState(state) = query_response.query_response.kind
+        {
             state
         } else {
-            panic!("queried state, but received something else: {:?}", query_response.query_response.kind);
+            panic!(
+                "queried state, but received something else: {:?}",
+                query_response.query_response.kind
+            );
         };
         assert_eq!(state.values.len(), 0);
     });
@@ -331,7 +346,9 @@ fn test_query_call_function() {
             .await
             .unwrap();
         assert_eq!(query_response.query_response.block_height, 0);
-        let call_result = if let QueryResponseKind::CallResult(call_result) = query_response.query_response.kind {
+        let call_result = if let QueryResponseKind::CallResult(call_result) =
+            query_response.query_response.kind
+        {
             call_result
         } else {
             panic!(
@@ -359,7 +376,10 @@ fn test_query_contract_code() {
         let code = if let QueryResponseKind::ViewCode(code) = query_response.query_response.kind {
             code
         } else {
-            panic!("queried code, but received something else: {:?}", query_response.query_response.kind);
+            panic!(
+                "queried code, but received something else: {:?}",
+                query_response.query_response.kind
+            );
         };
         assert_eq!(code.code, Vec::<u8>::new());
         assert_eq!(code.hash.to_string(), "11111111111111111111111111111111");
