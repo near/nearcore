@@ -188,7 +188,7 @@ def_test_ext!(ext_storage_usage, b"ext_storage_usage", &12u64.to_le_bytes());
 #[cfg(feature = "protocol_feature_alt_bn128")]
 def_test_ext!(ext_used_gas, b"ext_used_gas", &[228, 239, 71, 100, 4, 0, 0, 0]);
 #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-def_test_ext!(ext_used_gas, b"ext_used_gas", &[132, 156, 14, 81, 4, 0, 0, 0]);
+def_test_ext!(ext_used_gas, b"ext_used_gas", &[68, 129, 90, 96, 4, 0, 0, 0]);
 def_test_ext!(
     ext_sha256,
     b"ext_sha256",
