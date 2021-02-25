@@ -48,7 +48,7 @@ members = [
 
 [dev-dependencies]
 # Pin dependency to avoid compilation errors
-actix-rt = "=2.0.0-beta.2"
+funty = "=1.1.0"
 
 rand = "0.7"
 

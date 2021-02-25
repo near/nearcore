@@ -1011,7 +1011,7 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
     let url = url.clone();
     let path = path.clone();
 
-    actix::System::builder().build().block_on(async move {
+    actix::System::new().block_on(async move {
         let client = actix_web::client::Client::new();
         let mut response =
             client.get(url).send().await.expect("Unable to download the genesis file");

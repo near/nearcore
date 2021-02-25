@@ -40,11 +40,8 @@ impl RpcUser {
         F: FnOnce(JsonRpcClient) -> Fut + 'static,
     {
         let addr = self.addr.clone();
-        System::builder()
-            .stop_on_panic(true)
-            .name("NEAR")
-            .build()
-            .block_on(async move { f(new_client(&format!("http://{}", addr))).await })
+        System::new().block_on(
+            async move { f(new_client(&format!("http://{}", addr))).await })
     }
 
     pub fn new(addr: &str, account_id: AccountId, signer: Arc<dyn Signer>) -> RpcUser {

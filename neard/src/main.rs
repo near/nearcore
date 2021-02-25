@@ -242,13 +242,9 @@ fn main() {
                 near_config.client_config.archive = true;
             }
 
-            System::builder()
-                .name("NEAR")
-                .stop_on_panic(true)
-                .run(move || {
-                    start_with_config(home_dir, near_config);
-                })
-                .unwrap();
+            System::new().block_on(async move {
+                start_with_config(home_dir, near_config);
+            });
         }
         ("unsafe_reset_data", Some(_args)) => {
             let store_path = get_store_path(home_dir);

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use actix::{Addr, Arbiter};
+use actix::Addr;
+use actix_rt::ArbiterHandle;
 use tempfile::{tempdir, TempDir};
 
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -56,7 +57,7 @@ pub fn start_nodes(
     num_lightclient: usize,
     epoch_length: BlockHeightDelta,
     genesis_height: BlockHeight,
-) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<Arbiter>)>) {
+) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>)>) {
     init_integration_logger();
 
     let num_nodes = dirs.len();

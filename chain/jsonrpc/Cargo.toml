@@ -5,9 +5,9 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-actix = "0.11.0-beta.1"
-actix-web = "4.0.0-beta.1"
-actix-cors = { git = "https://github.com/near/actix-extras.git", branch="actix-web-4-beta" }
+actix = "0.11.0-beta.2"
+actix-web = "4.0.0-beta.3"
+actix-cors = { git = "https://github.com/near/actix-extras.git", branch="actix-web-4-beta.3" }
 tokio = { version = "1.1", features = ["full"] }
 futures = "0.3"
 lazy_static = "1.4"

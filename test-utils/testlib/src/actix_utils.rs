@@ -8,20 +8,16 @@ pub struct ShutdownableThread {
 }
 
 impl ShutdownableThread {
-    pub fn start<F>(name: &'static str, f: F) -> ShutdownableThread
+    pub fn start<F>(_name: &'static str, f: F) -> ShutdownableThread
     where
         F: FnOnce() + Send + 'static,
     {
         let (tx, rx) = mpsc::channel();
         let join = std::thread::spawn(move || {
-            System::builder()
-                .name(name)
-                .stop_on_panic(true)
-                .run(move || {
-                    f();
-                    tx.send(System::current()).unwrap();
-                })
-                .unwrap();
+            System::new().block_on(async move {
+                f();
+                tx.send(System::current()).unwrap();
+            });
         });
 
         let actix_system = rx.recv().unwrap();

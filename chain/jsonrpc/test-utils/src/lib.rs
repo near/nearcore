@@ -50,9 +50,8 @@ macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
-        System::builder()
-            .stop_on_panic(true)
-            .run(|| {
+        System::new().block_on(
+            || {
                 let (_view_client_addr, addr) = test_utils::start_all($node_type);
 
                 let $client = new_client(&format!("http://{}", addr));

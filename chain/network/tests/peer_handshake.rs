@@ -59,73 +59,67 @@ fn make_peer_manager(
 fn peer_handshake() {
     init_test_logger();
 
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let (port1, port2) = (open_port(), open_port());
-            let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10).start();
-            let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10).start();
-            WaitOrTimeout::new(
-                Box::new(move |_| {
-                    actix::spawn(pm1.send(GetInfo {}).then(move |res| {
-                        let info = res.unwrap();
-                        if info.num_active_peers == 1 {
-                            System::current().stop();
-                        }
-                        future::ready(())
-                    }));
-                }),
-                100,
-                2000,
-            )
-            .start();
-        })
-        .unwrap();
+    System::new().block_on(async {
+        let (port1, port2) = (open_port(), open_port());
+        let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10).start();
+        let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10).start();
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                actix::spawn(pm1.send(GetInfo {}).then(move |res| {
+                    let info = res.unwrap();
+                    if info.num_active_peers == 1 {
+                        System::current().stop();
+                    }
+                    future::ready(())
+                }));
+            }),
+            100,
+            2000,
+        )
+        .start();
+    });
 }
 
 #[test]
 fn peers_connect_all() {
     init_test_logger();
 
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let port = open_port();
-            let _pm = make_peer_manager("test", port, vec![], 10).start();
-            let mut peers = vec![];
+    System::new().block_on(async {
+        let port = open_port();
+        let _pm = make_peer_manager("test", port, vec![], 10).start();
+        let mut peers = vec![];
 
-            let num_peers = 5;
-            for i in 0..num_peers {
-                let pm =
-                    make_peer_manager(&format!("test{}", i), open_port(), vec![("test", port)], 10);
-                peers.push(pm.start());
-            }
-            let flags = Arc::new(AtomicUsize::new(0));
-            WaitOrTimeout::new(
-                Box::new(move |_| {
-                    for i in 0..num_peers {
-                        let flags1 = flags.clone();
-                        actix::spawn(peers[i].send(GetInfo {}).then(move |res| {
-                            let info = res.unwrap();
-                            if info.num_active_peers > num_peers - 1
-                                && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
-                            {
-                                flags1.fetch_add(1 << i, Ordering::Relaxed);
-                            }
-                            future::ready(())
-                        }));
-                    }
-                    // Stop if all connected to all after exchanging peers.
-                    if flags.load(Ordering::Relaxed) == (1 << num_peers) - 1 {
-                        System::current().stop();
-                    }
-                }),
-                100,
-                10000,
-            )
-            .start();
-        })
-        .unwrap()
+        let num_peers = 5;
+        for i in 0..num_peers {
+            let pm =
+                make_peer_manager(&format!("test{}", i), open_port(), vec![("test", port)], 10);
+            peers.push(pm.start());
+        }
+        let flags = Arc::new(AtomicUsize::new(0));
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                for i in 0..num_peers {
+                    let flags1 = flags.clone();
+                    actix::spawn(peers[i].send(GetInfo {}).then(move |res| {
+                        let info = res.unwrap();
+                        if info.num_active_peers > num_peers - 1
+                            && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
+                        {
+                            flags1.fetch_add(1 << i, Ordering::Relaxed);
+                        }
+                        future::ready(())
+                    }));
+                }
+                // Stop if all connected to all after exchanging peers.
+                if flags.load(Ordering::Relaxed) == (1 << num_peers) - 1 {
+                    System::current().stop();
+                }
+            }),
+            100,
+            10000,
+        )
+        .start();
+    });
 }
 
 /// Check network is able to recover after node restart.
@@ -133,70 +127,65 @@ fn peers_connect_all() {
 fn peer_recover() {
     init_test_logger();
 
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let port0 = open_port();
-            let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 2).start());
-            let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1).start();
+    System::new().block_on(async {
+        let port0 = open_port();
+        let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 2).start());
+        let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1).start();
 
-            let mut pm2 = Arc::new(
-                make_peer_manager("test2", open_port(), vec![("test0", port0)], 1).start(),
-            );
+        let mut pm2 =
+            Arc::new(make_peer_manager("test2", open_port(), vec![("test0", port0)], 1).start());
 
-            let state = Arc::new(AtomicUsize::new(0));
-            let flag = Arc::new(AtomicBool::new(false));
+        let state = Arc::new(AtomicUsize::new(0));
+        let flag = Arc::new(AtomicBool::new(false));
 
-            WaitOrTimeout::new(
-                Box::new(move |_ctx| {
-                    if state.load(Ordering::Relaxed) == 0 {
-                        // Wait a small timeout for connection to be active.
-                        state.store(1, Ordering::Relaxed);
-                    } else if state.load(Ordering::Relaxed) == 1 {
-                        // Stop node2.
-                        let _ = pm2.do_send(StopSignal::new());
-                        state.store(2, Ordering::Relaxed);
-                    } else if state.load(Ordering::Relaxed) == 2 {
-                        // Wait until node0 removes node2 from active validators.
-                        if !flag.load(Ordering::Relaxed) {
-                            let flag1 = flag.clone();
-                            actix::spawn(pm0.send(GetInfo {}).then(move |res| {
-                                if let Ok(info) = res {
-                                    if info.active_peers.len() == 1 {
-                                        flag1.clone().store(true, Ordering::Relaxed);
-                                    }
-                                }
-                                future::ready(())
-                            }));
-                        } else {
-                            state.store(3, Ordering::Relaxed);
-                        }
-                    } else if state.load(Ordering::Relaxed) == 3 {
-                        // Start node2 from scratch again.
-                        pm2 = Arc::new(
-                            make_peer_manager("test2", open_port(), vec![("test0", port0)], 1)
-                                .start(),
-                        );
-
-                        state.store(4, Ordering::Relaxed);
-                    } else if state.load(Ordering::Relaxed) == 4 {
-                        // Wait until node2 is connected with node0
-                        actix::spawn(pm2.send(GetInfo {}).then(|res| {
+        WaitOrTimeout::new(
+            Box::new(move |_ctx| {
+                if state.load(Ordering::Relaxed) == 0 {
+                    // Wait a small timeout for connection to be active.
+                    state.store(1, Ordering::Relaxed);
+                } else if state.load(Ordering::Relaxed) == 1 {
+                    // Stop node2.
+                    let _ = pm2.do_send(StopSignal::new());
+                    state.store(2, Ordering::Relaxed);
+                } else if state.load(Ordering::Relaxed) == 2 {
+                    // Wait until node0 removes node2 from active validators.
+                    if !flag.load(Ordering::Relaxed) {
+                        let flag1 = flag.clone();
+                        actix::spawn(pm0.send(GetInfo {}).then(move |res| {
                             if let Ok(info) = res {
                                 if info.active_peers.len() == 1 {
-                                    System::current().stop();
+                                    flag1.clone().store(true, Ordering::Relaxed);
                                 }
                             }
                             future::ready(())
                         }));
+                    } else {
+                        state.store(3, Ordering::Relaxed);
                     }
-                }),
-                100,
-                10000,
-            )
-            .start();
-        })
-        .unwrap();
+                } else if state.load(Ordering::Relaxed) == 3 {
+                    // Start node2 from scratch again.
+                    pm2 = Arc::new(
+                        make_peer_manager("test2", open_port(), vec![("test0", port0)], 1).start(),
+                    );
+
+                    state.store(4, Ordering::Relaxed);
+                } else if state.load(Ordering::Relaxed) == 4 {
+                    // Wait until node2 is connected with node0
+                    actix::spawn(pm2.send(GetInfo {}).then(|res| {
+                        if let Ok(info) = res {
+                            if info.active_peers.len() == 1 {
+                                System::current().stop();
+                            }
+                        }
+                        future::ready(())
+                    }));
+                }
+            }),
+            100,
+            10000,
+        )
+        .start();
+    });
 }
 
 /// Create two nodes A and B and connect them.
@@ -238,46 +227,41 @@ fn connection_spam_security_test() {
 
     let vec: Arc<RwLock<Vec<TcpStream>>> = Arc::new(RwLock::new(Vec::new()));
     let vec2: Arc<RwLock<Vec<TcpStream>>> = vec.clone();
-    System::builder()
-        .stop_on_panic(true)
-        .run(move || {
-            let arbiter = Arbiter::new();
-            let port = open_port();
+    System::new().block_on(async move {
+        let arbiter = Arbiter::new();
+        let port = open_port();
 
-            let pm = make_peer_manager("test1", port, vec![], 10);
-            let pm = PeerManagerActor::start_in_arbiter(&arbiter, |_ctx| pm);
+        let pm = make_peer_manager("test1", port, vec![], 10);
+        let pm = PeerManagerActor::start_in_arbiter(&arbiter.handle(), |_ctx| pm);
 
-            let addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+        let addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
 
-            while vec.read().unwrap().len() < 100 {
-                if let Ok(stream) =
-                    TcpStream::connect_timeout(&addr.clone(), Duration::from_secs(10))
-                {
-                    vec.write().unwrap().push(stream);
-                }
+        while vec.read().unwrap().len() < 100 {
+            if let Ok(stream) = TcpStream::connect_timeout(&addr.clone(), Duration::from_secs(10)) {
+                vec.write().unwrap().push(stream);
             }
+        }
 
-            let iter = Arc::new(AtomicUsize::new(0));
-            WaitOrTimeout::new(
-                Box::new(move |_| {
-                    let iter = iter.clone();
-                    actix::spawn(pm.send(GetInfo {}).then(move |res| {
-                        let info = res.unwrap();
-                        if info.peer_counter >= 70 {
-                            iter.fetch_add(1, Ordering::SeqCst);
-                            if iter.load(Ordering::SeqCst) >= 10 {
-                                assert_eq!(info.peer_counter, 70);
-                                System::current().stop();
-                            }
+        let iter = Arc::new(AtomicUsize::new(0));
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                let iter = iter.clone();
+                actix::spawn(pm.send(GetInfo {}).then(move |res| {
+                    let info = res.unwrap();
+                    if info.peer_counter >= 70 {
+                        iter.fetch_add(1, Ordering::SeqCst);
+                        if iter.load(Ordering::SeqCst) >= 10 {
+                            assert_eq!(info.peer_counter, 70);
+                            System::current().stop();
                         }
-                        future::ready(())
-                    }));
-                }),
-                100,
-                500000,
-            )
-            .start();
-        })
-        .unwrap();
+                    }
+                    future::ready(())
+                }));
+            }),
+            100,
+            500000,
+        )
+        .start();
+    });
     assert_eq!(vec2.read().unwrap().len(), 100);
 }
