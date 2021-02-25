@@ -1339,35 +1339,30 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> bool {
         assert!(part_id < num_parts);
         match BorshDeserialize::try_from_slice(data) {
-            Ok(trie_nodes) => match Trie::validate_trie_nodes_for_part(
-                state_root,
-                part_id,
-                num_parts,
-                &trie_nodes,
-            ) {
-                Ok(_) => true,
-                // Storage error should not happen
-                Err(_) => false,
-            },
+            Ok(trie_nodes) => {
+                match Trie::validate_trie_nodes_for_part(state_root, part_id, num_parts, trie_nodes)
+                {
+                    Ok(_) => true,
+                    // Storage error should not happen
+                    Err(_) => false,
+                }
+            }
             // Deserialization error means we've got the data from malicious peer
             Err(_) => false,
         }
     }
 
-    fn confirm_state(
+    fn apply_state_part(
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        data: &Vec<Vec<u8>>,
+        part_id: u64,
+        num_parts: u64,
+        data: &[u8],
     ) -> Result<(), Error> {
-        let mut parts = vec![];
-        for part in data {
-            parts.push(
-                BorshDeserialize::try_from_slice(part)
-                    .expect("Part was already validated earlier, so could never fail here"),
-            );
-        }
-        let trie_changes = Trie::combine_state_parts(&state_root, &parts)
+        let part = BorshDeserialize::try_from_slice(data)
+            .expect("Part was already validated earlier, so could never fail here");
+        let trie_changes = Trie::apply_state_part(&state_root, part_id, num_parts, part)
             .expect("combine_state_parts is guaranteed to succeed when each part is valid");
         let tries = self.get_tries();
         let (store_update, _) =
@@ -2269,7 +2264,7 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
-        new_env.runtime.confirm_state(0, &env.state_roots[0], &vec![state_part]).unwrap();
+        new_env.runtime.apply_state_part(0, &env.state_roots[0], 0, 1, &state_part).unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);

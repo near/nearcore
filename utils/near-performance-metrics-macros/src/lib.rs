@@ -115,6 +115,6 @@ fn perf_internal(_attr: TokenStream, item: TokenStream, debug: bool) -> TokenStr
         let output = quote! { #result_item };
         output.into()
     } else {
-        panic!("not a function {:?}");
+        panic!("not a function");
     }
 }

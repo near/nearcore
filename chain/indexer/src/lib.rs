@@ -18,12 +18,34 @@ pub use self::streamer::{
 };
 pub use near_primitives;
 
+/// Config wrapper to simplify signature and usage of `neard::init_configs`
+/// function by making args more explicit via struct
+#[derive(Debug, Clone)]
+pub struct InitConfigArgs {
+    /// chain/network id (localnet, testnet, devnet, betanet)
+    pub chain_id: Option<String>,
+    /// Account ID for the validator key
+    pub account_id: Option<String>,
+    /// Specify private key generated from seed (TESTING ONLY)
+    pub test_seed: Option<String>,
+    /// Number of shards to initialize the chain with
+    pub num_shards: u64,
+    /// Makes block production fast (TESTING ONLY)
+    pub fast: bool,
+    /// Genesis file to use when initialize testnet (including downloading)
+    pub genesis: Option<String>,
+    /// Download the verified NEAR genesis file automatically.
+    pub download: bool,
+    /// Specify a custom download URL for the genesis-file.
+    pub download_genesis_url: Option<String>,
+}
+
 /// Enum to define a mode of syncing for NEAR Indexer
 #[derive(Debug, Clone)]
 pub enum SyncModeEnum {
     /// Real-time syncing, always taking the latest finalized block to stream
     LatestSynced,
-    /// Starts syncing from the block NEAR Indexer was interrupted last time  
+    /// Starts syncing from the block NEAR Indexer was interrupted last time
     FromInterruption,
     /// Specific block height to start syncing from
     BlockHeight(u64),
@@ -98,4 +120,20 @@ impl Indexer {
     ) -> (actix::Addr<near_client::ViewClientActor>, actix::Addr<near_client::ClientActor>) {
         (self.view_client.clone(), self.client.clone())
     }
+}
+
+/// Function that initializes configs for the node which
+/// accepts `InitConfigWrapper` and calls original `init_configs` from `neard`
+pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) {
+    init_configs(
+        dir,
+        params.chain_id.as_deref(),
+        params.account_id.as_deref(),
+        params.test_seed.as_deref(),
+        params.num_shards,
+        params.fast,
+        params.genesis.as_deref(),
+        params.download,
+        params.download_genesis_url.as_deref(),
+    )
 }
