@@ -8,6 +8,7 @@ use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, Ht
 use borsh::BorshDeserialize;
 use futures::Future;
 use futures::{FutureExt, TryFutureExt};
+use log::info;
 use prometheus;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -1038,6 +1039,7 @@ pub fn start_http(
     view_client_addr: Addr<ViewClientActor>,
 ) {
     let RpcConfig { addr, cors_allowed_origins, polling_config, limits_config } = config;
+    info!("Starting http server at {}", addr);
     HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))

@@ -44,7 +44,7 @@ near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
-delay-detector = { path = "../tools/delay_detector", optional = true }
+delay-detector = { path = "../tools/delay_detector"}
 
 [dev-dependencies]
 near-logger-utils = { path = "../test-utils/logger" }

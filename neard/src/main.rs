@@ -31,7 +31,7 @@ static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 fn init_logging(verbose: Option<&str>) {
     let mut env_filter = EnvFilter::new(
         "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,\
-         near-performance-metrics=info,near-rust-allocator-proxy=info",
+         near-performance-metrics=info,near-rust-allocator-proxy=info,near-jsonrpc",
     );
 
     if let Some(module) = verbose {
