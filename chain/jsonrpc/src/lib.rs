@@ -237,6 +237,7 @@ impl JsonRpcHandler {
             "health" => self.health().await,
             "status" => self.status().await,
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
+            "EXPERIMENTAL_protocol_config" => self.protocol_config(request.params).await,
             "tx" => self.tx_status_common(request.params, false).await,
             "EXPERIMENTAL_tx_status" => self.tx_status_common(request.params, true).await,
             "block" => self.block(request.params).await,
@@ -503,6 +504,11 @@ impl JsonRpcHandler {
             Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
             Err(_) => Err(RpcError::server_error::<()>(None)),
         }
+    }
+
+    pub async fn protocol_config(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let _block_reference = parse_params::<BlockReference>(params)?;
+        jsonify(Ok(Ok(&self.genesis_config)))
     }
 
     /// Expose Genesis Config (with internal Runtime Config) without state records to keep the
