@@ -59,7 +59,7 @@ fn test_keyvalue_runtime_balances() {
                         QueryRequest::ViewAccount { account_id: flat_validators[i].to_string() },
                     ))
                     .then(move |res| {
-                        let query_response = res.unwrap().unwrap().unwrap();
+                        let query_response = res.unwrap().unwrap();
                         if let ViewAccount(view_account_result) = query_response.kind {
                             assert_eq!(view_account_result.amount, expected);
                             successful_queries2.fetch_add(1, Ordering::Relaxed);
