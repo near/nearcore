@@ -96,7 +96,7 @@ opt-level = 3 # BLS library is too slow to use in debug
 opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]
-performance_stats = ["neard/performance_stats"]
+performance_stats = ["neard/performance_stats", "near-network/performance_stats"]
 memory_stats = ["neard/memory_stats"]
 c_memory_stats = ["neard/c_memory_stats"]
 expensive_tests = ["neard/expensive_tests"]
