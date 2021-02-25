@@ -588,41 +588,35 @@ impl JsonRpcHandler {
         // This match is used here to give backward compatible error message for specific
         // error variants. Should be refactored once structured errors fully shipped
         match self.view_client_addr.send(query).await? {
-            Ok(query_response) => {
-                Ok(near_jsonrpc_primitives::types::query::RpcQueryResponse { query_response })
-            }
+            Ok(query_response) => Ok(query_response.into()),
             Err(err) => match err {
                 near_client::QueryError::ContractExecutionError {
                     vm_error,
                     block_height,
                     block_hash,
                 } => Ok(near_jsonrpc_primitives::types::query::RpcQueryResponse {
-                    query_response: near_primitives::views::QueryResponse {
-                        kind: near_primitives::views::QueryResponseKind::Error(
-                            near_primitives::views::QueryError { error: vm_error, logs: vec![] },
-                        ),
-                        block_height,
-                        block_hash,
-                    },
+                    kind: near_jsonrpc_primitives::types::query::QueryResponseKind::Error(
+                        near_primitives::views::QueryError { error: vm_error, logs: vec![] },
+                    ),
+                    block_height,
+                    block_hash,
                 }),
                 near_client::QueryError::UnknownAccessKey {
                     public_key,
                     block_height,
                     block_hash,
                 } => Ok(near_jsonrpc_primitives::types::query::RpcQueryResponse {
-                    query_response: near_primitives::views::QueryResponse {
-                        kind: near_primitives::views::QueryResponseKind::Error(
-                            near_primitives::views::QueryError {
-                                error: format!(
-                                    "access key {} does not exist while viewing",
-                                    public_key.to_string()
-                                ),
-                                logs: vec![],
-                            },
-                        ),
-                        block_height,
-                        block_hash,
-                    },
+                    kind: near_jsonrpc_primitives::types::query::QueryResponseKind::Error(
+                        near_primitives::views::QueryError {
+                            error: format!(
+                                "access key {} does not exist while viewing",
+                                public_key.to_string()
+                            ),
+                            logs: vec![],
+                        },
+                    ),
+                    block_height,
+                    block_hash,
                 }),
                 _ => Err(err.into()),
             },
