@@ -1401,7 +1401,7 @@ fn test_process_block_after_state_sync() {
     env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
     env.clients[0]
         .runtime_adapter
-        .confirm_state(0, &chunk_extra.state_root, &vec![state_part])
+        .apply_state_part(0, &chunk_extra.state_root, 0, 1, &state_part)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
     let (_, res) = env.clients[0].process_block(block, Provenance::PRODUCED);

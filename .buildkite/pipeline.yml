@@ -1,25 +1,26 @@
 steps:
-  - command: |
+  - label: "cargo test"
+    command: |
       source ~/.cargo/env
-      cargo test --locked --workspace
+      RUSTFLAGS='-D warnings' cargo test --locked --workspace
   
-    label: "cargo test"
     timeout: 60
     agents:
     - "distro=amazonlinux"
     branches: "!master"
     
-  - command: |
+  - label: "cargo test nightly"
+    command: |
       source ~/.cargo/env
-      cargo test --workspace --features nightly_protocol,nightly_protocol_features,protocol_feature_evm
+      RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,protocol_feature_evm
   
-    label: "cargo test nightly"
     timeout: 60
     agents:
     - "distro=amazonlinux"
     branches: "!master"
   
-  - command: |
+  - label: "sanity checks"
+    command: |
       source ~/.cargo/env
       set -ex
       rustc --version && cargo --version
@@ -27,31 +28,29 @@ steps:
       if [ -e deny.toml ]; then
         cargo-deny --all-features check bans
       fi
-      RUSTFLAGS='-D warnings' cargo check --all --tests --benches --all-features
+      RUSTFLAGS='-D warnings' cargo check --workspace --all-targets --all-features
       python3 scripts/state/update_res.py check
       python3 scripts/check_nightly.py
- 
-    label: "sanity checks"
     timeout: 30
     agents:
     - "distro=amazonlinux"
     branches: "!master"
 
-  - command: |
+  - label: "nearlib test"
+    command: |
       source ~/.cargo/env
       source ~/.nvm/nvm.sh
       source ~/.yarn/yarn.sh
       rustup default nightly-2020-05-15
       rustup target add wasm32-unknown-unknown
       scripts/test_nearlib.sh
-  
-    label: "nearlib test"
     timeout: 20
     agents:
     - "distro=amazonlinux"
     branches: "!master"
 
-  - command: |
+  - label: "backward compatible"
+    command: |
       source ~/.cargo/env
       cd pytest
       pip3 install --user -r requirements.txt
@@ -59,56 +58,53 @@ steps:
       ls ..
       python3 tests/sanity/backward_compatible.py
       ls ../target/debug
-  
     branches: "!master !beta !stable"
     timeout: 30
-    label: "backward compatible"
     agents:
     - "distro=amazonlinux"
 
-  - command: |
+  - label: "upgradable"
+    command: |
       source ~/.cargo/env
       cd pytest
       pip3 install --user -r requirements.txt
       python3 tests/sanity/upgradable.py
-  
     branches: "!master"
     timeout: 30
-    label: "upgradable"
     agents:
     - "distro=amazonlinux"
     
-  - command: |
+  - label: "db migration"
+    command: |
       source ~/.cargo/env
       cd pytest
       pip3 install --user -r requirements.txt
       python3 tests/sanity/db_migration.py
-  
     branches: "!master !beta !stable"
     timeout: 30
-    label: "db migration"
     agents:
     - "distro=amazonlinux"
       
-  - command: |
+  - label: "runtime params estimate"
+    command: |
       source ~/.cargo/env
       cd runtime/runtime-params-estimator
-      cargo run --release --package neard --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
-      cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
-      cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric time
+      RUSTFLAGS='-D warnings' cargo run --release --package neard --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
+      RUSTFLAGS='-D warnings' cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
+      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric time
   
-    label: "runtime params estimate"
     branches: "!master !beta !stable"
     timeout: 60
     agents:
     - "distro=amazonlinux"
     
-  #- trigger: "near-sdk-rs"
-  #  label: "near-sdk-rs tests"
+  #- label: "near-sdk-rs tests"
+  #  trigger: "near-sdk-rs"
   #  branches: "!master"
     
   # Disable rainbow bridge tests as they are temporary broken
-  # - command: |
+  # - label: "rainbow-bridge test"
+  #   command: |
   #    source ~/.cargo/env
   #    source ~/.nvm/nvm.sh
       
@@ -119,7 +115,6 @@ steps:
       
   #    LOCAL_CORE_SRC=.. ci/e2e.sh
   
-  #  label: "rainbow-bridge test"
   #  timeout: 60
   #  agents:
   #  - "queue=default"
@@ -127,12 +122,12 @@ steps:
   #  artifact_paths:
   #  - "rainbow-bridge/logs/**/*.log"
   
-  - command: |
+  - label: "cargo release check"
+    command: |
       source ~/.cargo/env
       rm Cargo.lock
-      cargo build
+      RUSTFLAGS='-D warnings' cargo build
   
-    label: "cargo release check"
     timeout: 30
     agents:
     - "distro=amazonlinux"
@@ -140,7 +135,8 @@ steps:
 
   - wait
   
-  #- command: |
+  #-  label: "coverage"
+  #   command: |
   #    source ~/.cargo/env
   #    if [[ ${BUILDKITE_COMMIT} == "HEAD" ]]; then
   #      export BUILDKITE_COMMIT=$(git rev-parse HEAD)
@@ -148,8 +144,6 @@ steps:
   #    python3 scripts/parallel_coverage.py
   #    cat ./merged_coverage/kcov-merged/coverage.json
   #    curl -s https://codecov.io/bash | bash
-  
-  #  label: "coverage"
   #  key: "coverage"
   #  timeout: 30
   #  agents:
@@ -158,11 +152,14 @@ steps:
   #    - exit_status: 1
   #  branches: "master"
   
-  - trigger: nearcore-release
+  - label: "Trigger Nearcore Release"
+    trigger: nearcore-release
     branches: "master"
     
-  - trigger: nearcore-nightly-release
+  - label: "Trigger Nearcore Nighlty Release"
+    trigger: nearcore-nightly-release
     branches: "master"
 
-  - trigger: nearcore-perf-release
+  - label: "Trigger Nearcore Perf Release"
+    trigger: nearcore-perf-release
     branches: "master"

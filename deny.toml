@@ -127,6 +127,21 @@ skip = [
     # actix 0.11 and actix-rt 2.0 use conflicting versions
     { name = "actix-macros", version = "=0.1.3" },
 
+    # wasmer 1.0 use some newer version of crates than wasmer 0.17 & wasmtime, old ones are skipped here
+    { name = "cranelift-bforest", version = "=0.67.0" },
+    { name = "cranelift-codegen", version = "=0.67.0" },
+    { name = "cranelift-codegen-meta", version = "=0.67.0" },
+    { name = "cranelift-codegen-shared", version = "=0.67.0" },
+    { name = "cranelift-entity", version = "=0.67.0" },
+    { name = "cranelift-frontend", version = "=0.67.0" },
+    { name = "gimli", version = "=0.21.0" },
+    { name = "libloading", version = "=0.5.2" },
+    { name = "regalloc", version = "=0.0.30" },
+    { name = "strsim", version = "=0.8.0" },
+    { name = "wasmparser", version = "=0.57.0" },
+    { name = "which", version = "=3.1.1" },
+    { name = "object", version = "=0.23.0" },
+    
     # hashbrown uses an older version
     { name = "ahash", version = "=0.4.7" },
 ]
