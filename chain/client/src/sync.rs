@@ -424,9 +424,8 @@ impl BlockSync {
             loop {
                 match chain.mut_store().get_next_block_hash(&ret_hash) {
                     Ok(hash) => {
-                        let hash = hash.clone();
-                        if chain.block_exists(&hash)? {
-                            ret_hash = hash;
+                        if chain.block_exists(hash)? {
+                            ret_hash = hash.clone();
                         } else {
                             break;
                         }
