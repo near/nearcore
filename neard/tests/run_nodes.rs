@@ -1,6 +1,7 @@
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
@@ -16,7 +17,7 @@ fn run_nodes(
 ) {
     let mut rng = thread_rng();
     let genesis_height = rng.gen_range(0, 10000);
-    System::new().block_on(async move {
+    run_actix_until_stop(async move {
         let dirs = (0..num_nodes)
             .map(|i| {
                 tempfile::Builder::new()

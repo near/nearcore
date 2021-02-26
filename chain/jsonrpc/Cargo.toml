@@ -32,6 +32,7 @@ near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
+near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

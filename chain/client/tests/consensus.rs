@@ -1,7 +1,13 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod tests {
+    use std::collections::{BTreeMap, HashMap, HashSet};
+    use std::sync::{Arc, RwLock, RwLockWriteGuard};
+
     use actix::{Addr, System};
+    use rand::{thread_rng, Rng};
+
+    use near_actix_test_utils::run_actix_until_stop;
     use near_chain::Block;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, ViewClientActor};
@@ -9,9 +15,6 @@ mod tests {
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::types::BlockHeight;
-    use rand::{thread_rng, Rng};
-    use std::collections::{BTreeMap, HashMap, HashSet};
-    use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
     /// Rotates three independent sets of block producers producing blocks with a very short epoch length.
     /// Occasionally when an endorsement comes, make all the endorsers send a skip message far-ish into
@@ -24,7 +27,7 @@ mod tests {
 
         const HEIGHT_GOAL: u64 = 120;
 
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
             let connectors1 = connectors.clone();

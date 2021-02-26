@@ -7,6 +7,7 @@ use actix::{Actor, AsyncContext, System};
 use futures::FutureExt;
 use tracing::info;
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeout};
@@ -67,7 +68,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
 fn stress_test() {
     init_test_logger_allow_panic();
 
-    System::new().block_on(async {
+    run_actix_until_stop(async {
         let num_nodes = 7;
         let ports: Vec<_> = (0..num_nodes).map(|_| open_port()).collect();
 

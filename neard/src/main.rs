@@ -4,7 +4,6 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 #[cfg(feature = "adversarial")]
 use log::error;
@@ -242,9 +241,11 @@ fn main() {
                 near_config.client_config.archive = true;
             }
 
-            System::new().block_on(async move {
+            let sys = actix::System::new();
+            sys.block_on(async move {
                 start_with_config(home_dir, near_config);
             });
+            sys.run().unwrap();
         }
         ("unsafe_reset_data", Some(_args)) => {
             let store_path = get_store_path(home_dir);

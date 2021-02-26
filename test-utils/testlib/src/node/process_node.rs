@@ -52,7 +52,7 @@ impl Node for ProcessNode {
                 self.state = ProcessNodeState::Running(child);
                 let addr = self.config.rpc_config.addr.clone();
                 thread::sleep(Duration::from_secs(3));
-                System::new().block_on(async move {
+                near_actix_test_utils::run_actix_until_stop(async move {
                     WaitOrTimeout::new(
                         Box::new(move |_| {
                             actix::spawn(

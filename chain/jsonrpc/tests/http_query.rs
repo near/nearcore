@@ -1,6 +1,7 @@
 use actix::System;
 use futures::{future, FutureExt};
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_jsonrpc::client::new_http_client;
 use near_logger_utils::init_test_logger;
 
@@ -11,7 +12,7 @@ pub mod test_utils;
 fn test_status() {
     init_test_logger();
 
-    System::new().block_on(async {
+    run_actix_until_stop(async {
         let (_view_client_addr, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
         let client = new_http_client(&format!("http://{}", addr));

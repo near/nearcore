@@ -8,6 +8,7 @@ use futures::{future, FutureExt};
 use num_rational::Rational;
 use rand::Rng;
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
@@ -90,7 +91,7 @@ fn init_test_staking(
 #[test]
 fn test_stake_nodes() {
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 2;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -163,7 +164,7 @@ fn test_stake_nodes() {
 #[test]
 fn test_validator_kickout() {
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 4;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -318,7 +319,7 @@ fn test_validator_kickout() {
 #[test]
 fn test_validator_join() {
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 4;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -473,7 +474,7 @@ fn test_validator_join() {
 #[test]
 fn test_inflation() {
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 1;
             let dirs = (0..num_nodes)
                 .map(|i| {

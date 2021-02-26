@@ -15,7 +15,6 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards,
 use near_store::test_utils::create_test_store;
 use neard::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 
-pub mod actix_utils;
 pub mod fees_utils;
 pub mod node;
 pub mod runtime_utils;

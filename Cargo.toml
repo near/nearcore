@@ -31,6 +31,7 @@ members = [
     "chain/jsonrpc/test-utils",
     "chain/jsonrpc-primitives",
     "chain/rosetta-rpc",
+    "test-utils/actix-test-utils",
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",

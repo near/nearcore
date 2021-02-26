@@ -37,6 +37,7 @@ delay-detector = { path = "../../tools/delay_detector", optional = true}
 
 [dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}
+near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 tempfile = "3"
 bencher = "0.1.5"
 

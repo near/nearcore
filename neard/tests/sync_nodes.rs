@@ -6,6 +6,7 @@ use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_chain::{Block, Chain};
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
@@ -113,7 +114,7 @@ fn sync_nodes() {
 
         let (genesis, genesis_block, near1, near2) = setup_configs();
 
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let (client1, _, _) = start_with_config(dir1.path(), near1);
 
@@ -151,7 +152,7 @@ fn sync_after_sync_nodes() {
 
         let (genesis, genesis_block, near1, near2) = setup_configs();
 
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let (client1, _, _) = start_with_config(dir1.path(), near1);
 
@@ -221,7 +222,7 @@ fn sync_state_stake_change() {
         near2.client_config.min_num_peers = 1;
         near2.client_config.skip_sync_wait = false;
 
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let dir1 =
                 tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
             let dir2 =

@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_client::{GetBlock, GetChunk};
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeout;
@@ -13,7 +14,7 @@ use testlib::{start_nodes, test_helpers::heavy_test};
 fn track_shards() {
     init_integration_logger();
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 4;
             let dirs = (0..num_nodes)
                 .map(|i| {

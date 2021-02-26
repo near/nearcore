@@ -2990,6 +2990,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-actix-test-utils"
+version = "0.1.0"
+dependencies = [
+ "actix",
+]
+
+[[package]]
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
@@ -3080,6 +3087,7 @@ dependencies = [
  "lazy_static",
  "linked-hash-map",
  "log",
+ "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
  "near-chunks",
@@ -3232,6 +3240,7 @@ dependencies = [
  "borsh",
  "futures",
  "lazy_static",
+ "near-actix-test-utils",
  "near-chain-configs",
  "near-client",
  "near-crypto",
@@ -3325,6 +3334,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "log",
+ "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -3642,6 +3652,7 @@ dependencies = [
  "jemallocator",
  "lazy_static",
  "log",
+ "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
  "near-chunks",
@@ -5483,6 +5494,7 @@ dependencies = [
  "hex",
  "lazy_static",
  "log",
+ "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
  "near-client",

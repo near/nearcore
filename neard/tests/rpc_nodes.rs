@@ -6,6 +6,7 @@ use borsh::BorshSerialize;
 use futures::future::join_all;
 use futures::{future, FutureExt, TryFutureExt};
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_client::{GetBlock, GetExecutionOutcome, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
@@ -43,7 +44,7 @@ macro_rules! panic_on_rpc_error {
 fn test_tx_propagation() {
     init_integration_logger();
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 4;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -129,7 +130,7 @@ fn test_tx_propagation() {
 fn test_tx_propagation_through_rpc() {
     init_integration_logger();
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 4;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -199,7 +200,7 @@ fn test_tx_propagation_through_rpc() {
 fn test_tx_status_with_light_client() {
     init_integration_logger();
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 4;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -276,7 +277,7 @@ fn test_tx_status_with_light_client() {
 fn test_tx_status_with_light_client1() {
     init_integration_logger();
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 4;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -351,7 +352,7 @@ fn test_tx_status_with_light_client1() {
 fn test_rpc_routing() {
     init_integration_logger();
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 4;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -400,7 +401,7 @@ fn test_rpc_routing() {
 fn test_rpc_routing_error() {
     init_integration_logger();
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 4;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -448,7 +449,7 @@ fn test_rpc_routing_error() {
 fn test_get_validator_info_rpc() {
     init_integration_logger();
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 1;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -524,7 +525,7 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
 fn test_get_execution_outcome(is_tx_successful: bool) {
     init_integration_logger();
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 2;
             let dirs = (0..num_nodes)
                 .map(|i| {
@@ -655,7 +656,7 @@ fn test_get_execution_outcome_tx_failure() {
 fn test_protocol_config_rpc() {
     init_integration_logger();
     heavy_test(|| {
-        System::new().block_on(async move {
+        run_actix_until_stop(async move {
             let num_nodes = 1;
             let dirs = (0..num_nodes)
                 .map(|i| {
