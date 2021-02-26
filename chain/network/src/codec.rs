@@ -5,6 +5,7 @@ use bytes::{Buf, BufMut, BytesMut};
 use log::error;
 use tokio_util::codec::{Decoder, Encoder};
 
+use crate::metrics;
 use crate::types::{PeerMessage, ReasonForBan};
 use near_performance_metrics::framed_write::EncoderCallBack;
 #[cfg(feature = "performance_stats")]
@@ -58,6 +59,7 @@ impl Encoder<Vec<u8>> for Codec {
             {
                 error!("{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", get_tid(), item.len(), buf.capacity());
 
+                near_metrics::inc_counter_by(&metrics::DROPPED_MESSAGES_COUNT, 1);
                 return Err(Error::new(ErrorKind::Other, "Buf max capacity exceeded"));
             }
             // First four bytes is the length of the buffer.
