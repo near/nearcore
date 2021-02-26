@@ -131,11 +131,11 @@ impl ThreadStats {
 
             for entry in stat {
                 info!(
-                    "        func {} {}:{}:{} cnt: {} total: {}ms max: {}ms",
-                    get_tid(),
+                    "        func {}:{}:{} avg: {:.1}ms cnt: {} total: {}ms max: {}ms",
                     (entry.0).0,
                     (entry.0).1,
                     (entry.0).2,
+                    ((entry.1.time.as_nanos()) as f64) / max(entry.1.cnt, 1) as f64 / 1000 as f64,
                     entry.1.cnt,
                     ((entry.1.time.as_millis()) as f64),
                     ((entry.1.max_time.as_millis()) as f64)
