@@ -114,9 +114,6 @@ impl ViewClientRequestManager {
 }
 
 impl ViewClientActor {
-    /// Number of seconds between state requests. More frequent requests will be rejected.
-    const TIME_BETWEEN_STATE_REQUESTS: u64 = 30;
-
     pub fn new(
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
@@ -132,6 +129,7 @@ impl ViewClientActor {
             chain_genesis,
             DoomslugThresholdMode::TwoThirds,
         )?;
+        let view_client_throttle_period = config.view_client_throttle_period;
         Ok(ViewClientActor {
             #[cfg(feature = "adversarial")]
             adv,
@@ -142,10 +140,10 @@ impl ViewClientActor {
             config,
             request_manager,
             state_header_request_cache: Arc::new(Mutex::new(TimedCache::with_lifespan(
-                Self::TIME_BETWEEN_STATE_REQUESTS,
+                view_client_throttle_period,
             ))),
             state_part_request_cache: Arc::new(Mutex::new(TimedCache::with_lifespan(
-                Self::TIME_BETWEEN_STATE_REQUESTS,
+                view_client_throttle_period,
             ))),
         })
     }

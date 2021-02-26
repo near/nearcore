@@ -183,7 +183,7 @@ fn test_state_request() {
     System::builder()
         .stop_on_panic(true)
         .run(|| {
-            let (_, client, view_client) = setup(
+            let (_, _, view_client) = setup(
                 vec![vec!["test"]],
                 1,
                 1,
@@ -198,7 +198,6 @@ fn test_state_request() {
                 100,
                 Utc::now(),
             );
-            let signer = InMemorySigner::from_seed("test", KeyType::ED25519, "test");
             actix::spawn(async move {
                 actix::clock::sleep(Duration::from_millis(500)).await;
                 let block_hash = view_client

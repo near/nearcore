@@ -91,6 +91,8 @@ pub struct ClientConfig {
     pub archive: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
+    /// Number of seconds between state requests for view client.
+    pub view_client_throttle_period: u64,
 }
 
 impl ClientConfig {
@@ -144,6 +146,7 @@ impl ClientConfig {
             archive,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
+            view_client_throttle_period: 0,
         }
     }
 }
