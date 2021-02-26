@@ -70,7 +70,7 @@ pub struct RpcQueryResponse {
     pub block_hash: near_primitives::hash::CryptoHash,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum QueryResponseKind {
     ViewAccount(near_primitives::views::AccountView),

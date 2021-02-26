@@ -9,12 +9,13 @@ use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
 use near_jsonrpc_primitives::rpc::RpcValidatorsOrderedRequest;
+use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::QueryRequest;
 
 #[macro_use]
 pub mod test_utils;
@@ -181,17 +182,14 @@ fn test_query_account() {
             .await
             .unwrap();
         for query_response in [query_response_1, query_response_2, query_response_3].iter() {
-            assert_eq!(query_response.query_response.block_height, 0);
-            assert_eq!(query_response.query_response.block_hash, block_hash);
+            assert_eq!(query_response.block_height, 0);
+            assert_eq!(query_response.block_hash, block_hash);
             let account_info = if let QueryResponseKind::ViewAccount(ref account) =
-                query_response.query_response.kind
+                query_response.kind
             {
                 account
             } else {
-                panic!(
-                    "queried account, but received something else: {:?}",
-                    query_response.query_response.kind
-                );
+                panic!("queried account, but received something else: {:?}", query_response.kind);
             };
             assert_eq!(account_info.amount, 0);
             assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
@@ -232,16 +230,12 @@ fn test_query_access_keys() {
             })
             .await
             .unwrap();
-        assert_eq!(query_response.query_response.block_height, 0);
-        let access_keys = if let QueryResponseKind::AccessKeyList(access_keys) =
-            query_response.query_response.kind
+        assert_eq!(query_response.block_height, 0);
+        let access_keys = if let QueryResponseKind::AccessKeyList(access_keys) = query_response.kind
         {
             access_keys
         } else {
-            panic!(
-                "queried access keys, but received something else: {:?}",
-                query_response.query_response.kind
-            );
+            panic!("queried access keys, but received something else: {:?}", query_response.kind);
         };
         assert_eq!(access_keys.keys.len(), 1);
         assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
@@ -287,16 +281,12 @@ fn test_query_access_key() {
             })
             .await
             .unwrap();
-        assert_eq!(query_response.query_response.block_height, 0);
-        let access_key =
-            if let QueryResponseKind::AccessKey(access_keys) = query_response.query_response.kind {
-                access_keys
-            } else {
-                panic!(
-                    "queried access keys, but received something else: {:?}",
-                    query_response.query_response.kind
-                );
-            };
+        assert_eq!(query_response.block_height, 0);
+        let access_key = if let QueryResponseKind::AccessKey(access_keys) = query_response.kind {
+            access_keys
+        } else {
+            panic!("queried access keys, but received something else: {:?}", query_response.kind);
+        };
         assert_eq!(access_key.nonce, 0);
         assert_eq!(access_key.permission, AccessKeyPermission::FullAccess.into());
     });
@@ -316,15 +306,11 @@ fn test_query_state() {
             })
             .await
             .unwrap();
-        assert_eq!(query_response.query_response.block_height, 0);
-        let state = if let QueryResponseKind::ViewState(state) = query_response.query_response.kind
-        {
+        assert_eq!(query_response.block_height, 0);
+        let state = if let QueryResponseKind::ViewState(state) = query_response.kind {
             state
         } else {
-            panic!(
-                "queried state, but received something else: {:?}",
-                query_response.query_response.kind
-            );
+            panic!("queried state, but received something else: {:?}", query_response.kind);
         };
         assert_eq!(state.values.len(), 0);
     });
@@ -345,15 +331,13 @@ fn test_query_call_function() {
             })
             .await
             .unwrap();
-        assert_eq!(query_response.query_response.block_height, 0);
-        let call_result = if let QueryResponseKind::CallResult(call_result) =
-            query_response.query_response.kind
-        {
+        assert_eq!(query_response.block_height, 0);
+        let call_result = if let QueryResponseKind::CallResult(call_result) = query_response.kind {
             call_result
         } else {
             panic!(
                 "expected a call function result, but received something else: {:?}",
-                query_response.query_response.kind
+                query_response.kind
             );
         };
         assert_eq!(call_result.result.len(), 0);
@@ -372,14 +356,11 @@ fn test_query_contract_code() {
             })
             .await
             .unwrap();
-        assert_eq!(query_response.query_response.block_height, 0);
-        let code = if let QueryResponseKind::ViewCode(code) = query_response.query_response.kind {
+        assert_eq!(query_response.block_height, 0);
+        let code = if let QueryResponseKind::ViewCode(code) = query_response.kind {
             code
         } else {
-            panic!(
-                "queried code, but received something else: {:?}",
-                query_response.query_response.kind
-            );
+            panic!("queried code, but received something else: {:?}", query_response.kind);
         };
         assert_eq!(code.code, Vec::<u8>::new());
         assert_eq!(code.hash.to_string(), "11111111111111111111111111111111");
@@ -586,7 +567,7 @@ fn test_query_view_account_non_existing_account_must_return_error() {
             .unwrap();
 
         assert!(
-            !matches!(query_response.query_response.kind, QueryResponseKind::ViewAccount(_)),
+            !matches!(query_response.kind, QueryResponseKind::ViewAccount(_)),
             "queried view account for not exsiting account, but received success instead of error"
         );
     });
@@ -608,7 +589,7 @@ fn test_view_access_key_non_existing_account_id_and_public_key_must_return_error
             .unwrap();
 
         assert!(
-            !matches!(query_response.query_response.kind, QueryResponseKind::AccessKey(_)),
+            !matches!(query_response.kind, QueryResponseKind::AccessKey(_)),
             "queried access key with not existing account and public key, received success instead of error"
         );
     });
@@ -633,7 +614,7 @@ fn test_call_function_non_existing_account_method_name() {
             .unwrap();
 
         assert!(
-            !matches!(query_response.query_response.kind, QueryResponseKind::CallResult(_)),
+            !matches!(query_response.kind, QueryResponseKind::CallResult(_)),
             "queried call function with not existing account and method name, received success instead of error"
         );
     });
@@ -654,7 +635,7 @@ fn test_view_access_key_list_non_existing_account() {
             .unwrap();
 
         assert!(
-            !matches!(query_response.query_response.kind, QueryResponseKind::AccessKeyList(_)),
+            !matches!(query_response.kind, QueryResponseKind::AccessKeyList(_)),
             "queried access key list with not existing account, received success instead of error"
         );
     });
@@ -676,7 +657,7 @@ fn test_view_state_non_existing_account_invalid_prefix() {
             .unwrap();
 
         assert!(
-            !matches!(query_response.query_response.kind, QueryResponseKind::ViewState(_)),
+            !matches!(query_response.kind, QueryResponseKind::ViewState(_)),
             "queried view account for not exsiting account, but received success instead of error"
         );
     });

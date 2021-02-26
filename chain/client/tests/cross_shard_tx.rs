@@ -163,7 +163,7 @@ mod tests {
     }
 
     fn test_cross_shard_tx_callback(
-        res: Result<Result<Option<QueryResponse>, String>, MailboxError>,
+        res: Result<Result<QueryResponse, near_client::QueryError>, MailboxError>,
         account_id: AccountId,
         connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
         iteration: Arc<AtomicUsize>,
@@ -180,7 +180,7 @@ mod tests {
         min_ratio: Option<f64>,
         max_ratio: Option<f64>,
     ) {
-        let res = res.unwrap().and_then(|r| r.ok_or_else(|| "Request routed".to_string()));
+        let res = res.unwrap();
 
         let query_response = match res {
             Ok(query_response) => query_response,

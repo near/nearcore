@@ -14,7 +14,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    QueryResponse, StatusResponse, ValidatorStakeView,
+    StatusResponse, ValidatorStakeView,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -194,7 +194,11 @@ jsonrpc_client!(pub struct JsonRpcClient {
 impl JsonRpcClient {
     /// This is a soft-deprecated method to do query RPC request with a path and data positional
     /// parameters.
-    pub fn query_by_path(&self, path: String, data: String) -> RpcRequest<QueryResponse> {
+    pub fn query_by_path(
+        &self,
+        path: String,
+        data: String,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::query::RpcQueryResponse> {
         call_method(&self.client, &self.server_addr, "query", [path, data])
     }
 

@@ -19,7 +19,6 @@ use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{BlockId, BlockReference, Finality, TransactionOrReceiptId};
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
-    QueryResponseKind,
 };
 use neard::config::TESTING_INIT_BALANCE;
 use std::sync::atomic::AtomicBool;
@@ -387,7 +386,7 @@ fn test_rpc_routing() {
                                         .query_by_path("account/near.2".to_string(), "".to_string())
                                         .map_err(|err| panic_on_rpc_error!(err))
                                         .map_ok(move |result| match result.kind {
-                                            QueryResponseKind::ViewAccount(account_view) => {
+                                            near_jsonrpc_primitives::types::query::QueryResponseKind::ViewAccount(account_view) => {
                                                 assert_eq!(
                                                     account_view.amount,
                                                     TESTING_INIT_BALANCE
