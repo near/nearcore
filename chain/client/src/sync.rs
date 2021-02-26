@@ -401,7 +401,7 @@ impl BlockSync {
         };
 
         let reference_hash = {
-            // Find the most recent block we known on the canonical chain.
+            // Find the most recent block we know on the canonical chain.
             // In practice the forks from the last final block are very short, so it is
             // acceptable to perform this on each request
             let header = chain.get_block_header(&reference_hash)?;
