@@ -4,11 +4,11 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
-use cached::{Cached, SizedCache};
+use cached::{Cached, SizedCache, TimedCache};
 use log::{debug, error, info, trace, warn};
 
 use near_chain::{
@@ -97,6 +97,8 @@ pub struct ViewClientActor {
     network_adapter: Arc<dyn NetworkAdapter>,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
+    state_header_request_cache: Arc<Mutex<TimedCache<(CryptoHash, ShardId), ()>>>,
+    state_part_request_cache: Arc<Mutex<TimedCache<(CryptoHash, ShardId, u64), ()>>>,
 }
 
 impl ViewClientRequestManager {
@@ -112,6 +114,9 @@ impl ViewClientRequestManager {
 }
 
 impl ViewClientActor {
+    /// Number of seconds between state requests. More frequent requests will be rejected.
+    const TIME_BETWEEN_STATE_REQUESTS: u64 = 30;
+
     pub fn new(
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
@@ -136,6 +141,12 @@ impl ViewClientActor {
             network_adapter,
             config,
             request_manager,
+            state_header_request_cache: Arc::new(Mutex::new(TimedCache::with_lifespan(
+                Self::TIME_BETWEEN_STATE_REQUESTS,
+            ))),
+            state_part_request_cache: Arc::new(Mutex::new(TimedCache::with_lifespan(
+                Self::TIME_BETWEEN_STATE_REQUESTS,
+            ))),
         })
     }
 
@@ -1006,6 +1017,15 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             },
             NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
+                {
+                    let mut cache =
+                        self.state_header_request_cache.lock().expect(POISONED_LOCK_ERR);
+                    if cache.cache_get(&(sync_hash, shard_id)).is_some() {
+                        return NetworkViewClientResponses::NoResponse;
+                    }
+                    cache.cache_set((sync_hash, shard_id), ());
+                }
+
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
                         let header = match self.chain.get_state_response_header(shard_id, sync_hash)
@@ -1078,6 +1098,13 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
+                {
+                    let mut cache = self.state_part_request_cache.lock().expect(POISONED_LOCK_ERR);
+                    if cache.cache_get(&(sync_hash, shard_id, part_id)).is_some() {
+                        return NetworkViewClientResponses::NoResponse;
+                    }
+                    cache.cache_set((sync_hash, shard_id, part_id), ());
+                }
                 trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
