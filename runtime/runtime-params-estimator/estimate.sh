@@ -5,9 +5,9 @@
 vmkind="wasmer"
 features="required"
 
-if [ ! -z "$1" ] then
+if [[ ! -z "$1" ]]; then
   features="$features,$1"
-  if [[ "$1" == *"wasmtime"* ]] || [[ "$1" == *"lightbeam"* ]] then
+  if [[ "$1" == *"wasmtime"* || "$1" == *"lightbeam"* ]]; then
     vmkind="wasmtime";
   fi
 fi
