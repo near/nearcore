@@ -431,9 +431,7 @@ impl BlockSync {
                         }
                     }
                     Err(e) => match e.kind() {
-                        near_chain::ErrorKind::DBNotFoundErr(_) => {
-                            break;
-                        }
+                        near_chain::ErrorKind::DBNotFoundErr(_) => break,
                         _ => return Err(e),
                     },
                 }
