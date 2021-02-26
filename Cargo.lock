@@ -3178,7 +3178,6 @@ dependencies = [
  "borsh",
  "futures",
  "lazy_static",
- "log",
  "near-chain-configs",
  "near-client",
  "near-crypto",
