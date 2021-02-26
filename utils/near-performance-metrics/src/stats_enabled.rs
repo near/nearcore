@@ -139,7 +139,7 @@ impl ThreadStats {
 
         if show_stats {
             let class_name = format!("{:?}", self.classes);
-            info!(
+            warn!(
                 "    Thread:{} ratio: {:.3} {}:{} Rust mem: {}({}) C mem: {}",
                 tid,
                 ratio,
@@ -169,12 +169,11 @@ impl ThreadStats {
             stat.sort_by(|x, y| (*x).0.cmp(&(*y).0));
 
             for entry in stat {
-                info!(
-                    "        func {}:{}:{} avg: {:.1}ms cnt: {} total: {}ms max: {}ms",
+                warn!(
+                    "        func {}:{}:{} cnt: {} total: {}ms max: {}ms",
                     (entry.0).0,
                     (entry.0).1,
                     (entry.0).2,
-                    ((entry.1.time.as_micros()) as f64) / max(entry.1.cnt, 1) as f64 / 1000 as f64,
                     entry.1.cnt,
                     ((entry.1.time.as_millis()) as f64),
                     ((entry.1.max_time.as_millis()) as f64)
