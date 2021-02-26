@@ -3589,6 +3589,7 @@ dependencies = [
  "near-vm-logic",
  "parity-wasm",
  "pwasm-utils",
+ "tracing",
  "wabt",
  "wasmer",
  "wasmer-compiler-singlepass",
@@ -3611,6 +3612,8 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
