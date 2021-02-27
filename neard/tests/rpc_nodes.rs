@@ -78,18 +78,20 @@ fn test_tx_propagation() {
                     // We are sending this tx unstop, just to get over the warm up period.
                     // Probably make sense to stop after 1 time though.
                     actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            actix::spawn(
-                                client
-                                    .broadcast_tx_async(to_base64(&bytes))
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
-                                    .map(drop),
-                            );
+                        if let Ok(Ok(block)) = res {
+                            if block.header.height > 1 {
+                                let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                                let bytes = transaction_copy.try_to_vec().unwrap();
+                                actix::spawn(
+                                    client
+                                        .broadcast_tx_async(to_base64(&bytes))
+                                        .map_err(|err| panic_on_rpc_error!(err))
+                                        .map_ok(move |result| {
+                                            assert_eq!(String::from(&tx_hash_clone), result)
+                                        })
+                                        .map(drop),
+                                );
+                            }
                         }
                         future::ready(())
                     }));
@@ -117,7 +119,7 @@ fn test_tx_propagation() {
                     );
                 }),
                 100,
-                20000,
+                40000,
             )
             .start();
         });
@@ -163,31 +165,35 @@ fn test_tx_propagation_through_rpc() {
                     // We are sending this tx unstop, just to get over the warm up period.
                     // Probably make sense to stop after 1 time though.
                     actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                        if res.unwrap().unwrap().header.height > 10 && !has_sent_tx1.load(SeqCst) {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            actix::spawn(
-                                client
-                                    .broadcast_tx_commit(to_base64(&bytes))
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        if result.status
-                                            == FinalExecutionStatus::SuccessValue("".to_string())
-                                        {
-                                            System::current().stop();
-                                        } else {
-                                            panic!("wrong transaction status");
-                                        }
-                                    })
-                                    .map(drop),
-                            );
-                            has_sent_tx1.store(true, SeqCst);
+                        if let Ok(Ok(block)) = res {
+                            if block.header.height > 10 && !has_sent_tx1.load(SeqCst) {
+                                let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                                let bytes = transaction_copy.try_to_vec().unwrap();
+                                actix::spawn(
+                                    client
+                                        .broadcast_tx_commit(to_base64(&bytes))
+                                        .map_err(|err| panic_on_rpc_error!(err))
+                                        .map_ok(move |result| {
+                                            if result.status
+                                                == FinalExecutionStatus::SuccessValue(
+                                                    "".to_string(),
+                                                )
+                                            {
+                                                System::current().stop();
+                                            } else {
+                                                panic!("wrong transaction status");
+                                            }
+                                        })
+                                        .map(drop),
+                                );
+                                has_sent_tx1.store(true, SeqCst);
+                            }
                         }
                         future::ready(())
                     }));
                 }),
                 100,
-                20000,
+                40000,
             )
             .start();
         });
@@ -233,18 +239,20 @@ fn test_tx_status_with_light_client() {
                     let signer_account_id = transaction_copy.transaction.signer_id.clone();
                     let tx_hash_clone = tx_hash.clone();
                     actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            actix::spawn(
-                                client
-                                    .broadcast_tx_async(to_base64(&bytes))
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
-                                    .map(drop),
-                            );
+                        if let Ok(Ok(block)) = res {
+                            if block.header.height > 1 {
+                                let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                                let bytes = transaction_copy.try_to_vec().unwrap();
+                                actix::spawn(
+                                    client
+                                        .broadcast_tx_async(to_base64(&bytes))
+                                        .map_err(|err| panic_on_rpc_error!(err))
+                                        .map_ok(move |result| {
+                                            assert_eq!(String::from(&tx_hash_clone), result)
+                                        })
+                                        .map(drop),
+                                );
+                            }
                         }
                         future::ready(())
                     }));
@@ -264,7 +272,7 @@ fn test_tx_status_with_light_client() {
                     );
                 }),
                 100,
-                20000,
+                40000,
             )
             .start();
         });
@@ -310,18 +318,20 @@ fn test_tx_status_with_light_client1() {
                     let signer_account_id = transaction_copy.transaction.signer_id.clone();
                     let tx_hash_clone = tx_hash.clone();
                     actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            actix::spawn(
-                                client
-                                    .broadcast_tx_async(to_base64(&bytes))
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
-                                    .map(drop),
-                            );
+                        if let Ok(Ok(block)) = res {
+                            if block.header.height > 1 {
+                                let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                                let bytes = transaction_copy.try_to_vec().unwrap();
+                                actix::spawn(
+                                    client
+                                        .broadcast_tx_async(to_base64(&bytes))
+                                        .map_err(|err| panic_on_rpc_error!(err))
+                                        .map_ok(move |result| {
+                                            assert_eq!(String::from(&tx_hash_clone), result)
+                                        })
+                                        .map(drop),
+                                );
+                            }
                         }
                         future::ready(())
                     }));
@@ -341,7 +351,7 @@ fn test_tx_status_with_light_client1() {
                     );
                 }),
                 100,
-                20000,
+                40000,
             )
             .start();
         });
@@ -369,27 +379,32 @@ fn test_rpc_routing() {
                 Box::new(move |_ctx| {
                     let rpc_addrs_copy = rpc_addrs.clone();
                     actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            actix::spawn(
-                                client
-                                    .query_by_path("account/near.2".to_string(), "".to_string())
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| match result.kind {
-                                        QueryResponseKind::ViewAccount(account_view) => {
-                                            assert_eq!(account_view.amount, TESTING_INIT_BALANCE);
-                                            System::current().stop();
-                                        }
-                                        _ => panic!("wrong query response"),
-                                    })
-                                    .map(drop),
-                            );
+                        if let Ok(Ok(block)) = res {
+                            if block.header.height > 1 {
+                                let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                                actix::spawn(
+                                    client
+                                        .query_by_path("account/near.2".to_string(), "".to_string())
+                                        .map_err(|err| panic_on_rpc_error!(err))
+                                        .map_ok(move |result| match result.kind {
+                                            QueryResponseKind::ViewAccount(account_view) => {
+                                                assert_eq!(
+                                                    account_view.amount,
+                                                    TESTING_INIT_BALANCE
+                                                );
+                                                System::current().stop();
+                                            }
+                                            _ => panic!("wrong query response"),
+                                        })
+                                        .map(drop),
+                                );
+                            }
                         }
                         future::ready(())
                     }));
                 }),
                 100,
-                20000,
+                40000,
             )
             .start();
         });
@@ -418,27 +433,29 @@ fn test_rpc_routing_error() {
                 Box::new(move |_ctx| {
                     let rpc_addrs_copy = rpc_addrs.clone();
                     actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            actix::spawn(
-                                client
-                                    .query_by_path(
-                                        "account/nonexistent".to_string(),
-                                        "".to_string(),
-                                    )
-                                    .map_err(|err| {
-                                        println!("error: {}", err.to_string());
-                                        System::current().stop();
-                                    })
-                                    .map_ok(|_| panic!("wrong query response"))
-                                    .map(drop),
-                            );
+                        if let Ok(Ok(block)) = res {
+                            if block.header.height > 1 {
+                                let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                                actix::spawn(
+                                    client
+                                        .query_by_path(
+                                            "account/nonexistent".to_string(),
+                                            "".to_string(),
+                                        )
+                                        .map_err(|err| {
+                                            println!("error: {}", err.to_string());
+                                            System::current().stop();
+                                        })
+                                        .map_ok(|_| panic!("wrong query response"))
+                                        .map(drop),
+                                );
+                            }
                         }
                         future::ready(())
                     }));
                 }),
                 100,
-                20000,
+                40000,
             )
             .start();
         });
@@ -466,30 +483,31 @@ fn test_get_validator_info_rpc() {
                 Box::new(move |_ctx| {
                     let rpc_addrs_copy = rpc_addrs.clone();
                     actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                        let res = res.unwrap().unwrap();
-                        if res.header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
-                            let block_hash = res.header.hash;
-                            actix::spawn(
-                                client
-                                    .validators(Some(BlockId::Hash(block_hash)))
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(result.current_validators.len(), 1);
-                                        assert!(result
-                                            .current_validators
-                                            .iter()
-                                            .any(|r| r.account_id == "near.0".to_string()));
-                                        System::current().stop();
-                                    })
-                                    .map(drop),
-                            );
+                        if let Ok(Ok(block)) = res {
+                            if block.header.height > 1 {
+                                let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
+                                let block_hash = block.header.hash;
+                                actix::spawn(
+                                    client
+                                        .validators(Some(BlockId::Hash(block_hash)))
+                                        .map_err(|err| panic_on_rpc_error!(err))
+                                        .map_ok(move |result| {
+                                            assert_eq!(result.current_validators.len(), 1);
+                                            assert!(result
+                                                .current_validators
+                                                .iter()
+                                                .any(|r| r.account_id == "near.0".to_string()));
+                                            System::current().stop();
+                                        })
+                                        .map(drop),
+                                );
+                            }
                         }
                         future::ready(())
                     }));
                 }),
                 100,
-                20000,
+                40000,
             )
             .start();
         });
@@ -635,7 +653,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                     }));
                 }),
                 100,
-                20000,
+                40000,
             )
             .start();
         });

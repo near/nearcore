@@ -650,7 +650,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                 }
             });
 
-        near_network::test_utils::wait_or_panic(10000);
+        near_network::test_utils::wait_or_panic(20000);
     });
 }
 
