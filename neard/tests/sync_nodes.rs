@@ -260,7 +260,8 @@ fn sync_state_stake_change() {
                     let dir2_path_copy = dir2_path.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
                     actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
-                        let latest_height = res.unwrap().unwrap().header.height;
+                        let latest_height =
+                            if let Ok(Ok(block)) = res { block.header.height } else { 0 };
                         if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
                             started_copy.store(true, Ordering::SeqCst);
                             let (_, view_client2, arbiters) =
@@ -271,7 +272,7 @@ fn sync_state_stake_change() {
                                 Box::new(move |_ctx| {
                                     actix::spawn(view_client2.send(GetBlock::latest()).then(
                                         move |res| {
-                                            if let Ok(block) = res.unwrap() {
+                                            if let Ok(Ok(block)) = res {
                                                 if block.header.height > latest_height + 1 {
                                                     System::current().stop()
                                                 }
