@@ -3226,6 +3226,8 @@ dependencies = [
  "neard",
  "node-runtime",
  "rocksdb",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
 ]
