@@ -77,7 +77,6 @@ pub enum QueryResponseKind {
     ViewCode(near_primitives::views::ContractCodeView),
     ViewState(near_primitives::views::ViewStateResult),
     CallResult(near_primitives::views::CallResult),
-    Error(near_primitives::views::QueryError),
     AccessKey(near_primitives::views::AccessKeyView),
     AccessKeyList(near_primitives::views::AccessKeyList),
 }
@@ -227,9 +226,6 @@ impl From<near_primitives::views::QueryResponseKind> for QueryResponseKind {
             }
             near_primitives::views::QueryResponseKind::CallResult(call_result) => {
                 Self::CallResult(call_result)
-            }
-            near_primitives::views::QueryResponseKind::Error(query_error) => {
-                Self::Error(query_error)
             }
             near_primitives::views::QueryResponseKind::AccessKey(access_key_view) => {
                 Self::AccessKey(access_key_view)

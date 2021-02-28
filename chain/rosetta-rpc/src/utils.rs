@@ -327,16 +327,16 @@ pub(crate) async fn query_account(
         near_primitives::views::QueryResponseKind::ViewAccount(account_info) => {
             Ok((account_info_response.block_hash, account_info_response.block_height, account_info))
         }
-        near_primitives::views::QueryResponseKind::Error(near_primitives::views::QueryError {
-            error,
-            ..
-        }) => {
-            if error.contains("does not exist") {
-                Err(crate::errors::ErrorKind::NotFound(error))
-            } else {
-                Err(crate::errors::ErrorKind::InternalError(error))
-            }
-        }
+        // near_primitives::views::QueryResponseKind::Error(near_primitives::views::QueryError {
+        //     error,
+        //     ..
+        // }) => {
+        //     if error.contains("does not exist") {
+        //         Err(crate::errors::ErrorKind::NotFound(error))
+        //     } else {
+        //         Err(crate::errors::ErrorKind::InternalError(error))
+        //     }
+        // }
         _ => Err(crate::errors::ErrorKind::InternalInvariantError(format!(
             "queried ViewAccount, but received {:?}.",
             account_info_response.kind
@@ -410,16 +410,16 @@ pub(crate) async fn query_access_key(
             access_key_query_response.block_height,
             access_key,
         )),
-        near_primitives::views::QueryResponseKind::Error(near_primitives::views::QueryError {
-            error,
-            ..
-        }) => {
-            if error.contains("does not exist") {
-                Err(crate::errors::ErrorKind::NotFound(error))
-            } else {
-                Err(crate::errors::ErrorKind::InternalError(error))
-            }
-        }
+        // near_primitives::views::QueryResponseKind::Error(near_primitives::views::QueryError {
+        //     error,
+        //     ..
+        // }) => {
+        //     if error.contains("does not exist") {
+        //         Err(crate::errors::ErrorKind::NotFound(error))
+        //     } else {
+        //         Err(crate::errors::ErrorKind::InternalError(error))
+        //     }
+        // }
         _ => Err(crate::errors::ErrorKind::InternalInvariantError(
             "queried ViewAccessKey, but received something else.".to_string(),
         )),

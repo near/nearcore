@@ -11,7 +11,7 @@ use futures::{FutureExt, TryFutureExt};
 use prometheus;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::time::{sleep, timeout};
 use tracing::info;
 
@@ -175,6 +175,43 @@ fn timeout_err() -> RpcError {
     RpcError::server_error(Some(ServerError::Timeout))
 }
 
+/// This function processes response from query method to introduce
+/// backward compatible response in case of specific errors
+fn process_query_response(query_response: Result<near_jsonrpc_primitives::types::query::RpcQueryResponse, near_jsonrpc_primitives::types::query::RpcQueryError>) -> Result<Value, RpcError> {
+    // This match is used here to give backward compatible error message for specific
+    // error variants. Should be refactored once structured errors fully shipped
+    match query_response {
+        Ok(rpc_query_response) => serde_json::to_value(rpc_query_response)
+            .map_err(|err| RpcError::parse_error(err.to_string())),
+        Err(err) => match err {
+            near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
+                vm_error,
+                block_height,
+                block_hash,
+            } => Ok(json!({
+                "error": vm_error,
+                "logs": json!([]),
+                "block_height": block_height,
+                "block_hash": block_hash,
+            })),
+            near_jsonrpc_primitives::types::query::RpcQueryError::UnknownAccessKey {
+                public_key,
+                block_height,
+                block_hash,
+            } => Ok(json!({
+                "error": format!(
+                    "access key {} does not exist while viewing",
+                    public_key.to_string()
+                ),
+                "logs": json!([]),
+                "block_height": block_height,
+                "block_hash": block_hash,
+            })),
+            _ => Err(err.into()),
+        }
+    }
+}
+
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
@@ -271,9 +308,8 @@ impl JsonRpcHandler {
             "query" => {
                 let rpc_query_request =
                     near_jsonrpc_primitives::types::query::RpcQueryRequest::parse(request.params)?;
-                let query_response = self.query(rpc_query_request).await?;
-                serde_json::to_value(query_response)
-                    .map_err(|err| RpcError::parse_error(err.to_string()))
+                let query_response = self.query(rpc_query_request).await;
+                process_query_response(query_response)
             }
             "status" => self.status().await,
             "tx" => self.tx_status_common(request.params, false).await,
@@ -585,42 +621,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::query::RpcQueryError,
     > {
         let query = Query::new(request_data.block_reference, request_data.request);
-        // This match is used here to give backward compatible error message for specific
-        // error variants. Should be refactored once structured errors fully shipped
-        match self.view_client_addr.send(query).await? {
-            Ok(query_response) => Ok(query_response.into()),
-            Err(err) => match err {
-                near_client::QueryError::ContractExecutionError {
-                    vm_error,
-                    block_height,
-                    block_hash,
-                } => Ok(near_jsonrpc_primitives::types::query::RpcQueryResponse {
-                    kind: near_jsonrpc_primitives::types::query::QueryResponseKind::Error(
-                        near_primitives::views::QueryError { error: vm_error, logs: vec![] },
-                    ),
-                    block_height,
-                    block_hash,
-                }),
-                near_client::QueryError::UnknownAccessKey {
-                    public_key,
-                    block_height,
-                    block_hash,
-                } => Ok(near_jsonrpc_primitives::types::query::RpcQueryResponse {
-                    kind: near_jsonrpc_primitives::types::query::QueryResponseKind::Error(
-                        near_primitives::views::QueryError {
-                            error: format!(
-                                "access key {} does not exist while viewing",
-                                public_key.to_string()
-                            ),
-                            logs: vec![],
-                        },
-                    ),
-                    block_height,
-                    block_hash,
-                }),
-                _ => Err(err.into()),
-            },
-        }
+        Ok(self.view_client_addr.send(query).await??.into())
     }
 
     async fn tx_status_common(
