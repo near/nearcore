@@ -21,8 +21,8 @@ const GAS_3: u64 = GAS_2 / 3;
 fn test_simple_func_call() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(2, 2, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
@@ -58,8 +58,8 @@ fn test_simple_func_call() {
 fn test_single_promise_no_callback() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(3, 3, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"create": {
@@ -117,8 +117,8 @@ fn test_single_promise_no_callback() {
 fn test_single_promise_with_callback() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(4, 4, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"create": {
@@ -201,8 +201,8 @@ fn test_single_promise_with_callback() {
 fn test_two_promises_no_callbacks() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(4, 4, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"create": {
@@ -279,8 +279,8 @@ fn test_two_promises_no_callbacks() {
 fn test_two_promises_with_two_callbacks() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(6, 6, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"create": {
@@ -394,8 +394,8 @@ fn test_two_promises_with_two_callbacks() {
 fn test_single_promise_no_callback_batch() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(3, 3, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -456,8 +456,8 @@ fn test_single_promise_no_callback_batch() {
 fn test_single_promise_with_callback_batch() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(4, 4, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -545,8 +545,8 @@ fn test_single_promise_with_callback_batch() {
 fn test_simple_transfer() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(3, 3, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -604,9 +604,9 @@ fn test_simple_transfer() {
 fn test_create_account_with_transfer_and_full_key() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(3, 2, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
-    let signer_new_account = group.runtimes[2].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+    let signer_new_account = group.signers[2].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -678,9 +678,9 @@ fn test_create_account_with_transfer_and_full_key() {
 fn test_account_factory() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(3, 2, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
-    let signer_new_account = group.runtimes[2].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+    let signer_new_account = group.signers[2].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -836,9 +836,9 @@ fn test_account_factory() {
 fn test_create_account_add_key_call_delete_key_delete_account() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(4, 3, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
-    let signer_new_account = group.runtimes[2].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+    let signer_new_account = group.signers[2].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -967,8 +967,8 @@ fn test_transfer_64len_hex() {
         2,
         wasm_binary,
     );
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -1031,8 +1031,8 @@ fn test_create_transfer_64len_hex_fail() {
         2,
         wasm_binary,
     );
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"batch_create": {

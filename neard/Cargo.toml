@@ -7,7 +7,8 @@ default-run = "neard"
 
 [dependencies]
 jemallocator = { version = "0.3"  }
-actix = "0.11.0-beta.1"
+actix = "0.11.0-beta.2"
+actix-rt = "2"
 actix-web = { version = "4.0.0-beta.1", features = [ "openssl" ] }
 byteorder = "1.2"
 easy-ext = "0.2"
@@ -48,6 +49,7 @@ delay-detector = { path = "../tools/delay_detector"}
 
 [dev-dependencies]
 near-logger-utils = { path = "../test-utils/logger" }
+near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 tempfile = "3"
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }

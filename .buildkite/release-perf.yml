@@ -1,20 +1,18 @@
 steps:
-  - command: |
+  - label: "binary release"
+    command: |
       source ~/.cargo/env
       scripts/binary-release.sh perf-release
-  
-    label: "binary release"
     timeout: 60
     agents:
     - "distro=amazonlinux"
   
   - wait
   
-  - command: |
+  - label: "update latest perf version"
+    command: |
       echo $([ "$BUILDKITE_COMMIT" == HEAD ] && git rev-parse HEAD || echo "$BUILDKITE_COMMIT") > latest
       aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BUILDKITE_BRANCH}/latest-perf
-  
-    label: "update latest perf version"
     timeout: 10
     agents:
     - queue: cheap

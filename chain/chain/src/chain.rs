@@ -919,15 +919,11 @@ impl Chain {
         chain_store_update.commit()?;
 
         // clear all trie data
-        let keys: Vec<Vec<u8>> =
-            self.store().store().iter_prefix(ColState, &[]).map(|kv| kv.0.into()).collect();
+
         let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
         let mut store_update = StoreUpdate::new_with_tries(tries);
-        for key in keys.iter() {
-            store_update.delete(ColState, key.as_ref());
-            chain_store_update.inc_gc_col_state();
-        }
+        store_update.delete_all(ColState);
         chain_store_update.merge(store_update);
 
         // The reason to reset tail here is not to allow Tail be greater than Head
@@ -1741,14 +1737,17 @@ impl Chain {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk_height_included();
         let state_root = shard_state_header.chunk_prev_state_root();
-        let mut parts = vec![];
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            parts.push(self.store.owned_store().get(ColStateParts, &key)?.unwrap());
+            let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
+            self.runtime_adapter.apply_state_part(
+                shard_id,
+                &state_root,
+                part_id,
+                num_parts,
+                &part,
+            )?;
         }
-
-        // Confirm that state matches the parts we received
-        self.runtime_adapter.confirm_state(shard_id, &state_root, &parts)?;
 
         // Applying the chunk starts here
         let mut chain_update = self.chain_update();

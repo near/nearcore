@@ -54,19 +54,16 @@ macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
-        System::builder()
-            .stop_on_panic(true)
-            .run(|| {
-                let (_view_client_addr, addr) = test_utils::start_all($node_type);
+        near_actix_test_utils::run_actix_until_stop(async {
+            let (_view_client_addr, addr) = test_utils::start_all($node_type);
 
-                let $client = new_client(&format!("http://{}", addr));
+            let $client = new_client(&format!("http://{}", addr));
 
-                actix::spawn(async move {
-                    $block.await;
-                    System::current().stop();
-                });
-            })
-            .unwrap();
+            actix::spawn(async move {
+                $block.await;
+                System::current().stop();
+            });
+        });
     };
 }
 
@@ -91,7 +88,7 @@ where
     // TODO: simplify this.
     client
         .post(server_addr)
-        .header("Content-Type", "application/json")
+        .insert_header(("Content-Type", "application/json"))
         .send_json(&request)
         .map_err(|err| {
             near_jsonrpc_primitives::errors::RpcError::server_error(Some(format!("{:?}", err)))

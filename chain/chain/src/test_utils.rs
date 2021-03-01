@@ -68,6 +68,7 @@ pub struct KeyValueRuntime {
     validator_groups: u64,
     num_shards: NumShards,
     epoch_length: u64,
+    no_gc: bool,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
     state: RwLock<HashMap<StateRoot, KVState>>,
@@ -108,6 +109,24 @@ impl KeyValueRuntime {
         validator_groups: u64,
         num_shards: NumShards,
         epoch_length: u64,
+    ) -> Self {
+        Self::new_with_validators_and_no_gc(
+            store,
+            validators,
+            validator_groups,
+            num_shards,
+            epoch_length,
+            false,
+        )
+    }
+
+    pub fn new_with_validators_and_no_gc(
+        store: Arc<Store>,
+        validators: Vec<Vec<AccountId>>,
+        validator_groups: u64,
+        num_shards: NumShards,
+        epoch_length: u64,
+        no_gc: bool,
     ) -> Self {
         let tries = ShardTries::new(store.clone(), num_shards);
         let mut initial_amounts = HashMap::new();
@@ -163,6 +182,7 @@ impl KeyValueRuntime {
             hash_to_next_epoch: RwLock::new(map_with_default_hash1),
             hash_to_valset: RwLock::new(map_with_default_hash3),
             epoch_start: RwLock::new(map_with_default_hash2),
+            no_gc,
         }
     }
 
@@ -816,15 +836,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         num_parts: u64,
     ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
+        if part_id != 0 {
+            return Ok(vec![]);
+        }
         let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
         let data = state.try_to_vec().expect("should never fall");
-        let state_size = data.len() as u64;
-        let begin = state_size / num_parts * part_id;
-        let mut end = state_size / num_parts * (part_id + 1);
-        if part_id + 1 == num_parts {
-            end = state_size;
-        }
-        Ok(data[begin as usize..end as usize].to_vec())
+        Ok(data)
     }
 
     fn validate_state_part(
@@ -839,18 +856,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         true
     }
 
-    fn confirm_state(
+    fn apply_state_part(
         &self,
         _shard_id: ShardId,
         state_root: &StateRoot,
-        parts: &Vec<Vec<u8>>,
+        part_id: u64,
+        _num_parts: u64,
+        data: &[u8],
     ) -> Result<(), Error> {
-        let mut data = vec![];
-        for part in parts {
-            data.push(part.clone());
+        if part_id != 0 {
+            return Ok(());
         }
-        let data_flatten: Vec<u8> = data.iter().flatten().cloned().collect();
-        let state = KVState::try_from_slice(&data_flatten).unwrap();
+        let state = KVState::try_from_slice(data).unwrap();
         self.state.write().unwrap().insert(state_root.clone(), state.clone());
         let data = state.try_to_vec()?;
         let state_size = data.len() as u64;
@@ -921,12 +938,16 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
-        let block_height = self
-            .get_block_header(block_hash)
-            .unwrap_or_default()
-            .map(|h| h.height())
-            .unwrap_or_default();
-        block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
+        if !self.no_gc {
+            let block_height = self
+                .get_block_header(block_hash)
+                .unwrap_or_default()
+                .map(|h| h.height())
+                .unwrap_or_default();
+            block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
+        } else {
+            0
+        }
     }
 
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
