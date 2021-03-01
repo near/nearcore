@@ -1,6 +1,6 @@
 [package]
 name = "neard"
-version = "1.17.0"
+version = "1.17.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 default-run = "neard"
