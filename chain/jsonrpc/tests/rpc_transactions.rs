@@ -4,6 +4,7 @@ use actix::{Actor, System};
 use borsh::BorshSerialize;
 use futures::{future, FutureExt, TryFutureExt};
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::{init_integration_logger, init_test_logger};
@@ -22,61 +23,58 @@ pub mod test_utils;
 fn test_send_tx_async() {
     init_test_logger();
 
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let (_, addr) = test_utils::start_all(test_utils::NodeType::Validator);
+    run_actix_until_stop(async {
+        let (_, addr) = test_utils::start_all(test_utils::NodeType::Validator);
 
-            let client = new_client(&format!("http://{}", addr.clone()));
+        let client = new_client(&format!("http://{}", addr.clone()));
 
-            let tx_hash2 = Arc::new(Mutex::new(None));
-            let tx_hash2_1 = tx_hash2.clone();
-            let tx_hash2_2 = tx_hash2.clone();
-            let signer_account_id = "test1".to_string();
+        let tx_hash2 = Arc::new(Mutex::new(None));
+        let tx_hash2_1 = tx_hash2.clone();
+        let tx_hash2_2 = tx_hash2.clone();
+        let signer_account_id = "test1".to_string();
 
-            actix::spawn(client.block(BlockReference::latest()).then(move |res| {
-                let block_hash = res.unwrap().header.hash;
-                let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
-                let tx = SignedTransaction::send_money(
-                    1,
-                    signer_account_id,
-                    "test2".to_string(),
-                    &signer,
-                    100,
-                    block_hash,
-                );
-                let bytes = tx.try_to_vec().unwrap();
-                let tx_hash: String = (&tx.get_hash()).into();
-                *tx_hash2_1.lock().unwrap() = Some(tx.get_hash());
-                client
-                    .broadcast_tx_async(to_base64(&bytes))
-                    .map_ok(move |result| assert_eq!(tx_hash, result))
-                    .map(drop)
-            }));
-            let client1 = new_client(&format!("http://{}", addr));
-            WaitOrTimeout::new(
-                Box::new(move |_| {
-                    let signer_account_id = "test1".to_string();
-                    if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
-                        actix::spawn(
-                            client1
-                                .tx((&tx_hash).into(), signer_account_id)
-                                .map_err(|err| println!("Error: {:?}", err))
-                                .map_ok(|result| {
-                                    if let FinalExecutionStatus::SuccessValue(_) = result.status {
-                                        System::current().stop();
-                                    }
-                                })
-                                .map(drop),
-                        )
-                    }
-                }),
+        actix::spawn(client.block(BlockReference::latest()).then(move |res| {
+            let block_hash = res.unwrap().header.hash;
+            let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+            let tx = SignedTransaction::send_money(
+                1,
+                signer_account_id,
+                "test2".to_string(),
+                &signer,
                 100,
-                2000,
-            )
-            .start();
-        })
-        .unwrap();
+                block_hash,
+            );
+            let bytes = tx.try_to_vec().unwrap();
+            let tx_hash: String = (&tx.get_hash()).into();
+            *tx_hash2_1.lock().unwrap() = Some(tx.get_hash());
+            client
+                .broadcast_tx_async(to_base64(&bytes))
+                .map_ok(move |result| assert_eq!(tx_hash, result))
+                .map(drop)
+        }));
+        let client1 = new_client(&format!("http://{}", addr));
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                let signer_account_id = "test1".to_string();
+                if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
+                    actix::spawn(
+                        client1
+                            .tx((&tx_hash).into(), signer_account_id)
+                            .map_err(|err| println!("Error: {:?}", err))
+                            .map_ok(|result| {
+                                if let FinalExecutionStatus::SuccessValue(_) = result.status {
+                                    System::current().stop();
+                                }
+                            })
+                            .map(drop),
+                    );
+                }
+            }),
+            100,
+            2000,
+        )
+        .start();
+    });
 }
 
 /// Test sending transaction and waiting for it to be committed to a block.
@@ -103,67 +101,58 @@ fn test_send_tx_commit() {
 #[test]
 fn test_expired_tx() {
     init_integration_logger();
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let (_, addr) = test_utils::start_all_with_validity_period(
-                test_utils::NodeType::Validator,
-                1,
-                false,
-            );
+    run_actix_until_stop(async {
+        let (_, addr) =
+            test_utils::start_all_with_validity_period(test_utils::NodeType::Validator, 1, false);
 
-            let block_hash = Arc::new(Mutex::new(None));
-            let block_height = Arc::new(Mutex::new(None));
+        let block_hash = Arc::new(Mutex::new(None));
+        let block_height = Arc::new(Mutex::new(None));
 
-            WaitOrTimeout::new(
-                Box::new(move |_| {
-                    let block_hash = block_hash.clone();
-                    let block_height = block_height.clone();
-                    let client = new_client(&format!("http://{}", addr));
-                    actix::spawn(client.block(BlockReference::latest()).then(move |res| {
-                        let header = res.unwrap().header;
-                        let hash = block_hash.lock().unwrap().clone();
-                        let height = block_height.lock().unwrap().clone();
-                        if let Some(block_hash) = hash {
-                            if let Some(height) = height {
-                                if header.height - height >= 2 {
-                                    let signer = InMemorySigner::from_seed(
-                                        "test1",
-                                        KeyType::ED25519,
-                                        "test1",
-                                    );
-                                    let tx = SignedTransaction::send_money(
-                                        1,
-                                        "test1".to_string(),
-                                        "test2".to_string(),
-                                        &signer,
-                                        100,
-                                        block_hash,
-                                    );
-                                    let bytes = tx.try_to_vec().unwrap();
-                                    actix::spawn(
-                                        client
-                                            .broadcast_tx_commit(to_base64(&bytes))
-                                            .map_err(|_| {
-                                                System::current().stop();
-                                            })
-                                            .map(|_| ()),
-                                    );
-                                }
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                let block_hash = block_hash.clone();
+                let block_height = block_height.clone();
+                let client = new_client(&format!("http://{}", addr));
+                actix::spawn(client.block(BlockReference::latest()).then(move |res| {
+                    let header = res.unwrap().header;
+                    let hash = block_hash.lock().unwrap().clone();
+                    let height = block_height.lock().unwrap().clone();
+                    if let Some(block_hash) = hash {
+                        if let Some(height) = height {
+                            if header.height - height >= 2 {
+                                let signer =
+                                    InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+                                let tx = SignedTransaction::send_money(
+                                    1,
+                                    "test1".to_string(),
+                                    "test2".to_string(),
+                                    &signer,
+                                    100,
+                                    block_hash,
+                                );
+                                let bytes = tx.try_to_vec().unwrap();
+                                actix::spawn(
+                                    client
+                                        .broadcast_tx_commit(to_base64(&bytes))
+                                        .map_err(|_| {
+                                            System::current().stop();
+                                        })
+                                        .map(|_| ()),
+                                );
                             }
-                        } else {
-                            *block_hash.lock().unwrap() = Some(header.hash);
-                            *block_height.lock().unwrap() = Some(header.height);
-                        };
-                        future::ready(())
-                    }));
-                }),
-                100,
-                1000,
-            )
-            .start();
-        })
-        .unwrap();
+                        }
+                    } else {
+                        *block_hash.lock().unwrap() = Some(header.hash);
+                        *block_height.lock().unwrap() = Some(header.height);
+                    };
+                    future::ready(())
+                }));
+            }),
+            100,
+            1000,
+        )
+        .start();
+    });
 }
 
 /// Test sending transaction based on a different fork should be rejected

@@ -70,7 +70,7 @@ impl Handler<TelemetryEvent> for TelemetryActor {
             near_performance_metrics::actix::spawn("telemetry", file!(), line!(),
                                            self.client
                         .post(endpoint)
-                        .header("Content-Type", "application/json")
+                        .insert_header(("Content-Type", "application/json"))
                         .send_json(&msg.content)
                         .map(|response| {
                             if let Err(error) = response {
