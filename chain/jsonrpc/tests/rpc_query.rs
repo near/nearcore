@@ -4,6 +4,7 @@ use actix::{Actor, System};
 use futures::{future, FutureExt};
 use serde_json::json;
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
@@ -382,27 +383,24 @@ fn test_status() {
 fn test_status_fail() {
     init_test_logger();
 
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
+    run_actix_until_stop(async {
+        let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
-            let client = new_client(&format!("http://{}", addr));
-            WaitOrTimeout::new(
-                Box::new(move |_| {
-                    actix::spawn(client.health().then(|res| {
-                        if res.is_err() {
-                            System::current().stop();
-                        }
-                        future::ready(())
-                    }));
-                }),
-                100,
-                10000,
-            )
-            .start();
-        })
-        .unwrap();
+        let client = new_client(&format!("http://{}", addr));
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                actix::spawn(client.health().then(|res| {
+                    if res.is_err() {
+                        System::current().stop();
+                    }
+                    future::ready(())
+                }));
+            }),
+            100,
+            10000,
+        )
+        .start();
+    });
 }
 
 /// Check health fails when node is absent.
@@ -410,17 +408,14 @@ fn test_status_fail() {
 fn test_health_fail() {
     init_test_logger();
 
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let client = new_client(&"http://127.0.0.1:12322/health");
-            actix::spawn(client.health().then(|res| {
-                assert!(res.is_err());
-                System::current().stop();
-                future::ready(())
-            }));
-        })
-        .unwrap();
+    run_actix_until_stop(async {
+        let client = new_client(&"http://127.0.0.1:12322/health");
+        actix::spawn(client.health().then(|res| {
+            assert!(res.is_err());
+            System::current().stop();
+            future::ready(())
+        }));
+    });
 }
 
 /// Health fails when node doesn't produce block for period of time.
@@ -428,27 +423,24 @@ fn test_health_fail() {
 fn test_health_fail_no_blocks() {
     init_test_logger();
 
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
+    run_actix_until_stop(async {
+        let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
-            let client = new_client(&format!("http://{}", addr));
-            WaitOrTimeout::new(
-                Box::new(move |_| {
-                    actix::spawn(client.health().then(|res| {
-                        if res.is_err() {
-                            System::current().stop();
-                        }
-                        future::ready(())
-                    }));
-                }),
-                300,
-                10000,
-            )
-            .start();
-        })
-        .unwrap();
+        let client = new_client(&format!("http://{}", addr));
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                actix::spawn(client.health().then(|res| {
+                    if res.is_err() {
+                        System::current().stop();
+                    }
+                    future::ready(())
+                }));
+            }),
+            300,
+            10000,
+        )
+        .start();
+    });
 }
 
 /// Retrieve client health.
@@ -544,7 +536,7 @@ fn test_invalid_methods() {
             let response = &mut client
                 .client
                 .post(&client.server_addr)
-                .header("Content-Type", "application/json")
+                .insert_header(("Content-Type", "application/json"))
                 .send_json(&json)
                 .await
                 .unwrap();

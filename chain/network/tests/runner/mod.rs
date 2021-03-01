@@ -8,6 +8,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, System};
 use chrono::{DateTime, Utc};
 use futures::{future, FutureExt, TryFutureExt};
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
@@ -600,12 +601,9 @@ impl Runner {
 /// Use to start running the test.
 /// It will fail if it doesn't solve all actions.
 pub fn start_test(runner: Runner) {
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            runner.start();
-        })
-        .unwrap();
+    run_actix_until_stop(async {
+        runner.start();
+    })
 }
 
 impl Actor for Runner {

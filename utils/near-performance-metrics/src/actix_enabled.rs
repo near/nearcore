@@ -11,7 +11,7 @@ where
     F: futures::Future<Output = ()> + 'static,
 {
     *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
-    actix_rt::spawn(MyFuture { f, class_name, file, line });
+    actix::spawn(MyFuture { f, class_name, file, line });
 }
 
 pub fn run_later<F, A, B>(

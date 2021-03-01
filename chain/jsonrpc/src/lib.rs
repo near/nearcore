@@ -961,7 +961,7 @@ fn rpc_handler(
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     let response = async move {
         let message = handler.process(message.0).await?;
-        Ok(HttpResponse::Ok().json(message))
+        Ok(HttpResponse::Ok().json(&message))
     };
     response.boxed()
 }
@@ -973,7 +973,7 @@ fn status_handler(
 
     let response = async move {
         match handler.status().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
@@ -985,7 +985,7 @@ fn health_handler(
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     let response = async move {
         match handler.health().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
@@ -997,7 +997,7 @@ fn network_info_handler(
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     let response = async move {
         match handler.network_info().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
