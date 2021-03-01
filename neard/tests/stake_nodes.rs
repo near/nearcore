@@ -309,7 +309,7 @@ fn test_validator_kickout() {
                     ));
                 }),
                 100,
-                60000,
+                70000,
             )
             .start();
         });
