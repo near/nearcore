@@ -24,7 +24,6 @@ steps:
       source ~/.cargo/env
       set -ex
       rustc --version && cargo --version
-      cargo fmt --all -- --check
       if [ -e deny.toml ]; then
         cargo-deny --all-features check bans
       fi
