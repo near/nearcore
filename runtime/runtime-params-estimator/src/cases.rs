@@ -33,7 +33,7 @@ use near_primitives::runtime::fees::{
 };
 use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 
-#[cfg(feature = "protocol_nightly_features")]
+#[cfg(feature = "nightly_protocol_features")]
 lazy_static_include::lazy_static_include_bytes! {
     SMALLEST_CODE => "test-contract/res/smallest_contract.wasm",
 
@@ -42,7 +42,7 @@ lazy_static_include::lazy_static_include_bytes! {
     CODE_1M => "test-contract/res/nightly_large_contract.wasm",
 }
 
-#[cfg(not(feature = "protocol_nightly_features"))]
+#[cfg(not(feature = "nightly_protocol_features"))]
 lazy_static_include::lazy_static_include_bytes! {
     SMALLEST_CODE => "test-contract/res/smallest_contract.wasm",
 
