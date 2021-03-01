@@ -400,6 +400,47 @@ impl BlockSync {
             _ => chain.head()?.last_block_hash,
         };
 
+        let reference_hash = {
+            // Find the most recent block we know on the canonical chain.
+            // In practice the forks from the last final block are very short, so it is
+            // acceptable to perform this on each request
+            let header = chain.get_block_header(&reference_hash)?;
+            let mut candidate = (header.height(), *header.hash(), *header.prev_hash());
+
+            // First go back until we find the common block
+            while match chain.get_header_by_height(candidate.0) {
+                Ok(header) => header.hash() != &candidate.1,
+                Err(e) => match e.kind() {
+                    near_chain::ErrorKind::DBNotFoundErr(_) => true,
+                    _ => return Err(e),
+                },
+            } {
+                let prev_header = chain.get_block_header(&candidate.2)?;
+                candidate = (prev_header.height(), *prev_header.hash(), *prev_header.prev_hash());
+            }
+
+            // Then go forward for as long as we known the next block
+            let mut ret_hash = candidate.1;
+            loop {
+                match chain.mut_store().get_next_block_hash(&ret_hash) {
+                    Ok(hash) => {
+                        let hash = hash.clone();
+                        if chain.block_exists(&hash)? {
+                            ret_hash = hash;
+                        } else {
+                            break;
+                        }
+                    }
+                    Err(e) => match e.kind() {
+                        near_chain::ErrorKind::DBNotFoundErr(_) => break,
+                        _ => return Err(e),
+                    },
+                }
+            }
+
+            ret_hash
+        };
+
         let next_hash = match chain.mut_store().get_next_block_hash(&reference_hash) {
             Ok(hash) => *hash,
             Err(e) => match e.kind() {
