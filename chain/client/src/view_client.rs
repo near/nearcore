@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
-use cached::{Cached, SizedCache, TimedCache};
+use cached::{Cached, SizedCache};
 use log::{debug, error, info, trace, warn};
 
 use near_chain::{
@@ -47,6 +47,7 @@ use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
+use borsh::maybestd::collections::VecDeque;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
     GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
@@ -97,7 +98,7 @@ pub struct ViewClientActor {
     network_adapter: Arc<dyn NetworkAdapter>,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
-    state_request_cache: Arc<Mutex<TimedCache<(CryptoHash, ShardId), u8>>>,
+    state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
 }
 
 impl ViewClientRequestManager {
@@ -114,7 +115,7 @@ impl ViewClientRequestManager {
 
 impl ViewClientActor {
     /// Maximum number of state requests allowed per `view_client_throttle_period`.
-    const MAX_NUM_STATE_REQUESTS: u8 = 30;
+    const MAX_NUM_STATE_REQUESTS: usize = 30;
 
     pub fn new(
         validator_account_id: Option<AccountId>,
@@ -131,7 +132,6 @@ impl ViewClientActor {
             chain_genesis,
             DoomslugThresholdMode::TwoThirds,
         )?;
-        let view_client_throttle_period = config.view_client_throttle_period;
         Ok(ViewClientActor {
             #[cfg(feature = "adversarial")]
             adv,
@@ -141,9 +141,7 @@ impl ViewClientActor {
             network_adapter,
             config,
             request_manager,
-            state_request_cache: Arc::new(Mutex::new(TimedCache::with_lifespan(
-                view_client_throttle_period,
-            ))),
+            state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
         })
     }
 
@@ -448,17 +446,19 @@ impl ViewClientActor {
         head.height
     }
 
-    fn check_state_sync_request(&self, shard_id: ShardId, sync_hash: CryptoHash) -> bool {
+    fn check_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
-        if let Some(count) = cache.cache_get_mut(&(sync_hash, shard_id)) {
-            if *count < Self::MAX_NUM_STATE_REQUESTS {
-                *count += 1;
-            } else {
-                return false;
-            }
-        } else {
-            cache.cache_set((sync_hash, shard_id), 1);
+        let now = Instant::now();
+        let cutoff = now - Duration::from_secs(self.config.view_client_throttle_period);
+        // Assume that time is linear. While in different threads there might be some small differences,
+        // it should not matter in practice.
+        while !cache.is_empty() && *cache.front().unwrap() < cutoff {
+            cache.pop_front();
         }
+        if cache.len() >= Self::MAX_NUM_STATE_REQUESTS {
+            return false;
+        }
+        cache.push_back(now);
         true
     }
 }
@@ -1028,7 +1028,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             },
             NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
-                if !self.check_state_sync_request(shard_id, sync_hash) {
+                if !self.check_state_sync_request() {
                     return NetworkViewClientResponses::NoResponse;
                 }
 
@@ -1104,7 +1104,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
-                if !self.check_state_sync_request(shard_id, sync_hash) {
+                if !self.check_state_sync_request() {
                     return NetworkViewClientResponses::NoResponse;
                 }
                 trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
