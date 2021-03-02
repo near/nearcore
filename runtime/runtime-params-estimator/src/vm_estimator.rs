@@ -40,8 +40,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-fn call() -> (Option<VMOutcome>, Option<VMError>) {
-    let code = include_bytes!("../test-contract/res/large_contract.wasm");
+fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let context = create_context(vec![]);
     let config = VMConfig::default();
@@ -71,13 +70,13 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
 const NUM_ITERATIONS: u64 = 10;
 
 /// Cost of the most CPU demanding operation.
-pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
+pub fn cost_per_op(gas_metric: GasMetric, code: &[u8]) -> Ratio<u64> {
     // Call once for the warmup.
-    let (outcome, _) = call();
+    let (outcome, _) = call(code);
     let outcome = outcome.unwrap();
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
-        call();
+        call(code);
     }
     let measured = end_count(gas_metric, &start);
     // We are given by measurement burnt gas

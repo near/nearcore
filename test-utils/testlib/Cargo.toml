@@ -46,5 +46,10 @@ near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]
 default = []
+protocol_feature_alt_bn128 = [
+    "near-primitives/protocol_feature_alt_bn128",
+    "node-runtime/protocol_feature_alt_bn128",
+    "near-vm-errors/protocol_feature_alt_bn128",
+]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "neard/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]
 costs_counting = ["node-runtime/costs_counting", "neard/costs_counting"]
