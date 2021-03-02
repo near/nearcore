@@ -375,19 +375,19 @@ impl Default for ExtCostsConfig {
             validator_stake_base: SAFETY_MULTIPLIER * 303944908800,
             validator_total_stake_base: SAFETY_MULTIPLIER * 303944908800,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_base: SAFETY_MULTIPLIER * 5345163514,
+            alt_bn128_g1_multiexp_base: SAFETY_MULTIPLIER * 237668976500,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_byte: SAFETY_MULTIPLIER * 21665818,
+            alt_bn128_g1_multiexp_byte: SAFETY_MULTIPLIER * 1111697487,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_sublinear: SAFETY_MULTIPLIER * 1422687,
+            alt_bn128_g1_multiexp_sublinear: SAFETY_MULTIPLIER * 1441698,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_base: SAFETY_MULTIPLIER * 2281902410880,
+            alt_bn128_pairing_check_base: SAFETY_MULTIPLIER * 3228502967000,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_byte: SAFETY_MULTIPLIER * 10267480326,
+            alt_bn128_pairing_check_byte: SAFETY_MULTIPLIER * 8858396182,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_base: SAFETY_MULTIPLIER * 5345163514,
+            alt_bn128_g1_sum_base: SAFETY_MULTIPLIER * 1058438125,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_byte: SAFETY_MULTIPLIER * 21665818,
+            alt_bn128_g1_sum_byte: SAFETY_MULTIPLIER * 25406181,
         }
     }
 }

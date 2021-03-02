@@ -59,7 +59,13 @@ wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 nightly_protocol_features = ["protocol_feature_alt_bn128", "protocol_feature_evm"]
-protocol_feature_alt_bn128 = ["near-vm-logic/protocol_feature_alt_bn128"]
+protocol_feature_alt_bn128 = [
+    "near-vm-logic/protocol_feature_alt_bn128",
+    "near-vm-runner/protocol_feature_alt_bn128",
+    "node-runtime/protocol_feature_alt_bn128",
+    "testlib/protocol_feature_alt_bn128",
+    "neard/protocol_feature_alt_bn128",
+]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "near-evm-runner/costs_counting",
                         "near-vm-runner/protocol_feature_evm",
