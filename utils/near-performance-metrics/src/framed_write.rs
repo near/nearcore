@@ -1,3 +1,7 @@
+// LICENCE: https://github.com/actix/actix/blob/master/LICENSE-APACHE
+// LICENCE: https://github.com/actix/actix/blob/master/LICENSE-MIT
+
+
 use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::ops::DerefMut;
