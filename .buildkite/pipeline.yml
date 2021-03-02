@@ -11,7 +11,7 @@ steps:
     
   - command: |
       source ~/.cargo/env
-      cargo test --workspace --features nightly_protocol,nightly_protocol_features,protocol_feature_evm
+      cargo test --workspace --features nightly_protocol,nightly_protocol_features
   
     label: "cargo test nightly"
     timeout: 60
