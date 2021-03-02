@@ -57,7 +57,7 @@ impl Encoder<Vec<u8>> for Codec {
             if buf.capacity() >= MAX_CAPACITY as usize
                 && item.len() + 4 + buf.len() > buf.capacity()
             {
-                error!("{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", get_tid(), item.len(), buf.capacity());
+                error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", get_tid(), item.len(), buf.capacity());
 
                 near_metrics::inc_counter_by(&metrics::DROPPED_MESSAGES_COUNT, 1);
                 return Err(Error::new(ErrorKind::Other, "Buf max capacity exceeded"));
