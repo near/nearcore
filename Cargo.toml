@@ -31,6 +31,7 @@ members = [
     "chain/jsonrpc/test-utils",
     "chain/jsonrpc-primitives",
     "chain/rosetta-rpc",
+    "test-utils/actix-test-utils",
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",
@@ -48,7 +49,7 @@ members = [
 
 [dev-dependencies]
 # Pin dependency to avoid compilation errors
-actix-rt = "=2.0.0-beta.2"
+funty = "=1.1.0"
 
 rand = "0.7"
 

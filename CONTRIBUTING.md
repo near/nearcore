@@ -4,6 +4,8 @@ We welcome all external contributions. This document outlines the process of con
 For contributing to other repositories, see `CONTRIBUTING.md` in the corresponding repository.
 For non-technical contributions, such as e.g. content or events, see [this document](https://docs.nearprotocol.com/docs/contribution/contribution-overview).
 
+For an overview of the NEAR core architecture, see [this playlist](https://www.youtube.com/playlist?list=PL9tzQn_TEuFV4qlts0tVgndnytFs4QSYo).
+
 # Pull Requests and Issues
 
 All the contributions to `nearcore` happen via Pull Requests. To create a Pull Request, fork `nearcore`, create a new branch, do the work there, and then send the PR via Github interface.

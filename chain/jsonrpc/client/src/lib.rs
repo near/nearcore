@@ -41,7 +41,7 @@ where
     // TODO: simplify this.
     client
         .post(server_addr)
-        .header("Content-Type", "application/json")
+        .insert_header(("Content-Type", "application/json"))
         .send_json(&request)
         .map_err(|err| RpcError::server_error(Some(format!("{:?}", err))))
         .and_then(|mut response| {

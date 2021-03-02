@@ -4,7 +4,6 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 #[cfg(feature = "adversarial")]
 use log::error;
@@ -31,7 +30,7 @@ static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 fn init_logging(verbose: Option<&str>) {
     let mut env_filter = EnvFilter::new(
         "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,\
-         near-performance-metrics=info,near-rust-allocator-proxy=info",
+         near-performance-metrics=info,near-rust-allocator-proxy=info,near-jsonrpc",
     );
 
     if let Some(module) = verbose {
@@ -242,13 +241,11 @@ fn main() {
                 near_config.client_config.archive = true;
             }
 
-            System::builder()
-                .name("NEAR")
-                .stop_on_panic(true)
-                .run(move || {
-                    start_with_config(home_dir, near_config);
-                })
-                .unwrap();
+            let sys = actix::System::new();
+            sys.block_on(async move {
+                start_with_config(home_dir, near_config);
+            });
+            sys.run().unwrap();
         }
         ("unsafe_reset_data", Some(_args)) => {
             let store_path = get_store_path(home_dir);

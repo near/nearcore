@@ -9,6 +9,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -70,28 +71,25 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
 #[test]
 fn produce_two_blocks() {
     init_test_logger();
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let count = Arc::new(AtomicUsize::new(0));
-            setup_mock(
-                vec!["test"],
-                "test",
-                true,
-                false,
-                Box::new(move |msg, _ctx, _| {
-                    if let NetworkRequests::Block { .. } = msg {
-                        count.fetch_add(1, Ordering::Relaxed);
-                        if count.load(Ordering::Relaxed) >= 2 {
-                            System::current().stop();
-                        }
+    run_actix_until_stop(async {
+        let count = Arc::new(AtomicUsize::new(0));
+        setup_mock(
+            vec!["test"],
+            "test",
+            true,
+            false,
+            Box::new(move |msg, _ctx, _| {
+                if let NetworkRequests::Block { .. } = msg {
+                    count.fetch_add(1, Ordering::Relaxed);
+                    if count.load(Ordering::Relaxed) >= 2 {
+                        System::current().stop();
                     }
-                    NetworkResponses::NoResponse
-                }),
-            );
-            near_network::test_utils::wait_or_panic(5000);
-        })
-        .unwrap();
+                }
+                NetworkResponses::NoResponse
+            }),
+        );
+        near_network::test_utils::wait_or_panic(5000);
+    });
 }
 
 /// Runs block producing client and sends it a transaction.
@@ -101,68 +99,64 @@ fn produce_two_blocks() {
 fn produce_blocks_with_tx() {
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let (client, view_client) = setup_mock(
-                vec!["test"],
-                "test",
-                true,
-                false,
-                Box::new(move |msg, _ctx, _| {
-                    if let NetworkRequests::PartialEncodedChunkMessage {
-                        account_id: _,
-                        partial_encoded_chunk,
-                    } = msg
-                    {
-                        let header = partial_encoded_chunk.header.clone();
-                        let height = header.height_created() as usize;
-                        assert!(encoded_chunks.len() + 2 >= height);
+    run_actix_until_stop(async {
+        let (client, view_client) = setup_mock(
+            vec!["test"],
+            "test",
+            true,
+            false,
+            Box::new(move |msg, _ctx, _| {
+                if let NetworkRequests::PartialEncodedChunkMessage {
+                    account_id: _,
+                    partial_encoded_chunk,
+                } = msg
+                {
+                    let header = partial_encoded_chunk.header.clone();
+                    let height = header.height_created() as usize;
+                    assert!(encoded_chunks.len() + 2 >= height);
 
-                        // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
-                        let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
-                        let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
-                        if encoded_chunks.len() + 2 == height {
-                            encoded_chunks.push(EncodedShardChunk::from_header(
-                                header,
-                                total_parts,
-                                PROTOCOL_VERSION,
-                            ));
-                        }
-                        for part in partial_encoded_chunk.parts.iter() {
-                            encoded_chunks[height - 2].content_mut().parts
-                                [part.part_ord as usize] = Some(part.part.clone());
-                        }
+                    // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
+                    let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
+                    let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
+                    if encoded_chunks.len() + 2 == height {
+                        encoded_chunks.push(EncodedShardChunk::from_header(
+                            header,
+                            total_parts,
+                            PROTOCOL_VERSION,
+                        ));
+                    }
+                    for part in partial_encoded_chunk.parts.iter() {
+                        encoded_chunks[height - 2].content_mut().parts[part.part_ord as usize] =
+                            Some(part.part.clone());
+                    }
 
-                        let parity_parts = total_parts - data_parts;
-                        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
+                    let parity_parts = total_parts - data_parts;
+                    let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
 
-                        if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
-                            &mut encoded_chunks[height - 2],
-                            &mut rs,
-                        ) {
-                            let chunk =
-                                encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
-                            if chunk.transactions().len() > 0 {
-                                System::current().stop();
-                            }
+                    if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
+                        &mut encoded_chunks[height - 2],
+                        &mut rs,
+                    ) {
+                        let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
+                        if chunk.transactions().len() > 0 {
+                            System::current().stop();
                         }
                     }
-                    NetworkResponses::NoResponse
-                }),
-            );
-            near_network::test_utils::wait_or_panic(5000);
-            actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                let block_hash = res.unwrap().unwrap().header.hash;
-                client.do_send(NetworkClientMessages::Transaction {
-                    transaction: SignedTransaction::empty(block_hash),
-                    is_forwarded: false,
-                    check_only: false,
-                });
-                future::ready(())
-            }))
-        })
-        .unwrap();
+                }
+                NetworkResponses::NoResponse
+            }),
+        );
+        near_network::test_utils::wait_or_panic(5000);
+        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+            let block_hash = res.unwrap().unwrap().header.hash;
+            client.do_send(NetworkClientMessages::Transaction {
+                transaction: SignedTransaction::empty(block_hash),
+                is_forwarded: false,
+                check_only: false,
+            });
+            future::ready(())
+        }))
+    });
 }
 
 /// Runs client that receives a block from network and announces header to the network with approval.
@@ -170,70 +164,67 @@ fn produce_blocks_with_tx() {
 #[test]
 fn receive_network_block() {
     init_test_logger();
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            // The first header announce will be when the block is received. We don't immediately endorse
-            // it. The second header announce will happen with the endorsement a little later.
-            let first_header_announce = Arc::new(RwLock::new(true));
-            let (client, view_client) = setup_mock(
-                vec!["test2", "test1", "test3"],
-                "test2",
-                true,
-                false,
-                Box::new(move |msg, _ctx, _| {
-                    if let NetworkRequests::Approval { .. } = msg {
-                        let mut first_header_announce = first_header_announce.write().unwrap();
-                        if *first_header_announce {
-                            *first_header_announce = false;
-                        } else {
-                            System::current().stop();
-                        }
-                    }
-                    NetworkResponses::NoResponse
-                }),
-            );
-            actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
-                let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
-                let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
-                block_merkle_tree.insert(last_block.header.hash);
-                let next_block_ordinal = {
-                    #[cfg(feature = "protocol_feature_block_header_v3")]
-                    {
-                        last_block.header.block_ordinal.unwrap() + 1
-                    }
-                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                    0
-                };
-                let block = Block::produce(
-                    PROTOCOL_VERSION,
-                    &last_block.header.clone().into(),
-                    last_block.header.height + 1,
-                    next_block_ordinal,
-                    last_block.chunks.into_iter().map(Into::into).collect(),
-                    EpochId::default(),
-                    if last_block.header.prev_hash == CryptoHash::default() {
-                        EpochId(last_block.header.hash)
+    run_actix_until_stop(async {
+        // The first header announce will be when the block is received. We don't immediately endorse
+        // it. The second header announce will happen with the endorsement a little later.
+        let first_header_announce = Arc::new(RwLock::new(true));
+        let (client, view_client) = setup_mock(
+            vec!["test2", "test1", "test3"],
+            "test2",
+            true,
+            false,
+            Box::new(move |msg, _ctx, _| {
+                if let NetworkRequests::Approval { .. } = msg {
+                    let mut first_header_announce = first_header_announce.write().unwrap();
+                    if *first_header_announce {
+                        *first_header_announce = false;
                     } else {
-                        EpochId(last_block.header.next_epoch_id.clone())
-                    },
-                    vec![],
-                    Rational::from_integer(0),
-                    0,
-                    100,
-                    None,
-                    vec![],
-                    vec![],
-                    &signer,
-                    last_block.header.next_bp_hash,
-                    block_merkle_tree.root(),
-                );
-                client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
-                future::ready(())
-            }));
-            near_network::test_utils::wait_or_panic(5000);
-        })
-        .unwrap();
+                        System::current().stop();
+                    }
+                }
+                NetworkResponses::NoResponse
+            }),
+        );
+        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+            let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
+            block_merkle_tree.insert(last_block.header.hash);
+            let next_block_ordinal = {
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                {
+                    last_block.header.block_ordinal.unwrap() + 1
+                }
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+                0
+            };
+            let block = Block::produce(
+                PROTOCOL_VERSION,
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                next_block_ordinal,
+                last_block.chunks.into_iter().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                Rational::from_integer(0),
+                0,
+                100,
+                None,
+                vec![],
+                vec![],
+                &signer,
+                last_block.header.next_bp_hash,
+                block_merkle_tree.root(),
+            );
+            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
+            future::ready(())
+        }));
+        near_network::test_utils::wait_or_panic(5000);
+    });
 }
 
 /// Include approvals to the next block in newly produced block.
@@ -243,99 +234,93 @@ fn produce_block_with_approvals() {
     let validators = vec![
         "test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8", "test9", "test10",
     ];
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let (client, view_client) = setup_mock(
-                validators.clone(),
-                "test1",
-                true,
-                false,
-                Box::new(move |msg, _ctx, _| {
-                    if let NetworkRequests::Block { block } = msg {
-                        // Below we send approvals from all the block producers except for test1 and test2
-                        // test1 will only create their approval for height 10 after their doomslug timer
-                        // runs 10 iterations, which is way further in the future than them producing the
-                        // block
-                        if block.header().num_approvals() == validators.len() as u64 - 2 {
-                            System::current().stop();
-                        } else if block.header().height() == 10 {
-                            println!("{}", block.header().height());
-                            println!(
-                                "{} != {} -2 (height: {})",
-                                block.header().num_approvals(),
-                                validators.len(),
-                                block.header().height()
-                            );
+    run_actix_until_stop(async {
+        let (client, view_client) = setup_mock(
+            validators.clone(),
+            "test1",
+            true,
+            false,
+            Box::new(move |msg, _ctx, _| {
+                if let NetworkRequests::Block { block } = msg {
+                    // Below we send approvals from all the block producers except for test1 and test2
+                    // test1 will only create their approval for height 10 after their doomslug timer
+                    // runs 10 iterations, which is way further in the future than them producing the
+                    // block
+                    if block.header().num_approvals() == validators.len() as u64 - 2 {
+                        System::current().stop();
+                    } else if block.header().height() == 10 {
+                        println!("{}", block.header().height());
+                        println!(
+                            "{} != {} -2 (height: {})",
+                            block.header().num_approvals(),
+                            validators.len(),
+                            block.header().height()
+                        );
 
-                            assert!(false);
-                        }
+                        assert!(false);
                     }
-                    NetworkResponses::NoResponse
-                }),
-            );
-            actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
-                let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
-                let signer1 =
-                    InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
-                block_merkle_tree.insert(last_block.header.hash);
-                let next_block_ordinal = {
-                    #[cfg(feature = "protocol_feature_block_header_v3")]
-                    {
-                        last_block.header.block_ordinal.unwrap() + 1
-                    }
-                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                    0
-                };
-                let block = Block::produce(
-                    PROTOCOL_VERSION,
-                    &last_block.header.clone().into(),
-                    last_block.header.height + 1,
-                    next_block_ordinal,
-                    last_block.chunks.into_iter().map(Into::into).collect(),
-                    EpochId::default(),
-                    if last_block.header.prev_hash == CryptoHash::default() {
-                        EpochId(last_block.header.hash)
-                    } else {
-                        EpochId(last_block.header.next_epoch_id.clone())
-                    },
-                    vec![],
-                    Rational::from_integer(0),
-                    0,
-                    100,
-                    Some(0),
-                    vec![],
-                    vec![],
-                    &signer1,
-                    last_block.header.next_bp_hash,
-                    block_merkle_tree.root(),
-                );
-                client.do_send(NetworkClientMessages::Block(
-                    block.clone(),
-                    PeerInfo::random().id,
-                    false,
-                ));
-
-                for i in 3..11 {
-                    let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
-                    let signer = InMemoryValidatorSigner::from_seed(&s, KeyType::ED25519, &s);
-                    let approval = Approval::new(
-                        *block.hash(),
-                        block.header().height(),
-                        10, // the height at which "test1" is producing
-                        &signer,
-                    );
-                    client.do_send(NetworkClientMessages::BlockApproval(
-                        approval,
-                        PeerInfo::random().id,
-                    ));
                 }
+                NetworkResponses::NoResponse
+            }),
+        );
+        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+            let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let signer1 = InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
+            block_merkle_tree.insert(last_block.header.hash);
+            let next_block_ordinal = {
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                {
+                    last_block.header.block_ordinal.unwrap() + 1
+                }
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+                0
+            };
+            let block = Block::produce(
+                PROTOCOL_VERSION,
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                next_block_ordinal,
+                last_block.chunks.into_iter().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                Rational::from_integer(0),
+                0,
+                100,
+                Some(0),
+                vec![],
+                vec![],
+                &signer1,
+                last_block.header.next_bp_hash,
+                block_merkle_tree.root(),
+            );
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                false,
+            ));
 
-                future::ready(())
-            }));
-            near_network::test_utils::wait_or_panic(5000);
-        })
-        .unwrap();
+            for i in 3..11 {
+                let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
+                let signer = InMemoryValidatorSigner::from_seed(&s, KeyType::ED25519, &s);
+                let approval = Approval::new(
+                    *block.hash(),
+                    block.header().height(),
+                    10, // the height at which "test1" is producing
+                    &signer,
+                );
+                client
+                    .do_send(NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id));
+            }
+
+            future::ready(())
+        }));
+        near_network::test_utils::wait_or_panic(5000);
+    });
 }
 
 /// When approvals arrive early, they should be properly cached.
@@ -346,198 +331,192 @@ fn produce_block_with_approvals_arrived_early() {
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
-    System::builder()
-        .stop_on_panic(true)
-        .run(move || {
-            let mut approval_counter = 0;
-            let network_mock: Arc<
-                RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
-            > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
-                (NetworkResponses::NoResponse, true)
-            })));
-            let (_, conns, _) = setup_mock_all_validators(
-                validators.clone(),
-                key_pairs,
-                1,
-                true,
-                100,
-                false,
-                false,
-                100,
-                true,
-                vec![false; validators.iter().map(|x| x.len()).sum()],
-                false,
-                network_mock.clone(),
-            );
-            *network_mock.write().unwrap() =
-                Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
-                    match msg {
-                        NetworkRequests::Block { block } => {
-                            if block.header().height() == 3 {
-                                for (i, (client, _)) in conns.clone().into_iter().enumerate() {
-                                    if i > 0 {
-                                        client.do_send(NetworkClientMessages::Block(
-                                            block.clone(),
-                                            PeerInfo::random().id,
-                                            false,
-                                        ))
-                                    }
+    run_actix_until_stop(async move {
+        let mut approval_counter = 0;
+        let network_mock: Arc<
+            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+            (NetworkResponses::NoResponse, true)
+        })));
+        let (_, conns, _) = setup_mock_all_validators(
+            validators.clone(),
+            key_pairs,
+            1,
+            true,
+            100,
+            false,
+            false,
+            100,
+            true,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
+            false,
+            network_mock.clone(),
+        );
+        *network_mock.write().unwrap() =
+            Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        if block.header().height() == 3 {
+                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                if i > 0 {
+                                    client.do_send(NetworkClientMessages::Block(
+                                        block.clone(),
+                                        PeerInfo::random().id,
+                                        false,
+                                    ))
                                 }
-                                *block_holder.write().unwrap() = Some(block.clone());
-                                return (NetworkResponses::NoResponse, false);
-                            } else if block.header().height() == 4 {
-                                System::current().stop();
                             }
-                            (NetworkResponses::NoResponse, true)
+                            *block_holder.write().unwrap() = Some(block.clone());
+                            return (NetworkResponses::NoResponse, false);
+                        } else if block.header().height() == 4 {
+                            System::current().stop();
                         }
-                        NetworkRequests::Approval { approval_message } => {
-                            if approval_message.target == "test1".to_string()
-                                && approval_message.approval.target_height == 4
-                            {
-                                approval_counter += 1;
-                            }
-                            if approval_counter == 3 {
-                                let block = block_holder.read().unwrap().clone().unwrap();
-                                conns[0].0.do_send(NetworkClientMessages::Block(
-                                    block,
-                                    PeerInfo::random().id,
-                                    false,
-                                ));
-                            }
-                            (NetworkResponses::NoResponse, true)
-                        }
-                        _ => (NetworkResponses::NoResponse, true),
+                        (NetworkResponses::NoResponse, true)
                     }
-                });
+                    NetworkRequests::Approval { approval_message } => {
+                        if approval_message.target == "test1".to_string()
+                            && approval_message.approval.target_height == 4
+                        {
+                            approval_counter += 1;
+                        }
+                        if approval_counter == 3 {
+                            let block = block_holder.read().unwrap().clone().unwrap();
+                            conns[0].0.do_send(NetworkClientMessages::Block(
+                                block,
+                                PeerInfo::random().id,
+                                false,
+                            ));
+                        }
+                        (NetworkResponses::NoResponse, true)
+                    }
+                    _ => (NetworkResponses::NoResponse, true),
+                }
+            });
 
-            near_network::test_utils::wait_or_panic(5000);
-        })
-        .unwrap();
+        near_network::test_utils::wait_or_panic(5000);
+    });
 }
 
 /// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
 /// and that the node bans the peer for invalid block header.
 fn invalid_blocks_common(is_requested: bool) {
     init_test_logger();
-    System::builder()
-        .stop_on_panic(true)
-        .run(move || {
-            let mut ban_counter = 0;
-            let (client, view_client) = setup_mock(
-                vec!["test"],
-                "other",
-                true,
-                false,
-                Box::new(move |msg, _ctx, _client_actor| {
-                    match msg {
-                        NetworkRequests::Block { block } => {
-                            if is_requested {
-                                panic!("rebroadcasting requested block");
-                            } else {
-                                assert_eq!(block.header().height(), 1);
-                                assert_eq!(block.header().chunk_mask().len(), 1);
-                                assert_eq!(ban_counter, 2);
-                                System::current().stop();
-                            }
+    run_actix_until_stop(async move {
+        let mut ban_counter = 0;
+        let (client, view_client) = setup_mock(
+            vec!["test"],
+            "other",
+            true,
+            false,
+            Box::new(move |msg, _ctx, _client_actor| {
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        if is_requested {
+                            panic!("rebroadcasting requested block");
+                        } else {
+                            assert_eq!(block.header().height(), 1);
+                            assert_eq!(block.header().chunk_mask().len(), 1);
+                            assert_eq!(ban_counter, 2);
+                            System::current().stop();
                         }
-                        NetworkRequests::BanPeer { ban_reason, .. } => {
-                            assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
-                            ban_counter += 1;
-                            if ban_counter == 3 && is_requested {
-                                System::current().stop();
-                            }
+                    }
+                    NetworkRequests::BanPeer { ban_reason, .. } => {
+                        assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                        ban_counter += 1;
+                        if ban_counter == 3 && is_requested {
+                            System::current().stop();
                         }
-                        _ => {}
-                    };
-                    NetworkResponses::NoResponse
-                }),
-            );
-            actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
-                let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
-                let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
-                block_merkle_tree.insert(last_block.header.hash);
-                let next_block_ordinal = {
-                    #[cfg(feature = "protocol_feature_block_header_v3")]
-                    {
-                        last_block.header.block_ordinal.unwrap() + 1
                     }
-                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                    0
+                    _ => {}
                 };
-                let valid_block = Block::produce(
-                    PROTOCOL_VERSION,
-                    &last_block.header.clone().into(),
-                    last_block.header.height + 1,
-                    next_block_ordinal,
-                    last_block.chunks.iter().cloned().map(Into::into).collect(),
-                    EpochId::default(),
-                    if last_block.header.prev_hash == CryptoHash::default() {
-                        EpochId(last_block.header.hash)
-                    } else {
-                        EpochId(last_block.header.next_epoch_id.clone())
-                    },
-                    vec![],
-                    Rational::from_integer(0),
-                    0,
-                    100,
-                    Some(0),
-                    vec![],
-                    vec![],
-                    &signer,
-                    last_block.header.next_bp_hash,
-                    block_merkle_tree.root(),
-                );
-                // Send block with invalid chunk mask
-                let mut block = valid_block.clone();
-                block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
-                block.mut_header().get_mut().init();
-                client.do_send(NetworkClientMessages::Block(
-                    block.clone(),
-                    PeerInfo::random().id,
-                    is_requested,
-                ));
-
-                // Send block with invalid chunk signature
-                let mut block = valid_block.clone();
-                let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
-                let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
-                match &mut chunks[0] {
-                    ShardChunkHeader::V1(chunk) => {
-                        chunk.signature = some_signature;
-                    }
-                    ShardChunkHeader::V2(chunk) => {
-                        chunk.signature = some_signature;
-                    }
-                };
-                block.set_chunks(chunks);
-                client.do_send(NetworkClientMessages::Block(
-                    block.clone(),
-                    PeerInfo::random().id,
-                    is_requested,
-                ));
-
-                // Send proper block.
-                let block2 = valid_block.clone();
-                client.do_send(NetworkClientMessages::Block(
-                    block2.clone(),
-                    PeerInfo::random().id,
-                    is_requested,
-                ));
-                if is_requested {
-                    let mut block3 = block2.clone();
-                    block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
-                    block3.mut_header().get_mut().init();
-                    client.do_send(NetworkClientMessages::Block(
-                        block3.clone(),
-                        PeerInfo::random().id,
-                        is_requested,
-                    ));
+                NetworkResponses::NoResponse
+            }),
+        );
+        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+            let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+            block_merkle_tree.insert(last_block.header.hash);
+            let next_block_ordinal = {
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                {
+                    last_block.header.block_ordinal.unwrap() + 1
                 }
-                future::ready(())
-            }));
-            near_network::test_utils::wait_or_panic(5000);
-        })
-        .unwrap();
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+                0
+            };
+            let valid_block = Block::produce(
+                PROTOCOL_VERSION,
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                next_block_ordinal,
+                last_block.chunks.iter().cloned().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                Rational::from_integer(0),
+                0,
+                100,
+                Some(0),
+                vec![],
+                vec![],
+                &signer,
+                last_block.header.next_bp_hash,
+                block_merkle_tree.root(),
+            );
+            // Send block with invalid chunk mask
+            let mut block = valid_block.clone();
+            block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
+            block.mut_header().get_mut().init();
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                is_requested,
+            ));
+
+            // Send block with invalid chunk signature
+            let mut block = valid_block.clone();
+            let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
+            let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
+            match &mut chunks[0] {
+                ShardChunkHeader::V1(chunk) => {
+                    chunk.signature = some_signature;
+                }
+                ShardChunkHeader::V2(chunk) => {
+                    chunk.signature = some_signature;
+                }
+            };
+            block.set_chunks(chunks);
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                is_requested,
+            ));
+
+            // Send proper block.
+            let block2 = valid_block.clone();
+            client.do_send(NetworkClientMessages::Block(
+                block2.clone(),
+                PeerInfo::random().id,
+                is_requested,
+            ));
+            if is_requested {
+                let mut block3 = block2.clone();
+                block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
+                block3.mut_header().get_mut().init();
+                client.do_send(NetworkClientMessages::Block(
+                    block3.clone(),
+                    PeerInfo::random().id,
+                    is_requested,
+                ));
+            }
+            future::ready(())
+        }));
+        near_network::test_utils::wait_or_panic(5000);
+    });
 }
 
 #[test]
@@ -564,123 +543,115 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
-    System::builder()
-        .stop_on_panic(true)
-        .run(move || {
-            let mut ban_counter = 0;
-            let network_mock: Arc<
-                RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
-            > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
-                (NetworkResponses::NoResponse, true)
-            })));
-            let (_, conns, _) = setup_mock_all_validators(
-                validators.clone(),
-                key_pairs,
-                1,
-                true,
-                100,
-                false,
-                false,
-                100,
-                true,
-                vec![false; validators.iter().map(|x| x.len()).sum()],
-                false,
-                network_mock.clone(),
-            );
-            let mut sent_bad_blocks = false;
-            *network_mock.write().unwrap() =
-                Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
-                    match msg {
-                        NetworkRequests::Block { block } => {
-                            if block.header().height() >= 4 && !sent_bad_blocks {
-                                let block_producer = validators[0]
-                                    [block.header().height() as usize % validators[0].len()];
-                                let validator_signer1 = InMemoryValidatorSigner::from_seed(
-                                    block_producer,
-                                    KeyType::ED25519,
-                                    block_producer,
-                                );
-                                sent_bad_blocks = true;
-                                let mut block_mut = block.clone();
-                                match mode {
-                                    InvalidBlockMode::InvalidHeader => {
-                                        // produce an invalid block with invalid header.
-                                        block_mut.mut_header().get_mut().inner_rest.chunk_mask =
-                                            vec![];
-                                        block_mut.mut_header().resign(&validator_signer1);
-                                    }
-                                    InvalidBlockMode::IllFormed => {
-                                        // produce an ill-formed block
-                                        block_mut
-                                            .mut_header()
-                                            .get_mut()
-                                            .inner_rest
-                                            .chunk_headers_root = hash(&[1]);
-                                        block_mut.mut_header().resign(&validator_signer1);
-                                    }
-                                    InvalidBlockMode::InvalidBlock => {
-                                        // produce an invalid block whose invalidity cannot be verified by just
-                                        // having its header.
-                                        block_mut
-                                            .mut_header()
-                                            .get_mut()
-                                            .inner_rest
-                                            .validator_proposals = vec![ValidatorStake {
-                                            account_id: "test1".to_string(),
-                                            public_key: PublicKey::empty(KeyType::ED25519),
-                                            stake: 0,
-                                        }];
-                                        block_mut.mut_header().resign(&validator_signer1);
-                                    }
+    run_actix_until_stop(async move {
+        let mut ban_counter = 0;
+        let network_mock: Arc<
+            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+            (NetworkResponses::NoResponse, true)
+        })));
+        let (_, conns, _) = setup_mock_all_validators(
+            validators.clone(),
+            key_pairs,
+            1,
+            true,
+            100,
+            false,
+            false,
+            100,
+            true,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
+            false,
+            network_mock.clone(),
+        );
+        let mut sent_bad_blocks = false;
+        *network_mock.write().unwrap() =
+            Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        if block.header().height() >= 4 && !sent_bad_blocks {
+                            let block_producer = validators[0]
+                                [block.header().height() as usize % validators[0].len()];
+                            let validator_signer1 = InMemoryValidatorSigner::from_seed(
+                                block_producer,
+                                KeyType::ED25519,
+                                block_producer,
+                            );
+                            sent_bad_blocks = true;
+                            let mut block_mut = block.clone();
+                            match mode {
+                                InvalidBlockMode::InvalidHeader => {
+                                    // produce an invalid block with invalid header.
+                                    block_mut.mut_header().get_mut().inner_rest.chunk_mask = vec![];
+                                    block_mut.mut_header().resign(&validator_signer1);
                                 }
-
-                                for (i, (client, _)) in conns.clone().into_iter().enumerate() {
-                                    if i > 0 {
-                                        client.do_send(NetworkClientMessages::Block(
-                                            block_mut.clone(),
-                                            PeerInfo::random().id,
-                                            false,
-                                        ))
-                                    }
+                                InvalidBlockMode::IllFormed => {
+                                    // produce an ill-formed block
+                                    block_mut
+                                        .mut_header()
+                                        .get_mut()
+                                        .inner_rest
+                                        .chunk_headers_root = hash(&[1]);
+                                    block_mut.mut_header().resign(&validator_signer1);
                                 }
-
-                                return (NetworkResponses::NoResponse, false);
+                                InvalidBlockMode::InvalidBlock => {
+                                    // produce an invalid block whose invalidity cannot be verified by just
+                                    // having its header.
+                                    block_mut
+                                        .mut_header()
+                                        .get_mut()
+                                        .inner_rest
+                                        .validator_proposals = vec![ValidatorStake {
+                                        account_id: "test1".to_string(),
+                                        public_key: PublicKey::empty(KeyType::ED25519),
+                                        stake: 0,
+                                    }];
+                                    block_mut.mut_header().resign(&validator_signer1);
+                                }
                             }
-                            if block.header().height() > 20 {
-                                match mode {
-                                    InvalidBlockMode::InvalidHeader
-                                    | InvalidBlockMode::IllFormed => {
-                                        assert_eq!(ban_counter, 3);
-                                    }
-                                    _ => {}
+
+                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                if i > 0 {
+                                    client.do_send(NetworkClientMessages::Block(
+                                        block_mut.clone(),
+                                        PeerInfo::random().id,
+                                        false,
+                                    ))
                                 }
-                                System::current().stop();
+                            }
+
+                            return (NetworkResponses::NoResponse, false);
+                        }
+                        if block.header().height() > 20 {
+                            match mode {
+                                InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
+                                    assert_eq!(ban_counter, 3);
+                                }
+                                _ => {}
+                            }
+                            System::current().stop();
+                        }
+                        (NetworkResponses::NoResponse, true)
+                    }
+                    NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
+                        InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
+                            assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                            ban_counter += 1;
+                            if ban_counter > 3 {
+                                panic!("more bans than expected");
                             }
                             (NetworkResponses::NoResponse, true)
                         }
-                        NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
-                            InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
-                                assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
-                                ban_counter += 1;
-                                if ban_counter > 3 {
-                                    panic!("more bans than expected");
-                                }
-                                (NetworkResponses::NoResponse, true)
-                            }
-                            InvalidBlockMode::InvalidBlock => {
-                                panic!(
-                                    "banning peer {:?} unexpectedly for {:?}",
-                                    peer_id, ban_reason
-                                );
-                            }
-                        },
-                        _ => (NetworkResponses::NoResponse, true),
-                    }
-                });
+                        InvalidBlockMode::InvalidBlock => {
+                            panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
+                        }
+                    },
+                    _ => (NetworkResponses::NoResponse, true),
+                }
+            });
 
-            near_network::test_utils::wait_or_panic(10000);
-        })
-        .unwrap();
+        near_network::test_utils::wait_or_panic(20000);
+    });
 }
 
 /// If a peer sends a block whose header is valid and passes basic validation, the peer is not banned.
@@ -706,89 +677,83 @@ fn test_ban_peer_for_ill_formed_block() {
 #[test]
 fn skip_block_production() {
     init_test_logger();
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            setup_mock(
-                vec!["test1", "test2"],
-                "test2",
-                true,
-                false,
-                Box::new(move |msg, _ctx, _client_actor| {
-                    match msg {
-                        NetworkRequests::Block { block } => {
-                            if block.header().height() > 3 {
-                                System::current().stop();
-                            }
+    run_actix_until_stop(async {
+        setup_mock(
+            vec!["test1", "test2"],
+            "test2",
+            true,
+            false,
+            Box::new(move |msg, _ctx, _client_actor| {
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        if block.header().height() > 3 {
+                            System::current().stop();
                         }
-                        _ => {}
-                    };
-                    NetworkResponses::NoResponse
-                }),
-            );
-            wait_or_panic(10000);
-        })
-        .unwrap();
+                    }
+                    _ => {}
+                };
+                NetworkResponses::NoResponse
+            }),
+        );
+        wait_or_panic(10000);
+    });
 }
 
 /// Runs client that requests syncing headers from peers.
 #[test]
 fn client_sync_headers() {
     init_test_logger();
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let peer_info1 = PeerInfo::random();
-            let peer_info2 = peer_info1.clone();
-            let (client, _) = setup_mock(
-                vec!["test"],
-                "other",
-                false,
-                false,
-                Box::new(move |msg, _ctx, _client_actor| match msg {
-                    NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                        assert_eq!(*peer_id, peer_info1.id);
-                        assert_eq!(hashes.len(), 1);
-                        // TODO: check it requests correct hashes.
-                        System::current().stop();
-                        NetworkResponses::NoResponse
-                    }
-                    _ => NetworkResponses::NoResponse,
-                }),
-            );
-            client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
-                active_peers: vec![FullPeerInfo {
-                    peer_info: peer_info2.clone(),
-                    chain_info: PeerChainInfoV2 {
-                        genesis_id: Default::default(),
-                        height: 5,
-                        tracked_shards: vec![],
-                        archival: false,
-                    },
-                    edge_info: EdgeInfo::default(),
-                }],
-                num_active_peers: 1,
-                peer_max_count: 1,
-                highest_height_peers: vec![FullPeerInfo {
-                    peer_info: peer_info2.clone(),
-                    chain_info: PeerChainInfoV2 {
-                        genesis_id: Default::default(),
-                        height: 5,
-                        tracked_shards: vec![],
-                        archival: false,
-                    },
-                    edge_info: EdgeInfo::default(),
-                }],
-                sent_bytes_per_sec: 0,
-                received_bytes_per_sec: 0,
-                known_producers: vec![],
-                #[cfg(feature = "metric_recorder")]
-                metric_recorder: MetricRecorder::default(),
-                peer_counter: 0,
-            }));
-            wait_or_panic(2000);
-        })
-        .unwrap();
+    run_actix_until_stop(async {
+        let peer_info1 = PeerInfo::random();
+        let peer_info2 = peer_info1.clone();
+        let (client, _) = setup_mock(
+            vec!["test"],
+            "other",
+            false,
+            false,
+            Box::new(move |msg, _ctx, _client_actor| match msg {
+                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                    assert_eq!(*peer_id, peer_info1.id);
+                    assert_eq!(hashes.len(), 1);
+                    // TODO: check it requests correct hashes.
+                    System::current().stop();
+                    NetworkResponses::NoResponse
+                }
+                _ => NetworkResponses::NoResponse,
+            }),
+        );
+        client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
+            active_peers: vec![FullPeerInfo {
+                peer_info: peer_info2.clone(),
+                chain_info: PeerChainInfoV2 {
+                    genesis_id: Default::default(),
+                    height: 5,
+                    tracked_shards: vec![],
+                    archival: false,
+                },
+                edge_info: EdgeInfo::default(),
+            }],
+            num_active_peers: 1,
+            peer_max_count: 1,
+            highest_height_peers: vec![FullPeerInfo {
+                peer_info: peer_info2.clone(),
+                chain_info: PeerChainInfoV2 {
+                    genesis_id: Default::default(),
+                    height: 5,
+                    tracked_shards: vec![],
+                    archival: false,
+                },
+                edge_info: EdgeInfo::default(),
+            }],
+            sent_bytes_per_sec: 0,
+            received_bytes_per_sec: 0,
+            known_producers: vec![],
+            #[cfg(feature = "metric_recorder")]
+            metric_recorder: MetricRecorder::default(),
+            peer_counter: 0,
+        }));
+        wait_or_panic(2000);
+    });
 }
 
 fn produce_blocks(client: &mut Client, num: u64) {

@@ -72,12 +72,13 @@ pub fn setup(
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
         epoch_length,
+        archive,
     ));
     let chain_genesis = ChainGenesis {
         time: genesis_time,
@@ -460,7 +461,7 @@ pub fn setup_mock_all_validators(
                                     },
                                     height: last_height2[i],
                                     tracked_shards: vec![],
-                                    archival: false,
+                                    archival: true,
                                 },
                                 edge_info: EdgeInfo::default(),
                             })

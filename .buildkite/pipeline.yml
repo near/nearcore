@@ -24,11 +24,10 @@ steps:
       source ~/.cargo/env
       set -ex
       rustc --version && cargo --version
-      cargo fmt --all -- --check
       if [ -e deny.toml ]; then
         cargo-deny --all-features check bans
       fi
-      RUSTFLAGS='-D warnings' cargo check --all --tests --benches --all-features
+      RUSTFLAGS='-D warnings' cargo check --workspace --all-targets --all-features
       python3 scripts/state/update_res.py check
       python3 scripts/check_nightly.py
     timeout: 30

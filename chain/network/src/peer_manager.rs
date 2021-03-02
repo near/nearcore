@@ -441,7 +441,7 @@ impl PeerManagerActor {
         let peer_counter = self.peer_counter.clone();
         peer_counter.fetch_add(1, Ordering::SeqCst);
 
-        Peer::start_in_arbiter(&arbiter, move |ctx| {
+        Peer::start_in_arbiter(&arbiter.handle(), move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
@@ -1449,7 +1449,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::Sync { peer_id, sync_data } => {
                 // Process edges and add new edges to the routing table. Also broadcast new edges.
-                let SyncData { edges, accounts } = sync_data;
+                let SyncData { mut edges, accounts } = sync_data;
+                edges.retain(|edge| {
+                    match self.routing_table.get_edge(edge.peer0.clone(), edge.peer1.clone()) {
+                        // only consider edges with bigger nonce
+                        Some(cur_edge) => cur_edge.nonce < edge.nonce,
+                        None => true,
+                    }
+                });
 
                 self.edge_verifier_pool.send(EdgeList(edges.clone()))
                     .into_actor(self)

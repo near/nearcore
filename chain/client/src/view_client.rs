@@ -1023,7 +1023,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     }
                 }
                 Err(err) => {
-                    error!(target: "view_client", "{}", err);
+                    error!(target: "view_client", "Cannot retrieve chain head: {}", err);
                     NetworkViewClientResponses::NoResponse
                 }
             },

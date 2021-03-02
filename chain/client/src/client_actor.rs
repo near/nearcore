@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Arbiter, Context, Handler};
+use actix_rt::ArbiterHandle;
 use chrono::Duration as OldDuration;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
@@ -1219,13 +1220,14 @@ impl ClientActor {
             Err(err) => {
                 error!(target: "sync", "Sync: Unexpected error: {}", err);
 
-            near_performance_metrics::actix::run_later(
-                ctx,
-                file!(),
-                line!(),
-                self.client.config.sync_step_period, move |act, ctx| {
-                    act.sync(ctx);
-                });
+                near_performance_metrics::actix::run_later(
+                    ctx,
+                    file!(),
+                    line!(),
+                    self.client.config.sync_step_period, move |act, ctx| {
+                        act.sync(ctx);
+                    }
+                );
                 return;
             }
         }));
@@ -1454,9 +1456,9 @@ pub fn start_client(
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
-) -> (Addr<ClientActor>, Arbiter) {
-    let client_arbiter = Arbiter::current();
-    let client_addr = ClientActor::start_in_arbiter(&client_arbiter, move |_ctx| {
+) -> (Addr<ClientActor>, ArbiterHandle) {
+    let client_arbiter_handle = Arbiter::current();
+    let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_ctx| {
         ClientActor::new(
             client_config,
             chain_genesis,
@@ -1471,5 +1473,5 @@ pub fn start_client(
         )
         .unwrap()
     });
-    (client_addr, client_arbiter)
+    (client_addr, client_arbiter_handle)
 }
