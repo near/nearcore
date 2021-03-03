@@ -118,12 +118,13 @@ pub fn verify_and_charge_transaction(
 
     access_key.nonce = transaction.nonce;
 
-    signer.amount =
-        signer.amount.checked_sub(total_cost).ok_or_else(|| InvalidTxError::NotEnoughBalance {
+    signer.set_amount(signer.amount().checked_sub(total_cost).ok_or_else(|| {
+        InvalidTxError::NotEnoughBalance {
             signer_id: signer_id.clone(),
-            balance: signer.amount,
+            balance: signer.amount(),
             cost: total_cost,
-        })?;
+        }
+    })?);
 
     if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
         access_key.permission
@@ -474,7 +475,7 @@ mod tests {
         let mut initial_state = tries.new_trie_update(0, root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
             let mut initial_account = account_new(initial_balance, hash(&[]));
-            initial_account.locked = initial_locked;
+            initial_account.set_locked(initial_locked);
             set_account(&mut initial_state, account_id.clone(), &initial_account);
             if let Some(access_key) = access_key {
                 set_access_key(
@@ -558,7 +559,7 @@ mod tests {
         let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
         // Balance is decreased by the (TX fees + transfer balance).
         assert_eq!(
-            account.amount,
+            account.amount(),
             TESTING_INIT_BALANCE
                 - Balance::from(verification_result.gas_remaining)
                     * verification_result.receipt_gas_price

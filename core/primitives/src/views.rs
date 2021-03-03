@@ -97,10 +97,10 @@ pub struct ViewApplyState {
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
         AccountView {
-            amount: account.amount,
-            locked: account.locked,
-            code_hash: account.code_hash,
-            storage_usage: account.storage_usage,
+            amount: account.amount(),
+            locked: account.locked(),
+            code_hash: account.code_hash(),
+            storage_usage: account.storage_usage(),
             storage_paid_at: 0,
         }
     }
@@ -114,12 +114,7 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        Self {
-            amount: view.amount,
-            locked: view.locked,
-            code_hash: view.code_hash,
-            storage_usage: view.storage_usage,
-        }
+        Account::new(view.amount, view.locked, view.code_hash, view.storage_usage)
     }
 }
 

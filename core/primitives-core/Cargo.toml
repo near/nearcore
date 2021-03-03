@@ -25,4 +25,5 @@ lazy_static = "1.4"
 [features]
 default = []
 costs_counting = []
+protocol_feature_add_account_versions = []
 protocol_feature_evm = []
