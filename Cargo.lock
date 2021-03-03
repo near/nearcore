@@ -764,6 +764,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b700ce4376041dcd0a327fd0097c41095743c4c8af8887265942faf1100bd040"
 
 [[package]]
+name = "bytesize"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81a18687293a1546b67c246452202bbbf143d239cb43494cc163da14979082da"
+
+[[package]]
 name = "bytestring"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3278,11 +3284,13 @@ dependencies = [
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
+ "near-rust-allocator-proxy 0.2.9",
  "near-store",
  "near-telemetry",
  "rand 0.7.3",
  "serde",
  "serde_json",
+ "size",
  "strum",
  "tempfile",
  "tokio",
@@ -3297,12 +3305,18 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "actix-rt",
+ "bitflags",
+ "bytes",
+ "bytesize",
  "futures",
+ "libc",
  "log",
- "near-rust-allocator-proxy",
+ "near-rust-allocator-proxy 0.2.6",
  "nix",
  "once_cell",
  "strum",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -3433,6 +3447,22 @@ dependencies = [
 name = "near-rust-allocator-proxy"
 version = "0.2.6"
 source = "git+https://github.com/near/near-memory-tracker.git?tag=v0.2.6#567647c4987d4f04910ab47e00f427c0c1bf3bf6"
+dependencies = [
+ "arr_macro",
+ "backtrace",
+ "jemalloc-sys",
+ "jemallocator",
+ "libc",
+ "log",
+ "nix",
+ "rand 0.7.3",
+]
+
+[[package]]
+name = "near-rust-allocator-proxy"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e2bfab80a5259c22f7a67ddf17e53b50eab9cb8325992df7e56a47a7a51ecdd"
 dependencies = [
  "arr_macro",
  "backtrace",
@@ -3601,7 +3631,7 @@ dependencies = [
  "near-primitives",
  "near-rosetta-rpc",
  "near-runtime-configs",
- "near-rust-allocator-proxy",
+ "near-rust-allocator-proxy 0.2.6",
  "near-store",
  "near-telemetry",
  "node-runtime",
@@ -5110,6 +5140,15 @@ name = "similar"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c2c5334976f6000d0c36cf95a0b70ff4daa310b935aa4ce190d02f1012c81d0"
+
+[[package]]
+name = "size"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e5021178e8e70579d009fb545932e274ec2dde4c917791c6063d1002bee2a56"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "slab"

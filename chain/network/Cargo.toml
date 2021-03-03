@@ -20,6 +20,8 @@ byteorder = "1.2"
 lazy_static = "1.4"
 tracing = "0.1.13"
 strum = { version = "0.20", features = ["derive"] }
+near-rust-allocator-proxy = "0.2.9"
+size = "0.1.2"
 
 borsh = "0.8.1"
 cached = "0.23"
@@ -48,6 +50,7 @@ adversarial = []
 metric_recorder = []
 delay_detector = ["delay-detector"]
 protocol_feature_forward_chunk_parts = ["near-primitives/protocol_feature_forward_chunk_parts"]
+performance_stats = ["near-performance-metrics/performance_stats"]
 
 [[bench]]
 name = "graph"
