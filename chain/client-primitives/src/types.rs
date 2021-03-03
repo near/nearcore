@@ -359,6 +359,8 @@ pub enum GetValidatorInfoError {
     IOError(String),
     #[error("Unknown epoch")]
     UnknownEpoch,
+    #[error("Validator info unavailable")]
+    ValidatorInfoUnavailable,
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.

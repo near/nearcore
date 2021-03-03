@@ -28,7 +28,7 @@ pub use crate::types::RngSeed;
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-use near_chain::types::EpochIdentifier;
+use near_chain::types::ValidatorInfoIdentifier;
 use near_store::db::DBCol::ColEpochValidatorInfo;
 
 mod proposals;
@@ -899,11 +899,11 @@ impl EpochManager {
     /// Get validators for current epoch and next epoch.
     pub fn get_validator_info(
         &mut self,
-        epoch_identifier: EpochIdentifier,
+        epoch_identifier: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, EpochError> {
         let epoch_id = match epoch_identifier {
-            EpochIdentifier::EpochId(ref id) => id.clone(),
-            EpochIdentifier::BlockHash(ref b) => self.get_block_info(b)?.epoch_id.clone(),
+            ValidatorInfoIdentifier::EpochId(ref id) => id.clone(),
+            ValidatorInfoIdentifier::BlockHash(ref b) => self.get_block_info(b)?.epoch_id.clone(),
         };
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?.clone();
         let epoch_start_height = self.get_epoch_start_from_epoch_id(&epoch_id)?;
@@ -920,7 +920,7 @@ impl EpochManager {
         // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no support for Either type
         // in std.
         let (current_validators, next_epoch_id, all_proposals) = match &epoch_identifier {
-            EpochIdentifier::EpochId(id) => {
+            ValidatorInfoIdentifier::EpochId(id) => {
                 let epoch_summary = self.get_epoch_validator_info(id)?;
                 let cur_validators = cur_epoch_info
                     .validators
@@ -954,7 +954,7 @@ impl EpochManager {
                     epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
                 )
             }
-            EpochIdentifier::BlockHash(ref h) => {
+            ValidatorInfoIdentifier::BlockHash(ref h) => {
                 let aggregator = self.get_and_update_epoch_info_aggregator(&epoch_id, h, true)?;
                 let cur_validators = cur_epoch_info
                     .validators

@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use log::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
-use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo, EpochIdentifier};
+use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier};
 
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -1299,7 +1299,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn get_validator_info(&self, epoch_id: EpochIdentifier) -> Result<EpochValidatorInfo, Error> {
+    fn get_validator_info(
+        &self,
+        epoch_id: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
     }
@@ -2357,7 +2360,7 @@ mod test {
         env.step_default(vec![staking_transaction]);
         assert!(env
             .runtime
-            .get_validator_info(EpochIdentifier::EpochId(env.head.epoch_id.clone()))
+            .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id.clone()))
             .is_err());
         env.step_default(vec![]);
         let mut current_epoch_validator_info = vec![
@@ -2396,7 +2399,7 @@ mod test {
         ];
         let response = env
             .runtime
-            .get_validator_info(EpochIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
             .unwrap();
         assert_eq!(
             response,
@@ -2418,7 +2421,7 @@ mod test {
         env.step_default(vec![]);
         let response = env
             .runtime
-            .get_validator_info(EpochIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
             .unwrap();
 
         current_epoch_validator_info[1].num_produced_blocks = 0;
@@ -2757,7 +2760,7 @@ mod test {
         assert_eq!(account0.amount, TESTING_INIT_BALANCE - fishermen_stake);
         let response = env
             .runtime
-            .get_validator_info(EpochIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
             .unwrap();
         assert_eq!(
             response
@@ -2784,7 +2787,7 @@ mod test {
         assert_eq!(account1.amount, TESTING_INIT_BALANCE);
         let response = env
             .runtime
-            .get_validator_info(EpochIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
             .unwrap();
         assert!(response.current_fishermen.is_empty());
     }
@@ -2824,7 +2827,7 @@ mod test {
         assert_eq!(account0.amount, TESTING_INIT_BALANCE - fishermen_stake);
         let response = env
             .runtime
-            .get_validator_info(EpochIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
             .unwrap();
         assert_eq!(
             response
@@ -2845,7 +2848,7 @@ mod test {
         assert_eq!(account0.amount, TESTING_INIT_BALANCE);
         let response = env
             .runtime
-            .get_validator_info(EpochIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
             .unwrap();
         assert!(response.current_fishermen.is_empty());
     }

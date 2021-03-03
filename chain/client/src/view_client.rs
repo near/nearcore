@@ -47,7 +47,7 @@ use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
-use near_chain::types::EpochIdentifier;
+use near_chain::types::ValidatorInfoIdentifier;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
     GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
@@ -570,10 +570,26 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Self::Context) -> Self::Result {
         let epoch_identifier = match msg.epoch_reference {
-            EpochReference::EpochId(id) => EpochIdentifier::EpochId(id),
+            EpochReference::EpochId(id) => ValidatorInfoIdentifier::EpochId(id),
+            EpochReference::BlockId(block_id) => {
+                let block_header = match block_id {
+                    BlockId::Hash(h) => self.chain.get_block_header(&h)?.clone(),
+                    BlockId::Height(h) => self.chain.get_header_by_height(h)?.clone(),
+                };
+                let next_block_hash =
+                    *self.chain.mut_store().get_next_block_hash(block_header.hash())?;
+                let next_block_header = self.chain.get_block_header(&next_block_hash)?.clone();
+                if block_header.epoch_id() != next_block_header.epoch_id()
+                    && block_header.next_epoch_id() == next_block_header.epoch_id()
+                {
+                    ValidatorInfoIdentifier::EpochId(block_header.epoch_id().clone())
+                } else {
+                    return Err(GetValidatorInfoError::ValidatorInfoUnavailable);
+                }
+            }
             EpochReference::Latest => {
                 // use header head because this is latest from the perspective of epoch manager
-                EpochIdentifier::BlockHash(self.chain.header_head()?.last_block_hash)
+                ValidatorInfoIdentifier::BlockHash(self.chain.header_head()?.last_block_hash)
             }
         };
         self.runtime_adapter

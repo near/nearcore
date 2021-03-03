@@ -517,6 +517,7 @@ pub struct BlockChunkValidatorStats {
 #[serde(rename_all = "snake_case")]
 pub enum EpochReference {
     EpochId(EpochId),
+    BlockId(BlockId),
     Latest,
 }
 

@@ -7,6 +7,8 @@ use serde_json::Value;
 pub enum RpcValidatorError {
     #[error("Epoch not found")]
     UnknownEpoch,
+    #[error("Validator info unavailable")]
+    ValidatorInfoUnavailable,
     #[error("The node reached its limits. Try again later. More details: {0}")]
     InternalError(String),
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
@@ -35,6 +37,9 @@ impl From<near_client_primitives::types::GetValidatorInfoError> for RpcValidator
             near_client_primitives::types::GetValidatorInfoError::UnknownEpoch => {
                 Self::UnknownEpoch
             }
+            near_client_primitives::types::GetValidatorInfoError::ValidatorInfoUnavailable => {
+                Self::ValidatorInfoUnavailable
+            }
             near_client_primitives::types::GetValidatorInfoError::IOError(s) => {
                 Self::InternalError(s)
             }
@@ -62,12 +67,9 @@ impl RpcValidatorRequest {
         let epoch_reference = if let Ok((block_id,)) =
             crate::utils::parse_params::<(near_primitives::types::MaybeBlockId,)>(value.clone())
         {
-            if block_id.is_some() {
-                return Err(crate::errors::RpcParseError(
-                    "Require at least one parameter".to_owned(),
-                ));
-            } else {
-                EpochReference::Latest
+            match block_id {
+                Some(id) => EpochReference::BlockId(id),
+                None => EpochReference::Latest,
             }
         } else {
             crate::utils::parse_params::<EpochReference>(value)?
@@ -80,6 +82,9 @@ impl From<RpcValidatorError> for crate::errors::RpcError {
     fn from(error: RpcValidatorError) -> Self {
         let error_data = match error {
             RpcValidatorError::UnknownEpoch => Some(Value::String(format!("Unknown Epoch"))),
+            RpcValidatorError::ValidatorInfoUnavailable => {
+                Some(Value::String(format!("Validator info unavailable")))
+            }
             RpcValidatorError::Unreachable(s) => Some(Value::String(s)),
             RpcValidatorError::InternalError(_) => Some(Value::String(error.to_string())),
         };
