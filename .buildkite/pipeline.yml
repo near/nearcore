@@ -137,7 +137,6 @@ steps:
     agents:
     - "distro=amazonlinux"
       
-
   - wait
   
   #- command: |
@@ -159,7 +158,3 @@ steps:
   #  branches: "master"
   
   - trigger: nearcore-release
-    branches: "master"
-    
-  - trigger: nearcore-nightly-release
-    branches: "master"
