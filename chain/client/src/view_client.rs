@@ -226,52 +226,55 @@ impl ViewClientActor {
             QueryRequest::ViewCode { account_id, .. } => account_id,
         };
         let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
-        let head = self.chain.head()?;
 
-        if self.runtime_adapter.cares_about_shard(
-            self.validator_account_id.as_ref(),
-            &head.last_block_hash,
+        let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id)?;
+        let state_root = chunk_extra.state_root;
+        match self.runtime_adapter.query(
             shard_id,
-            true,
+            &state_root,
+            header.height(),
+            header.raw_timestamp(),
+            header.prev_hash(),
+            header.hash(),
+            header.epoch_id(),
+            &msg.request,
         ) {
-            let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id)?;
-            let state_root = chunk_extra.state_root;
-            match self
-                .runtime_adapter
-                .query(
-                    shard_id,
-                    &state_root,
-                    header.height(),
-                    header.raw_timestamp(),
-                    header.prev_hash(),
-                    header.hash(),
-                    header.epoch_id(),
-                    &msg.request,
-                ) {
-                Ok(query_response) => Ok(query_response),
-                Err(query_error) => Err(match query_error {
-                    near_chain::near_chain_primitives::error::QueryError::InternalError {
-                        error_message, ..
-                    } => QueryError::InternalError { error_message },
-                    near_chain::near_chain_primitives::error::QueryError::InvalidAccount {
-                        requested_account_id, block_height, block_hash
-                    } => QueryError::InvalidAccount { requested_account_id, block_height, block_hash },
-                    near_chain::near_chain_primitives::error::QueryError::UnknownAccount {
-                        requested_account_id, block_height, block_hash
-                    } => QueryError::UnknownAccount { requested_account_id, block_height, block_hash },
-                    near_chain::near_chain_primitives::error::QueryError::NoContractCode {
-                        contract_account_id, block_height, block_hash
-                    } => QueryError::NoContractCode { contract_account_id, block_height, block_hash },
-                    near_chain::near_chain_primitives::error::QueryError::UnknownAccessKey {
-                        public_key, block_height, block_hash
-                    } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
-                    near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
-                        error_message, block_hash, block_height
-                    } => QueryError::ContractExecutionError { vm_error: error_message, block_height, block_hash },
-                })
-            }
-        } else {
-            Err(QueryError::UnavailableShard { requested_shard_id: shard_id })
+            Ok(query_response) => Ok(query_response),
+            Err(query_error) => Err(match query_error {
+                near_chain::near_chain_primitives::error::QueryError::InternalError {
+                    error_message,
+                    ..
+                } => QueryError::InternalError { error_message },
+                near_chain::near_chain_primitives::error::QueryError::InvalidAccount {
+                    requested_account_id,
+                    block_height,
+                    block_hash,
+                } => QueryError::InvalidAccount { requested_account_id, block_height, block_hash },
+                near_chain::near_chain_primitives::error::QueryError::UnknownAccount {
+                    requested_account_id,
+                    block_height,
+                    block_hash,
+                } => QueryError::UnknownAccount { requested_account_id, block_height, block_hash },
+                near_chain::near_chain_primitives::error::QueryError::NoContractCode {
+                    contract_account_id,
+                    block_height,
+                    block_hash,
+                } => QueryError::NoContractCode { contract_account_id, block_height, block_hash },
+                near_chain::near_chain_primitives::error::QueryError::UnknownAccessKey {
+                    public_key,
+                    block_height,
+                    block_hash,
+                } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
+                near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
+                    error_message,
+                    block_hash,
+                    block_height,
+                } => QueryError::ContractExecutionError {
+                    vm_error: error_message,
+                    block_height,
+                    block_hash,
+                },
+            }),
         }
     }
 
