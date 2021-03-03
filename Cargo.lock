@@ -2779,7 +2779,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4da24a77a3d8a6d4862d95f72e6fdb9c09a643ecdb402d754004a557f2bec75"
 dependencies = [
  "scopeguard",
- "serde",
 ]
 
 [[package]]
@@ -2789,6 +2788,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd96ffd135b2fd7b973ac026d28085defbe8983df057ced3eb4f2130b0831312"
 dependencies = [
  "scopeguard",
+ "serde",
 ]
 
 [[package]]
@@ -3346,11 +3346,13 @@ dependencies = [
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
+ "near-rust-allocator-proxy",
  "near-store",
  "near-telemetry",
  "rand 0.7.3",
  "serde",
  "serde_json",
+ "size",
  "strum",
  "tempfile",
  "tokio",
@@ -3364,6 +3366,8 @@ name = "near-performance-metrics"
 version = "0.1.0"
 dependencies = [
  "actix",
+ "bitflags",
+ "bytes",
  "bytesize",
  "futures",
  "libc",
@@ -3372,6 +3376,8 @@ dependencies = [
  "nix",
  "once_cell",
  "strum",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -3573,6 +3579,7 @@ dependencies = [
  "serde_json",
  "sha2 0.9.3",
  "sha3",
+ "zeropool-bn",
 ]
 
 [[package]]
@@ -3581,9 +3588,11 @@ version = "3.0.0"
 dependencies = [
  "anyhow",
  "assert_matches",
+ "base64 0.13.0",
  "bencher",
  "borsh",
  "cached",
+ "lazy-static-include",
  "log",
  "near-evm-runner",
  "near-primitives",
@@ -3943,7 +3952,7 @@ dependencies = [
  "paperclip-actix",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.1",
  "semver 0.11.0",
  "serde",
  "serde_derive",
@@ -3964,7 +3973,7 @@ dependencies = [
  "once_cell",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.1",
  "serde_json",
 ]
 
@@ -3977,7 +3986,7 @@ dependencies = [
  "mime",
  "once_cell",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.1",
  "pin-project",
  "regex",
  "serde",
@@ -5168,6 +5177,15 @@ name = "similar"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad1d488a557b235fc46dae55512ffbfc429d2482b08b4d9435ab07384ca8aec"
+
+[[package]]
+name = "size"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e5021178e8e70579d009fb545932e274ec2dde4c917791c6063d1002bee2a56"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "slab"
@@ -6787,4 +6805,18 @@ dependencies = [
  "quote 1.0.9",
  "syn 1.0.60",
  "synstructure",
+]
+
+[[package]]
+name = "zeropool-bn"
+version = "0.5.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "756e713befb81061c2eb8ad800c9c41ddfa2bbf4ea58da637aff31d47b937bf2"
+dependencies = [
+ "borsh",
+ "byteorder",
+ "crunchy",
+ "lazy_static",
+ "rand 0.8.3",
+ "rustc-hex 2.1.0",
 ]

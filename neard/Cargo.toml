@@ -45,7 +45,7 @@ near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
-delay-detector = { path = "../tools/delay_detector"}
+delay-detector = { path = "../tools/delay_detector", optional = true }
 
 [dev-dependencies]
 near-logger-utils = { path = "../test-utils/logger" }
@@ -68,8 +68,9 @@ rosetta_rpc = ["near-rosetta-rpc"]
 protocol_feature_forward_chunk_parts = ["near-client/protocol_feature_forward_chunk_parts"]
 protocol_feature_rectify_inflation = ["near-epoch-manager/protocol_feature_rectify_inflation"]
 protocol_feature_evm = ["near-primitives/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]
+protocol_feature_alt_bn128 = ["near-primitives/protocol_feature_alt_bn128", "node-runtime/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-client/protocol_feature_block_header_v3"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm", "protocol_feature_block_header_v3"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 costs_counting = ["near-primitives/costs_counting", "node-runtime/costs_counting"]
 
