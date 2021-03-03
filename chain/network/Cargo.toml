@@ -21,7 +21,7 @@ lazy_static = "1.4"
 tracing = "0.1.13"
 strum = { version = "0.20", features = ["derive"] }
 near-rust-allocator-proxy = "0.2.9"
-size = "0.1.2"
+bytesize = "1.0.1"
 
 borsh = "0.8.1"
 cached = "0.23"
