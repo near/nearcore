@@ -161,6 +161,7 @@ impl Default for VMLimitConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[serde(default)]
 pub struct ExtCostsConfig {
     /// Base cost for calling a host function.
     pub base: Gas,
@@ -290,6 +291,31 @@ pub struct ExtCostsConfig {
     pub validator_stake_base: Gas,
     /// Cost of calling `validator_total_stake`.
     pub validator_total_stake_base: Gas,
+
+    // #############
+    // # Alt BN128 #
+    // #############
+    /// Base cost for multiexp
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    pub alt_bn128_g1_multiexp_base: Gas,
+    /// byte cost for multiexp
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    pub alt_bn128_g1_multiexp_byte: Gas,
+    /// Base cost for sum
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    pub alt_bn128_g1_sum_base: Gas,
+    /// byte cost for sum
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    pub alt_bn128_g1_sum_byte: Gas,
+    /// sublinear cost for items
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    pub alt_bn128_g1_multiexp_sublinear: Gas,
+    /// Base cost for pairing check
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    pub alt_bn128_pairing_check_base: Gas,
+    /// Cost for pairing check per byte
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    pub alt_bn128_pairing_check_byte: Gas,
 }
 
 // We multiply the actual computed costs by the fixed factor to ensure we
@@ -348,6 +374,20 @@ impl Default for ExtCostsConfig {
             promise_return: SAFETY_MULTIPLIER * 186717462,
             validator_stake_base: SAFETY_MULTIPLIER * 303944908800,
             validator_total_stake_base: SAFETY_MULTIPLIER * 303944908800,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_base: SAFETY_MULTIPLIER * 237668976500,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_byte: SAFETY_MULTIPLIER * 1111697487,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_sublinear: SAFETY_MULTIPLIER * 1441698,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_pairing_check_base: SAFETY_MULTIPLIER * 3228502967000,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_pairing_check_byte: SAFETY_MULTIPLIER * 8858396182,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_sum_base: SAFETY_MULTIPLIER * 1058438125,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_sum_byte: SAFETY_MULTIPLIER * 25406181,
         }
     }
 }
@@ -404,6 +444,20 @@ impl ExtCostsConfig {
             promise_return: 0,
             validator_stake_base: 0,
             validator_total_stake_base: 0,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_base: 0,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_byte: 0,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_sublinear: 0,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_pairing_check_base: 0,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_pairing_check_byte: 0,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_sum_base: 0,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_sum_byte: 0,
         }
     }
 }
@@ -461,6 +515,20 @@ pub enum ExtCosts {
     promise_return,
     validator_stake_base,
     validator_total_stake_base,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_g1_multiexp_base,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_g1_multiexp_byte,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_g1_multiexp_sublinear,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_pairing_check_base,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_pairing_check_byte,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_g1_sum_base,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_g1_sum_byte,
 }
 
 // Type of an action, used in fees logic.
@@ -565,6 +633,20 @@ impl ExtCosts {
             promise_return => config.promise_return,
             validator_stake_base => config.validator_stake_base,
             validator_total_stake_base => config.validator_total_stake_base,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_base => config.alt_bn128_g1_multiexp_base,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_byte => config.alt_bn128_g1_multiexp_byte,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_sublinear => config.alt_bn128_g1_multiexp_sublinear,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_pairing_check_base => config.alt_bn128_pairing_check_base,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_pairing_check_byte => config.alt_bn128_pairing_check_byte,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_sum_byte => config.alt_bn128_g1_sum_byte,
         }
     }
 
@@ -623,6 +705,20 @@ impl ExtCosts {
             "promise_return",
             "validator_stake_base",
             "validator_total_stake_base",
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            "alt_bn128_g1_multiexp_base",
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            "alt_bn128_g1_multiexp_byte",
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            "alt_bn128_g1_multiexp_sublinear",
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            "alt_bn128_pairing_check_base",
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            "alt_bn128_pairing_check_byte",
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            "alt_bn128_g1_sum_base",
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            "alt_bn128_g1_sum_byte",
         ][index]
     }
 }

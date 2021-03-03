@@ -25,12 +25,16 @@ near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" 
 near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
 near-runtime-utils = { path = "../near-runtime-utils", version = "3.0.0" }
 
+bn = { package = "zeropool-bn", version = "0.5.9", features = [], optional = true }
+
 [dev-dependencies]
 serde_json = {version= "1", features= ["preserve_order"]}
 
 [features]
 default = []
 protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
+protocol_feature_alt_bn128 = ["bn", "near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
+
 wasmer0_default = []
 wasmtime_default = []
 wasmer1_default = []

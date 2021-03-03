@@ -50,6 +50,12 @@ pub struct ThreadStats {
     in_progress_since: Option<Instant>,
     last_check: Instant,
     c_mem: ByteSize,
+
+    // Write buffer stats
+    write_buf_len: ByteSize,
+    write_buf_capacity: ByteSize,
+    write_buf_added: ByteSize,
+    write_buf_drained: ByteSize,
 }
 
 impl ThreadStats {
@@ -62,7 +68,24 @@ impl ThreadStats {
             in_progress_since: Default::default(),
             last_check: Instant::now(),
             c_mem: Default::default(),
+
+            write_buf_len: Default::default(),
+            write_buf_capacity: Default::default(),
+            write_buf_added: Default::default(),
+            write_buf_drained: Default::default(),
         }
+    }
+
+    pub fn log_add_write_buffer(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {
+        self.write_buf_added = self.write_buf_added + ByteSize::b(bytes as u64);
+        self.write_buf_len = ByteSize::b(buf_len as u64);
+        self.write_buf_capacity = ByteSize::b(buf_capacity as u64);
+    }
+
+    pub fn log_drain_write_buffer(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {
+        self.write_buf_drained = self.write_buf_drained + ByteSize::b(bytes as u64);
+        self.write_buf_len = ByteSize::b(buf_len as u64);
+        self.write_buf_capacity = ByteSize::b(buf_capacity as u64);
     }
 
     pub fn pre_log(&mut self, now: Instant) {
@@ -126,13 +149,28 @@ impl ThreadStats {
                 thread_memory_count(tid),
                 self.c_mem,
             );
+            if self.write_buf_added.as_u64() > 0
+                || self.write_buf_capacity.as_u64() > 0
+                || self.write_buf_added.as_u64() > 0
+                || self.write_buf_drained.as_u64() > 0
+            {
+                info!(
+                    "        Write_buffer len: {} cap: {} added: {} drained: {}",
+                    self.write_buf_len,
+                    self.write_buf_capacity,
+                    self.write_buf_added,
+                    self.write_buf_drained,
+                );
+            }
+            self.write_buf_added = Default::default();
+            self.write_buf_drained = Default::default();
+
             let mut stat: Vec<_> = self.stat.iter().collect();
             stat.sort_by(|x, y| (*x).0.cmp(&(*y).0));
 
             for entry in stat {
                 warn!(
-                    "        func {} {}:{}:{} cnt: {} total: {}ms max: {}ms",
-                    get_tid(),
+                    "        func {}:{}:{} cnt: {} total: {}ms max: {}ms",
                     (entry.0).0,
                     (entry.0).1,
                     (entry.0).2,
@@ -164,7 +202,7 @@ pub(crate) struct Stats {
     stats: HashMap<usize, Arc<Mutex<ThreadStats>>>,
 }
 
-pub(crate) fn get_entry() -> Arc<Mutex<ThreadStats>> {
+pub fn get_thread_stats_logger() -> Arc<Mutex<ThreadStats>> {
     INITIALIZED.with(|x| {
         if *x.borrow() == 0 {
             *x.borrow_mut() = 1;
@@ -281,7 +319,7 @@ pub fn measure_performance_internal<F, Message, Result>(
 where
     F: FnOnce(Message) -> Result,
 {
-    let stat = get_entry();
+    let stat = get_thread_stats_logger();
 
     reset_memory_usage_max();
     let initial_memory_usage = current_thread_memory_usage();
@@ -360,7 +398,7 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = unsafe { self.get_unchecked_mut() };
 
-        let stat = get_entry();
+        let stat = get_thread_stats_logger();
         let now = Instant::now();
         stat.lock().unwrap().pre_log(now);
 

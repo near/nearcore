@@ -7,11 +7,11 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use actix::io::{FramedWrite, WriteHandler};
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
+use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use tracing::{debug, error, info, trace, warn};
 
 use near_metrics;
@@ -46,6 +46,7 @@ use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::PartialEncodedChunk;
+use near_rust_allocator_proxy::allocator::get_tid;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -157,7 +158,7 @@ pub struct Peer {
     /// Protocol version to communicate with this peer.
     pub protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: FramedWrite<Vec<u8>, WriteHalf, Codec>,
+    framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
     /// Handshake timeout.
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
@@ -190,7 +191,7 @@ impl Peer {
         peer_addr: SocketAddr,
         peer_info: Option<PeerInfo>,
         peer_type: PeerType,
-        framed: FramedWrite<Vec<u8>, WriteHalf, Codec>,
+        framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
         handshake_timeout: Duration,
         peer_manager_addr: Addr<PeerManagerActor>,
         client_addr: Recipient<NetworkClientMessages>,
@@ -255,7 +256,15 @@ impl Peer {
                 #[cfg(feature = "metric_recorder")]
                 self.peer_manager_addr.do_send(metadata.set_size(bytes.len()));
                 self.tracker.increment_sent(bytes.len() as u64);
-                self.framed.write(bytes);
+                let bytes_len = bytes.len();
+                if !self.framed.write(bytes) {
+                    error!(
+                        "{} Failed to send message {} of size {}",
+                        get_tid(),
+                        strum::AsStaticRef::as_static(msg),
+                        bytes_len,
+                    )
+                }
             }
             Err(err) => error!(target: "network", "Error converting message to bytes: {}", err),
         };
