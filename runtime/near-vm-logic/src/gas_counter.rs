@@ -49,8 +49,7 @@ pub struct GasCounter {
     is_view: bool,
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
-    #[allow(dead_code)]
-    profile: Option<ProfileData>,
+    profile: ProfileData,
 }
 
 impl fmt::Debug for GasCounter {
@@ -65,7 +64,7 @@ impl GasCounter {
         max_gas_burnt: Gas,
         prepaid_gas: Gas,
         is_view: bool,
-        profile: Option<ProfileData>,
+        profile: ProfileData,
     ) -> Self {
         Self {
             ext_costs_config,
@@ -109,11 +108,9 @@ impl GasCounter {
     #[cfg(feature = "protocol_feature_evm")]
     #[inline]
     pub fn inc_evm_gas_counter(&mut self, value: EvmGas) {
-        if cfg!(feature = "costs_counting") {
-            EVM_GAS_COUNTER.with(|f| {
-                *f.borrow_mut() += value;
-            })
-        }
+        #[cfg(feature = "costs_counting")]
+        EVM_GAS_COUNTER.with(|f| *f.borrow_mut() += value);
+        let _ = value;
     }
 
     #[inline]
@@ -123,20 +120,12 @@ impl GasCounter {
 
     #[inline]
     fn update_profile_host(&mut self, cost: ExtCosts, value: u64) {
-        if cfg!(feature = "costs_counting") {
-            if let Some(profile) = &self.profile {
-                profile.add_ext_cost(cost, value)
-            }
-        }
+        self.profile.add_ext_cost(cost, value)
     }
 
     #[inline]
     fn update_profile_action(&mut self, action: ActionCosts, value: u64) {
-        if cfg!(feature = "costs_counting") {
-            if let Some(profile) = &self.profile {
-                profile.add_action_cost(action, value)
-            }
-        }
+        self.profile.add_action_cost(action, value)
     }
 
     pub fn pay_wasm_gas(&mut self, value: u64) -> Result<()> {
@@ -242,7 +231,8 @@ mod tests {
 
     #[test]
     fn test_deduct_gas() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 10, 10, false, None);
+        let mut counter =
+            GasCounter::new(ExtCostsConfig::default(), 10, 10, false, ProfileData::new_disabled());
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -251,7 +241,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_prepaid_gas_min() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 100, 10, false, None);
+        let mut counter =
+            GasCounter::new(ExtCostsConfig::default(), 100, 10, false, ProfileData::new_disabled());
         counter.deduct_gas(10, 5).unwrap();
     }
 }

@@ -62,8 +62,7 @@ fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
         &promise_results,
         PROTOCOL_VERSION,
         None,
-        #[cfg(feature = "costs_counting")]
-        None,
+        &Default::default(),
     )
 }
 

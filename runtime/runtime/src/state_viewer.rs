@@ -144,8 +144,7 @@ impl TrieViewer {
             cache: view_state.cache,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
-            #[cfg(feature = "costs_counting")]
-            profile: None,
+            profile: Default::default(),
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),

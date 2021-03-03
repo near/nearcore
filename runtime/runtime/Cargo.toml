@@ -40,8 +40,6 @@ wasmer1_default = ["wasmer1_vm", "near-vm-logic/wasmer1_default"]
 wasmer0_default = ["wasmer0_vm", "near-vm-logic/wasmer0_default"]
 wasmtime_default = ["wasmtime_vm", "near-vm-logic/wasmtime_default"]
 
-# Use this feature to enable counting of fees and costs applied.
-costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
 no_cpu_compatibility_checks = [ "near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = ["near-vm-runner/no_cache", "near-store/no_cache"]

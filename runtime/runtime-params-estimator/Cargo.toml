@@ -46,12 +46,7 @@ libc = "0.2.81"
 
 [features]
 default = ["costs_counting"]
-costs_counting = ["near-vm-logic/costs_counting",
-                  "near-vm-runner/costs_counting",
-                  "neard/costs_counting",
-                  "node-runtime/costs_counting",
-                  "testlib/costs_counting",
-                  "near-evm-runner/costs_counting"]
+costs_counting = ["near-vm-logic/costs_counting"]
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
 required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
@@ -67,7 +62,6 @@ protocol_feature_alt_bn128 = [
     "neard/protocol_feature_alt_bn128",
 ]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
-                        "near-evm-runner/costs_counting",
                         "near-vm-runner/protocol_feature_evm",
                         "near-chain-configs/protocol_feature_evm",
                         "node-runtime/protocol_feature_evm",
