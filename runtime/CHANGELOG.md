@@ -1,5 +1,13 @@
 # Changelog
 
+## Pending
+
+- Introduce `alt_bn128_g1_multiexp`, `alt_bn128_g1_sum` and `alt_bn128_pairing_check` host functions to `near-vm-logic`.
+
+## 3.0.0
+
+- Dependency on `near-core-primitives`
+
 ## 2.3.0
 
 - Added disk cache to `near-vm-runner`

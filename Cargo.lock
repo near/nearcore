@@ -3579,6 +3579,7 @@ dependencies = [
  "serde_json",
  "sha2 0.9.3",
  "sha3",
+ "zeropool-bn",
 ]
 
 [[package]]
@@ -3587,9 +3588,11 @@ version = "3.0.0"
 dependencies = [
  "anyhow",
  "assert_matches",
+ "base64 0.13.0",
  "bencher",
  "borsh",
  "cached",
+ "lazy-static-include",
  "log",
  "near-evm-runner",
  "near-primitives",
@@ -6802,4 +6805,18 @@ dependencies = [
  "quote 1.0.9",
  "syn 1.0.60",
  "synstructure",
+]
+
+[[package]]
+name = "zeropool-bn"
+version = "0.5.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "756e713befb81061c2eb8ad800c9c41ddfa2bbf4ea58da637aff31d47b937bf2"
+dependencies = [
+ "borsh",
+ "byteorder",
+ "crunchy",
+ "lazy_static",
+ "rand 0.8.3",
+ "rustc-hex 2.1.0",
 ]
