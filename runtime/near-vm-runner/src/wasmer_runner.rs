@@ -155,16 +155,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             }
             RuntimeError::User(data) => {
                 if let Some(err) = data.downcast_ref::<VMLogicError>() {
-                    match err {
-                        VMLogicError::HostError(h) => {
-                            VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
-                        }
-                        VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
-                        VMLogicError::InconsistentStateError(e) => {
-                            VMError::InconsistentStateError(e.clone())
-                        }
-                        VMLogicError::EvmError(_) => unreachable!("Wasm can't return EVM error"),
-                    }
+                    err.into()
                 } else {
                     panic!(
                         "Bad error case! Output is non-deterministic {:?} {:?}",
@@ -178,7 +169,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
 }
 
 pub fn run_wasmer<'a>(
-    code_hash: Vec<u8>,
+    code_hash: &[u8],
     code: &[u8],
     method_name: &[u8],
     ext: &mut dyn External,
@@ -190,6 +181,8 @@ pub fn run_wasmer<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    let _span = tracing::info_span!("run_wasmer").entered();
+
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
         panic!(
@@ -210,7 +203,12 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::compile_module_cached_wasmer(&code_hash, code, wasm_config, cache) {
+    let module = match cache::wasmer0_cache::compile_module_cached_wasmer(
+        &code_hash,
+        code,
+        wasm_config,
+        cache,
+    ) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
@@ -260,10 +258,14 @@ pub fn run_wasmer<'a>(
     }
 
     match module.instantiate(&import_object) {
-        Ok(instance) => match instance.call(&method_name, &[]) {
-            Ok(_) => (Some(logic.outcome()), None),
-            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-        },
+        Ok(instance) => {
+            let _span = tracing::info_span!("run_wasmer/call").entered();
+
+            match instance.call(&method_name, &[]) {
+                Ok(_) => (Some(logic.outcome()), None),
+                Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+            }
+        }
         Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
     }
 }

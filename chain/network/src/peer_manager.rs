@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use actix::io::FramedWrite;
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Recipient, Running, StreamHandler, SyncArbiter, SyncContext, SystemService, WrapFuture,
+    Recipient, Running, StreamHandler, SyncArbiter, SyncContext, WrapFuture,
 };
 use chrono::Utc;
 use futures::task::Poll;
@@ -441,7 +441,7 @@ impl PeerManagerActor {
         let peer_counter = self.peer_counter.clone();
         peer_counter.fetch_add(1, Ordering::SeqCst);
 
-        Peer::start_in_arbiter(&arbiter, move |ctx| {
+        Peer::start_in_arbiter(&arbiter.handle(), move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
@@ -1449,7 +1449,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::Sync { peer_id, sync_data } => {
                 // Process edges and add new edges to the routing table. Also broadcast new edges.
-                let SyncData { edges, accounts } = sync_data;
+                let SyncData { mut edges, accounts } = sync_data;
+                edges.retain(|edge| {
+                    match self.routing_table.get_edge(edge.peer0.clone(), edge.peer1.clone()) {
+                        // only consider edges with bigger nonce
+                        Some(cur_edge) => cur_edge.nonce < edge.nonce,
+                        None => true,
+                    }
+                });
 
                 self.edge_verifier_pool.send(EdgeList(edges.clone()))
                     .into_actor(self)
@@ -1647,10 +1654,15 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
         let _d = DelayDetector::new("outbound tcp connect".into());
         debug!(target: "network", "Trying to connect to {}", msg.peer_info);
         if let Some(addr) = msg.peer_info.addr {
-            #[allow(deprecated)]
-            // There is not clear migration path at the moment: https://github.com/actix/actix/issues/451
-            actix::actors::resolver::Resolver::from_registry()
-                .send(actix::actors::resolver::ConnectAddr(addr))
+            // The `connect` may take several minutes. This happens when the
+            // `SYN` packet for establishing a TCP connection gets silently
+            // dropped, in which case the default TCP timeout is applied. That's
+            // too long for us, so we shorten it to one second.
+            //
+            // Why exactly a second? It was hard-coded in a library we used
+            // before, so we keep it to preserve behavior. Removing the timeout
+            // completely was observed to break stuff for real on the testnet.
+            tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(addr))
                 .into_actor(self)
                 .then(move |res, act, ctx| match res {
                     Ok(res) => match res {

@@ -6,6 +6,8 @@
 //! ```
 //! Optional `--context-file=/tmp/context.json --config-file=/tmp/config.json` could be added
 //! to provide custom context and VM config.
+mod tracing_timings;
+
 use clap::{App, Arg};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
@@ -175,6 +177,11 @@ fn main() {
                 .help("Profiles gas consumption.")
         )
         .arg(
+            Arg::with_name("timings")
+                .long("timings")
+                .help("Prints execution times of various components.")
+        )
+        .arg(
             Arg::with_name("protocol-version")
                 .long("protocol-version")
                 .help("Protocol version")
@@ -182,10 +189,15 @@ fn main() {
         )
         .get_matches();
 
+    if matches.is_present("timings") {
+        tracing_timings::enable();
+    }
+
     let vm_kind: VMKind = match matches.value_of("vm-kind") {
         Some(value) => match value {
             "wasmtime" => VMKind::Wasmtime,
-            "wasmer" => VMKind::Wasmer,
+            "wasmer" => VMKind::Wasmer0,
+            "wasmer1" => VMKind::Wasmer1,
             _ => VMKind::default(),
         },
         None => VMKind::default(),

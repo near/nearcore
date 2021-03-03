@@ -150,13 +150,25 @@ fn trap_contract() -> Vec<u8> {
 #[test]
 fn test_trap_contract() {
     // See the comment is test_stack_overflow.
-    assert_eq!(
-        make_simple_contract_call_vm(&trap_contract(), b"hello", VMKind::Wasmer),
-        (
-            Some(vm_outcome_with_gas(47105334)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
-        )
-    );
+    with_vm_variants(|vm_kind: VMKind| match vm_kind {
+        VMKind::Wasmtime => return,
+        VMKind::Wasmer0 => assert_eq!(
+            make_simple_contract_call_vm(&trap_contract(), b"hello", vm_kind),
+            (
+                Some(vm_outcome_with_gas(47105334)),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
+            )
+        ),
+        VMKind::Wasmer1 => assert_eq!(
+            make_simple_contract_call_vm(&trap_contract(), b"hello", vm_kind),
+            (
+                Some(vm_outcome_with_gas(47105334)),
+                Some(VMError::FunctionCallError(FunctionCallError::Wasmer1Trap(
+                    "unreachable".to_string()
+                )))
+            )
+        ),
+    })
 }
 
 fn trap_initializer() -> Vec<u8> {
@@ -175,13 +187,25 @@ fn trap_initializer() -> Vec<u8> {
 #[test]
 fn test_trap_initializer() {
     // See the comment is test_stack_overflow.
-    assert_eq!(
-        make_simple_contract_call_vm(&trap_initializer(), b"hello", VMKind::Wasmer),
-        (
-            Some(vm_outcome_with_gas(47755584)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
-        )
-    );
+    with_vm_variants(|vm_kind: VMKind| match vm_kind {
+        VMKind::Wasmtime => return,
+        VMKind::Wasmer0 => assert_eq!(
+            make_simple_contract_call_vm(&trap_initializer(), b"hello", vm_kind),
+            (
+                Some(vm_outcome_with_gas(47755584)),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
+            )
+        ),
+        VMKind::Wasmer1 => assert_eq!(
+            make_simple_contract_call_vm(&trap_initializer(), b"hello", vm_kind),
+            (
+                Some(vm_outcome_with_gas(47755584)),
+                Some(VMError::FunctionCallError(FunctionCallError::Wasmer1Trap(
+                    "unreachable".to_string()
+                )))
+            )
+        ),
+    });
 }
 
 fn wrong_signature_contract() -> Vec<u8> {
@@ -279,15 +303,29 @@ fn stack_overflow() -> Vec<u8> {
 
 #[test]
 fn test_stack_overflow() {
-    // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
-    // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
-    assert_eq!(
-        make_simple_contract_call_vm(&stack_overflow(), b"hello", VMKind::Wasmer),
-        (
-            Some(vm_outcome_with_gas(63226248177)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
-        )
-    );
+    with_vm_variants(|vm_kind: VMKind| {
+        // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
+        // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
+        match vm_kind {
+            VMKind::Wasmer0 => assert_eq!(
+                make_simple_contract_call_vm(&stack_overflow(), b"hello", vm_kind),
+                (
+                    Some(vm_outcome_with_gas(63226248177)),
+                    Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
+                )
+            ),
+            VMKind::Wasmer1 => assert_eq!(
+                make_simple_contract_call_vm(&stack_overflow(), b"hello", vm_kind),
+                (
+                    Some(vm_outcome_with_gas(63226248177)),
+                    Some(VMError::FunctionCallError(FunctionCallError::Wasmer1Trap(
+                        "unreachable".to_string()
+                    )))
+                )
+            ),
+            _ => {}
+        }
+    });
 }
 
 fn memory_grow() -> Vec<u8> {
@@ -366,7 +404,7 @@ fn test_bad_import_1() {
                     CompilationError::PrepareError(PrepareError::Instantiate)
                 )))
             )
-        );
+        )
     });
 }
 
@@ -389,8 +427,9 @@ fn test_bad_import_2() {
 fn test_bad_import_3() {
     with_vm_variants(|vm_kind: VMKind| {
         let msg = match vm_kind {
-            VMKind::Wasmer => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
+            VMKind::Wasmer0 => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
             VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { params: [I64], results: [] })\\n\"",
+            VMKind::Wasmer1 => "Error while importing \"env\".\"input\": incompatible import type. Expected Global(GlobalType { ty: I32, mutability: Const }) but received Function(FunctionType { params: [I64], results: [] })"
         }.to_string();
         assert_eq!(
             make_simple_contract_call_vm(&bad_import_global("env"), b"hello", vm_kind),
@@ -406,8 +445,9 @@ fn test_bad_import_3() {
 fn test_bad_import_4() {
     with_vm_variants(|vm_kind: VMKind| {
         let msg = match vm_kind {
-            VMKind::Wasmer => "link error: Import not found, namespace: env, name: wtf",
+            VMKind::Wasmer0 => "link error: Import not found, namespace: env, name: wtf",
             VMKind::Wasmtime => "\"unknown import: `env::wtf` has not been defined\"",
+            VMKind::Wasmer1 => "Error while importing \"env\".\"wtf\": unknown import. Expected Function(FunctionType { params: [], results: [] })",
         }
         .to_string();
         assert_eq!(
@@ -532,16 +572,24 @@ fn test_external_call_error() {
         );
     });
 }
+
 #[test]
 fn test_contract_error_caching() {
-    let mut cache = MockCompiledContractCache { store: Arc::new(Mutex::new(HashMap::new())) };
-    let code = [42; 1000];
-    let terragas = 1000000000000u64;
-    assert_eq!(cache.store.lock().unwrap().len(), 0);
-    let err1 =
-        make_cached_contract_call_vm(&mut cache, &code, b"method_name1", terragas, VMKind::Wasmer);
-    assert_eq!(cache.store.lock().unwrap().len(), 1);
-    let err2 =
-        make_cached_contract_call_vm(&mut cache, &code, b"method_name2", terragas, VMKind::Wasmer);
-    assert_eq!(err1, err2);
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmtime => return,
+            _ => {}
+        }
+        let mut cache = MockCompiledContractCache { store: Arc::new(Mutex::new(HashMap::new())) };
+        let code = [42; 1000];
+        let terragas = 1000000000000u64;
+        assert_eq!(cache.store.lock().unwrap().len(), 0);
+        let err1 =
+            make_cached_contract_call_vm(&mut cache, &code, b"method_name1", terragas, vm_kind);
+        println!("{:?}", cache.store.lock().unwrap());
+        assert_eq!(cache.store.lock().unwrap().len(), 1);
+        let err2 =
+            make_cached_contract_call_vm(&mut cache, &code, b"method_name2", terragas, vm_kind);
+        assert_eq!(err1, err2);
+    })
 }

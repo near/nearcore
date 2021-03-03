@@ -13,6 +13,8 @@ use log::info;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use lazy_static::lazy_static;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -1011,7 +1013,7 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
     let url = url.clone();
     let path = path.clone();
 
-    actix::System::builder().build().block_on(async move {
+    actix::System::new().block_on(async move {
         let client = actix_web::client::Client::new();
         let mut response =
             client.get(url).send().await.expect("Unable to download the genesis file");
@@ -1031,6 +1033,9 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
 }
 
 pub fn load_config(dir: &Path) -> NearConfig {
+    #[cfg(feature = "delay_detector")]
+    let _d = DelayDetector::new("load_config".into());
+
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
     let genesis = if let Some(ref genesis_records_file) = config.genesis_records_file {
         Genesis::from_files(&dir.join(&config.genesis_file), &dir.join(genesis_records_file))

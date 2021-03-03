@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use actix::System;
 use borsh::BorshSerialize;
 use futures::{Future, TryFutureExt};
 
@@ -40,10 +39,7 @@ impl RpcUser {
         F: FnOnce(JsonRpcClient) -> Fut + 'static,
     {
         let addr = self.addr.clone();
-        System::builder()
-            .stop_on_panic(true)
-            .name("NEAR")
-            .build()
+        actix::System::new()
             .block_on(async move { f(new_client(&format!("http://{}", addr))).await })
     }
 

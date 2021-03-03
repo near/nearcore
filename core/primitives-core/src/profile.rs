@@ -156,6 +156,3 @@ impl fmt::Debug for ProfileData {
         Ok(())
     }
 }
-
-unsafe impl<T: Send> Send for FixedArray<T> {}
-unsafe impl<T: Sync> Sync for FixedArray<T> {}
