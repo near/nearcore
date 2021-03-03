@@ -30,7 +30,7 @@ pub fn test_ts_contract() {
         let result = run_vm(
             vec![],
             &code,
-            b"try_panic",
+            "try_panic",
             &mut fake_external,
             context,
             &config,
@@ -52,7 +52,7 @@ pub fn test_ts_contract() {
         run_vm(
             vec![],
             &code,
-            b"try_storage_write",
+            "try_storage_write",
             &mut fake_external,
             context,
             &config,
@@ -78,7 +78,7 @@ pub fn test_ts_contract() {
         let result = run_vm(
             vec![],
             &code,
-            b"try_storage_read",
+            "try_storage_read",
             &mut fake_external,
             context,
             &config,
