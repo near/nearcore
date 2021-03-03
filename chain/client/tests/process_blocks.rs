@@ -2583,3 +2583,138 @@ fn test_block_ordinal() {
     ordinal += 1;
     assert_eq!(next_block.header().block_ordinal(), ordinal);
 }
+
+#[cfg(feature = "protocol_feature_access_key_nonce_range")]
+#[cfg(test)]
+mod access_key_nonce_range_tests {
+    use super::*;
+    use near_client::test_utils::create_chunk_with_transactions;
+    use near_primitives::account::AccessKey;
+
+    /// Test that duplicate transactions are properly rejected.
+    #[test]
+    fn test_transaction_hash_collision() {
+        let epoch_length = 5;
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        genesis.config.epoch_length = epoch_length;
+        let mut env = TestEnv::new_with_runtime(
+            ChainGenesis::test(),
+            1,
+            1,
+            create_nightshade_runtimes(&genesis, 1),
+        );
+        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+        let signer0 = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+        let signer1 = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let send_money_tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test0".to_string(),
+            &signer1,
+            100,
+            *genesis_block.hash(),
+        );
+        let delete_account_tx = SignedTransaction::delete_account(
+            2,
+            "test1".to_string(),
+            "test1".to_string(),
+            "test0".to_string(),
+            &signer1,
+            *genesis_block.hash(),
+        );
+
+        env.clients[0].process_tx(send_money_tx.clone(), false, false);
+        env.clients[0].process_tx(delete_account_tx, false, false);
+
+        for i in 1..4 {
+            env.produce_block(0, i);
+        }
+
+        let create_account_tx = SignedTransaction::create_account(
+            1,
+            "test0".to_string(),
+            "test1".to_string(),
+            NEAR_BASE,
+            signer1.public_key(),
+            &signer0,
+            *genesis_block.hash(),
+        );
+        let res = env.clients[0].process_tx(create_account_tx, false, false);
+        assert!(matches!(res, NetworkClientResponses::ValidTx));
+        for i in 4..8 {
+            env.produce_block(0, i);
+        }
+
+        let res = env.clients[0].process_tx(send_money_tx, false, false);
+        assert!(matches!(res, NetworkClientResponses::InvalidTx(_)));
+    }
+
+    /// Test that chunks with transactions that have expired are considered invalid.
+    #[test]
+    fn test_chunk_transaction_validity() {
+        let epoch_length = 5;
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        genesis.config.epoch_length = epoch_length;
+        let mut env = TestEnv::new_with_runtime(
+            ChainGenesis::test(),
+            1,
+            1,
+            create_nightshade_runtimes(&genesis, 1),
+        );
+        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+        let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test0".to_string(),
+            &signer,
+            100,
+            *genesis_block.hash(),
+        );
+        for i in 1..200 {
+            env.produce_block(0, i);
+        }
+        let (encoded_shard_chunk, merkle_path, receipts, block) =
+            create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+        let mut chain_store = ChainStore::new(
+            env.clients[0].chain.store().owned_store(),
+            genesis_block.header().height(),
+        );
+        env.clients[0]
+            .shards_mgr
+            .distribute_encoded_chunk(encoded_shard_chunk, merkle_path, receipts, &mut chain_store)
+            .unwrap();
+        let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+        assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidTransactions));
+    }
+
+    #[test]
+    fn test_transaction_nonce_too_large() {
+        let epoch_length = 5;
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        genesis.config.epoch_length = epoch_length;
+        let mut env = TestEnv::new_with_runtime(
+            ChainGenesis::test(),
+            1,
+            1,
+            create_nightshade_runtimes(&genesis, 1),
+        );
+        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+        let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+        let large_nonce = AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1;
+        let tx = SignedTransaction::send_money(
+            large_nonce,
+            "test1".to_string(),
+            "test0".to_string(),
+            &signer,
+            100,
+            *genesis_block.hash(),
+        );
+        let res = env.clients[0].process_tx(tx, false, false);
+        assert!(matches!(
+            res,
+            NetworkClientResponses::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
+        ));
+    }
+}

@@ -119,9 +119,10 @@ wasmtime_default = ["node-runtime/wasmtime_default"]
 wasmer1_vm = ["node-runtime/wasmer1_vm"]
 wasmer0_vm = ["node-runtime/wasmer0_vm"]
 wasmtime_vm = ["node-runtime/wasmtime_vm"]
-nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3"]
+nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_access_key_nonce_range"]
 protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
+protocol_feature_access_key_nonce_range = ["neard/protocol_feature_access_key_nonce_range"]
 costs_counting = [
     "near-primitives/costs_counting",
     "neard/costs_counting",

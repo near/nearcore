@@ -266,6 +266,7 @@ fn challenge(
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0", "test1"], 1);
+    let transaction_validity_period = genesis.config.transaction_validity_period;
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         store1,
@@ -385,6 +386,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &economics_config,
             DoomslugThresholdMode::NoApprovals,
             &genesis_block,
+            transaction_validity_period,
         );
 
         chain_update.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap()

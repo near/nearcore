@@ -605,6 +605,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 gas_price,
                 &transaction,
                 verify_signature,
+                // here we do not know which block the transaction will be included
+                // and therefore skip the check on the nonce upper bound.
+                None,
                 current_protocol_version,
             ) {
                 Ok(_) => Ok(None),
@@ -645,6 +648,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         shard_id: ShardId,
         state_root: StateRoot,
+        next_block_height: BlockHeight,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
@@ -676,6 +680,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             gas_price,
                             &tx,
                             false,
+                            Some(next_block_height),
                             current_protocol_version,
                         ) {
                             Ok(verification_result) => {

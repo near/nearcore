@@ -595,6 +595,10 @@ impl Client {
                 chunk_extra.gas_limit,
                 shard_id,
                 chunk_extra.state_root.clone(),
+                // while the height of the next block that includes the chunk might not be prev_height + 1,
+                // passing it will result in a more conservative check and will not accidentally allow
+                // invalid transactions to be included.
+                prev_block_header.height() + 1,
                 &mut iter,
                 &mut |tx: &SignedTransaction| -> bool {
                     chain

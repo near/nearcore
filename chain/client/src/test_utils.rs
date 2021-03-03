@@ -1121,18 +1121,18 @@ pub fn create_chunk(
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     let last_block =
         client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
+    let next_height = last_block.header().height() + 1;
     let (mut chunk, mut merkle_paths, receipts) = client
         .produce_chunk(
             *last_block.hash(),
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
-            2,
+            next_height,
             0,
         )
         .unwrap()
         .unwrap();
     let should_replace = replace_transactions.is_some() || replace_tx_root.is_some();
-    let tx_root_replaced = replace_tx_root.is_some();
     let transactions = replace_transactions.unwrap_or_else(Vec::new);
     let tx_root = match replace_tx_root {
         Some(root) => root,
@@ -1171,14 +1171,12 @@ pub fn create_chunk(
         swap(&mut chunk, &mut encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
     }
-    if tx_root_replaced {
-        match &mut chunk {
-            EncodedShardChunk::V1(ref mut chunk) => {
-                chunk.header.height_included = 2;
-            }
-            EncodedShardChunk::V2(ref mut chunk) => {
-                *chunk.header.height_included_mut() = 2;
-            }
+    match &mut chunk {
+        EncodedShardChunk::V1(chunk) => {
+            chunk.header.height_included = next_height;
+        }
+        EncodedShardChunk::V2(chunk) => {
+            *chunk.header.height_included_mut() = next_height;
         }
     }
     let mut block_merkle_tree =
@@ -1187,7 +1185,7 @@ pub fn create_chunk(
     let block = Block::produce(
         PROTOCOL_VERSION,
         &last_block.header(),
-        2,
+        next_height,
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
