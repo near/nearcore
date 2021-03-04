@@ -33,7 +33,7 @@ primitive-types = "0.9"
 
 borsh = "0.8.1"
 
-near-primitives-core = { path = "../primitives-core", version = "0.1.0" }
+near-primitives-core = { path = "../primitives-core", version = "0.2.0" }
 near-crypto = { path = "../crypto", version = "0.1.0" }
 near-vm-errors = { path = "../../runtime/near-vm-errors",  version = "3.0.0" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.0" }
