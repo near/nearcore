@@ -66,11 +66,13 @@ impl Account {
     }
 
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    #[inline]
     pub fn amount(&self) -> Balance {
         self.amount
     }
 
     #[cfg(feature = "protocol_feature_add_account_versions")]
+    #[inline]
     pub fn amount(&self) -> Balance {
         match self {
             Account::AccountV1(acc) => acc.amount,
@@ -78,11 +80,13 @@ impl Account {
     }
 
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    #[inline]
     pub fn locked(&self) -> Balance {
         self.locked
     }
 
     #[cfg(feature = "protocol_feature_add_account_versions")]
+    #[inline]
     pub fn locked(&self) -> Balance {
         match self {
             Account::AccountV1(acc) => acc.locked,
@@ -90,11 +94,13 @@ impl Account {
     }
 
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    #[inline]
     pub fn code_hash(&self) -> CryptoHash {
         self.code_hash
     }
 
     #[cfg(feature = "protocol_feature_add_account_versions")]
+    #[inline]
     pub fn code_hash(&self) -> CryptoHash {
         match self {
             Account::AccountV1(acc) => acc.code_hash,
@@ -102,11 +108,13 @@ impl Account {
     }
 
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    #[inline]
     pub fn storage_usage(&self) -> StorageUsage {
         self.storage_usage
     }
 
     #[cfg(feature = "protocol_feature_add_account_versions")]
+    #[inline]
     pub fn storage_usage(&self) -> StorageUsage {
         match self {
             Account::AccountV1(acc) => acc.storage_usage,
@@ -114,11 +122,13 @@ impl Account {
     }
 
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    #[inline]
     pub fn set_amount(&mut self, amount: Balance) {
         self.amount = amount;
     }
 
     #[cfg(feature = "protocol_feature_add_account_versions")]
+    #[inline]
     pub fn set_amount(&mut self, amount: Balance) {
         match self {
             Account::AccountV1(acc) => {
@@ -128,11 +138,13 @@ impl Account {
     }
 
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    #[inline]
     pub fn set_locked(&mut self, locked: Balance) {
         self.locked = locked;
     }
 
     #[cfg(feature = "protocol_feature_add_account_versions")]
+    #[inline]
     pub fn set_locked(&mut self, locked: Balance) {
         match self {
             Account::AccountV1(acc) => {
@@ -142,11 +154,13 @@ impl Account {
     }
 
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    #[inline]
     pub fn set_code_hash(&mut self, code_hash: CryptoHash) {
         self.code_hash = code_hash;
     }
 
     #[cfg(feature = "protocol_feature_add_account_versions")]
+    #[inline]
     pub fn set_code_hash(&mut self, code_hash: CryptoHash) {
         match self {
             Account::AccountV1(acc) => {
@@ -156,11 +170,13 @@ impl Account {
     }
 
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    #[inline]
     pub fn set_storage_usage(&mut self, storage_usage: StorageUsage) {
         self.storage_usage = storage_usage;
     }
 
     #[cfg(feature = "protocol_feature_add_account_versions")]
+    #[inline]
     pub fn set_storage_usage(&mut self, storage_usage: StorageUsage) {
         match self {
             Account::AccountV1(acc) => {
