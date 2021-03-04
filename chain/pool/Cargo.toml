@@ -3,6 +3,9 @@ name = "near-pool"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
+description = """
+This internal crate provides pool of transactions to be processed by the runtime.
+"""
 
 [dependencies]
 rand = "0.7"

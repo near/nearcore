@@ -3,6 +3,10 @@ name = "node-runtime"
 version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
+description = """
+This internal crate provides the runtime needed to process transactions and execute Wasm smart contracts.
+"""
+
 
 [dependencies]
 byteorder = "1.2"

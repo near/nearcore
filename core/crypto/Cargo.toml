@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
+description = """
+This is an internal crate for common cryptographic types.
+"""
 
 
 [dependencies]
