@@ -135,7 +135,7 @@ pub(crate) fn execute_function_call(
         near_vm_runner::run(
             code.hash.as_ref().to_vec(),
             &code.code,
-            function_call.method_name.as_bytes(),
+            &function_call.method_name,
             runtime_ext,
             context,
             &config.wasm_config,

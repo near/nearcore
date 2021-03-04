@@ -43,7 +43,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
 
 pub fn make_simple_contract_call_with_gas_vm(
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
@@ -75,7 +75,7 @@ pub fn make_simple_contract_call_with_gas_vm(
 
 pub fn make_simple_contract_call_with_gas(
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     prepaid_gas: u64,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     make_simple_contract_call_with_gas_vm(code, method_name, prepaid_gas, VMKind::default())
@@ -83,14 +83,14 @@ pub fn make_simple_contract_call_with_gas(
 
 pub fn make_simple_contract_call(
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     make_simple_contract_call_with_gas(code, method_name, 10u64.pow(14))
 }
 
 pub fn make_simple_contract_call_vm(
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
@@ -121,7 +121,7 @@ impl CompiledContractCache for MockCompiledContractCache {
 pub fn make_cached_contract_call_vm(
     cache: &mut dyn CompiledContractCache,
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {

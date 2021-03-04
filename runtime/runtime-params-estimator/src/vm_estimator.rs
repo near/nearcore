@@ -54,7 +54,7 @@ fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
     near_vm_runner::run(
         code_hash,
         code,
-        b"cpu_ram_soak_test",
+        "cpu_ram_soak_test",
         &mut fake_external,
         context,
         &config,

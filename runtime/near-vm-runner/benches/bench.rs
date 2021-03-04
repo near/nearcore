@@ -71,7 +71,7 @@ fn pass_through(bench: &mut Bencher) {
         let result = run(
             vec![],
             &code,
-            b"pass_through",
+            "pass_through",
             &mut external,
             context.clone(),
             &config,
@@ -91,7 +91,7 @@ fn benchmark_fake_storage_8b_1000(bench: &mut Bencher) {
         let result = run(
             vec![],
             &code,
-            b"benchmark_storage_8b",
+            "benchmark_storage_8b",
             &mut external,
             context.clone(),
             &config,
@@ -111,7 +111,7 @@ fn benchmark_fake_storage_10kib_1000(bench: &mut Bencher) {
         let result = run(
             vec![],
             &code,
-            b"benchmark_storage_10kib",
+            "benchmark_storage_10kib",
             &mut external,
             context.clone(),
             &config,
@@ -131,7 +131,7 @@ fn sum_n_1000000(bench: &mut Bencher) {
         let result = run(
             vec![],
             &code,
-            b"sum_n",
+            "sum_n",
             &mut external,
             context.clone(),
             &config,

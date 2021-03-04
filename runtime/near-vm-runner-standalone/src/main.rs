@@ -225,11 +225,8 @@ fn main() {
         fake_external.fake_trie = state.0;
     }
 
-    let method_name = matches
-        .value_of("method-name")
-        .expect("Name of the method must be specified")
-        .as_bytes()
-        .to_vec();
+    let method_name =
+        matches.value_of("method-name").expect("Name of the method must be specified");
 
     let promise_results: Vec<PromiseResult> = matches
         .values_of("promise-results")

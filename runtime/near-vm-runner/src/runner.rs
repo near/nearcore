@@ -22,7 +22,7 @@ use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
 pub fn run<'a>(
     code_hash: Vec<u8>,
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
     wasm_config: &'a VMConfig,
@@ -50,7 +50,7 @@ pub fn run<'a>(
 pub fn run_vm<'a>(
     code_hash: Vec<u8>,
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
     wasm_config: &'a VMConfig,
@@ -80,7 +80,7 @@ pub fn run_vm<'a>(
 pub fn run_vm_profiled<'a>(
     code_hash: Vec<u8>,
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
     wasm_config: &'a VMConfig,
