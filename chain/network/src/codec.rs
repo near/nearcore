@@ -13,7 +13,7 @@ use near_performance_metrics::framed_write::EncoderCallBack;
 use near_performance_metrics::stats_enabled::get_thread_stats_logger;
 use near_rust_allocator_proxy::allocator::get_tid;
 
-const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MIB as u32; // 512MB
+const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MIB as u32;
 const MAX_CAPACITY: u64 = GIB;
 
 pub struct Codec {
