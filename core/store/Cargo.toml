@@ -4,6 +4,8 @@ version = "2.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
+repository = "https://github.com/nearprotocol/nearcore"
+homepage = "https://github.com/nearprotocol/nearcore"
 description = """
 This internal crate provides a storage abstraction for near runtime.
 """

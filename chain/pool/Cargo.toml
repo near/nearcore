@@ -3,6 +3,8 @@ name = "near-pool"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
+repository = "https://github.com/nearprotocol/nearcore"
+homepage = "https://github.com/nearprotocol/nearcore"
 description = """
 This internal crate provides pool of transactions to be processed by the runtime.
 """
