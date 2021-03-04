@@ -134,7 +134,6 @@ impl Account {
             Account::AccountV1(acc) => {
                 acc.amount = amount;
             }
-            _ => unreachable!(),
         }
     }
 
@@ -151,7 +150,6 @@ impl Account {
             Account::AccountV1(acc) => {
                 acc.locked = locked;
             }
-            _ => unreachable!(),
         }
     }
 
@@ -168,7 +166,6 @@ impl Account {
             Account::AccountV1(acc) => {
                 acc.code_hash = code_hash;
             }
-            _ => unreachable!(),
         }
     }
 
@@ -185,7 +182,6 @@ impl Account {
             Account::AccountV1(acc) => {
                 acc.storage_usage = storage_usage;
             }
-            _ => unreachable!(),
         }
     }
 }
