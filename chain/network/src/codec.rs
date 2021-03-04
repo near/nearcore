@@ -2,6 +2,7 @@ use std::io::{Error, ErrorKind};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{Buf, BufMut, BytesMut};
+use bytesize::{GIB, MIB};
 use log::error;
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -11,10 +12,9 @@ use near_performance_metrics::framed_write::EncoderCallBack;
 #[cfg(feature = "performance_stats")]
 use near_performance_metrics::stats_enabled::get_thread_stats_logger;
 use near_rust_allocator_proxy::allocator::get_tid;
-use size::{GIBIBYTE, MEBIBYTE};
 
-const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MEBIBYTE as u32; // 512MB
-const MAX_CAPACITY: u64 = GIBIBYTE;
+const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MIB as u32;
+const MAX_CAPACITY: u64 = GIB;
 
 pub struct Codec {
     max_length: u32,

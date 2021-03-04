@@ -68,7 +68,7 @@ pub fn test_read_write() {
         let result = run_vm(
             vec![],
             &code,
-            b"write_key_value",
+            "write_key_value",
             &mut fake_external,
             context,
             &config,
@@ -84,7 +84,7 @@ pub fn test_read_write() {
         let result = run_vm(
             vec![],
             &code,
-            b"read_value",
+            "read_value",
             &mut fake_external,
             context,
             &config,
@@ -126,7 +126,7 @@ macro_rules! def_test_ext {
 }
 
 fn run_test_ext(
-    method: &[u8],
+    method: &str,
     expected: &[u8],
     input: &[u8],
     validators: Vec<(&str, Balance)>,
@@ -168,28 +168,28 @@ fn run_test_ext(
     }
 }
 
-def_test_ext!(ext_account_id, b"ext_account_id", CURRENT_ACCOUNT_ID.as_bytes());
+def_test_ext!(ext_account_id, "ext_account_id", CURRENT_ACCOUNT_ID.as_bytes());
 
-def_test_ext!(ext_signer_id, b"ext_signer_id", SIGNER_ACCOUNT_ID.as_bytes());
+def_test_ext!(ext_signer_id, "ext_signer_id", SIGNER_ACCOUNT_ID.as_bytes());
 def_test_ext!(
     ext_predecessor_account_id,
-    b"ext_predecessor_account_id",
+    "ext_predecessor_account_id",
     PREDECESSOR_ACCOUNT_ID.as_bytes(),
     &[]
 );
-def_test_ext!(ext_signer_pk, b"ext_signer_pk", &SIGNER_ACCOUNT_PK);
-def_test_ext!(ext_random_seed, b"ext_random_seed", &[0, 1, 2]);
+def_test_ext!(ext_signer_pk, "ext_signer_pk", &SIGNER_ACCOUNT_PK);
+def_test_ext!(ext_random_seed, "ext_random_seed", &[0, 1, 2]);
 
-def_test_ext!(ext_prepaid_gas, b"ext_prepaid_gas", &(10_u64.pow(14)).to_le_bytes());
-def_test_ext!(ext_block_index, b"ext_block_index", &10u64.to_le_bytes());
-def_test_ext!(ext_block_timestamp, b"ext_block_timestamp", &42u64.to_le_bytes());
-def_test_ext!(ext_storage_usage, b"ext_storage_usage", &12u64.to_le_bytes());
+def_test_ext!(ext_prepaid_gas, "ext_prepaid_gas", &(10_u64.pow(14)).to_le_bytes());
+def_test_ext!(ext_block_index, "ext_block_index", &10u64.to_le_bytes());
+def_test_ext!(ext_block_timestamp, "ext_block_timestamp", &42u64.to_le_bytes());
+def_test_ext!(ext_storage_usage, "ext_storage_usage", &12u64.to_le_bytes());
 // Note, the used_gas is not a global used_gas at the beginning of method, but instead a diff
 // in used_gas for computing fib(30) in a loop
-def_test_ext!(ext_used_gas, b"ext_used_gas", &[111, 10, 200, 15, 0, 0, 0, 0]);
+def_test_ext!(ext_used_gas, "ext_used_gas", &[111, 10, 200, 15, 0, 0, 0, 0]);
 def_test_ext!(
     ext_sha256,
-    b"ext_sha256",
+    "ext_sha256",
     &[
         18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112, 92,
         255, 88, 43, 83, 147, 122, 55, 26, 36, 42, 156, 160, 158,
@@ -197,26 +197,26 @@ def_test_ext!(
     b"tesdsst"
 );
 // current_account_balance = context.account_balance + context.attached_deposit;
-def_test_ext!(ext_account_balance, b"ext_account_balance", &(2u128 + 2).to_le_bytes());
-def_test_ext!(ext_attached_deposit, b"ext_attached_deposit", &2u128.to_le_bytes());
+def_test_ext!(ext_account_balance, "ext_account_balance", &(2u128 + 2).to_le_bytes());
+def_test_ext!(ext_attached_deposit, "ext_attached_deposit", &2u128.to_le_bytes());
 
 def_test_ext!(
     ext_validator_stake_alice,
-    b"ext_validator_stake",
+    "ext_validator_stake",
     &(100u128).to_le_bytes(),
     b"alice",
     vec![("alice", 100), ("bob", 1)]
 );
 def_test_ext!(
     ext_validator_stake_bob,
-    b"ext_validator_stake",
+    "ext_validator_stake",
     &(1u128).to_le_bytes(),
     b"bob",
     vec![("alice", 100), ("bob", 1)]
 );
 def_test_ext!(
     ext_validator_stake_carol,
-    b"ext_validator_stake",
+    "ext_validator_stake",
     &(0u128).to_le_bytes(),
     b"carol",
     vec![("alice", 100), ("bob", 1)]
@@ -224,7 +224,7 @@ def_test_ext!(
 
 def_test_ext!(
     ext_validator_total_stake,
-    b"ext_validator_total_stake",
+    "ext_validator_total_stake",
     &(100u128 + 1).to_le_bytes(),
     &[],
     vec![("alice", 100), ("bob", 1)]
@@ -233,7 +233,7 @@ def_test_ext!(
 #[cfg(feature = "protocol_feature_alt_bn128")]
 def_test_ext!(
     ext_alt_bn128_pairing_check,
-    b"ext_alt_bn128_pairing_check",
+    "ext_alt_bn128_pairing_check",
     &[1],
     &base64::decode("AgAAAHUK2WNxTupDt1oaOshWw3squNVY4PgSyGwGtQYcEWMHJIY1c8C0A3FM466TMq5PSpfDrArT0hpcdfZB7ahoEAQBGgPbBg3Bc03mGw3y1sMJ1WOHDKDKcoevKnSsT+oaKdRvwIF8cDlrJvTm3vAkQe6FvBMrlDvNKKGzreRYqecdEUOjM6W7ZSz6GERlXIDLvjNVCSs6iES0XG65qGuBLR67FmQRS13YfRfUC7rHzAGMhQtSLEHeFBowGoTcGdVdGU+wBJWX8wuD/el5Jt4PdnXI1q/pgrXBp/+ZqfDP6xwfU0pFswaWSENKpoJTUnN7b9DdQCvt1brrBzj7s1/pnxdtrVVnCKXr4tpPSHis+xRTecmMYqr2edoTcyqHPO8eIDGqq8zExaCeqC8Xbot73t71Yn3QRiduupL+Qrl2A04gL7PFXU/wzE7shdWtdV4/mkRZ7IoA9/LU9SH5ACP26QB8VsaiyTYTGsRL/kdG7jMCF7mYi4ZBa4Fy9C/78FDBFw==").unwrap()
 );
@@ -241,7 +241,7 @@ def_test_ext!(
 #[cfg(feature = "protocol_feature_alt_bn128")]
 def_test_ext!(
     ext_alt_bn128_g1_sum,
-    b"ext_alt_bn128_g1_sum",
+    "ext_alt_bn128_g1_sum",
     &base64::decode("6I9NGC6Ikzk7Xw/CIippAtOEsTx4TodcXRjzzu5TLh4EIPsrWPsfnQMtqKfMMF+SHgSphZseRKyej9jTVCT8Aw==").unwrap(),
     &base64::decode("AgAAAADs00QWBTHQDDU1J1FtsDVGC5rDTICkFAtdvqNcFVO0EsRf4pf1kU9yNWyaj2ligWxqnoZGLtEEu3Ldp8+dgkQpAT+SS7pJZ4ql4b8tnwGv8W020cyHrmLCU15/Hp+LLCsDb34dEXKnY0BG4EoWCfaLdEAFcmAKKBbqXEqkAlbaTDA=").unwrap()
 );
@@ -249,7 +249,7 @@ def_test_ext!(
 #[cfg(feature = "protocol_feature_alt_bn128")]
 def_test_ext!(
     ext_alt_bn128_g1_multiexp,
-    b"ext_alt_bn128_g1_multiexp",
+    "ext_alt_bn128_g1_multiexp",
     &base64::decode("qoK67D1yppH5iP0qhCrD8Ms+idcZtEry4EegUtSpIylhCyZNbRQ0xVdRe9hQBxZIovzCMwFRMAdcZ5FB+QA6Lg==").unwrap(),
     &base64::decode("AgAAAOzTRBYFMdAMNTUnUW2wNUYLmsNMgKQUC12+o1wVU7QSxF/il/WRT3I1bJqPaWKBbGqehkYu0QS7ct2nz52CRCn3EXSIf0p4ORYJ7mRmZLWtUyGrqlKl/4DNx2kHDEUrET+SS7pJZ4ql4b8tnwGv8W020cyHrmLCU15/Hp+LLCsD2H5fx6TkvPtG6iZSiHT1Ih1TDyGsHTrOzFWN3hx0FwAaB2tgYeH+WuEKReDHNFmxyi8v597Ji5NP4PU8bZXkGQ==").unwrap()
 );
@@ -274,7 +274,7 @@ pub fn test_out_of_memory() {
         let result = run_vm(
             vec![],
             &code,
-            b"out_of_memory",
+            "out_of_memory",
             &mut fake_external,
             context,
             &config,
