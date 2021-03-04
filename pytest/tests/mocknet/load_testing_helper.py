@@ -24,7 +24,7 @@ MAX_TPS = 500  # maximum transactions per second sent (across the whole network)
 MAX_TPS_PER_NODE = MAX_TPS / NUM_NODES
 WASM_FILENAME = 'empty_contract_rs.wasm'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 10 * NUM_ACCOUNTS
+CONTRACT_DEPLOY_TIME = 120 #10 * NUM_ACCOUNTS
 TRANSFER_ONLY_TIMEOUT = 10 * 60
 ALL_TX_TIMEOUT = 10 * 60
 
@@ -161,10 +161,11 @@ if __name__ == '__main__':
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
     # call the contract before it is deployed).
-    delay = CONTRACT_DEPLOY_TIME / NUM_ACCOUNTS
-    for (account, _) in test_accounts:
-        account.send_deploy_contract_tx(WASM_FILENAME)
-        time.sleep(delay)
+    #delay = CONTRACT_DEPLOY_TIME / NUM_ACCOUNTS
+    #for (account, _) in test_accounts:
+    #    account.send_deploy_contract_tx(WASM_FILENAME)
+    #    time.sleep(delay)
+    time.sleep(CONTRACT_DEPLOY_TIME)
 
     # reset input transactions
     run(f'rm -rf {TX_OUT_FILE}')
