@@ -75,7 +75,8 @@ def random_transaction(account_and_index, i0):
     if choice == 0:
         send_transfer(account_and_index[0], account_and_index[1], i0)
     elif choice == 1:
-        account_and_index[0].send_call_contract_tx('do_work', [])
+        send_transfer(account_and_index[0], account_and_index[1], i0)
+        ##account_and_index[0].send_call_contract_tx('do_work', [])
     elif choice == 2:
         new_account_id = ''.join(
             random.choice(string.ascii_lowercase) for _ in range(0, 10))
