@@ -3,6 +3,8 @@ name = "near-store"
 version = "2.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
+license = "Apache-2.0"
+
 
 [dependencies]
 byteorder = "1.2"
@@ -19,8 +21,8 @@ strum = { version = "0.20", features = ["derive"] }
 
 borsh = "0.8.1"
 
-near-crypto = { path = "../crypto" }
-near-primitives = { path = "../primitives" }
+near-crypto = { path = "../crypto", version = "0.1.0" }
+near-primitives = { path = "../primitives", version = "0.1.0"}
 
 [dev-dependencies]
 tempfile = "3"

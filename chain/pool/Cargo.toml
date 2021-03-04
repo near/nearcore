@@ -8,5 +8,5 @@ edition = "2018"
 rand = "0.7"
 borsh = "0.8.1"
 
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
+near-crypto = { path = "../../core/crypto", version = "0.1.0" }
+near-primitives = { path = "../../core/primitives", version = "0.1.0" }
