@@ -40,7 +40,7 @@ impl VMLogicBuilder {
             &self.fees_config,
             &self.promise_results,
             &mut self.memory,
-            None,
+            Default::default(),
             self.current_protocol_version,
         )
     }

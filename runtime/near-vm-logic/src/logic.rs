@@ -107,7 +107,7 @@ impl<'a> VMLogic<'a> {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
-        profile: Option<ProfileData>,
+        profile: ProfileData,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
         ext.reset_touched_nodes_counter();
@@ -157,7 +157,7 @@ impl<'a> VMLogic<'a> {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
-        profile: Option<ProfileData>,
+        profile: ProfileData,
     ) -> Self {
         Self::new_with_protocol_version(
             ext,

@@ -225,11 +225,8 @@ fn main() {
         fake_external.fake_trie = state.0;
     }
 
-    let method_name = matches
-        .value_of("method-name")
-        .expect("Name of the method must be specified")
-        .as_bytes()
-        .to_vec();
+    let method_name =
+        matches.value_of("method-name").expect("Name of the method must be specified");
 
     let promise_results: Vec<PromiseResult> = matches
         .values_of("promise-results")
@@ -257,7 +254,7 @@ fn main() {
         fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
 
     let fees = RuntimeFeesConfig::default();
-    let profile_data = ProfileData::new();
+    let profile_data = ProfileData::new_enabled();
     let do_profile = matches.is_present("profile-gas");
     let (outcome, err) = if do_profile {
         run_vm_profiled(
