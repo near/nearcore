@@ -312,6 +312,7 @@ mod tests {
         let new_bytes = new_account.try_to_vec().unwrap();
         let old_bytes = old_account.try_to_vec().unwrap();
         assert!(new_bytes.len() > old_bytes.len());
+        assert_eq!(old_bytes.len(), std::mem::size_of::<AccountV1>());
     }
 
     #[test]
