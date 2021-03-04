@@ -16,8 +16,8 @@ config = None
 nodes = start_cluster(
     2, 2, 1, config,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 40]],
-    {0: {"view_client_throttle_period": 0},
-     1: {"view_client_throttle_period": 0}, 2: {
+    {0: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
+     1: {"view_client_throttle_period": {"secs": 0, "nanos": 0}}, 2: {
         "tracked_shards": [0]
     }})
 

@@ -22,12 +22,12 @@ near_root, node_dirs = init_cluster(
     4, 1, 4, config,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 12],
      ["block_producer_kickout_threshold", 20], ["chunk_producer_kickout_threshold", 20]],
-    {0: {"view_client_throttle_period": 0},
-     1: {"view_client_throttle_period": 0},
-     2: {"view_client_throttle_period": 0},
-     3: {"view_client_throttle_period": 0}, 4: {
+    {0: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
+     1: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
+     2: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
+     3: {"view_client_throttle_period": {"secs": 0, "nanos": 0}}, 4: {
         "tracked_shards": [0, 1, 2, 3],
-        "view_client_throttle_period": 0
+        "view_client_throttle_period": {"secs": 0, "nanos": 0}
     }})
 
 started = time.time()

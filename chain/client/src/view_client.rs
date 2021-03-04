@@ -449,7 +449,7 @@ impl ViewClientActor {
     fn check_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
         let now = Instant::now();
-        let cutoff = now - Duration::from_secs(self.config.view_client_throttle_period);
+        let cutoff = now - self.config.view_client_throttle_period;
         // Assume that time is linear. While in different threads there might be some small differences,
         // it should not matter in practice.
         while !cache.is_empty() && *cache.front().unwrap() < cutoff {

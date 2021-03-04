@@ -193,14 +193,17 @@ fn test_state_request() {
                 .unwrap()
                 .header
                 .hash;
-            let res = view_client
-                .send(NetworkViewClientMessages::StateRequestHeader {
-                    shard_id: 0,
-                    sync_hash: block_hash,
-                })
-                .await
-                .unwrap();
-            assert!(matches!(res, NetworkViewClientResponses::StateResponse(_)));
+            for _ in 0..30 {
+                let res = view_client
+                    .send(NetworkViewClientMessages::StateRequestHeader {
+                        shard_id: 0,
+                        sync_hash: block_hash,
+                    })
+                    .await
+                    .unwrap();
+                assert!(matches!(res, NetworkViewClientResponses::StateResponse(_)));
+            }
+
             // immediately query again, should be rejected
             let res = view_client
                 .send(NetworkViewClientMessages::StateRequestHeader {

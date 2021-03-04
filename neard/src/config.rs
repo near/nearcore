@@ -316,8 +316,8 @@ fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
 }
 
-fn default_view_client_throttle_period() -> u64 {
-    30
+fn default_view_client_throttle_period() -> Duration {
+    Duration::from_secs(30)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -424,7 +424,7 @@ pub struct Config {
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
     #[serde(default = "default_view_client_throttle_period")]
-    pub view_client_throttle_period: u64,
+    pub view_client_throttle_period: Duration,
 }
 
 impl Default for Config {
