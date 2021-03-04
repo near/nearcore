@@ -252,7 +252,6 @@ pub enum QueryResponseKind {
     ViewCode(ContractCodeView),
     ViewState(ViewStateResult),
     CallResult(CallResult),
-    // Error(QueryError),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
 }
