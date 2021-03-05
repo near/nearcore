@@ -789,7 +789,11 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
                     Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
                     Err(err) => err.data.unwrap(),
                 };
-                assert!(error_message.to_string().contains("Account ID 1nval$d*@cc0ount is invalid"), "{}", error_message);
+                assert!(
+                    error_message.to_string().contains("Account ID 1nval$d*@cc0ount is invalid"),
+                    "{}",
+                    error_message
+                );
                 System::current().stop();
             });
         });
@@ -830,7 +834,9 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
                     Err(err) => err.data.unwrap(),
                 };
                 assert!(
-                    error_message.to_string().contains("account accountdoesntexist.0 does not exist while viewing"),
+                    error_message
+                        .to_string()
+                        .contains("account accountdoesntexist.0 does not exist while viewing"),
                     "{}",
                     error_message
                 );

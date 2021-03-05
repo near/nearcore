@@ -11,7 +11,7 @@ use futures::{FutureExt, TryFutureExt};
 use prometheus;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tokio::time::{sleep, timeout};
 use tracing::info;
 
@@ -177,7 +177,12 @@ fn timeout_err() -> RpcError {
 
 /// This function processes response from query method to introduce
 /// backward compatible response in case of specific errors
-fn process_query_response(query_response: Result<near_jsonrpc_primitives::types::query::RpcQueryResponse, near_jsonrpc_primitives::types::query::RpcQueryError>) -> Result<Value, RpcError> {
+fn process_query_response(
+    query_response: Result<
+        near_jsonrpc_primitives::types::query::RpcQueryResponse,
+        near_jsonrpc_primitives::types::query::RpcQueryError,
+    >,
+) -> Result<Value, RpcError> {
     // This match is used here to give backward compatible error message for specific
     // error variants. Should be refactored once structured errors fully shipped
     match query_response {
@@ -208,7 +213,7 @@ fn process_query_response(query_response: Result<near_jsonrpc_primitives::types:
                 "block_hash": block_hash,
             })),
             _ => Err(err.into()),
-        }
+        },
     }
 }
 
