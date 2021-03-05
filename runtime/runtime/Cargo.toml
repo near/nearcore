@@ -1,6 +1,6 @@
 [package]
 name = "node-runtime"
-version = "3.0.0"
+version = "4.0.0-pre.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 description = """
@@ -27,10 +27,10 @@ near-crypto = { path = "../../core/crypto", version = "0.1.0" }
 near-primitives = { path = "../../core/primitives", version = "0.1.0"}
 near-store = { path = "../../core/store", version = "2.2.0" }
 near-metrics = { path = "../../core/metrics", version = "0.1.0" }
-near-runtime-utils = { path = "../../runtime/near-runtime-utils" , version = "3.0.0" }
-near-vm-logic = { path = "../../runtime/near-vm-logic", version = "3.0.0" }
-near-vm-runner = { path = "../../runtime/near-vm-runner", version = "3.0.0" }
-near-vm-errors = { path = "../../runtime/near-vm-errors", version = "3.0.0" }
+near-runtime-utils = { path = "../../runtime/near-runtime-utils" , version = "4.0.0-pre.1" }
+near-vm-logic = { path = "../../runtime/near-vm-logic", version = "4.0.0-pre.1" }
+near-vm-runner = { path = "../../runtime/near-vm-runner", version = "4.0.0-pre.1" }
+near-vm-errors = { path = "../../runtime/near-vm-errors", version = "4.0.0-pre.1" }
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]

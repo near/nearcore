@@ -3495,7 +3495,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-utils"
-version = "3.0.0"
+version = "4.0.0-pre.1"
 dependencies = [
  "lazy_static",
  "regex",
@@ -3556,7 +3556,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "3.0.0"
+version = "4.0.0-pre.1"
 dependencies = [
  "borsh",
  "hex",
@@ -3566,7 +3566,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "3.0.0"
+version = "4.0.0-pre.1"
 dependencies = [
  "base64 0.13.0",
  "borsh",
@@ -3577,14 +3577,14 @@ dependencies = [
  "near-vm-errors",
  "serde",
  "serde_json",
- "sha2 0.9.3",
+ "sha2 0.8.2",
  "sha3",
  "zeropool-bn",
 ]
 
 [[package]]
 name = "near-vm-runner"
-version = "3.0.0"
+version = "4.0.0-pre.1"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -3612,7 +3612,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "3.0.0"
+version = "4.0.0-pre.1"
 dependencies = [
  "base64 0.13.0",
  "clap 2.33.3",
@@ -3712,7 +3712,7 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "3.0.0"
+version = "4.0.0-pre.1"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
@@ -4804,7 +4804,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-params-estimator"
-version = "3.0.0"
+version = "4.0.0-pre.1"
 dependencies = [
  "borsh",
  "clap 2.33.3",

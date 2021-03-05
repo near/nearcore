@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-runner-standalone"
-version = "3.0.0"
+version = "4.0.0-pre.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -27,8 +27,8 @@ num-rational = { version = "0.3" }
 tracing = { version = "0.1"}
 tracing-subscriber = "0.2"
 
-near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", features = ["costs_counting"]}
-near-vm-runner = { path = "../near-vm-runner", version = "3.0.0", features = ["wasmtime_vm", "wasmer1_vm"] }
+near-vm-logic = { path = "../near-vm-logic", version = "4.0.0-pre.1", features = ["costs_counting"]}
+near-vm-runner = { path = "../near-vm-runner", version = "4.0.0-pre.1", features = ["wasmtime_vm", "wasmer1_vm"] }
 near-primitives = { path = "../../core/primitives", version = "0.1.0" }
 
 [features]
