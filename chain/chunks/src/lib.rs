@@ -638,12 +638,12 @@ impl ShardsManager {
             // will eventually be sent because of the `resend_chunk_requests` loop. However,
             // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
             // before we send requests.
-            let is_chunk_forwarding_enabled = checked_feature!(
+            /*let is_chunk_forwarding_enabled = checked_feature!(
                 "protocol_feature_forward_chunk_parts",
                 ForwardChunkParts,
                 protocol_version
             );
-            if !is_chunk_forwarding_enabled || fetch_from_archival || old_block {
+            if !is_chunk_forwarding_enabled || fetch_from_archival || old_block {*/
                 let request_result = self.request_partial_encoded_chunk(
                     height,
                     &parent_hash,
@@ -656,7 +656,7 @@ impl ShardsManager {
                 if let Err(err) = request_result {
                     error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
                 }
-            }
+            //}
         }
     }
 
