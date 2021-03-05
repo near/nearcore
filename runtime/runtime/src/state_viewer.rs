@@ -45,7 +45,7 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<ContractCode, Box<dyn std::error::Error>> {
         let account = self.view_account(state_update, account_id)?;
-        get_code(state_update, account_id, Some(account.code_hash))?.ok_or_else(|| {
+        get_code(state_update, account_id, Some(account.code_hash()))?.ok_or_else(|| {
             format!("contract code of account {} does not exist while viewing", account_id).into()
         })
     }

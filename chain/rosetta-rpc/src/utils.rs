@@ -267,7 +267,7 @@ fn get_liquid_balance_for_storage(
     mut account: near_primitives::account::Account,
     runtime_config: &near_primitives::runtime::config::RuntimeConfig,
 ) -> near_primitives::types::Balance {
-    account.amount = 0;
+    account.set_amount(0);
     near_primitives::runtime::get_insufficient_storage_stake(&account, &runtime_config)
         .expect("get_insufficient_storage_stake never fails when state is consistent")
         .unwrap_or(0)
@@ -289,8 +289,8 @@ impl RosettaAccountBalances {
         runtime_config: &near_primitives::runtime::config::RuntimeConfig,
     ) -> Self {
         let account = account.into();
-        let amount = account.amount;
-        let locked = account.locked;
+        let amount = account.amount();
+        let locked = account.locked();
         let liquid_for_storage = get_liquid_balance_for_storage(account, runtime_config);
 
         Self { liquid_for_storage, liquid: amount.saturating_sub(liquid_for_storage), locked }
