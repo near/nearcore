@@ -34,7 +34,7 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-node-runtime = { path = "../../runtime/runtime" }
+near-runtime = { path = "../../runtime/runtime" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-chain = { path = "../../chain/chain" }
 near-client = { path = "../../chain/client" }
@@ -48,7 +48,7 @@ near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 default = []
 protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
-    "node-runtime/protocol_feature_alt_bn128",
+    "near-runtime/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "neard/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]
+protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "neard/protocol_feature_evm", "near-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]

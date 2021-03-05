@@ -26,9 +26,9 @@ wasmtime = { version = "0.20.0", default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
 near-vm-logic = { path = "../near-vm-logic", version = "4.0.0-pre.1", default-features = false, features = [] }
 near-vm-errors = { path = "../near-vm-errors", version = "4.0.0-pre.1" }
-near-primitives = { path = "../../core/primitives" }
+near-primitives = { path = "../../core/primitives", version = "0.1.0-pre.1" }
 log = "0.4"
-near-evm-runner = { path = "../near-evm-runner", optional = true }
+# near-evm-runner = { path = "../near-evm-runner", optional = true }
 cached = "0.23.0"
 tracing = { version = "0.1", default-features = false }
 
@@ -47,7 +47,7 @@ wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass" ]
 lightbeam = ["wasmtime/lightbeam"]
 no_cpu_compatibility_checks = []
-protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
+protocol_feature_evm = [] # "near-primitives/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
 
 no_cache = []
 

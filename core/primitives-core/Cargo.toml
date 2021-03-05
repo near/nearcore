@@ -1,6 +1,6 @@
 [package]
 name = "near-primitives-core"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -11,7 +11,7 @@ This crate provides the core set of primitives used by other nearcore crates inc
 """
 
 [dependencies]
-base64 = "0.11"
+base64 = "0.13"
 borsh = "0.8.1"
 bs58 = "0.4"
 hex = "0.4"

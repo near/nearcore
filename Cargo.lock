@@ -2028,9 +2028,9 @@ dependencies = [
  "near-crypto",
  "near-network",
  "near-primitives",
+ "near-runtime",
  "near-runtime-utils",
  "neard",
- "node-runtime",
  "serde",
  "serde_json",
  "tempfile",
@@ -2761,9 +2761,9 @@ dependencies = [
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-primitives",
+ "near-runtime",
  "near-store",
  "neard",
- "node-runtime",
  "rand 0.7.3",
  "reqwest",
  "serde_json",
@@ -3223,8 +3223,8 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-primitives",
+ "near-runtime",
  "neard",
- "node-runtime",
  "rocksdb",
  "serde",
  "serde_json",
@@ -3390,7 +3390,7 @@ dependencies = [
 
 [[package]]
 name = "near-pool"
-version = "0.1.0"
+version = "0.1.0-pre.1"
 dependencies = [
  "borsh",
  "near-crypto",
@@ -3400,7 +3400,7 @@ dependencies = [
 
 [[package]]
 name = "near-primitives"
-version = "0.1.0"
+version = "0.1.0-pre.1"
 dependencies = [
  "base64 0.13.0",
  "bencher",
@@ -3431,9 +3431,9 @@ dependencies = [
 
 [[package]]
 name = "near-primitives-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
- "base64 0.11.0",
+ "base64 0.13.0",
  "borsh",
  "bs58",
  "derive_more",
@@ -3494,6 +3494,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-runtime"
+version = "4.0.0-pre.1"
+dependencies = [
+ "assert_matches",
+ "base64 0.11.0",
+ "borsh",
+ "byteorder",
+ "ethereum-types 0.11.0",
+ "hex",
+ "indicatif 0.13.0",
+ "lazy_static",
+ "log",
+ "near-chain-configs",
+ "near-crypto",
+ "near-metrics",
+ "near-primitives",
+ "near-runtime-utils",
+ "near-store",
+ "near-vm-errors",
+ "near-vm-logic",
+ "near-vm-runner",
+ "num-bigint",
+ "num-rational",
+ "num-traits",
+ "rand 0.7.3",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "testlib",
+]
+
+[[package]]
 name = "near-runtime-utils"
 version = "4.0.0-pre.1"
 dependencies = [
@@ -3519,7 +3552,7 @@ dependencies = [
 
 [[package]]
 name = "near-store"
-version = "2.2.0"
+version = "0.1.0-pre.1"
 dependencies = [
  "bencher",
  "borsh",
@@ -3594,7 +3627,6 @@ dependencies = [
  "cached",
  "lazy-static-include",
  "log",
- "near-evm-runner",
  "near-primitives",
  "near-vm-errors",
  "near-vm-logic",
@@ -3639,9 +3671,9 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-runtime",
  "near-store",
  "neard",
- "node-runtime",
  "rand 0.7.3",
  "runtime-params-estimator",
  "testlib",
@@ -3681,10 +3713,10 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-rosetta-rpc",
+ "near-runtime",
  "near-rust-allocator-proxy",
  "near-store",
  "near-telemetry",
- "node-runtime",
  "num-rational",
  "openssl-probe",
  "primitive-types",
@@ -3708,40 +3740,6 @@ dependencies = [
  "cfg-if 0.1.10",
  "libc",
  "void",
-]
-
-[[package]]
-name = "node-runtime"
-version = "4.0.0-pre.1"
-dependencies = [
- "assert_matches",
- "base64 0.11.0",
- "borsh",
- "byteorder",
- "ethereum-types 0.11.0",
- "hex",
- "indicatif 0.13.0",
- "lazy_static",
- "log",
- "near-chain-configs",
- "near-crypto",
- "near-evm-runner",
- "near-metrics",
- "near-primitives",
- "near-runtime-utils",
- "near-store",
- "near-vm-errors",
- "near-vm-logic",
- "near-vm-runner",
- "num-bigint",
- "num-rational",
- "num-traits",
- "rand 0.7.3",
- "rayon",
- "serde",
- "serde_json",
- "tempfile",
- "testlib",
 ]
 
 [[package]]
@@ -4823,11 +4821,11 @@ dependencies = [
  "near-crypto",
  "near-evm-runner",
  "near-primitives",
+ "near-runtime",
  "near-store",
  "near-vm-logic",
  "near-vm-runner",
  "neard",
- "node-runtime",
  "num-rational",
  "num-traits",
  "rand 0.7.3",
@@ -5256,9 +5254,9 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-runtime",
  "near-store",
  "neard",
- "node-runtime",
  "serde_json",
 ]
 
@@ -5519,10 +5517,10 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-runtime",
  "near-store",
  "near-vm-errors",
  "neard",
- "node-runtime",
  "num-rational",
  "rand 0.7.3",
  "serde_json",

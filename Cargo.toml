@@ -61,7 +61,7 @@ near-store = { path = "./core/store" }
 runtime-params-estimator = { path = "./runtime/runtime-params-estimator", default_features = false }
 near-chain = { path = "./chain/chain" }
 
-node-runtime = { path = "./runtime/runtime" }
+near-runtime = { path = "./runtime/runtime" }
 
 near-jsonrpc = { path = "./chain/jsonrpc" }
 near-network = { path = "./chain/network" }
@@ -116,11 +116,11 @@ protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_head
 
 # enable this to build neard with wasmer 1.0 runner
 # now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
-wasmer1_default = ["node-runtime/wasmer1_default"]
-wasmer0_default = ["node-runtime/wasmer0_default"]
-wasmtime_default = ["node-runtime/wasmtime_default"]
+wasmer1_default = ["near-runtime/wasmer1_default"]
+wasmer0_default = ["near-runtime/wasmer0_default"]
+wasmtime_default = ["near-runtime/wasmtime_default"]
 # enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
 # but would not change default runner used by neard
-wasmer1_vm = ["node-runtime/wasmer1_vm"]
-wasmer0_vm = ["node-runtime/wasmer0_vm"]
-wasmtime_vm = ["node-runtime/wasmtime_vm"]
+wasmer1_vm = ["near-runtime/wasmer1_vm"]
+wasmer0_vm = ["near-runtime/wasmer0_vm"]
+wasmtime_vm = ["near-runtime/wasmtime_vm"]

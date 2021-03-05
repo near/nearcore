@@ -1,5 +1,5 @@
 [package]
-name = "node-runtime"
+name = "near-runtime"
 version = "4.0.0-pre.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
@@ -24,19 +24,19 @@ ethereum-types = "0.11.0"
 borsh = "0.8.1"
 
 near-crypto = { path = "../../core/crypto", version = "0.1.0" }
-near-primitives = { path = "../../core/primitives", version = "0.1.0"}
-near-store = { path = "../../core/store", version = "2.2.0" }
+near-primitives = { path = "../../core/primitives", version = "0.1.0-pre.1"}
+near-store = { path = "../../core/store", version = "0.1.0-pre.1" }
 near-metrics = { path = "../../core/metrics", version = "0.1.0" }
 near-runtime-utils = { path = "../../runtime/near-runtime-utils" , version = "4.0.0-pre.1" }
 near-vm-logic = { path = "../../runtime/near-vm-logic", version = "4.0.0-pre.1" }
 near-vm-runner = { path = "../../runtime/near-vm-runner", version = "4.0.0-pre.1" }
 near-vm-errors = { path = "../../runtime/near-vm-errors", version = "4.0.0-pre.1" }
-near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
+# near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
-protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-runner/protocol_feature_evm"]
+protocol_feature_evm = [] # "near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-runner/protocol_feature_evm"]
 wasmer1_vm = ["near-vm-runner/wasmer1_vm"]
 wasmer0_vm = ["near-vm-runner/wasmer0_vm"]
 wasmtime_vm = ["near-vm-runner/wasmtime_vm"]

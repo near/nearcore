@@ -21,7 +21,7 @@ serde = { version = "1", features = ["derive"] }
 sha2 = ">=0.8,<0.10"
 sha3 = ">=0.8,<0.10"
 
-near-primitives-core = { path = "../../core/primitives-core", version = "0.3.0" }
+near-primitives-core = { path = "../../core/primitives-core", version = "0.4.0" }
 near-vm-errors = { path = "../near-vm-errors", version = "4.0.0-pre.1" }
 near-runtime-utils = { path = "../near-runtime-utils", version = "4.0.0-pre.1" }
 

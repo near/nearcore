@@ -17,4 +17,4 @@ neard = { path = "../../neard" }
 near-client = { path = "../client" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
-node-runtime = { path = "../../runtime/runtime" }
+near-runtime = { path = "../../runtime/runtime" }

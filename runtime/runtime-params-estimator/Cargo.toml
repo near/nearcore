@@ -25,7 +25,7 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic"  }
 near-vm-runner = {path = "../../runtime/near-vm-runner" }
-node-runtime = { path = "../../runtime/runtime" }
+near-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 testlib = { path = "../../test-utils/testlib" }
@@ -49,7 +49,7 @@ default = ["costs_counting"]
 costs_counting = ["near-vm-logic/costs_counting"]
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
 required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache"]
-no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
+no_cache = ["near-runtime/no_cache", "near-store/no_cache"]
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
@@ -57,13 +57,13 @@ nightly_protocol_features = ["protocol_feature_alt_bn128", "protocol_feature_evm
 protocol_feature_alt_bn128 = [
     "near-vm-logic/protocol_feature_alt_bn128",
     "near-vm-runner/protocol_feature_alt_bn128",
-    "node-runtime/protocol_feature_alt_bn128",
+    "near-runtime/protocol_feature_alt_bn128",
     "testlib/protocol_feature_alt_bn128",
     "neard/protocol_feature_alt_bn128",
 ]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "near-vm-runner/protocol_feature_evm",
                         "near-chain-configs/protocol_feature_evm",
-                        "node-runtime/protocol_feature_evm",
+                        "near-runtime/protocol_feature_evm",
                         "near-primitives/protocol_feature_evm",
                         "testlib/protocol_feature_evm"]

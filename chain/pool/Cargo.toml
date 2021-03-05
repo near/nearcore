@@ -1,6 +1,6 @@
 [package]
 name = "near-pool"
-version = "0.1.0"
+version = "0.1.0-pre.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 repository = "https://github.com/nearprotocol/nearcore"
@@ -14,4 +14,4 @@ rand = "0.7"
 borsh = "0.8.1"
 
 near-crypto = { path = "../../core/crypto", version = "0.1.0" }
-near-primitives = { path = "../../core/primitives", version = "0.1.0" }
+near-primitives = { path = "../../core/primitives", version = "0.1.0-pre.1" }

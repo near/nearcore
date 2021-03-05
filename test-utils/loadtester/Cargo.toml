@@ -21,7 +21,7 @@ borsh = "0.8.1"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
-node-runtime = { path = "../../runtime/runtime" }
+near-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
