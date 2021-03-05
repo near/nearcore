@@ -209,17 +209,6 @@ pub fn precompile<'a>(
     }
 }
 
-pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
-    #[cfg(feature = "wasmer0_vm")]
-    runner(VMKind::Wasmer0);
-
-    #[cfg(feature = "wasmtime_vm")]
-    runner(VMKind::Wasmtime);
-
-    #[cfg(feature = "wasmer1_vm")]
-    runner(VMKind::Wasmer1);
-}
-
 /// Used for testing cost of compiling a module
 pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) -> bool {
     match vm_kind {
