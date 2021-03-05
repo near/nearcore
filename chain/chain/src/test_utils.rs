@@ -40,7 +40,9 @@ use near_store::{
 
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
+use crate::types::{
+    ApplyTransactionResult, BlockHeaderInfo, ChainGenesis, ValidatorInfoIdentifier,
+};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
@@ -962,7 +964,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(PROTOCOL_VERSION)
     }
 
-    fn get_validator_info(&self, _block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
+    fn get_validator_info(
+        &self,
+        _epoch_id: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, Error> {
         Ok(EpochValidatorInfo {
             current_validators: vec![],
             next_validators: vec![],

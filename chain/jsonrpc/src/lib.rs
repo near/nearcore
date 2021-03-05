@@ -280,7 +280,15 @@ impl JsonRpcHandler {
             "query" => self.query(request.params).await,
             "status" => self.status().await,
             "tx" => self.tx_status_common(request.params, false).await,
-            "validators" => self.validators(request.params).await,
+            "validators" => {
+                let rpc_validator_request =
+                    near_jsonrpc_primitives::types::validator::RpcValidatorRequest::parse(
+                        request.params,
+                    )?;
+                let validator_info = self.validators(rpc_validator_request).await?;
+                serde_json::to_value(validator_info)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
 
@@ -829,9 +837,18 @@ impl JsonRpcHandler {
         String::from_utf8(buffer)
     }
 
-    async fn validators(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_id,) = parse_params::<(MaybeBlockId,)>(params)?;
-        jsonify(self.view_client_addr.send(GetValidatorInfo { block_id }).await)
+    async fn validators(
+        &self,
+        request_data: near_jsonrpc_primitives::types::validator::RpcValidatorRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::validator::RpcValidatorResponse,
+        near_jsonrpc_primitives::types::validator::RpcValidatorError,
+    > {
+        let validator_info = self
+            .view_client_addr
+            .send(GetValidatorInfo { epoch_reference: request_data.epoch_reference })
+            .await??;
+        Ok(near_jsonrpc_primitives::types::validator::RpcValidatorResponse { validator_info })
     }
 
     /// Returns the current epoch validators ordered in the block producer order with repetition.

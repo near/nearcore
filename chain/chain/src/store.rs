@@ -2454,6 +2454,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColComponentEdges
             | DBCol::ColEpochInfo
             | DBCol::ColEpochStart
+            | DBCol::ColEpochValidatorInfo
             | DBCol::ColBlockOrdinal
             | DBCol::_ColTransactionRefCount
             | DBCol::ColCachedContractCode => {

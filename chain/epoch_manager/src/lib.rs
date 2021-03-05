@@ -28,6 +28,8 @@ pub use crate::types::RngSeed;
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
+use near_chain::types::ValidatorInfoIdentifier;
+use near_store::db::DBCol::ColEpochValidatorInfo;
 
 mod proposals;
 mod reward_calculator;
@@ -324,13 +326,7 @@ impl EpochManager {
         last_block_hash: &CryptoHash,
         rng_seed: RngSeed,
     ) -> Result<EpochId, EpochError> {
-        let EpochSummary {
-            prev_epoch_last_block_hash,
-            all_proposals,
-            validator_kickout,
-            validator_block_chunk_stats,
-            next_version,
-        } = self.collect_blocks_info(&block_info, last_block_hash)?;
+        let epoch_summary = self.collect_blocks_info(&block_info, last_block_hash)?;
         let epoch_info = self.get_epoch_info(&block_info.epoch_id)?;
         let epoch_protocol_version = epoch_info.protocol_version;
         let validator_stake = epoch_info
@@ -341,6 +337,15 @@ impl EpochManager {
             .collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
+        self.save_epoch_validator_info(store_update, &block_info.epoch_id, &epoch_summary)?;
+
+        let EpochSummary {
+            prev_epoch_last_block_hash,
+            all_proposals,
+            validator_kickout,
+            validator_block_chunk_stats,
+            next_version,
+        } = epoch_summary;
 
         #[cfg(feature = "protocol_feature_rectify_inflation")]
         let (validator_reward, minted_amount) = {
@@ -369,27 +374,6 @@ impl EpochManager {
             self.genesis_protocol_version,
         );
 
-        //        let (validator_reward, minted_amount) = checked_feature!("protocol_feature_rectify_inflation", RectifyInflation, epoch_protocol_version, {
-        //          let epoch_first_block = self.get_block_info(&block_info.epoch_first_block)?;
-        //          assert!(block_info.timestamp >= epoch_first_block.timestamp);
-        //          let time_diff = block_info.timestamp - epoch_first_block.timestamp;
-        //          self.reward_calculator.calculate_reward(
-        //                validator_block_chunk_stats,
-        //                &validator_stake,
-        //                block_info.total_supply,
-        //                epoch_protocol_version,
-        //                self.genesis_protocol_version,
-        //                time_diff
-        //          )
-        //        }, {
-        //            self.reward_calculator.calculate_reward(
-        //                validator_block_chunk_stats,
-        //                &validator_stake,
-        //                block_info.total_supply,
-        //                epoch_protocol_version,
-        //                self.genesis_protocol_version,
-        //            )
-        //        });
         let next_next_epoch_info = match proposals_to_epoch_info(
             &self.config,
             rng_seed,
@@ -915,12 +899,14 @@ impl EpochManager {
     /// Get validators for current epoch and next epoch.
     pub fn get_validator_info(
         &mut self,
-        block_hash: &CryptoHash,
+        epoch_identifier: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, EpochError> {
-        let epoch_id = self.get_epoch_id(block_hash)?;
-        let slashed = self.get_slashed_validators(block_hash)?.clone();
+        let epoch_id = match epoch_identifier {
+            ValidatorInfoIdentifier::EpochId(ref id) => id.clone(),
+            ValidatorInfoIdentifier::BlockHash(ref b) => self.get_block_info(b)?.epoch_id.clone(),
+        };
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?.clone();
-        let epoch_start_height = self.get_epoch_start_height(block_hash)?;
+        let epoch_start_height = self.get_epoch_start_from_epoch_id(&epoch_id)?;
         let mut validator_to_shard = (0..cur_epoch_info.validators.len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
@@ -929,34 +915,83 @@ impl EpochManager {
                 validator_to_shard[*validator_id as usize].insert(shard_id as ShardId);
             }
         }
-        let epoch_info_aggregator =
-            self.get_and_update_epoch_info_aggregator(&epoch_id, block_hash, true)?;
-        let current_validators = cur_epoch_info
-            .validators
-            .into_iter()
-            .enumerate()
-            .map(|(validator_id, info)| {
-                let validator_stats = epoch_info_aggregator
-                    .block_tracker
-                    .get(&(validator_id as u64))
-                    .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
-                    .clone();
-                let mut shards =
-                    validator_to_shard[validator_id].clone().into_iter().collect::<Vec<ShardId>>();
-                shards.sort();
-                Ok(CurrentEpochValidatorInfo {
-                    is_slashed: slashed.contains_key(&info.account_id),
-                    account_id: info.account_id,
-                    public_key: info.public_key,
-                    stake: info.stake,
-                    shards,
-                    num_produced_blocks: validator_stats.produced,
-                    num_expected_blocks: validator_stats.expected,
-                })
-            })
-            .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
+
+        // This ugly code arises because of the incompatible types between `block_tracker` in `EpochInfoAggregator`
+        // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no support for Either type
+        // in std.
+        let (current_validators, next_epoch_id, all_proposals) = match &epoch_identifier {
+            ValidatorInfoIdentifier::EpochId(id) => {
+                let epoch_summary = self.get_epoch_validator_info(id)?;
+                let cur_validators = cur_epoch_info
+                    .validators
+                    .into_iter()
+                    .enumerate()
+                    .map(|(validator_id, info)| {
+                        let validator_stats = epoch_summary
+                            .validator_block_chunk_stats
+                            .get(&info.account_id)
+                            .map(|stats| stats.block_stats.clone())
+                            .unwrap_or_else(|| ValidatorStats { produced: 0, expected: 0 });
+                        let mut shards = validator_to_shard[validator_id]
+                            .iter()
+                            .cloned()
+                            .collect::<Vec<ShardId>>();
+                        shards.sort();
+                        Ok(CurrentEpochValidatorInfo {
+                            is_slashed: false, // currently there is no slashing
+                            account_id: info.account_id,
+                            public_key: info.public_key,
+                            stake: info.stake,
+                            shards,
+                            num_produced_blocks: validator_stats.produced,
+                            num_expected_blocks: validator_stats.expected,
+                        })
+                    })
+                    .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
+                (
+                    cur_validators,
+                    EpochId(epoch_summary.prev_epoch_last_block_hash),
+                    epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
+                )
+            }
+            ValidatorInfoIdentifier::BlockHash(ref h) => {
+                let aggregator = self.get_and_update_epoch_info_aggregator(&epoch_id, h, true)?;
+                let cur_validators = cur_epoch_info
+                    .validators
+                    .into_iter()
+                    .enumerate()
+                    .map(|(validator_id, info)| {
+                        let validator_stats = aggregator
+                            .block_tracker
+                            .get(&(validator_id as u64))
+                            .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
+                            .clone();
+                        let mut shards = validator_to_shard[validator_id]
+                            .clone()
+                            .into_iter()
+                            .collect::<Vec<ShardId>>();
+                        shards.sort();
+                        Ok(CurrentEpochValidatorInfo {
+                            is_slashed: false, // currently there is no slashing
+                            account_id: info.account_id,
+                            public_key: info.public_key,
+                            stake: info.stake,
+                            shards,
+                            num_produced_blocks: validator_stats.produced,
+                            num_expected_blocks: validator_stats.expected,
+                        })
+                    })
+                    .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
+                let next_epoch_id = self.get_next_epoch_id(h)?;
+                (
+                    cur_validators,
+                    next_epoch_id,
+                    aggregator.all_proposals.into_iter().map(|(_, p)| p.into()).collect(),
+                )
+            }
+        };
+
         let current_fishermen = cur_epoch_info.fishermen;
-        let next_epoch_id = self.get_next_epoch_id(block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
         let mut next_validator_to_shard = (0..next_epoch_info.validators.len())
             .map(|_| HashSet::default())
@@ -1000,11 +1035,7 @@ impl EpochManager {
             next_validators,
             current_fishermen: current_fishermen.into_iter().map(Into::into).collect(),
             next_fishermen: next_fishermen.into_iter().map(Into::into).collect(),
-            current_proposals: epoch_info_aggregator
-                .all_proposals
-                .into_iter()
-                .map(|(_, p)| p.into())
-                .collect(),
+            current_proposals: all_proposals,
             prev_epoch_kickout,
             epoch_start_height,
         })
@@ -1148,6 +1179,28 @@ impl EpochManager {
             .map_err(EpochError::from)?;
         self.epochs_info.cache_set(epoch_id.clone(), epoch_info);
         Ok(())
+    }
+
+    pub fn get_epoch_validator_info(
+        &mut self,
+        epoch_id: &EpochId,
+    ) -> Result<EpochSummary, EpochError> {
+        // We don't use cache here since this query happens rarely and only for rpc.
+        self.store
+            .get_ser(ColEpochValidatorInfo, epoch_id.as_ref())
+            .map_err(|err| err.into())
+            .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))
+    }
+
+    fn save_epoch_validator_info(
+        &self,
+        store_update: &mut StoreUpdate,
+        epoch_id: &EpochId,
+        epoch_summary: &EpochSummary,
+    ) -> Result<(), EpochError> {
+        store_update
+            .set_ser(ColEpochValidatorInfo, epoch_id.as_ref(), epoch_summary)
+            .map_err(EpochError::from)
     }
 
     fn has_block_info(&mut self, hash: &CryptoHash) -> Result<bool, EpochError> {
