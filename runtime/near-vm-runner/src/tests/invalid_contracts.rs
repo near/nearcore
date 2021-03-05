@@ -1,10 +1,7 @@
 use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError};
-use near_vm_runner::with_vm_variants;
-
-pub mod test_utils;
-
-use self::test_utils::{make_simple_contract_call_vm, wat2wasm_no_validate};
 use near_vm_logic::VMKind;
+
+use crate::tests::{make_simple_contract_call_vm, wat2wasm_no_validate, with_vm_variants};
 
 fn initializer_wrong_signature_contract() -> Vec<u8> {
     wat2wasm_no_validate(
