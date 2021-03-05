@@ -76,7 +76,6 @@ fn test_keyvalue_runtime_balances() {
     });
 }
 
-#[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -516,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cross_shard_tx() {
+    fn xxx_test_cross_shard_tx() {
         test_cross_shard_tx_common(40, false, false, false, 200, Some(2.3), None);
     }
 
