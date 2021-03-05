@@ -32,7 +32,7 @@ pub fn run<'a>(
     cache: Option<&'a dyn CompiledContractCache>,
     profile: &ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    run_vm_profiled(
+    run_vm(
         code_hash,
         code,
         method_name,
@@ -42,56 +42,27 @@ pub fn run<'a>(
         fees_config,
         promise_results,
         VMKind::default(),
+        current_protocol_version,
+        cache,
         profile.clone(),
-        current_protocol_version,
-        cache,
-    )
-}
-pub fn run_vm<'a>(
-    code_hash: Vec<u8>,
-    code: &[u8],
-    method_name: &str,
-    ext: &mut dyn External,
-    context: VMContext,
-    wasm_config: &'a VMConfig,
-    fees_config: &'a RuntimeFeesConfig,
-    promise_results: &'a [PromiseResult],
-    vm_kind: VMKind,
-    current_protocol_version: ProtocolVersion,
-    cache: Option<&'a dyn CompiledContractCache>,
-) -> (Option<VMOutcome>, Option<VMError>) {
-    let profile = ProfileData::new_disabled();
-    run_vm_profiled(
-        code_hash,
-        code,
-        method_name,
-        ext,
-        context,
-        wasm_config,
-        fees_config,
-        promise_results,
-        vm_kind,
-        profile,
-        current_protocol_version,
-        cache,
     )
 }
 
-pub fn run_vm_profiled<'a>(
+pub fn run_vm(
     code_hash: Vec<u8>,
     code: &[u8],
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
-    wasm_config: &'a VMConfig,
-    fees_config: &'a RuntimeFeesConfig,
-    promise_results: &'a [PromiseResult],
+    wasm_config: &VMConfig,
+    fees_config: &RuntimeFeesConfig,
+    promise_results: &[PromiseResult],
     vm_kind: VMKind,
-    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
-    cache: Option<&'a dyn CompiledContractCache>,
+    cache: Option<&dyn CompiledContractCache>,
+    profile: ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::info_span!("run_vm_profiled").entered();
+    let _span = tracing::info_span!("run_vm").entered();
 
     #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;

@@ -1,3 +1,4 @@
+use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, HostError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -33,6 +34,7 @@ pub fn test_ts_contract() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
+            ProfileData::new_disabled(),
         );
         assert_eq!(
             result.1,
@@ -55,6 +57,7 @@ pub fn test_ts_contract() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
+            ProfileData::new_disabled(),
         )
         .0
         .unwrap();
@@ -81,6 +84,7 @@ pub fn test_ts_contract() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
+            ProfileData::new_disabled(),
         );
 
         if let ReturnData::Value(value) = result.0.unwrap().return_data {
