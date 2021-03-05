@@ -1177,6 +1177,14 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 
                 NetworkViewClientResponses::AnnounceAccount(filtered_announce_accounts)
             }
+            NetworkViewClientMessages::EpochSyncRequest { epoch_id: _epoch_id } => {
+                // TODO #3488
+                NetworkViewClientResponses::NoResponse
+            }
+            NetworkViewClientMessages::EpochSyncFinalizationRequest { epoch_id: _epoch_id } => {
+                // TODO #3488
+                NetworkViewClientResponses::NoResponse
+            }
         }
     }
 }

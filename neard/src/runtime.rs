@@ -26,7 +26,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
-use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
+use near_primitives::epoch_manager::{BlockInfo, EpochConfig, EpochInfo};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -1048,9 +1048,82 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount)
     }
 
+    // TODO #3488 this likely to be updated
+    fn get_epoch_sync_data_hash(
+        &self,
+        prev_epoch_last_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        next_epoch_id: &EpochId,
+    ) -> Result<CryptoHash, Error> {
+        let (
+            prev_epoch_first_block_info,
+            prev_epoch_prev_last_block_info,
+            prev_epoch_last_block_info,
+            prev_epoch_info,
+            cur_epoch_info,
+            next_epoch_info,
+        ) = self.get_epoch_sync_data(prev_epoch_last_block_hash, epoch_id, next_epoch_id)?;
+        let mut data = prev_epoch_first_block_info.try_to_vec().unwrap();
+        data.extend(prev_epoch_prev_last_block_info.try_to_vec().unwrap());
+        data.extend(prev_epoch_last_block_info.try_to_vec().unwrap());
+        data.extend(prev_epoch_info.try_to_vec().unwrap());
+        data.extend(cur_epoch_info.try_to_vec().unwrap());
+        data.extend(next_epoch_info.try_to_vec().unwrap());
+        Ok(hash(data.as_slice()))
+    }
+
+    // TODO #3488 this likely to be updated
+    fn get_epoch_sync_data(
+        &self,
+        prev_epoch_last_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        next_epoch_id: &EpochId,
+    ) -> Result<(BlockInfo, BlockInfo, BlockInfo, EpochInfo, EpochInfo, EpochInfo), Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?.clone();
+        let prev_epoch_id = last_block_info.epoch_id.clone();
+        Ok((
+            epoch_manager.get_block_info(&last_block_info.epoch_first_block)?.clone(),
+            epoch_manager.get_block_info(&last_block_info.prev_hash)?.clone(),
+            last_block_info,
+            epoch_manager.get_epoch_info(&prev_epoch_id)?.clone(),
+            epoch_manager.get_epoch_info(epoch_id)?.clone(),
+            epoch_manager.get_epoch_info(next_epoch_id)?.clone(),
+        ))
+    }
+
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version)
+    }
+
+    fn epoch_sync_init_epoch_manager(
+        &self,
+        prev_epoch_first_block_info: BlockInfo,
+        prev_epoch_prev_last_block_info: BlockInfo,
+        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_id: &EpochId,
+        prev_epoch_info: EpochInfo,
+        epoch_id: &EpochId,
+        epoch_info: EpochInfo,
+        next_epoch_id: &EpochId,
+        next_epoch_info: EpochInfo,
+    ) -> Result<(), Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        epoch_manager
+            .init_after_epoch_sync(
+                prev_epoch_first_block_info,
+                prev_epoch_prev_last_block_info,
+                prev_epoch_last_block_info,
+                prev_epoch_id,
+                prev_epoch_info,
+                epoch_id,
+                epoch_info,
+                next_epoch_id,
+                next_epoch_info,
+            )?
+            .commit()
+            .map_err(|err| err.into())
     }
 
     fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error> {
@@ -1064,6 +1137,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let block_info = BlockInfo::new(
+            block_header_info.hash,
             block_header_info.height,
             block_header_info.last_finalized_height,
             block_header_info.last_finalized_block_hash,
@@ -1078,10 +1152,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         );
         let rng_seed = (block_header_info.random_value.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
-        epoch_manager
-            .record_block_info(&block_header_info.hash, block_info, rng_seed)?
-            .commit()
-            .map_err(|err| err.into())
+        epoch_manager.record_block_info(block_info, rng_seed)?.commit().map_err(|err| err.into())
     }
 
     fn apply_transactions_with_optional_storage_proof(

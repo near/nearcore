@@ -1,6 +1,6 @@
 use near_chain::{ChainStoreAccess, Error};
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::{ops::Add, time::Duration as TimeDuration};
@@ -17,8 +17,11 @@ use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan}
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, ValidatorStake,
+};
 use near_primitives::utils::to_timestamp;
 
 use cached::{Cached, SizedCache};
@@ -51,6 +54,78 @@ pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<F
     match highest_height_peers.iter().choose(&mut thread_rng()) {
         None => highest_height_peers.choose(&mut thread_rng()).cloned(),
         Some(peer) => Some(peer.clone()),
+    }
+}
+
+/// Helper to keep track of the Epoch Sync
+// TODO #3488
+#[allow(dead_code)]
+pub struct EpochSync {
+    network_adapter: Arc<dyn NetworkAdapter>,
+    /// Datastructure to keep track of when the last request to each peer was made.
+    /// Peers do not respond to Epoch Sync requests more frequently than once per a certain time
+    /// interval, thus there's no point in requesting more frequently.
+    peer_to_last_request_time: HashMap<PeerId, DateTime<Utc>>,
+    /// Tracks all the peers who have reported that we are already up to date
+    peers_reporting_up_to_date: HashSet<PeerId>,
+    /// The last epoch we are synced to
+    current_epoch_id: EpochId,
+    /// The next epoch id we need to sync
+    next_epoch_id: EpochId,
+    /// The block producers set to validate the light client block view for the next epoch
+    next_block_producers: Vec<ValidatorStake>,
+    /// The last epoch id that we have requested
+    requested_epoch_id: EpochId,
+    /// When and to whom was the last request made
+    last_request_time: DateTime<Utc>,
+    last_request_peer_id: Option<PeerId>,
+
+    /// How long to wait for a response before re-requesting the same light client block view
+    request_timeout: Duration,
+    /// How frequently to send request to the same peer
+    peer_timeout: Duration,
+
+    /// True, if all peers agreed that we're at the last Epoch.
+    /// Only finalization is needed.
+    have_all_epochs: bool,
+    /// Whether the Epoch Sync was performed to completion previously.
+    /// Current state machine allows for only one Epoch Sync.
+    pub done: bool,
+
+    pub sync_hash: CryptoHash,
+
+    received_epoch: bool,
+
+    is_just_started: bool,
+}
+
+impl EpochSync {
+    pub fn new(
+        network_adapter: Arc<dyn NetworkAdapter>,
+        genesis_epoch_id: EpochId,
+        genesis_next_epoch_id: EpochId,
+        first_epoch_block_producers: Vec<ValidatorStake>,
+        request_timeout: TimeDuration,
+        peer_timeout: TimeDuration,
+    ) -> Self {
+        Self {
+            network_adapter,
+            peer_to_last_request_time: HashMap::new(),
+            peers_reporting_up_to_date: HashSet::new(),
+            current_epoch_id: genesis_epoch_id.clone(),
+            next_epoch_id: genesis_next_epoch_id.clone(),
+            next_block_producers: first_epoch_block_producers,
+            requested_epoch_id: genesis_epoch_id,
+            last_request_time: Utc::now(),
+            last_request_peer_id: None,
+            request_timeout: Duration::from_std(request_timeout).unwrap(),
+            peer_timeout: Duration::from_std(peer_timeout).unwrap(),
+            received_epoch: false,
+            have_all_epochs: false,
+            done: false,
+            sync_hash: CryptoHash::default(),
+            is_just_started: true,
+        }
     }
 }
 
@@ -106,7 +181,7 @@ impl HeaderSync {
             SyncStatus::HeaderSync { .. }
             | SyncStatus::BodySync { .. }
             | SyncStatus::StateSyncDone => true,
-            SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
+            SyncStatus::NoSync | SyncStatus::AwaitingPeers | SyncStatus::EpochSync { .. } => {
                 debug!(target: "sync", "Sync: initial transition to Header sync. Header head {} at {}",
                     header_head.last_block_hash, header_head.height,
                 );
@@ -1256,10 +1331,13 @@ mod test {
                 PROTOCOL_VERSION,
                 &last_block.header(),
                 current_height,
-                last_block.header().block_ordinal() + 1,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                (last_block.header().block_ordinal() + 1),
                 last_block.chunks().iter().cloned().collect(),
                 epoch_id,
                 next_epoch_id,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                None,
                 approvals,
                 Ratio::new(0, 1),
                 0,
