@@ -112,10 +112,35 @@ impl EpochManager {
             let block_info = BlockInfo::default();
             let mut store_update = epoch_manager.store.store_update();
             epoch_manager.save_epoch_info(&mut store_update, &genesis_epoch_id, epoch_info)?;
-            epoch_manager.save_block_info(&mut store_update, &CryptoHash::default(), block_info)?;
+            epoch_manager.save_block_info(&mut store_update, block_info)?;
             store_update.commit()?;
         }
         Ok(epoch_manager)
+    }
+
+    pub fn init_after_epoch_sync(
+        &mut self,
+        prev_epoch_first_block_info: BlockInfo,
+        prev_epoch_prev_last_block_info: BlockInfo,
+        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_id: &EpochId,
+        prev_epoch_info: EpochInfo,
+        epoch_id: &EpochId,
+        epoch_info: EpochInfo,
+        next_epoch_id: &EpochId,
+        next_epoch_info: EpochInfo,
+    ) -> Result<StoreUpdate, EpochError> {
+        let mut store_update = self.store.store_update();
+        self.save_block_info(&mut store_update, prev_epoch_first_block_info)?;
+        self.save_block_info(&mut store_update, prev_epoch_prev_last_block_info)?;
+        self.save_block_info(&mut store_update, prev_epoch_last_block_info)?;
+        self.save_epoch_info(&mut store_update, &prev_epoch_id, prev_epoch_info)?;
+        self.save_epoch_info(&mut store_update, &epoch_id, epoch_info)?;
+        self.save_epoch_info(&mut store_update, &next_epoch_id, next_epoch_info)?;
+        // TODO #3488
+        // put unreachable! here to avoid warnings
+        unreachable!();
+        // Ok(store_update)
     }
 
     /// # Parameters
@@ -402,22 +427,22 @@ impl EpochManager {
 
     pub fn record_block_info(
         &mut self,
-        current_hash: &CryptoHash,
         mut block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<StoreUpdate, EpochError> {
+        let current_hash = block_info.hash;
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
-        if !self.has_block_info(current_hash)? {
+        if !self.has_block_info(&current_hash)? {
             if block_info.prev_hash == CryptoHash::default() {
                 // This is genesis block, we special case as new epoch.
                 assert_eq!(block_info.proposals.len(), 0);
                 let pre_genesis_epoch_id = EpochId::default();
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?.clone();
-                self.save_block_info(&mut store_update, current_hash, block_info)?;
+                self.save_block_info(&mut store_update, block_info)?;
                 self.save_epoch_info(
                     &mut store_update,
-                    &EpochId(*current_hash),
+                    &EpochId(current_hash),
                     genesis_epoch_info,
                 )?;
             } else {
@@ -427,12 +452,12 @@ impl EpochManager {
                 if prev_block_info.prev_hash == CryptoHash::default() {
                     // This is first real block, starts the new epoch.
                     block_info.epoch_id = EpochId::default();
-                    block_info.epoch_first_block = *current_hash;
+                    block_info.epoch_first_block = current_hash;
                     is_epoch_start = true;
                 } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
                     block_info.epoch_id = self.get_next_epoch_id_from_info(&prev_block_info)?;
-                    block_info.epoch_first_block = *current_hash;
+                    block_info.epoch_first_block = current_hash;
                     is_epoch_start = true;
                 } else {
                     // Same epoch as parent, copy epoch_id and epoch_start_height.
@@ -481,7 +506,7 @@ impl EpochManager {
                 }
 
                 // Save current block info.
-                self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
+                self.save_block_info(&mut store_update, block_info.clone())?;
                 let mut is_new_final_block = false;
                 if block_info.last_finalized_height > self.largest_final_height {
                     self.largest_final_height = block_info.last_finalized_height;
@@ -498,7 +523,7 @@ impl EpochManager {
                         Ok(final_block_info) => {
                             if final_block_info.epoch_id != block_info.epoch_id {
                                 if is_epoch_start {
-                                    Some(current_hash)
+                                    Some(&current_hash)
                                 } else {
                                     // This means there has been no final block in the epoch yet and
                                     // we have already done the update at epoch start. Therefore we
@@ -1058,7 +1083,7 @@ impl EpochManager {
             (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
             (Ok(_), Err(_)) => self.get_epoch_info(other_epoch_id).map(|_| Ordering::Less),
             (Err(_), Ok(_)) => self.get_epoch_info(epoch_id).map(|_| Ordering::Greater),
-            (Err(_), Err(_)) => Err(EpochError::EpochOutOfBounds),
+            (Err(_), Err(_)) => Err(EpochError::EpochOutOfBounds(epoch_id.clone())), // other_epoch_id may be out of bounds as well
         }
     }
 
@@ -1154,16 +1179,18 @@ impl EpochManager {
                 .store
                 .get_ser(ColEpochInfo, epoch_id.as_ref())
                 .map_err(|err| err.into())
-                .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
+                .and_then(|value| {
+                    value.ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
+                })?;
             self.epochs_info.cache_set(epoch_id.clone(), epoch_info);
         }
-        self.epochs_info.cache_get(epoch_id).ok_or(EpochError::EpochOutOfBounds)
+        self.epochs_info.cache_get(epoch_id).ok_or(EpochError::EpochOutOfBounds(epoch_id.clone()))
     }
 
     fn has_epoch_info(&mut self, epoch_id: &EpochId) -> Result<bool, EpochError> {
         match self.get_epoch_info(epoch_id) {
             Ok(_) => Ok(true),
-            Err(EpochError::EpochOutOfBounds) => Ok(false),
+            Err(EpochError::EpochOutOfBounds(_)) => Ok(false),
             Err(err) => Err(err),
         }
     }
@@ -1189,7 +1216,7 @@ impl EpochManager {
         self.store
             .get_ser(ColEpochValidatorInfo, epoch_id.as_ref())
             .map_err(|err| err.into())
-            .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))
+            .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone())))
     }
 
     fn save_epoch_validator_info(
@@ -1230,13 +1257,13 @@ impl EpochManager {
     fn save_block_info(
         &mut self,
         store_update: &mut StoreUpdate,
-        block_hash: &CryptoHash,
         block_info: BlockInfo,
     ) -> Result<(), EpochError> {
+        let block_hash = block_info.hash;
         store_update
             .set_ser(ColBlockInfo, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
-        self.blocks_info.cache_set(*block_hash, block_info);
+        self.blocks_info.cache_set(block_hash, block_info);
         Ok(())
     }
 
@@ -1262,7 +1289,9 @@ impl EpochManager {
                 .store
                 .get_ser(ColEpochStart, epoch_id.as_ref())
                 .map_err(EpochError::from)
-                .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
+                .and_then(|value| {
+                    value.ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
+                })?;
             self.epoch_id_to_start.cache_set(epoch_id.clone(), epoch_start);
         }
         Ok(*self.epoch_id_to_start.cache_get(epoch_id).unwrap())
@@ -1976,8 +2005,8 @@ mod tests {
 
         epoch_manager
             .record_block_info(
-                &h[0],
                 block_info(
+                    h[0],
                     0,
                     0,
                     Default::default(),
@@ -1991,15 +2020,13 @@ mod tests {
             .unwrap();
         epoch_manager
             .record_block_info(
-                &h[1],
-                block_info(1, 1, h[0], h[0], h[1], vec![true], total_supply),
+                block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
-                &h[2],
-                block_info(2, 2, h[1], h[1], h[1], vec![true], total_supply),
+                block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply),
                 rng_seed,
             )
             .unwrap();
@@ -2076,8 +2103,8 @@ mod tests {
         let h = hash_range(5);
         record_with_block_info(
             &mut epoch_manager,
-            h[0],
             block_info(
+                h[0],
                 0,
                 0,
                 Default::default(),
@@ -2089,13 +2116,11 @@ mod tests {
         );
         record_with_block_info(
             &mut epoch_manager,
-            h[1],
-            block_info(1, 1, h[0], h[0], h[1], vec![true], total_supply),
+            block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply),
         );
         record_with_block_info(
             &mut epoch_manager,
-            h[2],
-            block_info(2, 2, h[1], h[1], h[1], vec![true], total_supply),
+            block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply),
         );
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert(
@@ -2189,8 +2214,8 @@ mod tests {
         let h = hash_range(5);
         record_with_block_info(
             &mut epoch_manager,
-            h[0],
             block_info(
+                h[0],
                 0,
                 0,
                 Default::default(),
@@ -2202,13 +2227,11 @@ mod tests {
         );
         record_with_block_info(
             &mut epoch_manager,
-            h[1],
-            block_info(1, 1, h[0], h[0], h[1], vec![true, false], total_supply),
+            block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true, false], total_supply),
         );
         record_with_block_info(
             &mut epoch_manager,
-            h[2],
-            block_info(2, 2, h[1], h[1], h[1], vec![true, true], total_supply),
+            block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true, true], total_supply),
         );
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert(
@@ -2308,8 +2331,8 @@ mod tests {
         let h = hash_range(5);
         epoch_manager
             .record_block_info(
-                &h[0],
                 block_info(
+                    h[0],
                     0,
                     0,
                     Default::default(),
@@ -2323,15 +2346,13 @@ mod tests {
             .unwrap();
         epoch_manager
             .record_block_info(
-                &h[1],
-                block_info(1, 1, h[0], h[0], h[1], vec![true, true, true], total_supply),
+                block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true, true, true], total_supply),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
-                &h[3],
-                block_info(3, 3, h[1], h[1], h[2], vec![true, true, true], total_supply),
+                block_info(h[3], 3, 3, h[1], h[1], h[2], vec![true, true, true], total_supply),
                 rng_seed,
             )
             .unwrap();
@@ -2380,8 +2401,7 @@ mod tests {
 
         epoch_manager
             .record_block_info(
-                &h[3],
-                block_info(3, 1, h[1], h[1], h[1], vec![false], total_supply),
+                block_info(h[3], 3, 1, h[1], h[1], h[1], vec![false], total_supply),
                 rng_seed,
             )
             .unwrap();
@@ -2660,20 +2680,17 @@ mod tests {
         let h = hash_range(5);
         record_block(&mut em, Default::default(), h[0], 0, vec![]);
         em.record_block_info(
-            &h[1],
-            block_info(1, 1, h[0], h[0], h[1], vec![true, true, true, false], total_supply),
+            block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true, true, true, false], total_supply),
             rng_seed,
         )
         .unwrap();
         em.record_block_info(
-            &h[2],
-            block_info(2, 2, h[1], h[1], h[1], vec![true, true, true, false], total_supply),
+            block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true, true, true, false], total_supply),
             rng_seed,
         )
         .unwrap();
         em.record_block_info(
-            &h[3],
-            block_info(3, 3, h[2], h[2], h[3], vec![true, true, true, true], total_supply),
+            block_info(h[3], 3, 3, h[2], h[2], h[3], vec![true, true, true, true], total_supply),
             rng_seed,
         )
         .unwrap();
@@ -3191,9 +3208,10 @@ mod tests {
         .unwrap();
         let h = hash_range(8);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        let mut block_info1 = block_info(1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
+        let mut block_info1 =
+            block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
         block_info1.latest_protocol_version = 0;
-        epoch_manager.record_block_info(&h[1], block_info1, [0; 32]).unwrap();
+        epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
         for i in 2..6 {
             record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
         }
@@ -3221,9 +3239,10 @@ mod tests {
         .unwrap();
         let h = hash_range(50);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        let mut block_info1 = block_info(1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
+        let mut block_info1 =
+            block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
         block_info1.latest_protocol_version = 0;
-        epoch_manager.record_block_info(&h[1], block_info1, [0; 32]).unwrap();
+        epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
         for i in 2..32 {
             record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
         }
@@ -3255,6 +3274,7 @@ mod tests {
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         for i in 1..5 {
             let mut block_info = block_info(
+                h[i],
                 i as u64,
                 i as u64 - 1,
                 h[i - 1],
@@ -3268,7 +3288,7 @@ mod tests {
             } else {
                 block_info.latest_protocol_version = UPGRADABILITY_FIX_PROTOCOL_VERSION;
             }
-            epoch_manager.record_block_info(&h[i], block_info, [0; 32]).unwrap();
+            epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
         }
 
         assert_eq!(
@@ -3284,6 +3304,7 @@ mod tests {
         // if there are enough votes to use the old version, it should be allowed
         for i in 5..7 {
             let mut block_info = block_info(
+                h[i],
                 i as u64,
                 i as u64 - 1,
                 h[i - 1],
@@ -3293,7 +3314,7 @@ mod tests {
                 DEFAULT_TOTAL_SUPPLY,
             );
             block_info.latest_protocol_version = UPGRADABILITY_FIX_PROTOCOL_VERSION;
-            epoch_manager.record_block_info(&h[i], block_info, [0; 32]).unwrap();
+            epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
         }
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[6])).unwrap().protocol_version,
@@ -3330,8 +3351,7 @@ mod tests {
 
         epoch_manager
             .record_block_info(
-                &h[5],
-                block_info(5, 1, h[1], h[2], h[1], vec![], DEFAULT_TOTAL_SUPPLY),
+                block_info(h[5], 5, 1, h[1], h[2], h[1], vec![], DEFAULT_TOTAL_SUPPLY),
                 [0; 32],
             )
             .unwrap()

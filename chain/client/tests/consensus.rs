@@ -71,6 +71,7 @@ mod tests {
                 4,
                 true,
                 vec![true; validators.iter().map(|x| x.len()).sum()],
+                vec![false; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                     let mut all_blocks: RwLockWriteGuard<BTreeMap<BlockHeight, Block>> =

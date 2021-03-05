@@ -61,6 +61,13 @@ const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
 /// dispatching transactions when we should be focusing on consensus-related messages.
 const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
 
+/// The time we wait for the response to a Epoch Sync request before retrying
+// TODO #3488 set 30_000
+pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
+/// How frequently a Epoch Sync response can be sent to a particular peer
+// TODO #3488 set 60_000
+pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
+
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
     v: Vec<CryptoHash>,
@@ -183,6 +190,8 @@ pub struct Peer {
     txns_since_last_block: Arc<AtomicUsize>,
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
+    /// The last time a Epoch Sync request was received from this peer
+    last_time_received_epoch_sync_request: Instant,
 }
 
 impl Peer {
@@ -221,6 +230,8 @@ impl Peer {
             network_metrics,
             txns_since_last_block,
             peer_counter,
+            last_time_received_epoch_sync_request: Instant::now()
+                - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
         }
     }
 
@@ -408,6 +419,13 @@ impl Peer {
             PeerMessage::BlockHeadersRequest(hashes) => {
                 NetworkViewClientMessages::BlockHeadersRequest(hashes)
             }
+            PeerMessage::EpochSyncRequest(epoch_id) => {
+                self.last_time_received_epoch_sync_request = Instant::now();
+                NetworkViewClientMessages::EpochSyncRequest { epoch_id }
+            }
+            PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
+                NetworkViewClientMessages::EpochSyncFinalizationRequest { epoch_id }
+            }
             peer_message => {
                 error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", peer_message);
                 return;
@@ -454,6 +472,12 @@ impl Peer {
                     }
                     Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
                         act.send_message(&PeerMessage::BlockHeaders(headers))
+                    }
+                    Ok(NetworkViewClientResponses::EpochSyncResponse(response)) => {
+                        act.send_message(&PeerMessage::EpochSyncResponse(response))
+                    }
+                    Ok(NetworkViewClientResponses::EpochSyncFinalizationResponse(response)) => {
+                        act.send_message(&PeerMessage::EpochSyncFinalizationResponse(response))
                     }
                     Err(err) => {
                         error!(
@@ -551,6 +575,12 @@ impl Peer {
                 }
             }
             PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
+            PeerMessage::EpochSyncResponse(response) => {
+                NetworkClientMessages::EpochSyncResponse(peer_id, response)
+            }
+            PeerMessage::EpochSyncFinalizationResponse(response) => {
+                NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response)
+            }
             PeerMessage::Handshake(_)
             | PeerMessage::HandshakeV2(_)
             | PeerMessage::HandshakeFailure(_, _)
@@ -562,7 +592,9 @@ impl Peer {
             | PeerMessage::RequestUpdateNonce(_)
             | PeerMessage::ResponseUpdateNonce(_)
             | PeerMessage::BlockRequest(_)
-            | PeerMessage::BlockHeadersRequest(_) => {
+            | PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::EpochSyncRequest(_)
+            | PeerMessage::EpochSyncFinalizationRequest(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }

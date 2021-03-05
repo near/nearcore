@@ -124,6 +124,10 @@ pub enum SyncStatus {
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
+    /// Syncing using light-client headers to a recent epoch
+    // TODO #3488
+    // Bowen: why do we use epoch ordinal instead of epoch id?
+    EpochSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
     HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
     /// State sync, with different states of state sync for different shards.
@@ -175,7 +179,6 @@ impl From<near_chain_primitives::Error> for GetBlockError {
         match error.kind() {
             near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
             near_chain_primitives::ErrorKind::DBNotFoundErr(s) => Self::BlockNotFound(s),
-            near_chain_primitives::ErrorKind::BlockMissing(hash) => Self::BlockMissing(hash),
             _ => Self::Unreachable(error.to_string()),
         }
     }
@@ -240,7 +243,6 @@ impl From<near_chain_primitives::Error> for GetChunkError {
         match error.kind() {
             near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
             near_chain_primitives::ErrorKind::DBNotFoundErr(s) => Self::UnknownBlock(s),
-            near_chain_primitives::ErrorKind::BlockMissing(hash) => Self::UnavailableBlock(hash),
             near_chain_primitives::ErrorKind::InvalidShardId(shard_id) => {
                 Self::InvalidShardId(shard_id)
             }
@@ -373,7 +375,7 @@ impl From<near_chain_primitives::Error> for GetValidatorInfoError {
     fn from(error: near_chain_primitives::Error) -> Self {
         match error.kind() {
             near_chain_primitives::ErrorKind::DBNotFoundErr(_)
-            | near_chain_primitives::ErrorKind::EpochOutOfBounds => Self::UnknownEpoch,
+            | near_chain_primitives::ErrorKind::EpochOutOfBounds(_) => Self::UnknownEpoch,
             near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
             _ => Self::Unreachable(error.to_string()),
         }

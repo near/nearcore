@@ -102,8 +102,11 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     run_actix_until_stop(async {
-        let (_, addr) =
-            test_utils::start_all_with_validity_period(test_utils::NodeType::Validator, 1, false);
+        let (_, addr) = test_utils::start_all_with_validity_period_and_no_epoch_sync(
+            test_utils::NodeType::Validator,
+            1,
+            false,
+        );
 
         let block_hash = Arc::new(Mutex::new(None));
         let block_height = Arc::new(Mutex::new(None));

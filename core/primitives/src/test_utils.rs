@@ -399,10 +399,13 @@ impl Block {
             PROTOCOL_VERSION,
             prev.header(),
             height,
-            prev.header().block_ordinal() + 1,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            (prev.header().block_ordinal() + 1),
             prev.chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            None,
             approvals,
             Rational::from_integer(0),
             0,
