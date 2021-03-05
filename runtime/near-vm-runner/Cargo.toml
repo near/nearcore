@@ -31,6 +31,7 @@ log = "0.4"
 near-evm-runner = { path = "../near-evm-runner", optional = true }
 cached = "0.23.0"
 tracing = { version = "0.1", default-features = false }
+delay-detector = { path = "../../tools/delay_detector", optional = true }
 
 [dev-dependencies]
 assert_matches = "1.3"
@@ -50,6 +51,7 @@ no_cpu_compatibility_checks = []
 protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
 
 no_cache = []
+delay_detector = ["delay-detector"]
 
 protocol_feature_alt_bn128 = [
     "near-vm-logic/protocol_feature_alt_bn128",
