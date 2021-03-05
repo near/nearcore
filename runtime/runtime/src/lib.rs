@@ -62,6 +62,9 @@ pub mod state_viewer;
 mod verifier;
 pub use near_vm_logic::types::ProfileData;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 #[derive(Debug)]
@@ -242,6 +245,8 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("process_transaction".into());
         near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
         match verify_and_charge_transaction(
             &apply_state.config,
@@ -827,6 +832,8 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("process_receipt".into());
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -1106,6 +1113,8 @@ impl Runtime {
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ApplyResult, RuntimeError> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("apply".into());
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);

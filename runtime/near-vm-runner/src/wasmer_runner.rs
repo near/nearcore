@@ -9,6 +9,9 @@ use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::Module;
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
     use wasmer_runtime_core::module::ExportIndex::Func;
@@ -188,6 +191,9 @@ pub fn run_wasmer<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    #[cfg(feature = "delay_detector")]
+    let mut d = DelayDetector::new("run_wasmer".into());
+    d.snapshot("begin");
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
         panic!(
@@ -219,6 +225,7 @@ pub fn run_wasmer<'a>(
     .expect("Cannot create memory for a contract call");
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
+    d.snapshot("before vm logic");
 
     let mut logic = VMLogic::new_with_protocol_version(
         ext,
@@ -240,6 +247,8 @@ pub fn run_wasmer<'a>(
         );
     }
 
+    d.snapshot("before build wasmer");
+
     let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
 
     let method_name = match std::str::from_utf8(method_name) {
@@ -257,11 +266,15 @@ pub fn run_wasmer<'a>(
         return (None, Some(e));
     }
 
+    d.snapshot("before instantiate");
     match module.instantiate(&import_object) {
-        Ok(instance) => match instance.call(&method_name, &[]) {
-            Ok(_) => (Some(logic.outcome()), None),
-            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-        },
+        Ok(instance) => {
+            d.snapshot("before call");
+            match instance.call(&method_name, &[]) {
+                Ok(_) => (Some(logic.outcome()), None),
+                Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+            }
+        }
         Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
     }
 }
