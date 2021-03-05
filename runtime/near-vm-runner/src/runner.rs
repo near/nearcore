@@ -91,7 +91,7 @@ pub fn run_vm_profiled<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::info_span!("run_vm_profiled").entered();
+    let _span = tracing::info_span!("Runtime::run_vm_profiled").entered();
 
     #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;
