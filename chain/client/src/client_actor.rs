@@ -306,13 +306,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
                             if block.hash() == header.prev_hash() {
-                                if let Err(_) = self.client.chain.save_block(&block) {
-                                    error!(target: "client", "Failed to save a block during state sync");
+                                if let Err(e) = self.client.chain.save_block(&block) {
+                                    error!(target: "client", "Failed to save a block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                if let Err(_) = self.client.chain.save_orphan(&block) {
-                                    error!(target: "client", "Received an invalid block during state sync");
+                                if let Err(e) = self.client.chain.save_orphan(&block) {
+                                    error!(target: "client", "Received an invalid block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
                             }
@@ -466,6 +466,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
                 }
 
+                NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::EpochSyncResponse(_peer_id, _response) => {
+                // TODO #3488
+                NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::EpochSyncFinalizationResponse(_peer_id, _response) => {
+                // TODO #3488
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {

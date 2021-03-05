@@ -115,10 +115,12 @@ pub enum DBCol {
     ColCachedContractCode = 46,
     /// Epoch validator information used for rpc purposes
     ColEpochValidatorInfo = 47,
+    /// Header Hashes indexed by Height
+    ColHeaderHashesByHeight = 48,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 48;
+pub const NUM_COLS: usize = 49;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -171,6 +173,7 @@ impl std::fmt::Display for DBCol {
             Self::ColReceipts => "receipts",
             Self::ColCachedContractCode => "cached code",
             Self::ColEpochValidatorInfo => "epoch validator info",
+            Self::ColHeaderHashesByHeight => "header hashes indexed by their height",
         };
         write!(formatter, "{}", desc)
     }
@@ -188,6 +191,7 @@ lazy_static! {
         let mut col_gc = vec![true; NUM_COLS];
         col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
         col_gc[DBCol::ColBlockMisc as usize] = false;
+        // TODO #3488 remove
         col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
         col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
         col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible

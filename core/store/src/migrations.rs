@@ -20,7 +20,9 @@ use crate::migrations::v6_to_v7::{
 use crate::migrations::v8_to_v9::{
     recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
 };
-use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
+use crate::{
+    create_store, Store, StoreUpdate, Trie, TrieUpdate, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, HEAD_KEY,
+};
 
 use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
@@ -276,11 +278,11 @@ pub fn migrate_11_to_12(path: &String) {
     set_store_version(&store, 12);
 }
 
-fn map_col<T, U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
+fn map_col<T, U, F>(store: &Store, col: DBCol, mut f: F) -> Result<(), std::io::Error>
 where
     T: BorshDeserialize,
     U: BorshSerialize,
-    F: Fn(T) -> U,
+    F: FnMut(T) -> U,
 {
     let mut store_update = store.store_update();
     let batch_size_limit = 10_000_000;
@@ -512,14 +514,102 @@ pub fn migrate_14_to_15(path: &String) {
     set_store_version(&store, 15);
 }
 
+pub fn migrate_17_to_18(path: &String) {
+    use std::convert::TryFrom;
+
+    use near_primitives::challenge::SlashedValidator;
+    use near_primitives::types::{Balance, BlockHeight, EpochId, ValidatorStake};
+    use near_primitives::utils::index_to_bytes;
+    use near_primitives::version::ProtocolVersion;
+
+    // Migrate from OldBlockInfo to NewBlockInfo - add hash
+    #[derive(BorshDeserialize)]
+    struct OldBlockInfo {
+        pub height: BlockHeight,
+        pub last_finalized_height: BlockHeight,
+        pub last_final_block_hash: CryptoHash,
+        pub prev_hash: CryptoHash,
+        pub epoch_first_block: CryptoHash,
+        pub epoch_id: EpochId,
+        pub proposals: Vec<ValidatorStake>,
+        pub validator_mask: Vec<bool>,
+        pub latest_protocol_version: ProtocolVersion,
+        pub slashed: Vec<SlashedValidator>,
+        pub total_supply: Balance,
+    }
+    #[derive(BorshSerialize)]
+    struct NewBlockInfo {
+        pub hash: CryptoHash,
+        pub height: BlockHeight,
+        pub last_finalized_height: BlockHeight,
+        pub last_final_block_hash: CryptoHash,
+        pub prev_hash: CryptoHash,
+        pub epoch_first_block: CryptoHash,
+        pub epoch_id: EpochId,
+        pub proposals: Vec<ValidatorStake>,
+        pub validator_mask: Vec<bool>,
+        pub latest_protocol_version: ProtocolVersion,
+        pub slashed: Vec<SlashedValidator>,
+        pub total_supply: Balance,
+    }
+    let store = create_store(path);
+    map_col_from_key(&store, DBCol::ColBlockInfo, |key| {
+        let hash = CryptoHash::try_from(key).unwrap();
+        let old_block_info =
+            store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
+        NewBlockInfo {
+            hash,
+            height: old_block_info.height,
+            last_finalized_height: old_block_info.last_finalized_height,
+            last_final_block_hash: old_block_info.last_final_block_hash,
+            prev_hash: old_block_info.prev_hash,
+            epoch_first_block: old_block_info.epoch_first_block,
+            epoch_id: old_block_info.epoch_id,
+            proposals: old_block_info.proposals,
+            validator_mask: old_block_info.validator_mask,
+            latest_protocol_version: old_block_info.latest_protocol_version,
+            slashed: old_block_info.slashed,
+            total_supply: old_block_info.total_supply,
+        }
+    })
+    .unwrap();
+
+    // Add ColHeaderHashesByHeight
+    let chunk_tail =
+        store.get_ser::<BlockHeight>(ColBlockMisc, CHUNK_TAIL_KEY).unwrap().unwrap_or(0);
+    let mut heights_to_hashes = HashMap::new();
+
+    map_col(&store, DBCol::ColBlockHeader, |header: BlockHeader| {
+        let height = header.height();
+        if height >= chunk_tail {
+            heights_to_hashes.entry(height).or_insert_with(Vec::new).push(header.hash().clone());
+        } else {
+            // ColHeaderHashesByHeight will be GCed for current height, do nothing
+        };
+        header
+    })
+    .unwrap();
+
+    let mut store_update = store.store_update();
+    for (height, hashes) in heights_to_hashes {
+        store_update
+            .set_ser(DBCol::ColHeaderHashesByHeight, &index_to_bytes(height), &hashes)
+            .expect("storage update should not fail");
+    }
+    store_update.commit().expect("storage update should not fail");
+
+    set_store_version(&store, 18);
+}
+
 #[cfg(feature = "protocol_feature_rectify_inflation")]
-pub fn migrate_16_to_rectify_inflation(path: &String) {
+pub fn migrate_18_to_rectify_inflation(path: &String) {
     use near_primitives::epoch_manager::BlockInfo;
     use near_primitives::epoch_manager::SlashState;
     use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
     use near_primitives::version::ProtocolVersion;
     #[derive(BorshDeserialize)]
     struct OldBlockInfo {
+        pub hash: CryptoHash,
         pub height: BlockHeight,
         pub last_finalized_height: BlockHeight,
         pub last_final_block_hash: CryptoHash,
@@ -539,6 +629,7 @@ pub fn migrate_16_to_rectify_inflation(path: &String) {
         let old_block_info =
             store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
         BlockInfo::new(
+            *block_header.hash(),
             block_header.height(),
             old_block_info.last_finalized_height,
             *block_header.last_final_block(),
