@@ -22,7 +22,7 @@ use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
 pub fn run<'a>(
     code_hash: Vec<u8>,
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
     wasm_config: &'a VMConfig,
@@ -30,11 +30,9 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
-    #[cfg(feature = "costs_counting")] profile: Option<&ProfileData>,
+    profile: &ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    #[cfg(not(feature = "costs_counting"))]
-    let profile = None;
-    run_vm_impl(
+    run_vm_profiled(
         code_hash,
         code,
         method_name,
@@ -44,7 +42,7 @@ pub fn run<'a>(
         fees_config,
         promise_results,
         VMKind::default(),
-        profile,
+        profile.clone(),
         current_protocol_version,
         cache,
     )
@@ -52,7 +50,7 @@ pub fn run<'a>(
 pub fn run_vm<'a>(
     code_hash: Vec<u8>,
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
     wasm_config: &'a VMConfig,
@@ -62,7 +60,8 @@ pub fn run_vm<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    run_vm_impl(
+    let profile = ProfileData::new_disabled();
+    run_vm_profiled(
         code_hash,
         code,
         method_name,
@@ -72,7 +71,7 @@ pub fn run_vm<'a>(
         fees_config,
         promise_results,
         vm_kind,
-        None,
+        profile,
         current_protocol_version,
         cache,
     )
@@ -81,7 +80,7 @@ pub fn run_vm<'a>(
 pub fn run_vm_profiled<'a>(
     code_hash: Vec<u8>,
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
     wasm_config: &'a VMConfig,
@@ -92,36 +91,8 @@ pub fn run_vm_profiled<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    run_vm_impl(
-        code_hash,
-        code,
-        method_name,
-        ext,
-        context,
-        wasm_config,
-        fees_config,
-        promise_results,
-        vm_kind,
-        Some(&profile),
-        current_protocol_version,
-        cache,
-    )
-}
+    let _span = tracing::info_span!("run_vm_profiled").entered();
 
-fn run_vm_impl(
-    code_hash: Vec<u8>,
-    code: &[u8],
-    method_name: &[u8],
-    ext: &mut dyn External,
-    context: VMContext,
-    wasm_config: &VMConfig,
-    fees_config: &RuntimeFeesConfig,
-    promise_results: &[PromiseResult],
-    vm_kind: VMKind,
-    profile: Option<&ProfileData>,
-    current_protocol_version: ProtocolVersion,
-    cache: Option<&dyn CompiledContractCache>,
-) -> (Option<VMOutcome>, Option<VMError>) {
     #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;
 
@@ -142,7 +113,7 @@ fn run_vm_impl(
             wasm_config,
             fees_config,
             promise_results,
-            profile.cloned(),
+            profile.clone(),
             current_protocol_version,
             cache,
         ),
@@ -158,7 +129,7 @@ fn run_vm_impl(
             wasm_config,
             fees_config,
             promise_results,
-            profile.cloned(),
+            profile.clone(),
             current_protocol_version,
             cache,
         ),
@@ -176,20 +147,19 @@ fn run_vm_impl(
             wasm_config,
             fees_config,
             promise_results,
-            profile.cloned(),
+            profile.clone(),
             current_protocol_version,
             cache,
         ),
         #[cfg(not(feature = "wasmer1_vm"))]
         VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
     };
-    if let Some(profile) = profile {
-        if let Some(VMOutcome { burnt_gas, .. }) = &outcome {
-            profile.set_burnt_gas(*burnt_gas)
-        }
+    if let Some(VMOutcome { burnt_gas, .. }) = &outcome {
+        profile.set_burnt_gas(*burnt_gas)
     }
     (outcome, error)
 }
+
 /// `precompile` compiles WASM contract to a VM specific format and stores result into the `cache`.
 /// Further execution with the same cache will result in compilation avoidance and reusing cached
 /// result. `wasm_config` is required as during compilation we decide if gas metering shall be
@@ -237,17 +207,6 @@ pub fn precompile<'a>(
             },
         ))),
     }
-}
-
-pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
-    #[cfg(feature = "wasmer0_vm")]
-    runner(VMKind::Wasmer0);
-
-    #[cfg(feature = "wasmtime_vm")]
-    runner(VMKind::Wasmtime);
-
-    #[cfg(feature = "wasmer1_vm")]
-    runner(VMKind::Wasmer1);
 }
 
 /// Used for testing cost of compiling a module

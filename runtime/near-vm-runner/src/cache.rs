@@ -8,7 +8,10 @@ use near_primitives::types::CompiledContractCache;
 use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
 use near_vm_errors::{CacheError, VMError};
 use near_vm_logic::{VMConfig, VMKind};
+use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
 enum ContractCacheKey {
@@ -41,6 +44,37 @@ fn cache_error(error: VMError, key: &CryptoHash, cache: &dyn CompiledContractCac
         VMError::CacheError(WriteError)
     } else {
         error
+    }
+}
+
+#[derive(Default)]
+pub struct MockCompiledContractCache {
+    store: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
+}
+
+impl MockCompiledContractCache {
+    pub fn len(&self) -> usize {
+        self.store.lock().unwrap().len()
+    }
+}
+
+impl CompiledContractCache for MockCompiledContractCache {
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error> {
+        self.store.lock().unwrap().insert(key.to_vec(), value.to_vec());
+        Ok(())
+    }
+
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
+        let res = self.store.lock().unwrap().get(key).cloned();
+        Ok(res)
+    }
+}
+
+impl fmt::Debug for MockCompiledContractCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let guard = self.store.lock().unwrap();
+        let hm: &HashMap<_, _> = &*guard;
+        fmt::Debug::fmt(hm, f)
     }
 }
 

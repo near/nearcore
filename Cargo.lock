@@ -3330,6 +3330,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "bytes",
+ "bytesize",
  "cached",
  "chrono",
  "delay-detector",
@@ -3352,7 +3353,6 @@ dependencies = [
  "rand 0.7.3",
  "serde",
  "serde_json",
- "size",
  "strum",
  "tempfile",
  "tokio",
@@ -3616,6 +3616,7 @@ version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
  "clap 2.33.3",
+ "near-primitives",
  "near-primitives-core",
  "near-vm-logic",
  "near-vm-runner",
@@ -5177,15 +5178,6 @@ name = "similar"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad1d488a557b235fc46dae55512ffbfc429d2482b08b4d9435ab07384ca8aec"
-
-[[package]]
-name = "size"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e5021178e8e70579d009fb545932e274ec2dde4c917791c6063d1002bee2a56"
-dependencies = [
- "num-traits",
-]
 
 [[package]]
 name = "slab"

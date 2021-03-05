@@ -423,6 +423,7 @@ pub struct Config {
     pub gc_blocks_limit: NumBlocks,
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
+    pub epoch_sync_enabled: bool,
     #[serde(default = "default_view_client_throttle_period")]
     pub view_client_throttle_period: Duration,
 }
@@ -445,6 +446,7 @@ impl Default for Config {
             archive: false,
             log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
+            epoch_sync_enabled: true,
             view_client_threads: default_view_client_threads(),
             view_client_throttle_period: default_view_client_throttle_period(),
         }
@@ -613,6 +615,7 @@ impl NearConfig {
                 log_summary_style: config.log_summary_style,
                 gc_blocks_limit: config.gc_blocks_limit,
                 view_client_threads: config.view_client_threads,
+                epoch_sync_enabled: config.epoch_sync_enabled,
                 view_client_throttle_period: config.view_client_throttle_period,
             },
             network_config: NetworkConfig {

@@ -80,7 +80,6 @@ pub enum WasmTrap {
 )]
 pub enum MethodResolveError {
     MethodEmptyName,
-    MethodUTF8Error,
     MethodNotFound,
     MethodInvalidSignature,
 }

@@ -137,7 +137,7 @@ class BaseNode(object):
         while True:
             block = self.get_block(hash_)
             if 'error' in block and 'data' in block[
-                    'error'] and 'Block Missing' in block['error']['data']:
+                    'error'] and 'DB Not Found Error: BLOCK:' in block['error']['data']:
                 break
             elif 'result' not in block:
                 print(block)
