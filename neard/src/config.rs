@@ -714,7 +714,7 @@ fn add_account_with_key(
 ) {
     records.push(StateRecord::Account {
         account_id: account_id.to_string(),
-        account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
+        account: Account::new(amount, staked, code_hash, 0),
     });
     records.push(StateRecord::AccessKey {
         account_id: account_id.to_string(),

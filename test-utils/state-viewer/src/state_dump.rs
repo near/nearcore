@@ -42,10 +42,10 @@ pub fn state_dump(
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &mut sr {
-                    if account.locked > 0 {
+                    if account.locked() > 0 {
                         let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
-                        account.amount = account.amount + account.locked - stake;
-                        account.locked = stake;
+                        account.set_amount(account.amount() + account.locked() - stake);
+                        account.set_locked(stake);
                     }
                 }
                 records.push(sr);
