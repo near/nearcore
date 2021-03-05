@@ -2,12 +2,11 @@ use near_vm_errors::{
     CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
 };
 use near_vm_logic::{ReturnData, VMKind, VMOutcome};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
+use crate::cache::MockCompiledContractCache;
 use crate::tests::{
     make_cached_contract_call_vm, make_simple_contract_call_vm,
-    make_simple_contract_call_with_gas_vm, with_vm_variants, MockCompiledContractCache,
+    make_simple_contract_call_with_gas_vm, with_vm_variants,
 };
 
 fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
@@ -557,14 +556,14 @@ fn test_contract_error_caching() {
             VMKind::Wasmtime => return,
             _ => {}
         }
-        let mut cache = MockCompiledContractCache { store: Arc::new(Mutex::new(HashMap::new())) };
+        let mut cache = MockCompiledContractCache::default();
         let code = [42; 1000];
         let terragas = 1000000000000u64;
-        assert_eq!(cache.store.lock().unwrap().len(), 0);
+        assert_eq!(cache.len(), 0);
         let err1 =
             make_cached_contract_call_vm(&mut cache, &code, "method_name1", terragas, vm_kind);
-        println!("{:?}", cache.store.lock().unwrap());
-        assert_eq!(cache.store.lock().unwrap().len(), 1);
+        println!("{:?}", cache);
+        assert_eq!(cache.len(), 1);
         let err2 =
             make_cached_contract_call_vm(&mut cache, &code, "method_name2", terragas, vm_kind);
         assert_eq!(err1, err2);
