@@ -3431,7 +3431,7 @@ dependencies = [
 
 [[package]]
 name = "near-primitives-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.11.0",
  "borsh",
@@ -3617,7 +3617,6 @@ dependencies = [
  "base64 0.13.0",
  "clap 2.33.3",
  "near-primitives",
- "near-primitives-core",
  "near-vm-logic",
  "near-vm-runner",
  "num-rational",
