@@ -2,15 +2,13 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::Balance;
 use near_vm_errors::{FunctionCallError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{types::ReturnData, VMConfig, VMContext, VMKind, VMOutcome};
-use near_vm_runner::{run_vm, with_vm_variants};
+use near_vm_logic::{types::ReturnData, VMConfig, VMKind, VMOutcome};
 use std::mem::size_of;
 
-pub mod test_utils;
-
-use self::test_utils::{
-    CURRENT_ACCOUNT_ID, LATEST_PROTOCOL_VERSION, PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID,
-    SIGNER_ACCOUNT_PK,
+use crate::run_vm;
+use crate::tests::{
+    create_context, with_vm_variants, CURRENT_ACCOUNT_ID, LATEST_PROTOCOL_VERSION,
+    PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
 
 #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -50,17 +48,13 @@ fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
     res
 }
 
-fn create_context(input: &[u8]) -> VMContext {
-    test_utils::create_context(input.to_owned())
-}
-
 #[test]
 pub fn test_read_write() {
     with_vm_variants(|vm_kind: VMKind| {
         let code = &TEST_CONTRACT;
         let mut fake_external = MockedExternal::new();
 
-        let context = create_context(&arr_u64_to_u8(&[10u64, 20u64]));
+        let context = create_context(arr_u64_to_u8(&[10u64, 20u64]));
         let config = VMConfig::default();
         let fees = RuntimeFeesConfig::default();
 
@@ -80,7 +74,7 @@ pub fn test_read_write() {
         );
         assert_run_result(result, 0);
 
-        let context = create_context(&arr_u64_to_u8(&[10u64]));
+        let context = create_context(arr_u64_to_u8(&[10u64]));
         let result = run_vm(
             vec![],
             &code,
@@ -137,10 +131,10 @@ fn run_test_ext(
     fake_external.validators = validators.into_iter().map(|(s, b)| (s.to_string(), b)).collect();
     let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
-    let context = create_context(&input);
+    let context = create_context(input.to_vec());
 
     let (outcome, err) = run_vm(
-        input.to_owned(),
+        Vec::new(),
         &code,
         &method,
         &mut fake_external,
@@ -266,7 +260,7 @@ pub fn test_out_of_memory() {
         let code = &TEST_CONTRACT;
         let mut fake_external = MockedExternal::new();
 
-        let context = create_context(&[]);
+        let context = create_context(Vec::new());
         let config = VMConfig::free();
         let fees = RuntimeFeesConfig::free();
 

@@ -91,6 +91,8 @@ pub fn run_vm_profiled<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    let _span = tracing::info_span!("run_vm_profiled").entered();
+
     #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;
 
@@ -205,17 +207,6 @@ pub fn precompile<'a>(
             },
         ))),
     }
-}
-
-pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
-    #[cfg(feature = "wasmer0_vm")]
-    runner(VMKind::Wasmer0);
-
-    #[cfg(feature = "wasmtime_vm")]
-    runner(VMKind::Wasmtime);
-
-    #[cfg(feature = "wasmer1_vm")]
-    runner(VMKind::Wasmer1);
 }
 
 /// Used for testing cost of compiling a module

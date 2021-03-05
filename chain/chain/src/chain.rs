@@ -915,7 +915,7 @@ impl Chain {
         let mut chain_store_update = self.mut_store().store_update();
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
-        chain_store_update.clear_chunk_data(chunk_height)?;
+        chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
 
         // clear all trie data
@@ -1109,10 +1109,10 @@ impl Chain {
                             block_hash, missing_chunks,
                         );
                     }
-                    ErrorKind::EpochOutOfBounds => {
+                    ErrorKind::EpochOutOfBounds(ref epoch_id) => {
                         // Possibly block arrived before we finished processing all of the blocks for epoch before last.
                         // Or someone is attacking with invalid chain.
-                        debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block_height, block.hash());
+                        debug!(target: "chain", "Received block {}/{} ignored, as epoch {:?} is unknown", block_height, block.hash(), epoch_id);
                     }
                     ErrorKind::Unfit(ref msg) => {
                         debug!(
@@ -2908,7 +2908,7 @@ impl<'a> ChainUpdate<'a> {
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
         if !self.runtime_adapter.epoch_exists(&block.header().epoch_id()) {
-            return Err(ErrorKind::EpochOutOfBounds.into());
+            return Err(ErrorKind::EpochOutOfBounds(block.header().epoch_id().clone()).into());
         }
 
         // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
@@ -3068,7 +3068,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Update the chain head if it's the new tip
-        let res = self.update_head(block)?;
+        let res = self.update_head(block.header())?;
 
         if res.is_some() {
             // On the epoch switch record the epoch light client block
@@ -3336,11 +3336,11 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    fn update_final_head_from_block(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    fn update_final_head_from_block(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         let final_head = self.chain_store_update.final_head()?;
         let last_final_block_header =
-            match self.chain_store_update.get_block_header(block.header().last_final_block()) {
-                Ok(header) => header,
+            match self.chain_store_update.get_block_header(header.last_final_block()) {
+                Ok(final_header) => final_header,
                 Err(e) => match e.kind() {
                     ErrorKind::DBNotFoundErr(_) => return Ok(None),
                     _ => return Err(e),
@@ -3357,13 +3357,13 @@ impl<'a> ChainUpdate<'a> {
 
     /// Directly updates the head if we've just appended a new block to it or handle
     /// the situation where the block has higher height to have a fork
-    fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    fn update_head(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         // if we made a fork with higher height than the head (which should also be true
         // when extending the head), update it
-        self.update_final_head_from_block(block)?;
+        self.update_final_head_from_block(header)?;
         let head = self.chain_store_update.head()?;
-        if block.header().height() > head.height {
-            let tip = Tip::from_header(&block.header());
+        if header.height() > head.height {
+            let tip = Tip::from_header(header);
 
             self.chain_store_update.save_body_head(&tip)?;
             near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);

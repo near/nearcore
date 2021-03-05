@@ -3616,6 +3616,7 @@ version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
  "clap 2.33.3",
+ "near-primitives",
  "near-primitives-core",
  "near-vm-logic",
  "near-vm-runner",
