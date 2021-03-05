@@ -37,10 +37,10 @@ pub fn validate_genesis(genesis: &Genesis) {
                 if account_ids.contains(account_id) {
                     panic!("Duplicate account id {} in genesis records", account_id);
                 }
-                total_supply += account.locked() + account.amount();
+                total_supply += account.locked + account.amount;
                 account_ids.insert(account_id.clone());
-                if account.locked() > 0 {
-                    staked_accounts.insert(account_id.clone(), account.locked());
+                if account.locked > 0 {
+                    staked_accounts.insert(account_id.clone(), account.locked);
                 }
             }
             StateRecord::AccessKey { account_id, .. } => {
@@ -112,10 +112,6 @@ mod test {
 
     const VALID_ED25519_RISTRETTO_KEY: &str = "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7";
 
-    fn create_account() -> Account {
-        Account::new(100, 10, Default::default(), 0)
-    }
-
     #[test]
     #[should_panic(expected = "wrong total supply")]
     fn test_total_supply_not_match() {
@@ -127,7 +123,12 @@ mod test {
         }];
         genesis.records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".to_string(),
-            account: create_account(),
+            account: Account {
+                amount: 100,
+                locked: 10,
+                code_hash: Default::default(),
+                storage_usage: 0,
+            },
         }]);
         validate_genesis(&genesis);
     }
@@ -143,7 +144,12 @@ mod test {
         }];
         genesis.records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".to_string(),
-            account: create_account(),
+            account: Account {
+                amount: 100,
+                locked: 10,
+                code_hash: Default::default(),
+                storage_usage: 0,
+            },
         }]);
         validate_genesis(&genesis);
     }
@@ -160,7 +166,12 @@ mod test {
         genesis.config.total_supply = 110;
         genesis.records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".to_string(),
-            account: create_account(),
+            account: Account {
+                amount: 100,
+                locked: 10,
+                code_hash: Default::default(),
+                storage_usage: 0,
+            },
         }]);
         validate_genesis(&genesis);
     }
@@ -183,7 +194,15 @@ mod test {
         }];
         genesis.config.total_supply = 110;
         genesis.records = GenesisRecords(vec![
-            StateRecord::Account { account_id: "test".to_string(), account: create_account() },
+            StateRecord::Account {
+                account_id: "test".to_string(),
+                account: Account {
+                    amount: 100,
+                    locked: 10,
+                    code_hash: Default::default(),
+                    storage_usage: 0,
+                },
+            },
             StateRecord::AccessKey {
                 account_id: "test1".to_string(),
                 public_key: PublicKey::empty(KeyType::ED25519),
@@ -204,7 +223,15 @@ mod test {
         }];
         genesis.config.total_supply = 110;
         genesis.records = GenesisRecords(vec![
-            StateRecord::Account { account_id: "test".to_string(), account: create_account() },
+            StateRecord::Account {
+                account_id: "test".to_string(),
+                account: Account {
+                    amount: 100,
+                    locked: 10,
+                    code_hash: Default::default(),
+                    storage_usage: 0,
+                },
+            },
             StateRecord::Contract { account_id: "test".to_string(), code: [1, 2, 3].to_vec() },
             StateRecord::Contract { account_id: "test".to_string(), code: [1, 2, 3, 4].to_vec() },
         ]);

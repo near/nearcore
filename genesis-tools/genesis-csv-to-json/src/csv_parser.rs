@@ -196,7 +196,12 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
     let mut res = vec![StateRecord::Account {
         account_id: row.account_id.clone(),
-        account: Account::new(row.amount, row.validator_stake, smart_contract_hash.into(), 0),
+        account: Account {
+            amount: row.amount,
+            locked: row.validator_stake,
+            code_hash: smart_contract_hash.into(),
+            storage_usage: 0,
+        },
     }];
 
     // Add restricted access keys.
