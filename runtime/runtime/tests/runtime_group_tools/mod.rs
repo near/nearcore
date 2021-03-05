@@ -175,7 +175,12 @@ impl RuntimeGroup {
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.to_string(),
-                    account: Account::new(TESTING_INIT_BALANCE, TESTING_INIT_STAKE, code_hash, 0),
+                    account: Account {
+                        amount: TESTING_INIT_BALANCE,
+                        locked: TESTING_INIT_STAKE,
+                        code_hash,
+                        storage_usage: 0,
+                    },
                 });
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.to_string(),
