@@ -90,6 +90,8 @@ pub enum ProtocolFeature {
     /// Decreases the storage cost of 1 byte by 10X.
     #[cfg(feature = "protocol_feature_lower_storage_cost")]
     LowerStorageCost,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    AltBn128,
 }
 
 /// Current latest stable version of the protocol.
@@ -98,7 +100,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 42;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 104;
+pub const PROTOCOL_VERSION: ProtocolVersion = 105;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
@@ -134,6 +136,8 @@ lazy_static! {
             (ProtocolFeature::EVM, 103),
             #[cfg(feature = "protocol_feature_block_header_v3")]
             (ProtocolFeature::BlockHeaderV3, 104),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            (ProtocolFeature::AltBn128, 105),
         ]
         .into_iter()
         .collect();

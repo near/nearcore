@@ -7,7 +7,7 @@ use near_vm_errors::{
 };
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
-use wasmer::{Bytes, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
+use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
 use wasmer_compiler_singlepass::Singlepass;
 
 pub struct Wasmer1Memory(Memory);
@@ -143,16 +143,17 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
 pub fn run_wasmer1<'a>(
     code_hash: &[u8],
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
-    profile: Option<ProfileData>,
+    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    let _span = tracing::info_span!("run_wasmer1").entered();
     // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
     // So doesn't require x86. However, when it is on x86, AVX is required:
     // https://github.com/wasmerio/wasmer/issues/1567
@@ -213,37 +214,29 @@ pub fn run_wasmer1<'a>(
             ))),
         );
     }
-    let import_object = imports::build_wasmer1(&store, memory_copy, &mut logic);
-
-    let method_name = match std::str::from_utf8(method_name) {
-        Ok(x) => x,
-        Err(_) => {
-            return (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodUTF8Error,
-                ))),
-            )
-        }
-    };
+    let import_object =
+        imports::build_wasmer1(&store, memory_copy, &mut logic, current_protocol_version);
 
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));
     }
 
-    match Instance::new(&module, &import_object) {
-        Ok(instance) => match instance.exports.get_function(&method_name) {
-            Ok(f) => match f.native::<(), ()>() {
-                Ok(f) => match f.call() {
-                    Ok(_) => (Some(logic.outcome()), None),
-                    Err(e) => (Some(logic.outcome()), Some(e.into_vm_error())),
-                },
-                Err(e) => (Some(logic.outcome()), Some(e.into_vm_error())),
-            },
-            Err(e) => (Some(logic.outcome()), Some(e.into_vm_error())),
-        },
-        Err(e) => (Some(logic.outcome()), Some(e.into_vm_error())),
-    }
+    let err = run_method(&module, &import_object, method_name).err();
+    (Some(logic.outcome()), err)
+}
+
+fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
+    let instance = {
+        let _span = tracing::info_span!("run_method/instantiate").entered();
+        Instance::new(&module, &import).map_err(|err| err.into_vm_error())?
+    };
+    let f = instance.exports.get_function(method_name).map_err(|err| err.into_vm_error())?;
+    let f = f.native::<(), ()>().map_err(|err| err.into_vm_error())?;
+    let () = {
+        let _span = tracing::info_span!("run_method/call").entered();
+        f.call().map_err(|err| err.into_vm_error())?
+    };
+    Ok(())
 }
 
 pub fn compile_module(code: &[u8]) -> bool {
