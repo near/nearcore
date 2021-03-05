@@ -4,7 +4,7 @@ pub fn spawn<F>(_class_name: &'static str, _file: &'static str, _line: u32, f: F
 where
     F: futures::Future<Output = ()> + 'static,
 {
-    actix_rt::spawn(f);
+    actix::spawn(f);
 }
 
 pub fn run_later<F, A, B>(

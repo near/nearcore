@@ -1,6 +1,6 @@
 [package]
 name = "near-evm-runner"
-version = "2.3.0"
+version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -37,7 +37,6 @@ near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }
 near-primitives = { path = "../../core/primitives" }
 near-runtime-utils = { path = "../near-runtime-utils" }
-near-runtime-fees = { path = "../near-runtime-fees" }
 
 derivative = "2.1.1"
 
@@ -51,8 +50,7 @@ criterion = "0.3.0"
 near-crypto = { path = "../../core/crypto" }
 
 [features]
-costs_counting = ["near-vm-logic/costs_counting"]
-protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm", "near-vm-logic/protocol_feature_evm"]
+protocol_feature_evm = ["near-vm-logic/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-errors/protocol_feature_alt_bn128"]
 
 [[test]]
 name = "failures"

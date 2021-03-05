@@ -1,3 +1,5 @@
+#[cfg(feature = "protocol_feature_alt_bn128")]
+pub mod alt_bn128;
 mod config;
 mod context;
 mod dependencies;
@@ -18,5 +20,4 @@ pub use near_primitives_core::types::ProtocolVersion;
 pub use near_vm_errors::{HostError, VMLogicError};
 pub use types::ReturnData;
 
-#[cfg(feature = "costs_counting")]
-pub use gas_counter::EXT_COSTS_COUNTER;
+pub use gas_counter::with_ext_cost_counter;

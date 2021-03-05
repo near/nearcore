@@ -13,6 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::time::{sleep, timeout};
+use tracing::info;
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
@@ -279,7 +280,15 @@ impl JsonRpcHandler {
             "query" => self.query(request.params).await,
             "status" => self.status().await,
             "tx" => self.tx_status_common(request.params, false).await,
-            "validators" => self.validators(request.params).await,
+            "validators" => {
+                let rpc_validator_request =
+                    near_jsonrpc_primitives::types::validator::RpcValidatorRequest::parse(
+                        request.params,
+                    )?;
+                let validator_info = self.validators(rpc_validator_request).await?;
+                serde_json::to_value(validator_info)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
 
@@ -337,6 +346,11 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: tx_exists method. tx_hash {:?} signer_account_id {:?}",
+                tx_hash,
+                signer_account_id
+            );
             ServerError::Timeout
         })?
     }
@@ -382,6 +396,11 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?}",
+                tx_info,
+                fetch_receipt,
+            );
             TxStatusError::TimeoutError
         })?
     }
@@ -404,6 +423,10 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: tx_polling method. tx_info {:?}",
+                tx_info,
+            );
             timeout_err()
         })?
     }
@@ -615,7 +638,7 @@ impl JsonRpcHandler {
             // Use Finality::None here to make backward compatibility tests work
             RpcQueryRequest { request, block_reference: BlockReference::latest() }
         } else {
-            parse_params::<RpcQueryRequest>(params)?
+            parse_params::<RpcQueryRequest>(params.clone())?
         };
         let query = Query::new(query_request.block_reference, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
@@ -635,6 +658,10 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: query method. params {:?}",
+                params,
+            );
             RpcError::server_error(Some("query has timed out".to_string()))
         })?
     }
@@ -810,9 +837,18 @@ impl JsonRpcHandler {
         String::from_utf8(buffer)
     }
 
-    async fn validators(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_id,) = parse_params::<(MaybeBlockId,)>(params)?;
-        jsonify(self.view_client_addr.send(GetValidatorInfo { block_id }).await)
+    async fn validators(
+        &self,
+        request_data: near_jsonrpc_primitives::types::validator::RpcValidatorRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::validator::RpcValidatorResponse,
+        near_jsonrpc_primitives::types::validator::RpcValidatorError,
+    > {
+        let validator_info = self
+            .view_client_addr
+            .send(GetValidatorInfo { epoch_reference: request_data.epoch_reference })
+            .await??;
+        Ok(near_jsonrpc_primitives::types::validator::RpcValidatorResponse { validator_info })
     }
 
     /// Returns the current epoch validators ordered in the block producer order with repetition.
@@ -943,7 +979,7 @@ fn rpc_handler(
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     let response = async move {
         let message = handler.process(message.0).await?;
-        Ok(HttpResponse::Ok().json(message))
+        Ok(HttpResponse::Ok().json(&message))
     };
     response.boxed()
 }
@@ -955,7 +991,7 @@ fn status_handler(
 
     let response = async move {
         match handler.status().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
@@ -967,7 +1003,7 @@ fn health_handler(
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     let response = async move {
         match handler.health().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
@@ -979,7 +1015,7 @@ fn network_info_handler(
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     let response = async move {
         match handler.network_info().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
@@ -1020,6 +1056,7 @@ pub fn start_http(
     view_client_addr: Addr<ViewClientActor>,
 ) {
     let RpcConfig { addr, cors_allowed_origins, polling_config, limits_config } = config;
+    info!(target:"network", "Starting http server at {}", addr);
     HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))

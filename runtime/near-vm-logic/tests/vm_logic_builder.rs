@@ -1,4 +1,4 @@
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::VMContext;
@@ -40,7 +40,7 @@ impl VMLogicBuilder {
             &self.fees_config,
             &self.promise_results,
             &mut self.memory,
-            None,
+            Default::default(),
             self.current_protocol_version,
         )
     }

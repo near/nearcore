@@ -1186,8 +1186,7 @@ impl ShardsManager {
             Ok(true) => (),
             Err(chain_error) => {
                 return match chain_error.kind() {
-                    near_chain::ErrorKind::BlockMissing(_)
-                    | near_chain::ErrorKind::DBNotFoundErr(_) => {
+                    near_chain::ErrorKind::DBNotFoundErr(_) => {
                         // We can't check if this chunk came from a valid chunk producer because
                         // we don't know `prev_block`, so return that we need a block.
                         Ok(ProcessPartialEncodedChunkResult::NeedBlock)

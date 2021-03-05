@@ -1,6 +1,6 @@
 [package]
 name = "node-runtime"
-version = "2.3.0"
+version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -23,7 +23,6 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
-near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
@@ -33,13 +32,24 @@ near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
-protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm", "near-vm-runner/protocol_feature_evm"]
+protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-runner/protocol_feature_evm"]
+wasmer1_vm = ["near-vm-runner/wasmer1_vm"]
+wasmer0_vm = ["near-vm-runner/wasmer0_vm"]
+wasmtime_vm = ["near-vm-runner/wasmtime_vm"]
+wasmer1_default = ["wasmer1_vm", "near-vm-logic/wasmer1_default"]
+wasmer0_default = ["wasmer0_vm", "near-vm-logic/wasmer0_default"]
+wasmtime_default = ["wasmtime_vm", "near-vm-logic/wasmtime_default"]
 
-# Use this feature to enable counting of fees and costs applied.
-costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
 no_cpu_compatibility_checks = [ "near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = ["near-vm-runner/no_cache", "near-store/no_cache"]
+
+protocol_feature_alt_bn128 = [
+    "near-primitives/protocol_feature_alt_bn128",
+    "near-vm-logic/protocol_feature_alt_bn128",
+    "near-vm-runner/protocol_feature_alt_bn128",
+    "near-vm-errors/protocol_feature_alt_bn128",
+]
 
 [dev-dependencies]
 tempfile = "3"

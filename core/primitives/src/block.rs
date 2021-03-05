@@ -19,7 +19,9 @@ use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
 };
-use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, NumShards, StateRoot};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::types::NumBlocks;
+use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
@@ -189,10 +191,13 @@ impl Block {
         protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
-        block_ordinal: NumBlocks,
+        #[cfg(feature = "protocol_feature_block_header_v3")] block_ordinal: NumBlocks,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
+        #[cfg(feature = "protocol_feature_block_header_v3")] epoch_sync_data_hash: Option<
+            CryptoHash,
+        >,
         approvals: Vec<Option<Signature>>,
         gas_price_adjustment_rate: Rational,
         min_gas_price: Balance,
@@ -272,6 +277,7 @@ impl Block {
             random_value,
             validator_proposals,
             chunk_mask,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             block_ordinal,
             epoch_id,
             next_epoch_id,
@@ -281,6 +287,8 @@ impl Block {
             signer,
             last_final_block.clone(),
             last_ds_final_block.clone(),
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            epoch_sync_data_hash,
             approvals,
             next_bp_hash,
             block_merkle_root,

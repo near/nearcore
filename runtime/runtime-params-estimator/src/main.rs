@@ -92,9 +92,9 @@ fn main() {
         other => panic!("Unknown metric {}", other),
     };
     let vm_kind = match matches.value_of("vm-kind") {
-        Some("wasmer") => VMKind::Wasmer,
+        Some("wasmer") => VMKind::Wasmer0,
         Some("wasmtime") => VMKind::Wasmtime,
-        _ => VMKind::Wasmer,
+        _ => VMKind::Wasmer0,
     };
     let disable_measure_action_creation = matches.is_present("action-creation");
     let disable_measure_transaction = matches.is_present("transaction");

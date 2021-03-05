@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Arbiter, Context, Handler};
+use actix_rt::ArbiterHandle;
 use chrono::Duration as OldDuration;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
@@ -305,13 +306,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
                             if block.hash() == header.prev_hash() {
-                                if let Err(_) = self.client.chain.save_block(&block) {
-                                    error!(target: "client", "Failed to save a block during state sync");
+                                if let Err(e) = self.client.chain.save_block(&block) {
+                                    error!(target: "client", "Failed to save a block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                if let Err(_) = self.client.chain.save_orphan(&block) {
-                                    error!(target: "client", "Received an invalid block during state sync");
+                                if let Err(e) = self.client.chain.save_orphan(&block) {
+                                    error!(target: "client", "Received an invalid block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
                             }
@@ -465,6 +466,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
                 }
 
+                NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::EpochSyncResponse(_peer_id, _response) => {
+                // TODO #3488
+                NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::EpochSyncFinalizationResponse(_peer_id, _response) => {
+                // TODO #3488
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
@@ -1219,13 +1228,14 @@ impl ClientActor {
             Err(err) => {
                 error!(target: "sync", "Sync: Unexpected error: {}", err);
 
-            near_performance_metrics::actix::run_later(
-                ctx,
-                file!(),
-                line!(),
-                self.client.config.sync_step_period, move |act, ctx| {
-                    act.sync(ctx);
-                });
+                near_performance_metrics::actix::run_later(
+                    ctx,
+                    file!(),
+                    line!(),
+                    self.client.config.sync_step_period, move |act, ctx| {
+                        act.sync(ctx);
+                    }
+                );
                 return;
             }
         }));
@@ -1454,9 +1464,9 @@ pub fn start_client(
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
-) -> (Addr<ClientActor>, Arbiter) {
-    let client_arbiter = Arbiter::current();
-    let client_addr = ClientActor::start_in_arbiter(&client_arbiter, move |_ctx| {
+) -> (Addr<ClientActor>, ArbiterHandle) {
+    let client_arbiter_handle = Arbiter::current();
+    let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_ctx| {
         ClientActor::new(
             client_config,
             chain_genesis,
@@ -1471,5 +1481,5 @@ pub fn start_client(
         )
         .unwrap()
     });
-    (client_addr, client_arbiter)
+    (client_addr, client_arbiter_handle)
 }

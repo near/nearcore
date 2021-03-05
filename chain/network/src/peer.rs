@@ -7,11 +7,11 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use actix::io::{FramedWrite, WriteHandler};
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
+use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use tracing::{debug, error, info, trace, warn};
 
 use near_metrics;
@@ -46,6 +46,7 @@ use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::PartialEncodedChunk;
+use near_rust_allocator_proxy::allocator::get_tid;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -59,6 +60,13 @@ const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
 /// dispatching transactions when we should be focusing on consensus-related messages.
 const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
+
+/// The time we wait for the response to a Epoch Sync request before retrying
+// TODO #3488 set 30_000
+pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
+/// How frequently a Epoch Sync response can be sent to a particular peer
+// TODO #3488 set 60_000
+pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
@@ -157,7 +165,7 @@ pub struct Peer {
     /// Protocol version to communicate with this peer.
     pub protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: FramedWrite<Vec<u8>, WriteHalf, Codec>,
+    framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
     /// Handshake timeout.
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
@@ -182,6 +190,8 @@ pub struct Peer {
     txns_since_last_block: Arc<AtomicUsize>,
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
+    /// The last time a Epoch Sync request was received from this peer
+    last_time_received_epoch_sync_request: Instant,
 }
 
 impl Peer {
@@ -190,7 +200,7 @@ impl Peer {
         peer_addr: SocketAddr,
         peer_info: Option<PeerInfo>,
         peer_type: PeerType,
-        framed: FramedWrite<Vec<u8>, WriteHalf, Codec>,
+        framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
         handshake_timeout: Duration,
         peer_manager_addr: Addr<PeerManagerActor>,
         client_addr: Recipient<NetworkClientMessages>,
@@ -220,6 +230,8 @@ impl Peer {
             network_metrics,
             txns_since_last_block,
             peer_counter,
+            last_time_received_epoch_sync_request: Instant::now()
+                - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
         }
     }
 
@@ -255,7 +267,15 @@ impl Peer {
                 #[cfg(feature = "metric_recorder")]
                 self.peer_manager_addr.do_send(metadata.set_size(bytes.len()));
                 self.tracker.increment_sent(bytes.len() as u64);
-                self.framed.write(bytes);
+                let bytes_len = bytes.len();
+                if !self.framed.write(bytes) {
+                    error!(
+                        "{} Failed to send message {} of size {}",
+                        get_tid(),
+                        strum::AsStaticRef::as_static(msg),
+                        bytes_len,
+                    )
+                }
             }
             Err(err) => error!(target: "network", "Error converting message to bytes: {}", err),
         };
@@ -399,6 +419,13 @@ impl Peer {
             PeerMessage::BlockHeadersRequest(hashes) => {
                 NetworkViewClientMessages::BlockHeadersRequest(hashes)
             }
+            PeerMessage::EpochSyncRequest(epoch_id) => {
+                self.last_time_received_epoch_sync_request = Instant::now();
+                NetworkViewClientMessages::EpochSyncRequest { epoch_id }
+            }
+            PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
+                NetworkViewClientMessages::EpochSyncFinalizationRequest { epoch_id }
+            }
             peer_message => {
                 error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", peer_message);
                 return;
@@ -445,6 +472,12 @@ impl Peer {
                     }
                     Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
                         act.send_message(&PeerMessage::BlockHeaders(headers))
+                    }
+                    Ok(NetworkViewClientResponses::EpochSyncResponse(response)) => {
+                        act.send_message(&PeerMessage::EpochSyncResponse(response))
+                    }
+                    Ok(NetworkViewClientResponses::EpochSyncFinalizationResponse(response)) => {
+                        act.send_message(&PeerMessage::EpochSyncFinalizationResponse(response))
                     }
                     Err(err) => {
                         error!(
@@ -542,6 +575,12 @@ impl Peer {
                 }
             }
             PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
+            PeerMessage::EpochSyncResponse(response) => {
+                NetworkClientMessages::EpochSyncResponse(peer_id, response)
+            }
+            PeerMessage::EpochSyncFinalizationResponse(response) => {
+                NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response)
+            }
             PeerMessage::Handshake(_)
             | PeerMessage::HandshakeV2(_)
             | PeerMessage::HandshakeFailure(_, _)
@@ -553,7 +592,9 @@ impl Peer {
             | PeerMessage::RequestUpdateNonce(_)
             | PeerMessage::ResponseUpdateNonce(_)
             | PeerMessage::BlockRequest(_)
-            | PeerMessage::BlockHeadersRequest(_) => {
+            | PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::EpochSyncRequest(_)
+            | PeerMessage::EpochSyncFinalizationRequest(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }

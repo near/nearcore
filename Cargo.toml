@@ -13,7 +13,6 @@ members = [
     "core/store",
     "core/metrics",
     "runtime/near-evm-runner",
-    "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
@@ -32,6 +31,7 @@ members = [
     "chain/jsonrpc/test-utils",
     "chain/jsonrpc-primitives",
     "chain/rosetta-rpc",
+    "test-utils/actix-test-utils",
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",
@@ -49,7 +49,7 @@ members = [
 
 [dev-dependencies]
 # Pin dependency to avoid compilation errors
-actix-rt = "=2.0.0-beta.2"
+funty = "=1.1.0"
 
 rand = "0.7"
 
@@ -96,8 +96,9 @@ opt-level = 3 # BLS library is too slow to use in debug
 opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]
-performance_stats = ["neard/performance_stats"]
+performance_stats = ["neard/performance_stats", "near-network/performance_stats"]
 memory_stats = ["neard/memory_stats"]
+c_memory_stats = ["neard/c_memory_stats"]
 expensive_tests = ["neard/expensive_tests"]
 regression_tests = []
 old_tests = []
@@ -106,14 +107,20 @@ no_cache = ["neard/no_cache"]
 metric_recorder = ["neard/metric_recorder"]
 delay_detector = ["neard/delay_detector"]
 rosetta_rpc = ["neard/rosetta_rpc"]
-protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_parts"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
-nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3"]
+nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128"]
+protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_parts"]
 protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
+protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128", "testlib/protocol_feature_alt_bn128", "runtime-params-estimator/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
-costs_counting = [
-    "near-primitives/costs_counting",
-    "neard/costs_counting",
-    "node-runtime/costs_counting",
-    "testlib/costs_counting"
-]
+
+# enable this to build neard with wasmer 1.0 runner
+# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
+wasmer1_default = ["node-runtime/wasmer1_default"]
+wasmer0_default = ["node-runtime/wasmer0_default"]
+wasmtime_default = ["node-runtime/wasmtime_default"]
+# enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
+# but would not change default runner used by neard
+wasmer1_vm = ["node-runtime/wasmer1_vm"]
+wasmer0_vm = ["node-runtime/wasmer0_vm"]
+wasmtime_vm = ["node-runtime/wasmtime_vm"]

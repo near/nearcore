@@ -8,6 +8,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, Runti
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
@@ -18,7 +19,6 @@ use near_primitives::version::{
     ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
     IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
 };
-use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::{
     is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
     is_valid_top_level_account_id,
@@ -135,7 +135,7 @@ pub(crate) fn execute_function_call(
         near_vm_runner::run(
             code.hash.as_ref().to_vec(),
             &code.code,
-            function_call.method_name.as_bytes(),
+            &function_call.method_name,
             runtime_ext,
             context,
             &config.wasm_config,
@@ -143,8 +143,7 @@ pub(crate) fn execute_function_call(
             promise_results,
             apply_state.current_protocol_version,
             cache,
-            #[cfg(feature = "costs_counting")]
-            apply_state.profile.as_ref(),
+            &apply_state.profile,
         )
     }
 }

@@ -5,8 +5,8 @@ use rlp::{Decodable, Rlp};
 use vm::{ContractCreateResult, MessageCallResult};
 
 use near_primitives::config::{ActionCosts, VMConfig};
+use near_primitives::runtime::fees::{EvmCostConfig, RuntimeFeesConfig};
 use near_primitives::types::{AccountId, Balance, Gas, StorageUsage};
-use near_runtime_fees::{EvmCostConfig, RuntimeFeesConfig};
 use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::{
     EvmError, FunctionCallError, InconsistentStateError::StorageError, VMError, VMLogicError,
@@ -175,7 +175,7 @@ impl<'a> EvmContext<'a> {
                 max_gas_burnt,
                 prepaid_gas,
                 is_view,
-                None,
+                Default::default(),
             ),
             evm_gas_counter: EvmGasCounter::new(0.into(), evm_gas),
             fees_config,

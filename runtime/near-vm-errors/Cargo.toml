@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-errors"
-version = "2.3.0"
+version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -20,10 +20,9 @@ borsh = "0.8.1"
 
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.0" }
 
-ethereum-types = "0.11.0"
-
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
+protocol_feature_alt_bn128 = []
 
 [package.metadata.workspaces]
 independent = true

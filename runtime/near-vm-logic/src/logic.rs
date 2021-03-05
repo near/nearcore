@@ -8,10 +8,10 @@ use byteorder::ByteOrder;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
-use near_runtime_fees::RuntimeFeesConfig;
 use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
 
-type Result<T> = ::std::result::Result<T, VMLogicError>;
+pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 const LEGACY_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
 const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
@@ -107,7 +107,7 @@ impl<'a> VMLogic<'a> {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
-        profile: Option<ProfileData>,
+        profile: ProfileData,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
         ext.reset_touched_nodes_counter();
@@ -157,7 +157,7 @@ impl<'a> VMLogic<'a> {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
-        profile: Option<ProfileData>,
+        profile: ProfileData,
     ) -> Self {
         Self::new_with_protocol_version(
             ext,
@@ -779,6 +779,97 @@ impl<'a> VMLogic<'a> {
     // ############
     // # Math API #
     // ############
+
+    /// Compute multiexp on alt_bn128 curve.
+    /// See more detailed description at `alt_bn128::alt_bn128_g1_multiexp`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// AltBn128SerializationError, AltBn128DeserializationError
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_g1_multiexp_base +
+    /// alt_bn128_g1_multiexp_byte * num_bytes + alt_bn128_g1_multiexp_sublinear *
+    /// alt_bn128_g1_multiexp_sublinear_complexity_estimate(num_bytes, (alt_bn128_g1_multiexp_base *
+    /// alt_bn128_g1_multiexp_byte * num_bytes) / alt_bn128_g1_multiexp_sublinear)`
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    pub fn alt_bn128_g1_multiexp(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(alt_bn128_g1_multiexp_base)?;
+        let value_buf = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        let len = value_buf.len() as u64;
+        self.gas_counter.pay_per_byte(alt_bn128_g1_multiexp_byte, len)?;
+
+        let discount = (alt_bn128_g1_multiexp_base as u64
+            + alt_bn128_g1_multiexp_byte as u64 * len)
+            / alt_bn128_g1_multiexp_sublinear as u64;
+        let sublinear_complexity =
+            crate::alt_bn128::alt_bn128_g1_multiexp_sublinear_complexity_estimate(len, discount);
+        self.gas_counter.pay_per_byte(alt_bn128_g1_multiexp_sublinear, sublinear_complexity)?;
+
+        let res = crate::alt_bn128::alt_bn128_g1_multiexp(&value_buf)?;
+
+        self.internal_write_register(register_id, res)
+    }
+
+    /// Compute signed sum on alt_bn128 for g1 group.
+    /// See more detailed description at `alt_bn128::alt_bn128_g1_sum`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// AltBn128SerializationError, AltBn128DeserializationError
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_g1_sum_base + alt_bn128_g1_sum_byte * num_bytes`
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    pub fn alt_bn128_g1_sum(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(alt_bn128_g1_sum_base)?;
+        let value_buf = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        self.gas_counter.pay_per_byte(alt_bn128_g1_sum_byte, value_buf.len() as u64)?;
+
+        let res = crate::alt_bn128::alt_bn128_g1_sum(&value_buf)?;
+
+        self.internal_write_register(register_id, res)
+    }
+
+    /// Compute pairing check on alt_bn128 curve.
+    /// See more detailed description at `alt_bn128::alt_bn128_pairing_check`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// AltBn128SerializationError, AltBn128DeserializationError
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_byte * num_bytes`
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    pub fn alt_bn128_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
+        self.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
+        let value_buf = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        self.gas_counter.pay_per_byte(alt_bn128_pairing_check_byte, value_buf.len() as u64)?;
+
+        Ok(crate::alt_bn128::alt_bn128_pairing_check(&value_buf)? as u64)
+    }
 
     /// Writes random seed into the register.
     ///

@@ -3,9 +3,20 @@ use near_vm_logic::VMLogic;
 
 use std::ffi::c_void;
 
-struct ImportReference(*mut c_void);
+#[derive(Clone)]
+pub struct ImportReference(pub *mut c_void);
 unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
+
+#[cfg(feature = "wasmer1_vm")]
+use wasmer::{Memory, WasmerEnv};
+
+#[derive(WasmerEnv, Clone)]
+#[cfg(feature = "wasmer1_vm")]
+pub struct NearWasmerEnv {
+    pub memory: Memory,
+    pub logic: ImportReference,
+}
 
 // Wasm has only i32/i64 types, so Wasmtime 0.17 only accepts
 // external functions taking i32/i64 type.
@@ -26,6 +37,7 @@ macro_rules! rust2wasm {
 
 macro_rules! wrapped_imports {
         ( $($(#[$feature_name:tt, $feature:ident])* $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
+            #[cfg(feature = "wasmer0_vm")]
             pub mod wasmer_ext {
                 use near_vm_logic::VMLogic;
                 use wasmer_runtime::Ctx;
@@ -38,6 +50,22 @@ macro_rules! wrapped_imports {
                         logic.$func( $( $arg_name, )* )
                     }
                 )*
+            }
+
+            #[cfg(feature = "wasmer1_vm")]
+            pub mod wasmer1_ext {
+            use near_vm_logic::VMLogic;
+            use crate::imports::NearWasmerEnv;
+
+            type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
+            $(
+                #[allow(unused_parens)]
+                $(#[cfg(feature = $feature_name)])*
+                pub fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
+                    let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
+                    logic.$func( $( $arg_name, )* )
+                }
+            )*
             }
 
             #[cfg(feature = "wasmtime_vm")]
@@ -79,6 +107,7 @@ macro_rules! wrapped_imports {
             }
 
             #[allow(unused_variables)]
+            #[cfg(feature = "wasmer0_vm")]
             pub(crate) fn build_wasmer(
                 memory: wasmer_runtime::memory::Memory,
                 logic: &mut VMLogic<'_>,
@@ -101,6 +130,28 @@ macro_rules! wrapped_imports {
                 })*
 
                 import_object.register("env", ns);
+                import_object
+            }
+
+            #[allow(unused_variables)]
+            #[cfg(feature = "wasmer1_vm")]
+            pub(crate) fn build_wasmer1(
+                store: &wasmer::Store,
+                memory: wasmer::Memory,
+                logic: &mut VMLogic<'_>,
+                protocol_version: ProtocolVersion,
+            ) -> wasmer::ImportObject {
+                let env = NearWasmerEnv {logic: ImportReference(logic as * mut _ as * mut c_void), memory: memory.clone()};
+                let mut import_object = wasmer::ImportObject::new();
+                let mut namespace = wasmer::Exports::new();
+                namespace.insert("memory", memory);
+                $({
+                    $(#[cfg(feature = $feature_name)])*
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
+                        namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), wasmer1_ext::$func));
+                    }
+                })*
+                import_object.register("env", namespace);
                 import_object
             }
 
@@ -277,7 +328,10 @@ wrapped_imports! {
     // ###############
     validator_stake<[account_id_len: u64, account_id_ptr: u64, stake_ptr: u64] -> []>,
     validator_total_stake<[stake_ptr: u64] -> []>,
-    // ###############
-    // An example to add a protocol feature guarded host method
-    // #["protocol_feature_evm", EVM] test_api<[a: u64] -> []>,
+    // #############
+    // # Alt BN128 #
+    // #############
+    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
 }

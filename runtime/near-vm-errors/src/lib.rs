@@ -34,6 +34,12 @@ pub enum FunctionCallError {
     WasmUnknownError,
     HostError(HostError),
     EvmError(EvmError),
+    /// An error message when wasmer 1.0 returns a wasmer::RuntimeError
+    WasmerRuntimeError(String),
+    /// A trap in Wasmer 1.0, not same as WasmTrap above, String is a machine readable form like "stk_ovf"
+    /// String is used instead of wasmer internal enum is because of BorshSerializable.
+    /// It can be convert back by wasmer_vm::TrapCode::from_str
+    Wasmer1Trap(String),
 }
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
@@ -74,7 +80,6 @@ pub enum WasmTrap {
 )]
 pub enum MethodResolveError {
     MethodEmptyName,
-    MethodUTF8Error,
     MethodNotFound,
     MethodInvalidSignature,
 }
@@ -181,6 +186,12 @@ pub enum HostError {
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The host function was deprecated.
     Deprecated { method_name: String },
+    /// Deserialization error for alt_bn128 functions
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    AltBn128DeserializationError { msg: String },
+    /// Serialization error for alt_bn128 functions
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    AltBn128SerializationError { msg: String },
 }
 
 /// Errors specifically from native EVM.
@@ -277,6 +288,8 @@ pub enum VMLogicError {
     EvmError(EvmError),
 }
 
+impl std::error::Error for VMLogicError {}
+
 /// An error that is caused by an operation on an inconsistent state.
 /// E.g. a deserialization error or an integer overflow.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
@@ -303,6 +316,19 @@ impl From<PrepareError> for VMError {
         VMError::FunctionCallError(FunctionCallError::CompilationError(
             CompilationError::PrepareError(err),
         ))
+    }
+}
+
+impl From<&VMLogicError> for VMError {
+    fn from(err: &VMLogicError) -> Self {
+        match err {
+            VMLogicError::HostError(h) => {
+                VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+            }
+            VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
+            VMLogicError::InconsistentStateError(e) => VMError::InconsistentStateError(e.clone()),
+            VMLogicError::EvmError(_) => unreachable!("Wasm can't return EVM error"),
+        }
     }
 }
 
@@ -341,6 +367,8 @@ impl fmt::Display for FunctionCallError {
                 write!(f, "Unknown error during Wasm contract execution")
             }
             FunctionCallError::EvmError(e) => write!(f, "EVM: {:?}", e),
+            FunctionCallError::WasmerRuntimeError(e) => write!(f, "Wasmer Runtime: {}", e),
+            FunctionCallError::Wasmer1Trap(e) => write!(f, "Wasmer 1.0 trap: {}", e),
         }
     }
 }
@@ -445,6 +473,10 @@ impl std::fmt::Display for HostError {
             ReturnedValueLengthExceeded { length, limit } => write!(f, "The length of a returned value {} exceeds the limit {}", length, limit),
             ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
             Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            AltBn128SerializationError { msg } => write!(f, "AltBn128 serialization error: {}", msg),
         }
     }
 }

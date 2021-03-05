@@ -1,31 +1,38 @@
 use crate::{HostError, VMLogicError};
+#[cfg(feature = "protocol_feature_evm")]
+use near_primitives_core::runtime::fees::EvmGas;
+use near_primitives_core::runtime::fees::Fee;
 use near_primitives_core::{
     config::{ActionCosts, ExtCosts, ExtCostsConfig},
     profile::ProfileData,
     types::Gas,
 };
-#[cfg(feature = "protocol_feature_evm")]
-use near_runtime_fees::EvmGas;
-use near_runtime_fees::Fee;
+use std::collections::HashMap;
 use std::fmt;
 
 #[cfg(feature = "costs_counting")]
 thread_local! {
-    pub static EXT_COSTS_COUNTER: std::cell::RefCell<std::collections::HashMap<ExtCosts, u64>> =
-        Default::default();
-
     #[cfg(feature = "protocol_feature_evm")]
     pub static EVM_GAS_COUNTER: std::cell::RefCell<EvmGas> = Default::default();
 }
 
+#[inline]
+pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
+    #[cfg(feature = "costs_counting")]
+    {
+        thread_local! {
+            static EXT_COSTS_COUNTER: std::cell::RefCell<HashMap<ExtCosts, u64>> =
+                Default::default();
+        }
+        EXT_COSTS_COUNTER.with(|rc| f(&mut *rc.borrow_mut()));
+    }
+    #[cfg(not(feature = "costs_counting"))]
+    let _ = f;
+}
+
 #[cfg(all(feature = "costs_counting", feature = "protocol_feature_evm"))]
 pub fn reset_evm_gas_counter() -> u64 {
-    let mut ret = 0;
-    EVM_GAS_COUNTER.with(|f| {
-        ret = *f.borrow();
-        *f.borrow_mut() = 0;
-    });
-    ret
+    EVM_GAS_COUNTER.with(|f| f.replace(0))
 }
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
@@ -42,8 +49,7 @@ pub struct GasCounter {
     is_view: bool,
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
-    #[allow(dead_code)]
-    profile: Option<ProfileData>,
+    profile: ProfileData,
 }
 
 impl fmt::Debug for GasCounter {
@@ -58,7 +64,7 @@ impl GasCounter {
         max_gas_burnt: Gas,
         prepaid_gas: Gas,
         is_view: bool,
-        profile: Option<ProfileData>,
+        profile: ProfileData,
     ) -> Self {
         Self {
             ext_costs_config,
@@ -99,55 +105,28 @@ impl GasCounter {
         }
     }
 
-    #[cfg(all(feature = "costs_counting", feature = "protocol_feature_evm"))]
+    #[cfg(feature = "protocol_feature_evm")]
     #[inline]
     pub fn inc_evm_gas_counter(&mut self, value: EvmGas) {
-        EVM_GAS_COUNTER.with(|f| {
-            *f.borrow_mut() += value;
-        })
+        #[cfg(feature = "costs_counting")]
+        EVM_GAS_COUNTER.with(|f| *f.borrow_mut() += value);
+        let _ = value;
     }
 
-    #[cfg(all(not(feature = "costs_counting"), feature = "protocol_feature_evm"))]
-    #[inline]
-    pub fn inc_evm_gas_counter(&mut self, _value: EvmGas) {}
-
-    #[cfg(feature = "costs_counting")]
     #[inline]
     fn inc_ext_costs_counter(&mut self, cost: ExtCosts, value: u64) {
-        EXT_COSTS_COUNTER.with(|f| {
-            *f.borrow_mut().entry(cost).or_default() += value;
-        });
+        with_ext_cost_counter(|cc| *cc.entry(cost).or_default() += value)
     }
 
-    #[cfg(not(feature = "costs_counting"))]
-    #[inline]
-    fn inc_ext_costs_counter(&mut self, _cost: ExtCosts, _value: u64) {}
-
-    #[cfg(feature = "costs_counting")]
     #[inline]
     fn update_profile_host(&mut self, cost: ExtCosts, value: u64) {
-        match &self.profile {
-            Some(profile) => profile.add_ext_cost(cost, value),
-            None => {}
-        };
+        self.profile.add_ext_cost(cost, value)
     }
 
-    #[cfg(not(feature = "costs_counting"))]
-    #[inline]
-    fn update_profile_host(&mut self, _cost: ExtCosts, _value: u64) {}
-
-    #[cfg(feature = "costs_counting")]
     #[inline]
     fn update_profile_action(&mut self, action: ActionCosts, value: u64) {
-        match &self.profile {
-            Some(profile) => profile.add_action_cost(action, value),
-            None => {}
-        };
+        self.profile.add_action_cost(action, value)
     }
-
-    #[cfg(not(feature = "costs_counting"))]
-    #[inline]
-    fn update_profile_action(&mut self, _action: ActionCosts, _value: u64) {}
 
     pub fn pay_wasm_gas(&mut self, value: u64) -> Result<()> {
         self.deduct_gas(value, value)
@@ -252,7 +231,8 @@ mod tests {
 
     #[test]
     fn test_deduct_gas() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 10, 10, false, None);
+        let mut counter =
+            GasCounter::new(ExtCostsConfig::default(), 10, 10, false, ProfileData::new_disabled());
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -261,7 +241,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_prepaid_gas_min() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 100, 10, false, None);
+        let mut counter =
+            GasCounter::new(ExtCostsConfig::default(), 100, 10, false, ProfileData::new_disabled());
         counter.deduct_gas(10, 5).unwrap();
     }
 }

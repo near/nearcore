@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use log::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
-use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
+use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier};
 
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -26,7 +26,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
-use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
+use near_primitives::epoch_manager::{BlockInfo, EpochConfig, EpochInfo};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -461,8 +461,7 @@ impl NightshadeRuntime {
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
-            #[cfg(feature = "costs_counting")]
-            profile: None,
+            profile: Default::default(),
         };
 
         let apply_result = self
@@ -1049,9 +1048,82 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount)
     }
 
+    // TODO #3488 this likely to be updated
+    fn get_epoch_sync_data_hash(
+        &self,
+        prev_epoch_last_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        next_epoch_id: &EpochId,
+    ) -> Result<CryptoHash, Error> {
+        let (
+            prev_epoch_first_block_info,
+            prev_epoch_prev_last_block_info,
+            prev_epoch_last_block_info,
+            prev_epoch_info,
+            cur_epoch_info,
+            next_epoch_info,
+        ) = self.get_epoch_sync_data(prev_epoch_last_block_hash, epoch_id, next_epoch_id)?;
+        let mut data = prev_epoch_first_block_info.try_to_vec().unwrap();
+        data.extend(prev_epoch_prev_last_block_info.try_to_vec().unwrap());
+        data.extend(prev_epoch_last_block_info.try_to_vec().unwrap());
+        data.extend(prev_epoch_info.try_to_vec().unwrap());
+        data.extend(cur_epoch_info.try_to_vec().unwrap());
+        data.extend(next_epoch_info.try_to_vec().unwrap());
+        Ok(hash(data.as_slice()))
+    }
+
+    // TODO #3488 this likely to be updated
+    fn get_epoch_sync_data(
+        &self,
+        prev_epoch_last_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        next_epoch_id: &EpochId,
+    ) -> Result<(BlockInfo, BlockInfo, BlockInfo, EpochInfo, EpochInfo, EpochInfo), Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?.clone();
+        let prev_epoch_id = last_block_info.epoch_id.clone();
+        Ok((
+            epoch_manager.get_block_info(&last_block_info.epoch_first_block)?.clone(),
+            epoch_manager.get_block_info(&last_block_info.prev_hash)?.clone(),
+            last_block_info,
+            epoch_manager.get_epoch_info(&prev_epoch_id)?.clone(),
+            epoch_manager.get_epoch_info(epoch_id)?.clone(),
+            epoch_manager.get_epoch_info(next_epoch_id)?.clone(),
+        ))
+    }
+
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version)
+    }
+
+    fn epoch_sync_init_epoch_manager(
+        &self,
+        prev_epoch_first_block_info: BlockInfo,
+        prev_epoch_prev_last_block_info: BlockInfo,
+        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_id: &EpochId,
+        prev_epoch_info: EpochInfo,
+        epoch_id: &EpochId,
+        epoch_info: EpochInfo,
+        next_epoch_id: &EpochId,
+        next_epoch_info: EpochInfo,
+    ) -> Result<(), Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        epoch_manager
+            .init_after_epoch_sync(
+                prev_epoch_first_block_info,
+                prev_epoch_prev_last_block_info,
+                prev_epoch_last_block_info,
+                prev_epoch_id,
+                prev_epoch_info,
+                epoch_id,
+                epoch_info,
+                next_epoch_id,
+                next_epoch_info,
+            )?
+            .commit()
+            .map_err(|err| err.into())
     }
 
     fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error> {
@@ -1065,6 +1137,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let block_info = BlockInfo::new(
+            block_header_info.hash,
             block_header_info.height,
             block_header_info.last_finalized_height,
             block_header_info.last_finalized_block_hash,
@@ -1079,10 +1152,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         );
         let rng_seed = (block_header_info.random_value.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
-        epoch_manager
-            .record_block_info(&block_header_info.hash, block_info, rng_seed)?
-            .commit()
-            .map_err(|err| err.into())
+        epoch_manager.record_block_info(block_info, rng_seed)?.commit().map_err(|err| err.into())
     }
 
     fn apply_transactions_with_optional_storage_proof(
@@ -1299,9 +1369,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
+    fn get_validator_info(
+        &self,
+        epoch_id: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
+        epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
     }
 
     /// Returns StorageError when storage is inconsistent.
@@ -1339,35 +1412,30 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> bool {
         assert!(part_id < num_parts);
         match BorshDeserialize::try_from_slice(data) {
-            Ok(trie_nodes) => match Trie::validate_trie_nodes_for_part(
-                state_root,
-                part_id,
-                num_parts,
-                &trie_nodes,
-            ) {
-                Ok(_) => true,
-                // Storage error should not happen
-                Err(_) => false,
-            },
+            Ok(trie_nodes) => {
+                match Trie::validate_trie_nodes_for_part(state_root, part_id, num_parts, trie_nodes)
+                {
+                    Ok(_) => true,
+                    // Storage error should not happen
+                    Err(_) => false,
+                }
+            }
             // Deserialization error means we've got the data from malicious peer
             Err(_) => false,
         }
     }
 
-    fn confirm_state(
+    fn apply_state_part(
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        data: &Vec<Vec<u8>>,
+        part_id: u64,
+        num_parts: u64,
+        data: &[u8],
     ) -> Result<(), Error> {
-        let mut parts = vec![];
-        for part in data {
-            parts.push(
-                BorshDeserialize::try_from_slice(part)
-                    .expect("Part was already validated earlier, so could never fail here"),
-            );
-        }
-        let trie_changes = Trie::combine_state_parts(&state_root, &parts)
+        let part = BorshDeserialize::try_from_slice(data)
+            .expect("Part was already validated earlier, so could never fail here");
+        let trie_changes = Trie::apply_state_part(&state_root, part_id, num_parts, part)
             .expect("combine_state_parts is guaranteed to succeed when each part is valid");
         let tries = self.get_tries();
         let (store_update, _) =
@@ -2269,7 +2337,7 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
-        new_env.runtime.confirm_state(0, &env.state_roots[0], &vec![state_part]).unwrap();
+        new_env.runtime.apply_state_part(0, &env.state_roots[0], 0, 1, &state_part).unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);
@@ -2355,6 +2423,10 @@ mod test {
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
         env.step_default(vec![staking_transaction]);
+        assert!(env
+            .runtime
+            .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id.clone()))
+            .is_err());
         env.step_default(vec![]);
         let mut current_epoch_validator_info = vec![
             CurrentEpochValidatorInfo {
@@ -2390,7 +2462,10 @@ mod test {
                 shards: vec![0],
             },
         ];
-        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        let response = env
+            .runtime
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .unwrap();
         assert_eq!(
             response,
             EpochValidatorInfo {
@@ -2409,7 +2484,10 @@ mod test {
             }
         );
         env.step_default(vec![]);
-        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        let response = env
+            .runtime
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .unwrap();
 
         current_epoch_validator_info[1].num_produced_blocks = 0;
         current_epoch_validator_info[1].num_expected_blocks = 0;
@@ -2745,7 +2823,10 @@ mod test {
         let account0 = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account0.locked, fishermen_stake);
         assert_eq!(account0.amount, TESTING_INIT_BALANCE - fishermen_stake);
-        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        let response = env
+            .runtime
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .unwrap();
         assert_eq!(
             response
                 .current_fishermen
@@ -2769,7 +2850,10 @@ mod test {
         let account1 = env.view_account(&block_producers[1].validator_id());
         assert_eq!(account1.locked, 0);
         assert_eq!(account1.amount, TESTING_INIT_BALANCE);
-        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        let response = env
+            .runtime
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .unwrap();
         assert!(response.current_fishermen.is_empty());
     }
 
@@ -2806,7 +2890,10 @@ mod test {
         let account0 = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account0.locked, fishermen_stake);
         assert_eq!(account0.amount, TESTING_INIT_BALANCE - fishermen_stake);
-        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        let response = env
+            .runtime
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .unwrap();
         assert_eq!(
             response
                 .current_fishermen
@@ -2824,7 +2911,10 @@ mod test {
         let account0 = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account0.locked, 0);
         assert_eq!(account0.amount, TESTING_INIT_BALANCE);
-        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        let response = env
+            .runtime
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .unwrap();
         assert!(response.current_fishermen.is_empty());
     }
 

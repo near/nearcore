@@ -27,11 +27,29 @@ use crate::testbed_runners::{get_account_id, measure_actions, measure_transactio
 use crate::vm_estimator::{cost_per_op, cost_to_compile, load_and_compile};
 
 use near_primitives::runtime::config::RuntimeConfig;
-use near_runtime_fees::{
+use near_primitives::runtime::fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
 };
 use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
+
+#[cfg(feature = "nightly_protocol_features")]
+lazy_static_include::lazy_static_include_bytes! {
+    SMALLEST_CODE => "test-contract/res/smallest_contract.wasm",
+
+    CODE_10K => "test-contract/res/nightly_small_contract.wasm",
+    CODE_100K => "test-contract/res/nightly_medium_contract.wasm",
+    CODE_1M => "test-contract/res/nightly_large_contract.wasm",
+}
+
+#[cfg(not(feature = "nightly_protocol_features"))]
+lazy_static_include::lazy_static_include_bytes! {
+    SMALLEST_CODE => "test-contract/res/smallest_contract.wasm",
+
+    CODE_10K => "test-contract/res/stable_small_contract.wasm",
+    CODE_100K => "test-contract/res/stable_medium_contract.wasm",
+    CODE_1M => "test-contract/res/stable_large_contract.wasm",
+}
 
 /// How much gas there is in a nanosecond worth of computation.
 const GAS_IN_MEASURE_UNIT: u128 = 1_000_000u128;
@@ -127,10 +145,11 @@ fn measure_function(
 }
 
 macro_rules! calls_helper(
-    { $($el:ident => $method_name:ident),* } => {
+    { $($(#[$feature_name:tt])* $el:ident => $method_name:ident),* } => {
     {
         let mut v: Vec<(Metric, &str)> = vec![];
         $(
+            $(#[cfg(feature = $feature_name)])*
             v.push((Metric::$el, stringify!($method_name)));
         )*
         v
@@ -182,6 +201,18 @@ pub enum Metric {
     keccak256_10kib_10k,
     keccak512_10b_10k,
     keccak512_10kib_10k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_g1_multiexp_1_1k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_g1_multiexp_10_1k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_g1_sum_1_1k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_g1_sum_10_1k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_pairing_check_1_1k,
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    alt_bn128_pairing_check_10_1k,
     storage_write_10b_key_10b_value_1k,
     storage_write_10kib_key_10b_value_1k,
     storage_write_10b_key_10kib_value_1k,
@@ -425,11 +456,8 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     );
 
     // Measure the speed of deploying some code.
-    let smallest_code = include_bytes!("../test-contract/res/smallest_contract.wasm");
-    let code_10k = include_bytes!("../test-contract/res/small_contract.wasm");
-    let code_100k = include_bytes!("../test-contract/res/medium_contract.wasm");
-    let code_1m = include_bytes!("../test-contract/res/large_contract.wasm");
-    let curr_code = RefCell::new(smallest_code.to_vec());
+
+    let curr_code = RefCell::new(SMALLEST_CODE.to_vec());
     let mut accounts_deployed = HashSet::new();
     let mut good_code_accounts = HashSet::new();
     let good_account = RefCell::new(false);
@@ -461,7 +489,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         measure_transactions(Metric::ActionDeploySmallest, &mut m, &config, None, &mut f, false);
 
     *good_account.borrow_mut() = true;
-    *curr_code.borrow_mut() = code_10k.to_vec();
+    *curr_code.borrow_mut() = CODE_10K.to_vec();
 
     testbed = measure_transactions(
         Metric::ActionDeploy10K,
@@ -480,7 +508,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     }
 
     *good_account.borrow_mut() = false;
-    *curr_code.borrow_mut() = code_100k.to_vec();
+    *curr_code.borrow_mut() = CODE_100K.to_vec();
     testbed = measure_transactions(
         Metric::ActionDeploy100K,
         &mut m,
@@ -489,7 +517,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         &mut f,
         false,
     );
-    *curr_code.borrow_mut() = code_1m.to_vec();
+    *curr_code.borrow_mut() = CODE_1M.to_vec();
     testbed =
         measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
 
@@ -535,52 +563,58 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
 
     // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
     let v = calls_helper! {
-    cpu_ram_soak_test => cpu_ram_soak_test,
-    base_1M => base_1M,
-    read_memory_10b_10k => read_memory_10b_10k,
-    read_memory_1Mib_10k => read_memory_1Mib_10k,
-    write_memory_10b_10k => write_memory_10b_10k,
-    write_memory_1Mib_10k => write_memory_1Mib_10k,
-    read_register_10b_10k => read_register_10b_10k,
-    read_register_1Mib_10k => read_register_1Mib_10k,
-    write_register_10b_10k => write_register_10b_10k,
-    write_register_1Mib_10k => write_register_1Mib_10k,
-    utf8_log_10b_10k => utf8_log_10b_10k,
-    utf8_log_10kib_10k => utf8_log_10kib_10k,
-    nul_utf8_log_10b_10k => nul_utf8_log_10b_10k,
-    nul_utf8_log_10kib_10k => nul_utf8_log_10kib_10k,
-    utf16_log_10b_10k => utf16_log_10b_10k,
-    utf16_log_10kib_10k => utf16_log_10kib_10k,
-    nul_utf16_log_10b_10k => nul_utf16_log_10b_10k,
-    nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
-    sha256_10b_10k => sha256_10b_10k,
-    sha256_10kib_10k => sha256_10kib_10k,
-    keccak256_10b_10k => keccak256_10b_10k,
-    keccak256_10kib_10k => keccak256_10kib_10k,
-    keccak512_10b_10k => keccak512_10b_10k,
-    keccak512_10kib_10k => keccak512_10kib_10k,
-    storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
-    storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
-    storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
-    storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
-    storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
-    storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
-    storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
-    storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
-    storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
-    storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
-    storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
-    storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
-    storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k ,
-    promise_and_100k => promise_and_100k,
-    promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
-    promise_return_100k => promise_return_100k,
-    data_producer_10b => data_producer_10b,
-    data_producer_100kib => data_producer_100kib,
-    data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
-    data_receipt_10b_1000 => data_receipt_10b_1000,
-    data_receipt_100kib_1000 => data_receipt_100kib_1000
-        };
+        cpu_ram_soak_test => cpu_ram_soak_test,
+        base_1M => base_1M,
+        read_memory_10b_10k => read_memory_10b_10k,
+        read_memory_1Mib_10k => read_memory_1Mib_10k,
+        write_memory_10b_10k => write_memory_10b_10k,
+        write_memory_1Mib_10k => write_memory_1Mib_10k,
+        read_register_10b_10k => read_register_10b_10k,
+        read_register_1Mib_10k => read_register_1Mib_10k,
+        write_register_10b_10k => write_register_10b_10k,
+        write_register_1Mib_10k => write_register_1Mib_10k,
+        utf8_log_10b_10k => utf8_log_10b_10k,
+        utf8_log_10kib_10k => utf8_log_10kib_10k,
+        nul_utf8_log_10b_10k => nul_utf8_log_10b_10k,
+        nul_utf8_log_10kib_10k => nul_utf8_log_10kib_10k,
+        utf16_log_10b_10k => utf16_log_10b_10k,
+        utf16_log_10kib_10k => utf16_log_10kib_10k,
+        nul_utf16_log_10b_10k => nul_utf16_log_10b_10k,
+        nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
+        sha256_10b_10k => sha256_10b_10k,
+        sha256_10kib_10k => sha256_10kib_10k,
+        keccak256_10b_10k => keccak256_10b_10k,
+        keccak256_10kib_10k => keccak256_10kib_10k,
+        keccak512_10b_10k => keccak512_10b_10k,
+        keccak512_10kib_10k => keccak512_10kib_10k,
+        #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
+        #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
+        #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
+        #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_10_1k => alt_bn128_g1_sum_10_1k,
+        #["protocol_feature_alt_bn128"] alt_bn128_pairing_check_1_1k => alt_bn128_pairing_check_1_1k,
+        #["protocol_feature_alt_bn128"] alt_bn128_pairing_check_10_1k => alt_bn128_pairing_check_10_1k,
+        storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
+        storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
+        storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
+        storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
+        storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
+        storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
+        storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
+        storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
+        storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
+        storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
+        storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
+        storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
+        storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k ,
+        promise_and_100k => promise_and_100k,
+        promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
+        promise_return_100k => promise_return_100k,
+        data_producer_10b => data_producer_10b,
+        data_producer_100kib => data_producer_100kib,
+        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+        data_receipt_10b_1000 => data_receipt_10b_1000,
+        data_receipt_100kib_1000 => data_receipt_100kib_1000
+    };
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
@@ -754,6 +788,32 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         // TODO: accurately price host functions that expose validator information.
         validator_stake_base: 303944908800,
         validator_total_stake_base: 303944908800,
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_g1_sum_base: measured_to_gas(metric, &measured, alt_bn128_g1_sum_base),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_g1_sum_byte: measured_to_gas(metric, &measured, alt_bn128_g1_sum_byte),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_g1_multiexp_base: measured_to_gas(metric, &measured, alt_bn128_g1_multiexp_base),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_g1_multiexp_byte: measured_to_gas(metric, &measured, alt_bn128_g1_multiexp_byte),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_g1_multiexp_sublinear: measured_to_gas(
+            metric,
+            &measured,
+            alt_bn128_g1_multiexp_sublinear,
+        ),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_pairing_check_base: measured_to_gas(
+            metric,
+            &measured,
+            alt_bn128_pairing_check_base,
+        ),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        alt_bn128_pairing_check_byte: measured_to_gas(
+            metric,
+            &measured,
+            alt_bn128_pairing_check_byte,
+        ),
     }
 }
 
@@ -763,8 +823,10 @@ fn get_vm_config(measurement: &Measurements, config: &Config) -> VMConfig {
         // TODO: Figure out whether we need this fee at all. If we do what should be the memory
         // growth cost.
         grow_mem_cost: 1,
-        regular_op_cost: ratio_to_gas(measurement.gas_metric, cost_per_op(measurement.gas_metric))
-            as u32,
+        regular_op_cost: ratio_to_gas(
+            measurement.gas_metric,
+            cost_per_op(measurement.gas_metric, &CODE_1M),
+        ) as u32,
         limit_config: VMLimitConfig::default(),
     }
 }
@@ -775,7 +837,7 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
 
     // Compiling small test contract that was used for `noop` function call estimation.
     load_and_compile(
-        &"./test-contract/res/small_contract.wasm".into(),
+        &"./test-contract/res/stable_small_contract.wasm".into(),
         config.metric,
         config.vm_kind,
     )
