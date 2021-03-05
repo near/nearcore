@@ -304,12 +304,14 @@ block_schema = [
                 ['random_value', [32]],
                 ['validator_proposals', [ValidatorStake]],
                 ['chunk_mask', ['u8']],
-                ['block_ordinal', 'u64'],
                 ['gas_price', 'u128'],
                 ['total_supply', 'u128'],
                 ['challenges_result', [()]], # TODO
                 ['last_final_block', [32]],
                 ['last_ds_final_block', [32]],
+                ['block_ordinal', 'u64'],
+                ['prev_height', 'u64'],
+                ['epoch_sync_data_hash', {'kind': 'option', 'type': [32]}],
                 ['approvals', [{'kind': 'option', 'type': Signature}]],
                 ['latest_protocol_verstion', 'u32'],
             ]
