@@ -791,15 +791,15 @@ impl RuntimeAdapter for KeyValueRuntime {
         match request {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewAccount(
-                    Account::new(
-                        self.state.read().unwrap().get(&state_root).map_or_else(
+                    Account {
+                        amount: self.state.read().unwrap().get(&state_root).map_or_else(
                             || 0,
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
-                        0,
-                        CryptoHash::default(),
-                        0,
-                    )
+                        locked: 0,
+                        code_hash: CryptoHash::default(),
+                        storage_usage: 0,
+                    }
                     .into(),
                 ),
                 block_height,
