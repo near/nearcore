@@ -178,6 +178,12 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         let store = create_store(&path);
         set_store_version(&store, 16);
     }
+    if db_version <= 16 {
+        info!(target: "near", "Migrate DB from version 16 to 17");
+        // version 16 => 17: add column for storing epoch validator info
+        let store = create_store(&path);
+        set_store_version(&store, 17);
+    }
     #[cfg(feature = "protocol_feature_rectify_inflation")]
     if db_version <= 16 {
         // version 16 => rectify inflation: add `timestamp` to `BlockInfo`

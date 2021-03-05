@@ -113,10 +113,12 @@ pub enum DBCol {
     ColReceipts = 45,
     /// Precompiled machine code of the contract
     ColCachedContractCode = 46,
+    /// Epoch validator information used for rpc purposes
+    ColEpochValidatorInfo = 47,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 47;
+pub const NUM_COLS: usize = 48;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -168,6 +170,7 @@ impl std::fmt::Display for DBCol {
             Self::ColProcessedBlockHeights => "processed block heights",
             Self::ColReceipts => "receipts",
             Self::ColCachedContractCode => "cached code",
+            Self::ColEpochValidatorInfo => "epoch validator info",
         };
         write!(formatter, "{}", desc)
     }
@@ -197,6 +200,7 @@ lazy_static! {
         col_gc[DBCol::ColComponentEdges as usize] = false;
         col_gc[DBCol::ColBlockOrdinal as usize] = false;
         col_gc[DBCol::ColEpochInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+        col_gc[DBCol::ColEpochValidatorInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
         col_gc[DBCol::ColEpochStart as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
         col_gc[DBCol::ColCachedContractCode as usize] = false;
         col_gc

@@ -64,6 +64,7 @@ fn init_logging(verbose: Option<&str>) {
         }
     }
     tracing_subscriber::fmt::Subscriber::builder()
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
         .with_env_filter(env_filter)
         .with_writer(io::stderr)
         .init();
