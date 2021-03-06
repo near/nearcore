@@ -87,6 +87,10 @@ pub struct ClientConfig {
     pub archive: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
+    /// Run Epoch Sync on the start.
+    pub epoch_sync_enabled: bool,
+    /// Number of seconds between state requests for view client.
+    pub view_client_throttle_period: Duration,
 }
 
 impl ClientConfig {
@@ -139,6 +143,8 @@ impl ClientConfig {
             archive,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
+            epoch_sync_enabled: false,
+            view_client_throttle_period: Duration::from_secs(1),
         }
     }
 }
