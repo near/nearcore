@@ -3,19 +3,27 @@
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::hash::Hash;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use cached::{Cached, SizedCache};
 use log::{debug, error, info, trace, warn};
 
+use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
     ErrorKind, RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
+use near_client_primitives::types::{
+    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
+    GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
+    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError,
+    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, TxStatus, TxStatusError,
+};
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
@@ -23,6 +31,8 @@ use near_network::types::{
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
+use near_performance_metrics_macros::perf;
+use near_performance_metrics_macros::perf_with_debug;
 use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
@@ -47,15 +57,6 @@ use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
-use near_chain::types::ValidatorInfoIdentifier;
-use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
-    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError,
-    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, TxStatus, TxStatusError,
-};
-use near_performance_metrics_macros::perf;
-use near_performance_metrics_macros::perf_with_debug;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -98,6 +99,7 @@ pub struct ViewClientActor {
     network_adapter: Arc<dyn NetworkAdapter>,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
+    state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
 }
 
 impl ViewClientRequestManager {
@@ -113,6 +115,9 @@ impl ViewClientRequestManager {
 }
 
 impl ViewClientActor {
+    /// Maximum number of state requests allowed per `view_client_throttle_period`.
+    const MAX_NUM_STATE_REQUESTS: usize = 30;
+
     pub fn new(
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
@@ -137,6 +142,7 @@ impl ViewClientActor {
             network_adapter,
             config,
             request_manager,
+            state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
         })
     }
 
@@ -439,6 +445,22 @@ impl ViewClientActor {
         }
 
         head.height
+    }
+
+    fn check_state_sync_request(&self) -> bool {
+        let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
+        let now = Instant::now();
+        let cutoff = now - self.config.view_client_throttle_period;
+        // Assume that time is linear. While in different threads there might be some small differences,
+        // it should not matter in practice.
+        while !cache.is_empty() && *cache.front().unwrap() < cutoff {
+            cache.pop_front();
+        }
+        if cache.len() >= Self::MAX_NUM_STATE_REQUESTS {
+            return false;
+        }
+        cache.push_back(now);
+        true
     }
 }
 
@@ -1030,6 +1052,10 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             },
             NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
+                if !self.check_state_sync_request() {
+                    return NetworkViewClientResponses::NoResponse;
+                }
+
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
                         let header = match self.chain.get_state_response_header(shard_id, sync_hash)
@@ -1102,6 +1128,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
+                if !self.check_state_sync_request() {
+                    return NetworkViewClientResponses::NoResponse;
+                }
                 trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
