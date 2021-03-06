@@ -278,11 +278,11 @@ pub fn migrate_11_to_12(path: &String) {
     set_store_version(&store, 12);
 }
 
-fn map_col<T, U, F>(store: &Store, col: DBCol, mut f: F) -> Result<(), std::io::Error>
+fn map_col<T, U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
 where
     T: BorshDeserialize,
     U: BorshSerialize,
-    F: FnMut(T) -> U,
+    F: Fn(T) -> U,
 {
     let mut store_update = store.store_update();
     let batch_size_limit = 10_000_000;
@@ -577,18 +577,18 @@ pub fn migrate_17_to_18(path: &String) {
     // Add ColHeaderHashesByHeight
     let chunk_tail =
         store.get_ser::<BlockHeight>(ColBlockMisc, CHUNK_TAIL_KEY).unwrap().unwrap_or(0);
+
     let mut heights_to_hashes = HashMap::new();
 
-    map_col(&store, DBCol::ColBlockHeader, |header: BlockHeader| {
+    for (_, value) in store.iter_without_rc_logic(ColBlockHeader) {
+        let header = BlockHeader::try_from_slice(value.as_ref()).unwrap();
         let height = header.height();
         if height >= chunk_tail {
             heights_to_hashes.entry(height).or_insert_with(Vec::new).push(header.hash().clone());
         } else {
             // ColHeaderHashesByHeight will be GCed for current height, do nothing
         };
-        header
-    })
-    .unwrap();
+    }
 
     let mut store_update = store.store_update();
     for (height, hashes) in heights_to_hashes {
