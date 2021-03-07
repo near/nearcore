@@ -88,8 +88,11 @@ def doit(seq=[]):
                           [["epoch_length", EPOCH_LENGTH],
                            ["block_producer_kickout_threshold", 40],
                            ["chunk_producer_kickout_threshold", 40]],
-                          {2: {
-                              "tracked_shards": [0]
+                          {0: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
+                           1: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
+                           2: {
+                              "tracked_shards": [0],
+                              "view_client_throttle_period": {"secs": 0, "nanos": 0}
                           }})
 
     started = time.time()
