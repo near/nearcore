@@ -17,6 +17,9 @@ use strum::EnumIter;
 use near_primitives::version::DbVersion;
 
 use crate::db::refcount::merge_refcounted_records;
+use std::fmt::Formatter;
+use std::sync::atomic::Ordering;
+use near_primitives::borsh::maybestd::io::Error;
 
 pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
@@ -293,6 +296,10 @@ impl DBTransaction {
 pub struct RocksDB {
     db: DB,
     cfs: Vec<*const ColumnFamily>,
+
+    check_free_space_interval: u16,
+    check_free_space_counter: std::sync::atomic::AtomicU16,
+
     _pin: PhantomPinned,
 }
 
@@ -380,6 +387,7 @@ impl Database for RocksDB {
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
+        self.pre_write_check().unwrap();
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
@@ -555,10 +563,23 @@ impl RocksDB {
         let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs, _pin: PhantomPinned })
+        Ok(Self {
+            db,
+            cfs,
+            _pin: PhantomPinned,
+            check_free_space_interval: u16::MAX,
+            check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
+        })
     }
 
     pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+        RocksDB::new_with_interval(path, 500)
+    }
+
+    pub fn new_with_interval<P: AsRef<std::path::Path>>(
+        path: P,
+        check_free_space_interval: u16,
+    ) -> Result<Self, DBError> {
         use strum::IntoEnumIterator;
         let options = rocksdb_options();
         let cf_names: Vec<_> = DBCol::iter().map(|col| format!("col{}", col as usize)).collect();
@@ -578,7 +599,56 @@ impl RocksDB {
         }
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs, _pin: PhantomPinned })
+        Ok(Self {
+            db,
+            cfs,
+            _pin: PhantomPinned,
+            check_free_space_interval,
+            check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
+        })
+    }
+
+    /// Checks if there is enough memory left to perform a write. Not having enough memory left can
+    /// lead to difficult to recover from state, thus a PreWriteCheckErr is pretty much
+    /// unrecoverable in most cases.
+    fn pre_write_check(&self) -> Result<(), PreWriteCheckErr> {
+        let counter = self.check_free_space_counter.fetch_add(1, Ordering::Relaxed);
+        if self.check_free_space_interval <= counter {
+            return Ok(());
+        }
+        self.check_free_space_counter.swap(0, Ordering::Relaxed);
+
+        let available = fs2::available_space(self.db.path())?;
+        if available < 10 * MB {
+            Err(PreWriteCheckErr::LowMemory(available))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+const MB: u64 = 1_000_000;
+
+#[derive(Debug)]
+pub enum PreWriteCheckErr {
+    IO(std::io::Error),
+    LowMemory(u64),
+}
+
+impl std::fmt::Display for PreWriteCheckErr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PreWriteCheckErr::IO(err) => err.fmt(f),
+            PreWriteCheckErr::LowMemory(available) => {
+                write!(f, "Low memory: {} bytes available", available)
+            }
+        }
+    }
+}
+
+impl From<std::io::Error> for PreWriteCheckErr {
+    fn from(err: std::io::Error) -> Self {
+        PreWriteCheckErr::IO(err)
     }
 }
 

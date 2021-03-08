@@ -59,6 +59,13 @@ fn rocksdb_column_options_v6(col: DBCol) -> Options {
 
 impl RocksDB {
     pub(crate) fn new_v6<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+        RocksDB::new_v6_with_interval(path, 500)
+    }
+
+    pub(crate) fn new_v6_with_interval<P: AsRef<std::path::Path>>(
+        path: P,
+        check_free_space_interval: u16,
+    ) -> Result<Self, DBError> {
         let options = rocksdb_options();
         let cf_names: Vec<_> = DBCol::iter().map(|col| format!("col{}", col as usize)).collect();
         let cf_descriptors = DBCol::iter().map(|col| {
@@ -71,6 +78,12 @@ impl RocksDB {
 
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs, _pin: PhantomPinned })
+        Ok(Self {
+            db,
+            cfs,
+            _pin: PhantomPinned,
+            check_free_space_interval,
+            check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
+        })
     }
 }
