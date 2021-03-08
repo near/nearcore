@@ -7,7 +7,9 @@ use near_vm_logic::{External, VMConfig, VMKind};
 use crate::run_vm;
 use crate::tests::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 
-const TEST_CONTRACT: &'static [u8] = include_bytes!("../../tests/res/test_contract_ts.wasm");
+lazy_static_include::lazy_static_include_bytes! {
+    TEST_CONTRACT => "tests/res/test_contract_ts.wasm"
+}
 
 #[test]
 pub fn test_ts_contract() {

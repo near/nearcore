@@ -28,6 +28,7 @@ tracing-subscriber = "0.2.4"
 num-rational = { version = "0.3", features = ["serde"] }
 openssl-probe = { version = "0.1.2" }
 near-rust-allocator-proxy = "0.2.8"
+lazy-static-include = "3"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }

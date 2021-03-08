@@ -1847,6 +1847,10 @@ fn test_block_height_processed_orphan() {
     assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
 }
 
+lazy_static_include::lazy_static_include_bytes! {
+    TEST_CONTRACT => "../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm"
+}
+
 #[test]
 fn test_validate_chunk_extra() {
     let epoch_length = 5;
@@ -1867,10 +1871,7 @@ fn test_validate_chunk_extra() {
         "test0".to_string(),
         "test0".to_string(),
         &signer,
-        vec![Action::DeployContract(DeployContractAction {
-            code: include_bytes!("../../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm")
-                .to_vec(),
-        })],
+        vec![Action::DeployContract(DeployContractAction { code: TEST_CONTRACT.to_vec() })],
         *genesis_block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
