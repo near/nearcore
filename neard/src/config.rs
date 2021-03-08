@@ -316,6 +316,10 @@ fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
 }
 
+fn default_view_client_throttle_period() -> Duration {
+    Duration::from_secs(30)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -420,6 +424,8 @@ pub struct Config {
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
     pub epoch_sync_enabled: bool,
+    #[serde(default = "default_view_client_throttle_period")]
+    pub view_client_throttle_period: Duration,
 }
 
 impl Default for Config {
@@ -440,8 +446,9 @@ impl Default for Config {
             archive: false,
             log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
-            view_client_threads: 4,
             epoch_sync_enabled: true,
+            view_client_threads: default_view_client_threads(),
+            view_client_throttle_period: default_view_client_throttle_period(),
         }
     }
 }
@@ -609,6 +616,7 @@ impl NearConfig {
                 gc_blocks_limit: config.gc_blocks_limit,
                 view_client_threads: config.view_client_threads,
                 epoch_sync_enabled: config.epoch_sync_enabled,
+                view_client_throttle_period: config.view_client_throttle_period,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -714,7 +722,7 @@ fn add_account_with_key(
 ) {
     records.push(StateRecord::Account {
         account_id: account_id.to_string(),
-        account: Account::new(amount, staked, code_hash, 0),
+        account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
     });
     records.push(StateRecord::AccessKey {
         account_id: account_id.to_string(),

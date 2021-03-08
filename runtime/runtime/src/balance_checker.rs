@@ -87,7 +87,7 @@ pub(crate) fn check_balance(
             .iter()
             .map(|account_id| {
                 get_account(state, account_id)?.map_or(Ok(0), |a| {
-                    safe_add_balance(a.amount(), a.locked())
+                    safe_add_balance(a.amount, a.locked)
                         .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
                 })
             })
