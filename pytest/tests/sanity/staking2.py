@@ -11,12 +11,12 @@ sys.path.append('lib')
 from cluster import start_cluster
 from transaction import sign_staking_tx
 
-TIMEOUT = 360
-TIMEOUT_PER_ITER = 30
+TIMEOUT = 3600
+TIMEOUT_PER_ITER = 300
 
 FAKE_OFFSET = 4
 REAL_OFFSET = 8
-EPOCH_LENGTH = 12
+EPOCH_LENGTH = 120
 
 all_stakes = []
 fake_stakes = [0, 0, 0]
