@@ -3534,6 +3534,7 @@ dependencies = [
  "bencher",
  "borsh",
  "byteorder",
+ "bytesize",
  "cached",
  "derive_more",
  "elastic-array",
@@ -3548,6 +3549,7 @@ dependencies = [
  "serde_json",
  "strum",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
