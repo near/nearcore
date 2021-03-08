@@ -18,7 +18,7 @@ use_contract!(fibonacci, "../../runtime/near-evm-runner/tests/build/Fibonacci.ab
 use_contract!(inf_loop, "../../runtime/near-evm-runner/tests/build/Loop.abi");
 
 lazy_static_include::lazy_static_include_bytes! {
-    ZOMBIE_OWNERSHIP_BIN => "../../../runtime/near-evm-runner/tests/build/ZombieOwnership.bin",
+    ZOMBIE_OWNERSHIP_BIN => "../../runtime/near-evm-runner/tests/build/ZombieOwnership.bin",
     FIBONACCI_BIN => "../../runtime/near-evm-runner/tests/build/Fibonacci.bin",
     LOOP_BIN => "../../runtime/near-evm-runner/tests/build/Loop.bin",
     STANDARD_PRECOMPILES_BIN => "../../runtime/near-evm-runner/tests/build/StandardPrecompiles.bin",
