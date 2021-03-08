@@ -17,14 +17,18 @@ use_contract!(precompiles, "../../runtime/near-evm-runner/tests/build/StandardPr
 use_contract!(fibonacci, "../../runtime/near-evm-runner/tests/build/Fibonacci.abi");
 use_contract!(inf_loop, "../../runtime/near-evm-runner/tests/build/Loop.abi");
 
+lazy_static_include::lazy_static_include_bytes! {
+    ZOMBIE_OWNERSHIP_BIN => "../../runtime/near-evm-runner/tests/build/ZombieOwnership.bin",
+    FIBONACCI_BIN => "../../runtime/near-evm-runner/tests/build/Fibonacci.bin",
+    LOOP_BIN => "../../runtime/near-evm-runner/tests/build/Loop.bin",
+    STANDARD_PRECOMPILES_BIN => "../../runtime/near-evm-runner/tests/build/StandardPrecompiles.bin",
+}
+
 /// Deploy the "CryptoZombies" contract (derived from
 /// https://cryptozombies.io/en/course/) to the EVM.
 fn deploy_zombie_attack_contract(node: impl Node) -> Address {
     let node_user = node.user();
-    let bytes = hex::decode(
-        include_bytes!("../../../runtime/near-evm-runner/tests/build/ZombieOwnership.bin").to_vec(),
-    )
-    .unwrap();
+    let bytes = hex::decode(ZOMBIE_OWNERSHIP_BIN.to_vec()).unwrap();
     let contract_id = node_user
         .function_call(alice_account(), evm_account(), "deploy_code", bytes, 10u64.pow(14), 10)
         .unwrap()
@@ -42,10 +46,7 @@ fn deploy_zombie_attack_contract(node: impl Node) -> Address {
 /// Source: https://github.com/web3j/web3j/blob/master/codegen/src/test/resources/solidity/fibonacci/Fibonacci.sol
 fn deploy_fibonacci_contract(node: impl Node) -> Address {
     let node_user = node.user();
-    let bytes = hex::decode(
-        include_bytes!("../../../runtime/near-evm-runner/tests/build/Fibonacci.bin").to_vec(),
-    )
-    .unwrap();
+    let bytes = hex::decode(FIBONACCI_BIN.to_vec()).unwrap();
     let contract_id = node_user
         .function_call(alice_account(), evm_account(), "deploy_code", bytes, 10u64.pow(14), 0)
         .unwrap()
@@ -59,10 +60,7 @@ fn deploy_fibonacci_contract(node: impl Node) -> Address {
 /// Tests infinite loop gas limit.
 pub fn test_evm_infinite_loop_gas_limit(node: impl Node) {
     let node_user = node.user();
-    let bytes = hex::decode(
-        include_bytes!("../../../runtime/near-evm-runner/tests/build/Loop.bin").to_vec(),
-    )
-    .unwrap();
+    let bytes = hex::decode(LOOP_BIN.to_vec()).unwrap();
     let contract_id = node_user
         .function_call(alice_account(), evm_account(), "deploy_code", bytes, 10u64.pow(14), 0)
         .unwrap()
@@ -356,11 +354,7 @@ pub fn test_evm_crypto_zombies_contract_transfer_erc721(node: impl Node) {
 
 pub fn test_evm_call_standard_precompiles(node: impl Node) {
     let node_user = node.user();
-    let bytes = hex::decode(
-        include_bytes!("../../../runtime/near-evm-runner/tests/build/StandardPrecompiles.bin")
-            .to_vec(),
-    )
-    .unwrap();
+    let bytes = hex::decode(STANDARD_PRECOMPILES_BIN.to_vec()).unwrap();
 
     let contract_id = node_user
         .function_call(alice_account(), evm_account(), "deploy_code", bytes, 10u64.pow(14), 0)

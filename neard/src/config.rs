@@ -738,6 +738,10 @@ fn generate_validator_key(account_id: &str, path: &Path) {
     signer.write_to_file(path);
 }
 
+lazy_static_include::lazy_static_include_bytes! {
+    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
+}
+
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -770,11 +774,8 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // TODO: add download genesis for mainnet
-            let genesis: Genesis = serde_json::from_str(
-                &std::str::from_utf8(include_bytes!("../res/mainnet_genesis.json"))
-                    .expect("Failed to convert genesis file into string"),
-            )
-            .expect("Failed to deserialize MainNet genesis");
+            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
+                .expect("Failed to deserialize MainNet genesis");
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
