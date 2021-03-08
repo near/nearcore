@@ -46,7 +46,7 @@ use near_primitives::views::{
 use near_store::{
     get_access_key_raw, get_genesis_hash, get_genesis_state_roots, set_genesis_hash,
     set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store,
-    StoreCompiledContractCache, Trie, WrappedTrieChanges,
+    StoreCompiledContractCache, StoreUpdate, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -1126,7 +1126,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             .map_err(|err| err.into())
     }
 
-    fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error> {
+    fn add_validator_proposals(
+        &self,
+        block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, Error> {
         // Check that genesis block doesn't have any proposals.
         assert!(
             block_header_info.height > 0
@@ -1151,8 +1154,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_header_info.timestamp_nanosec,
         );
         let rng_seed = (block_header_info.random_value.0).0;
-        // TODO: don't commit here, instead contribute to upstream store update.
-        epoch_manager.record_block_info(block_info, rng_seed)?.commit().map_err(|err| err.into())
+        epoch_manager.record_block_info(block_info, rng_seed).map_err(|err| err.into())
     }
 
     fn apply_transactions_with_optional_storage_proof(
@@ -1798,6 +1800,8 @@ mod test {
                     #[cfg(feature = "protocol_feature_rectify_inflation")]
                     timestamp_nanosec: 0,
                 })
+                .unwrap()
+                .commit()
                 .unwrap();
             Self {
                 runtime,
@@ -1870,6 +1874,8 @@ mod test {
                     #[cfg(feature = "protocol_feature_rectify_inflation")]
                     timestamp_nanosec: self.time + 10u64.pow(9),
                 })
+                .unwrap()
+                .commit()
                 .unwrap();
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
@@ -2319,6 +2325,8 @@ mod test {
                     #[cfg(feature = "protocol_feature_rectify_inflation")]
                     timestamp_nanosec: new_env.time,
                 })
+                .unwrap()
+                .commit()
                 .unwrap();
             new_env.head.height = i;
             new_env.head.last_block_hash = cur_hash;

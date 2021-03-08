@@ -36,7 +36,8 @@ use near_primitives::views::{
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
-    ColBlockHeader, PartialStorage, ShardTries, Store, Trie, TrieChanges, WrappedTrieChanges,
+    ColBlockHeader, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges,
+    WrappedTrieChanges,
 };
 
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
@@ -575,8 +576,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn add_validator_proposals(&self, _block_header_info: BlockHeaderInfo) -> Result<(), Error> {
-        Ok(())
+    fn add_validator_proposals(
+        &self,
+        _block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, Error> {
+        Ok(self.store.store_update())
     }
 
     fn apply_transactions_with_optional_storage_proof(

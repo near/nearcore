@@ -194,6 +194,8 @@ fn replay_chain(
                     &header,
                     chain_store.get_block_height(&header.last_final_block()).unwrap(),
                 ))
+                .unwrap()
+                .commit()
                 .unwrap();
         }
     }
