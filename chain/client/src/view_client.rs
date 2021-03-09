@@ -22,7 +22,8 @@ use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
     GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
     GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError,
-    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, TxStatus, TxStatusError,
+    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
+    TxStatusError,
 };
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
