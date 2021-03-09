@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 
 use threadpool::ThreadPool;
 
@@ -7,9 +7,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError;
-use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_logic::profile::ProfileData;
 use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
 
 use crate::cache;
 use crate::preload::VMModule::Wasmer0;
@@ -49,10 +49,7 @@ pub struct ContractCaller {
 
 impl ContractCaller {
     pub fn new(num_threads: usize) -> ContractCaller {
-        ContractCaller {
-            pool: ThreadPool::new(num_threads),
-            prepared: Vec::new(),
-        }
+        ContractCaller { pool: ThreadPool::new(num_threads), prepared: Vec::new() }
     }
 
     pub fn preload<'a>(
@@ -97,13 +94,19 @@ impl ContractCaller {
                 let call_data = call.rx.recv().unwrap();
                 return match call_data.result {
                     Err(err) => (None, Some(err)),
-                    Ok(module) => {
-                        match module {
-                            Wasmer0(module) => run_wasmer_module(
-                                module, method_name, ext, context, vm_config, fees_config,
-                                promise_results, profile, current_protocol_version),
-                        }
-                    }
+                    Ok(module) => match module {
+                        Wasmer0(module) => run_wasmer_module(
+                            module,
+                            method_name,
+                            ext,
+                            context,
+                            vm_config,
+                            fees_config,
+                            promise_results,
+                            profile,
+                            current_protocol_version,
+                        ),
+                    },
                 };
             }
             None => panic!("Must be valid"),
@@ -121,14 +124,13 @@ fn prepare_in_thread(request: ContractCallPrepareRequest, vm_kind: VMKind, tx: S
     let cache = request.cache.as_deref();
     let result = match vm_kind {
         VMKind::Wasmer0 => cache::wasmer0_cache::compile_module_cached_wasmer(
-            &request.code_hash.0.0, request.code.as_slice(), &request.vm_config, cache)
-            .map(|module| {
-                VMModule::Wasmer0(module)
-              }),
+            &(request.code_hash.0).0,
+            request.code.as_slice(),
+            &request.vm_config,
+            cache,
+        )
+        .map(|module| VMModule::Wasmer0(module)),
         _ => panic!("Unsupported VM"),
     };
     tx.send(VMCallData { result }).unwrap();
 }
-
-
-

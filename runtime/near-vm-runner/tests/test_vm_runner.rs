@@ -1,15 +1,15 @@
 use near_primitives::hash::hash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMContext, VMKind, ProtocolVersion, VMOutcome};
-use near_vm_runner::{ContractCaller, ContractCallPrepareRequest, VMError, run_vm};
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_runner::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError};
 
+use near_primitives::borsh::BorshSerialize;
+use near_primitives::types::CompiledContractCache;
+use near_vm_errors::VMError::FunctionCallError;
+use near_vm_logic::profile::ProfileData;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use near_primitives::types::CompiledContractCache;
-use near_vm_logic::profile::ProfileData;
-use near_vm_errors::VMError::FunctionCallError;
-use near_primitives::borsh::BorshSerialize;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -79,19 +79,17 @@ fn test_result(result: (Option<VMOutcome>, Option<VMError>), check_gas: bool) ->
                 assert_eq!(outcome.burnt_gas, 11088051921);
             }
             oks += 1;
-        },
-        None => {
         }
+        None => {}
     };
     match result.1 {
         Some(err) => match err {
             FunctionCallError(_) => {
                 errs += 1;
-            },
+            }
             _ => assert!(false, "Unexpected error: {:?}", err),
         },
-        None => {
-        },
+        None => {}
     }
     (oks, errs)
 }
@@ -107,7 +105,8 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
 
     let context = default_vm_context();
     let vm_config = VMConfig::default();
-    let cache: Option<Arc<dyn CompiledContractCache>> = Some(Arc::new(MockCompiledContractCache::new(0)));
+    let cache: Option<Arc<dyn CompiledContractCache>> =
+        Some(Arc::new(MockCompiledContractCache::new(0)));
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let profile_data = ProfileData::new_disabled();
@@ -151,7 +150,10 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
     } else {
         for _ in 0..repeat {
             let result1 = run_vm(
-                code1_hash.try_to_vec().unwrap(), code1, method_name1, &mut fake_external,
+                code1_hash.try_to_vec().unwrap(),
+                code1,
+                method_name1,
+                &mut fake_external,
                 context.clone(),
                 &vm_config,
                 &fees,
@@ -165,7 +167,10 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
             oks += ok;
             errs += err;
             let result2 = run_vm(
-                code2_hash.try_to_vec().unwrap(), code2, method_name1, &mut fake_external,
+                code2_hash.try_to_vec().unwrap(),
+                code2,
+                method_name1,
+                &mut fake_external,
                 context.clone(),
                 &vm_config,
                 &fees,
