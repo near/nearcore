@@ -698,10 +698,12 @@ impl RocksDB {
         self.check_free_space_counter.swap(0, Ordering::Relaxed);
 
         let available = available_space(self.db.path())?;
-        if available.as_u64() < 16 * self.free_space_threshold.as_u64() {
+
+        if available < 16_u64 * self.free_space_threshold {
             warn!("remaining disk space is running low ({} left)", available);
-            Ok(())
-        } else if available < self.free_space_threshold {
+        }
+
+        if available < self.free_space_threshold {
             Err(PreWriteCheckErr::LowMemory(available))
         } else {
             Ok(())

@@ -1,7 +1,7 @@
 use std::io::Cursor;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
+use rocksdb::{ColumnFamilyDescriptor, MergeOperands, Options};
 use strum::IntoEnumIterator;
 
 use crate::db::{rocksdb_column_options, DBError, RocksDB, RocksDBOptions};
