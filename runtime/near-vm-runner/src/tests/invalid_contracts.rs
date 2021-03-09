@@ -1,10 +1,7 @@
 use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError};
-use near_vm_runner::with_vm_variants;
-
-pub mod test_utils;
-
-use self::test_utils::{make_simple_contract_call_vm, wat2wasm_no_validate};
 use near_vm_logic::VMKind;
+
+use crate::tests::{make_simple_contract_call_vm, wat2wasm_no_validate, with_vm_variants};
 
 fn initializer_wrong_signature_contract() -> Vec<u8> {
     wat2wasm_no_validate(
@@ -22,11 +19,7 @@ fn initializer_wrong_signature_contract() -> Vec<u8> {
 fn test_initializer_wrong_signature_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
-            make_simple_contract_call_vm(
-                &initializer_wrong_signature_contract(),
-                b"hello",
-                vm_kind
-            ),
+            make_simple_contract_call_vm(&initializer_wrong_signature_contract(), "hello", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
@@ -51,7 +44,7 @@ fn function_not_defined_contract() -> Vec<u8> {
 fn test_function_not_defined_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
-            make_simple_contract_call_vm(&function_not_defined_contract(), b"hello", vm_kind),
+            make_simple_contract_call_vm(&function_not_defined_contract(), "hello", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
@@ -77,7 +70,7 @@ fn function_type_not_defined_contract(bad_type: u64) -> Vec<u8> {
 fn test_function_type_not_defined_contract_1() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
-            make_simple_contract_call_vm(&function_type_not_defined_contract(1), b"hello", vm_kind),
+            make_simple_contract_call_vm(&function_type_not_defined_contract(1), "hello", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
@@ -93,7 +86,7 @@ fn test_function_type_not_defined_contract_1() {
 fn test_function_type_not_defined_contract_2() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
-            make_simple_contract_call_vm(&function_type_not_defined_contract(0), b"hello", vm_kind),
+            make_simple_contract_call_vm(&function_type_not_defined_contract(0), "hello", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
@@ -108,7 +101,7 @@ fn test_function_type_not_defined_contract_2() {
 fn test_garbage_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
-            make_simple_contract_call_vm(&[], b"hello", vm_kind),
+            make_simple_contract_call_vm(&[], "hello", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
@@ -135,7 +128,7 @@ fn evil_function_index() -> Vec<u8> {
 fn test_evil_function_index() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
-            make_simple_contract_call_vm(&evil_function_index(), b"abort_with_zero", vm_kind),
+            make_simple_contract_call_vm(&evil_function_index(), "abort_with_zero", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(

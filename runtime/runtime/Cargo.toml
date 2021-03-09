@@ -16,6 +16,7 @@ num-bigint = "0.3"
 num-traits = "0.2.11"
 hex = "0.4.2"
 ethereum-types = "0.11.0"
+thiserror = "1.0"
 
 borsh = "0.8.1"
 
@@ -41,11 +42,16 @@ wasmer1_default = ["wasmer1_vm", "near-vm-logic/wasmer1_default"]
 wasmer0_default = ["wasmer0_vm", "near-vm-logic/wasmer0_default"]
 wasmtime_default = ["wasmtime_vm", "near-vm-logic/wasmtime_default"]
 
-# Use this feature to enable counting of fees and costs applied.
-costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
 no_cpu_compatibility_checks = [ "near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = ["near-vm-runner/no_cache", "near-store/no_cache"]
+
+protocol_feature_alt_bn128 = [
+    "near-primitives/protocol_feature_alt_bn128",
+    "near-vm-logic/protocol_feature_alt_bn128",
+    "near-vm-runner/protocol_feature_alt_bn128",
+    "near-vm-errors/protocol_feature_alt_bn128",
+]
 
 [dev-dependencies]
 tempfile = "3"
@@ -54,6 +60,7 @@ base64 = "0.11"
 indicatif = {version = "0.13", features = ["with_rayon"]}
 rayon = "^1.1"
 assert_matches = "1.3"
+lazy-static-include = "3"
 
 testlib = { path = "../../test-utils/testlib" }
 near-chain-configs = { path = "../../core/chain-configs" }

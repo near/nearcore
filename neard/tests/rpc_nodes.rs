@@ -19,7 +19,6 @@ use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{BlockId, BlockReference, Finality, TransactionOrReceiptId};
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
-    QueryResponseKind,
 };
 use neard::config::TESTING_INIT_BALANCE;
 use std::sync::atomic::AtomicBool;
@@ -358,6 +357,7 @@ fn test_tx_status_with_light_client1() {
     });
 }
 
+#[ignore] // TODO: change this test https://github.com/near/nearcore/issues/4062
 #[test]
 fn test_rpc_routing() {
     init_integration_logger();
@@ -387,7 +387,7 @@ fn test_rpc_routing() {
                                         .query_by_path("account/near.2".to_string(), "".to_string())
                                         .map_err(|err| panic_on_rpc_error!(err))
                                         .map_ok(move |result| match result.kind {
-                                            QueryResponseKind::ViewAccount(account_view) => {
+                                            near_jsonrpc_primitives::types::query::QueryResponseKind::ViewAccount(account_view) => {
                                                 assert_eq!(
                                                     account_view.amount,
                                                     TESTING_INIT_BALANCE
@@ -411,6 +411,7 @@ fn test_rpc_routing() {
     });
 }
 
+#[ignore] // TODO: change this test https://github.com/near/nearcore/issues/4062
 /// When we call rpc to view an account that does not exist, an error should be routed back.
 #[test]
 fn test_rpc_routing_error() {
@@ -471,40 +472,36 @@ fn test_get_validator_info_rpc() {
             let dirs = (0..num_nodes)
                 .map(|i| {
                     tempfile::Builder::new()
-                        .prefix(&format!("tx_propagation{}", i))
+                        .prefix(&format!("validator_info{}", i))
                         .tempdir()
                         .unwrap()
                 })
                 .collect::<Vec<_>>();
             let (_, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 0, 10, 0);
-            let view_client = clients[0].1.clone();
 
             WaitOrTimeout::new(
                 Box::new(move |_ctx| {
                     let rpc_addrs_copy = rpc_addrs.clone();
-                    actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                        if let Ok(Ok(block)) = res {
-                            if block.header.height > 1 {
-                                let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
-                                let block_hash = block.header.hash;
-                                actix::spawn(
-                                    client
-                                        .validators(Some(BlockId::Hash(block_hash)))
-                                        .map_err(|err| panic_on_rpc_error!(err))
-                                        .map_ok(move |result| {
-                                            assert_eq!(result.current_validators.len(), 1);
-                                            assert!(result
-                                                .current_validators
-                                                .iter()
-                                                .any(|r| r.account_id == "near.0".to_string()));
-                                            System::current().stop();
-                                        })
-                                        .map(drop),
-                                );
-                            }
+                    let view_client = clients[0].1.clone();
+                    actix::spawn(async move {
+                        let block_view =
+                            view_client.send(GetBlock::latest()).await.unwrap().unwrap();
+                        if block_view.header.height > 1 {
+                            let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
+                            let block_hash = block_view.header.hash;
+                            let invalid_res =
+                                client.validators(Some(BlockId::Hash(block_hash))).await;
+                            assert!(invalid_res.is_err());
+                            let res = client.validators(None).await.unwrap();
+
+                            assert_eq!(res.current_validators.len(), 1);
+                            assert!(res
+                                .current_validators
+                                .iter()
+                                .any(|r| r.account_id == "near.0".to_string()));
+                            System::current().stop();
                         }
-                        future::ready(())
-                    }));
+                    });
                 }),
                 100,
                 40000,
@@ -706,6 +703,144 @@ fn test_protocol_config_rpc() {
                 assert_eq!(
                     config_response.config_view.runtime_config.storage_amount_per_byte,
                     10u128.pow(19)
+                );
+                System::current().stop();
+            });
+        });
+    });
+}
+
+#[test]
+fn test_query_rpc_account_view_must_succeed() {
+    init_integration_logger();
+    heavy_test(|| {
+        run_actix_until_stop(async move {
+            let num_nodes = 1;
+            let dirs = (0..num_nodes)
+                .map(|i| {
+                    tempfile::Builder::new()
+                        .prefix(&format!("protocol_config{}", i))
+                        .tempdir()
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            let (_genesis, rpc_addrs, _) = start_nodes(1, &dirs, 1, 0, 10, 0);
+
+            actix::spawn(async move {
+                let client = new_client(&format!("http://{}", rpc_addrs[0]));
+                let query_response = client
+                    .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                        block_reference: near_primitives::types::BlockReference::Finality(
+                            Finality::Final,
+                        ),
+                        request: near_primitives::views::QueryRequest::ViewAccount {
+                            account_id: "near.0".to_string(),
+                        },
+                    })
+                    .await
+                    .unwrap();
+                let account =
+                    if let near_jsonrpc_primitives::types::query::QueryResponseKind::ViewAccount(
+                        account,
+                    ) = query_response.kind
+                    {
+                        account
+                    } else {
+                        panic!(
+                            "expected a account view result, but received something else: {:?}",
+                            query_response.kind
+                        );
+                    };
+                assert!(matches!(account, near_primitives::views::AccountView { .. }));
+                System::current().stop();
+            });
+        });
+    });
+}
+
+#[test]
+fn test_query_rpc_account_view_invalid_account_must_return_error() {
+    init_integration_logger();
+    heavy_test(|| {
+        run_actix_until_stop(async move {
+            let num_nodes = 1;
+            let dirs = (0..num_nodes)
+                .map(|i| {
+                    tempfile::Builder::new()
+                        .prefix(&format!("protocol_config{}", i))
+                        .tempdir()
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            let (_genesis, rpc_addrs, _) = start_nodes(1, &dirs, 1, 0, 10, 0);
+
+            actix::spawn(async move {
+                let client = new_client(&format!("http://{}", rpc_addrs[0]));
+                let query_response = client
+                    .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                        block_reference: near_primitives::types::BlockReference::Finality(
+                            Finality::Final,
+                        ),
+                        request: near_primitives::views::QueryRequest::ViewAccount {
+                            account_id: "1nval$d*@cc0ount".to_string(),
+                        },
+                    })
+                    .await;
+                assert!(query_response.is_err());
+                let error_message = match query_response {
+                    Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
+                    Err(err) => err.data.unwrap(),
+                };
+                assert!(
+                    error_message.to_string().contains("Account ID 1nval$d*@cc0ount is invalid"),
+                    "{}",
+                    error_message
+                );
+                System::current().stop();
+            });
+        });
+    });
+}
+
+#[test]
+fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
+    init_integration_logger();
+    heavy_test(|| {
+        run_actix_until_stop(async move {
+            let num_nodes = 1;
+            let dirs = (0..num_nodes)
+                .map(|i| {
+                    tempfile::Builder::new()
+                        .prefix(&format!("protocol_config{}", i))
+                        .tempdir()
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            let (_genesis, rpc_addrs, _) = start_nodes(1, &dirs, 1, 0, 10, 0);
+
+            actix::spawn(async move {
+                let client = new_client(&format!("http://{}", rpc_addrs[0]));
+                let query_response = client
+                    .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                        block_reference: near_primitives::types::BlockReference::Finality(
+                            Finality::Final,
+                        ),
+                        request: near_primitives::views::QueryRequest::ViewAccount {
+                            account_id: "accountdoesntexist.0".to_string(),
+                        },
+                    })
+                    .await;
+                assert!(query_response.is_err());
+                let error_message = match query_response {
+                    Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
+                    Err(err) => err.data.unwrap(),
+                };
+                assert!(
+                    error_message
+                        .to_string()
+                        .contains("account accountdoesntexist.0 does not exist while viewing"),
+                    "{}",
+                    error_message
                 );
                 System::current().stop();
             });

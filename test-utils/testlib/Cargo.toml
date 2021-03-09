@@ -16,6 +16,7 @@ rand = "0.7"
 serde_json = "1"
 futures = "0.3"
 lazy_static = "1.4"
+lazy-static-include = "3"
 byteorder = "1.2"
 tempfile = "3"
 assert_matches = "1.3"
@@ -39,6 +40,7 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-chain = { path = "../../chain/chain" }
 near-client = { path = "../../chain/client" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
+near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
 near-network = { path = "../../chain/network" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 neard = { path = "../../neard" }
@@ -46,5 +48,9 @@ near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]
 default = []
+protocol_feature_alt_bn128 = [
+    "near-primitives/protocol_feature_alt_bn128",
+    "node-runtime/protocol_feature_alt_bn128",
+    "near-vm-errors/protocol_feature_alt_bn128",
+]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "neard/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]
-costs_counting = ["node-runtime/costs_counting", "neard/costs_counting"]

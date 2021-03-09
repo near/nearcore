@@ -6,7 +6,7 @@ pub use near_client_primitives::types::{
     GetExecutionOutcome, GetExecutionOutcomeResponse, GetExecutionOutcomesForBlock, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
     GetStateChangesInBlock, GetStateChangesWithCauseInBlock, GetValidatorInfo, GetValidatorOrdered,
-    Query, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
+    Query, QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
 pub use crate::client::Client;

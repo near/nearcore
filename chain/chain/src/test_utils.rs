@@ -14,6 +14,7 @@ use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
+use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -35,12 +36,15 @@ use near_primitives::views::{
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
-    ColBlockHeader, PartialStorage, ShardTries, Store, Trie, TrieChanges, WrappedTrieChanges,
+    ColBlockHeader, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges,
+    WrappedTrieChanges,
 };
 
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
+use crate::types::{
+    ApplyTransactionResult, BlockHeaderInfo, ChainGenesis, ValidatorInfoIdentifier,
+};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
@@ -277,7 +281,8 @@ impl KeyValueRuntime {
             .read()
             .unwrap()
             .get(epoch_id)
-            .ok_or_else(|| Error::from(ErrorKind::EpochOutOfBounds))? as usize
+            .ok_or_else(|| Error::from(ErrorKind::EpochOutOfBounds(epoch_id.clone())))?
+            as usize
             % self.validators.len())
     }
 }
@@ -557,8 +562,26 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(res)
     }
 
-    fn add_validator_proposals(&self, _block_header_info: BlockHeaderInfo) -> Result<(), Error> {
+    fn epoch_sync_init_epoch_manager(
+        &self,
+        _prev_epoch_first_block_info: BlockInfo,
+        _prev_epoch_last_block_info: BlockInfo,
+        _prev_epoch_prev_last_block_info: BlockInfo,
+        _prev_epoch_id: &EpochId,
+        _prev_epoch_info: EpochInfo,
+        _epoch_id: &EpochId,
+        _epoch_info: EpochInfo,
+        _next_epoch_id: &EpochId,
+        _next_epoch_info: EpochInfo,
+    ) -> Result<(), Error> {
         Ok(())
+    }
+
+    fn add_validator_proposals(
+        &self,
+        _block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, Error> {
+        Ok(self.store.store_update())
     }
 
     fn apply_transactions_with_optional_storage_proof(
@@ -769,7 +792,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_hash: &CryptoHash,
         _epoch_id: &EpochId,
         request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
+    ) -> Result<QueryResponse, near_chain_primitives::error::QueryError> {
         match request {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewAccount(
@@ -959,11 +982,39 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(0)
     }
 
+    fn get_epoch_sync_data(
+        &self,
+        _prev_epoch_last_block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
+        _next_epoch_id: &EpochId,
+    ) -> Result<(BlockInfo, BlockInfo, BlockInfo, EpochInfo, EpochInfo, EpochInfo), Error> {
+        Ok((
+            BlockInfo::default(),
+            BlockInfo::default(),
+            BlockInfo::default(),
+            EpochInfo::default(),
+            EpochInfo::default(),
+            EpochInfo::default(),
+        ))
+    }
+
+    fn get_epoch_sync_data_hash(
+        &self,
+        _prev_epoch_last_block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
+        _next_epoch_id: &EpochId,
+    ) -> Result<CryptoHash, Error> {
+        Ok(CryptoHash::default())
+    }
+
     fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
         Ok(PROTOCOL_VERSION)
     }
 
-    fn get_validator_info(&self, _block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
+    fn get_validator_info(
+        &self,
+        _epoch_id: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, Error> {
         Ok(EpochValidatorInfo {
             current_validators: vec![],
             next_validators: vec![],
@@ -985,7 +1036,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
             (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
-            _ => Err(ErrorKind::EpochOutOfBounds.into()),
+            _ => Err(ErrorKind::EpochOutOfBounds(epoch_id.clone()).into()),
         }
     }
 

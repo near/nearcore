@@ -110,6 +110,7 @@ pub struct BlockHeaderInnerRestV2 {
 
 /// Add `prev_height`
 /// Add `block_ordinal`
+/// Add `epoch_sync_data_hash`
 #[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRestV3 {
@@ -129,8 +130,6 @@ pub struct BlockHeaderInnerRestV3 {
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
-    /// The ordinal of the Block on the Canonical Chain
-    pub block_ordinal: NumBlocks,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -141,7 +140,12 @@ pub struct BlockHeaderInnerRestV3 {
     /// Last block that has doomslug finality
     pub last_ds_final_block: CryptoHash,
 
+    /// The ordinal of the Block on the Canonical Chain
+    pub block_ordinal: NumBlocks,
+
     pub prev_height: BlockHeight,
+
+    pub epoch_sync_data_hash: Option<CryptoHash>,
 
     /// All the approvals included in this block
     pub approvals: Vec<Option<Signature>>,
@@ -343,7 +347,7 @@ impl BlockHeader {
         random_value: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
-        #[allow(unused_variables)] block_ordinal: NumBlocks,
+        #[cfg(feature = "protocol_feature_block_header_v3")] block_ordinal: NumBlocks,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         gas_price: Balance,
@@ -352,6 +356,9 @@ impl BlockHeader {
         signer: &dyn ValidatorSigner,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
+        #[cfg(feature = "protocol_feature_block_header_v3")] epoch_sync_data_hash: Option<
+            CryptoHash,
+        >,
         approvals: Vec<Option<Signature>>,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
@@ -459,6 +466,7 @@ impl BlockHeader {
                     last_final_block,
                     last_ds_final_block,
                     prev_height,
+                    epoch_sync_data_hash,
                     approvals,
                     latest_protocol_version: PROTOCOL_VERSION,
                 };
@@ -594,6 +602,7 @@ impl BlockHeader {
                     last_final_block: CryptoHash::default(),
                     last_ds_final_block: CryptoHash::default(),
                     prev_height: 0,
+                    epoch_sync_data_hash: None, // Epoch Sync cannot be executed up to Genesis
                     approvals: vec![],
                     latest_protocol_version: genesis_protocol_version,
                 };
@@ -873,6 +882,16 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.block_merkle_root,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.block_merkle_root,
+        }
+    }
+
+    #[inline]
+    pub fn epoch_sync_data_hash(&self) -> Option<CryptoHash> {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => None,
+            BlockHeader::BlockHeaderV2(_) => None,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            BlockHeader::BlockHeaderV3(header) => header.inner_rest.epoch_sync_data_hash,
         }
     }
 

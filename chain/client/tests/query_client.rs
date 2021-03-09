@@ -1,22 +1,26 @@
 use actix::System;
 use futures::{future, FutureExt};
 
+use chrono::Utc;
 use near_actix_test_utils::run_actix_until_stop;
-use near_client::test_utils::setup_no_network;
+use near_client::test_utils::{setup, setup_no_network};
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
 };
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
+use near_network::test_utils::MockNetworkAdapter;
+use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkClientMessages, NetworkClientResponses, PeerInfo};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockReference, EpochId};
+use near_primitives::types::{BlockId, BlockReference, EpochId};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest, QueryResponseKind};
 use num_rational::Rational;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Query account from view client
@@ -32,7 +36,7 @@ fn query_client() {
                     QueryRequest::ViewAccount { account_id: "test".to_owned() },
                 ))
                 .then(|res| {
-                    match res.unwrap().unwrap().unwrap().kind {
+                    match res.unwrap().unwrap().kind {
                         QueryResponseKind::ViewAccount(_) => (),
                         _ => panic!("Invalid response"),
                     }
@@ -59,10 +63,13 @@ fn query_status_not_crash() {
                 PROTOCOL_VERSION,
                 &header,
                 block.header.height + 1,
-                header.block_ordinal() + 1,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                (header.block_ordinal() + 1),
                 block.chunks.into_iter().map(|c| c.into()).collect(),
                 EpochId(block.header.next_epoch_id),
                 EpochId(block.header.hash),
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                None,
                 vec![],
                 Rational::from_integer(0),
                 0,
@@ -159,5 +166,71 @@ fn test_execution_outcome_for_chunk() {
             System::current().stop();
         });
         near_network::test_utils::wait_or_panic(5000);
+    });
+}
+
+#[test]
+fn test_state_request() {
+    run_actix_until_stop(async {
+        let (_, _, view_client) = setup(
+            vec![vec!["test"]],
+            1,
+            1,
+            10000000,
+            "test",
+            true,
+            200,
+            400,
+            false,
+            true,
+            false,
+            Arc::new(MockNetworkAdapter::default()),
+            100,
+            Utc::now(),
+        );
+        actix::spawn(async move {
+            actix::clock::sleep(Duration::from_millis(500)).await;
+            let block_hash = view_client
+                .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))))
+                .await
+                .unwrap()
+                .unwrap()
+                .header
+                .hash;
+            for _ in 0..30 {
+                let res = view_client
+                    .send(NetworkViewClientMessages::StateRequestHeader {
+                        shard_id: 0,
+                        sync_hash: block_hash,
+                    })
+                    .await
+                    .unwrap();
+                assert!(matches!(res, NetworkViewClientResponses::StateResponse(_)));
+            }
+
+            // immediately query again, should be rejected
+            let res = view_client
+                .send(NetworkViewClientMessages::StateRequestHeader {
+                    shard_id: 0,
+                    sync_hash: block_hash,
+                })
+                .await
+                .unwrap();
+            assert!(matches!(res, NetworkViewClientResponses::NoResponse));
+            #[cfg(feature = "expensive_tests")]
+            {
+                actix::clock::sleep(Duration::from_secs(40)).await;
+                let res = view_client
+                    .send(NetworkViewClientMessages::StateRequestHeader {
+                        shard_id: 0,
+                        sync_hash: block_hash,
+                    })
+                    .await
+                    .unwrap();
+                assert!(matches!(res, NetworkViewClientResponses::StateResponse(_)));
+            }
+            System::current().stop();
+        });
+        near_network::test_utils::wait_or_panic(50000);
     });
 }

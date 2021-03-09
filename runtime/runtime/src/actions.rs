@@ -135,7 +135,7 @@ pub(crate) fn execute_function_call(
         near_vm_runner::run(
             code.hash.as_ref().to_vec(),
             &code.code,
-            function_call.method_name.as_bytes(),
+            &function_call.method_name,
             runtime_ext,
             context,
             &config.wasm_config,
@@ -143,8 +143,7 @@ pub(crate) fn execute_function_call(
             promise_results,
             apply_state.current_protocol_version,
             cache,
-            #[cfg(feature = "costs_counting")]
-            apply_state.profile.as_ref(),
+            &apply_state.profile,
         )
     }
 }

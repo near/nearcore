@@ -37,6 +37,7 @@ fn test_keyvalue_runtime_balances() {
             5,
             false,
             vec![false; validators.iter().map(|x| x.len()).sum()],
+            vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
             Arc::new(RwLock::new(Box::new(move |_account_id: String, _msg: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
@@ -58,7 +59,7 @@ fn test_keyvalue_runtime_balances() {
                         QueryRequest::ViewAccount { account_id: flat_validators[i].to_string() },
                     ))
                     .then(move |res| {
-                        let query_response = res.unwrap().unwrap().unwrap();
+                        let query_response = res.unwrap().unwrap();
                         if let ViewAccount(view_account_result) = query_response.kind {
                             assert_eq!(view_account_result.amount, expected);
                             successful_queries2.fetch_add(1, Ordering::Relaxed);
@@ -162,7 +163,7 @@ mod tests {
     }
 
     fn test_cross_shard_tx_callback(
-        res: Result<Result<Option<QueryResponse>, String>, MailboxError>,
+        res: Result<Result<QueryResponse, near_client::QueryError>, MailboxError>,
         account_id: AccountId,
         connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
         iteration: Arc<AtomicUsize>,
@@ -179,7 +180,7 @@ mod tests {
         min_ratio: Option<f64>,
         max_ratio: Option<f64>,
     ) {
-        let res = res.unwrap().and_then(|r| r.ok_or_else(|| "Request routed".to_string()));
+        let res = res.unwrap();
 
         let query_response = match res {
             Ok(query_response) => query_response,
@@ -441,6 +442,7 @@ mod tests {
                 20,
                 test_doomslug,
                 vec![true; validators.iter().map(|x| x.len()).sum()],
+                vec![false; validators.iter().map(|x| x.len()).sum()],
                 true,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, _msg: &NetworkRequests| {

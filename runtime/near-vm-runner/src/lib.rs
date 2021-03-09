@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 mod cache;
 mod errors;
 mod imports;
@@ -20,7 +23,7 @@ pub use near_vm_errors::VMError;
 pub use runner::compile_module;
 pub use runner::run;
 pub use runner::run_vm;
-pub use runner::run_vm_profiled;
-pub use runner::with_vm_variants;
 
 pub use near_vm_logic::with_ext_cost_counter;
+
+pub use cache::MockCompiledContractCache;

@@ -7,7 +7,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::{Duration, Instant};
 
-use actix::io::FramedWrite;
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, SyncContext, WrapFuture,
@@ -47,6 +46,7 @@ use crate::types::{
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
+use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use rand::thread_rng;
 
@@ -463,7 +463,7 @@ impl PeerManagerActor {
                 remote_addr,
                 peer_info,
                 peer_type,
-                FramedWrite::new(write, Codec::new(), ctx),
+                FramedWrite::new(write, Codec::new(), Codec::new(), ctx),
                 handshake_timeout,
                 recipient,
                 client_addr,
@@ -1301,6 +1301,24 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 if self.send_message_to_peer(
                     ctx,
                     RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(route_back), body },
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            NetworkRequests::EpochSyncRequest { peer_id, epoch_id } => {
+                if self.send_message(ctx, peer_id, PeerMessage::EpochSyncRequest(epoch_id)) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            NetworkRequests::EpochSyncFinalizationRequest { peer_id, epoch_id } => {
+                if self.send_message(
+                    ctx,
+                    peer_id,
+                    PeerMessage::EpochSyncFinalizationRequest(epoch_id),
                 ) {
                     NetworkResponses::NoResponse
                 } else {

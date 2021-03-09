@@ -68,9 +68,7 @@ while cur_height <= EPOCH_LENGTH:
 if not synced:
     assert False, "Nodes are not synced"
 
-status = nodes[0].get_status()
-validator_info = nodes[0].json_rpc('validators',
-                                   [status['sync_info']['latest_block_hash']])
+validator_info = nodes[0].json_rpc('validators', 'latest')
 if len(validator_info['result']['next_validators']) < 2:
     assert False, "Node 1 did not produce enough blocks"
 

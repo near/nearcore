@@ -171,13 +171,13 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
 pub fn run_wasmer<'a>(
     code_hash: &[u8],
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
-    profile: Option<ProfileData>,
+    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
@@ -242,17 +242,6 @@ pub fn run_wasmer<'a>(
 
     let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
 
-    let method_name = match std::str::from_utf8(method_name) {
-        Ok(x) => x,
-        Err(_) => {
-            return (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodUTF8Error,
-                ))),
-            )
-        }
-    };
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));
     }

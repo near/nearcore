@@ -133,9 +133,14 @@ macro_rules! wrapped_imports {
                 import_object
             }
 
+            #[allow(unused_variables)]
             #[cfg(feature = "wasmer1_vm")]
-            pub(crate) fn build_wasmer1(store: &wasmer::Store, memory: wasmer::Memory, logic: &mut VMLogic<'_>) ->
-                wasmer::ImportObject {
+            pub(crate) fn build_wasmer1(
+                store: &wasmer::Store,
+                memory: wasmer::Memory,
+                logic: &mut VMLogic<'_>,
+                protocol_version: ProtocolVersion,
+            ) -> wasmer::ImportObject {
                 let env = NearWasmerEnv {logic: ImportReference(logic as * mut _ as * mut c_void), memory: memory.clone()};
                 let mut import_object = wasmer::ImportObject::new();
                 let mut namespace = wasmer::Exports::new();
@@ -323,7 +328,10 @@ wrapped_imports! {
     // ###############
     validator_stake<[account_id_len: u64, account_id_ptr: u64, stake_ptr: u64] -> []>,
     validator_total_stake<[stake_ptr: u64] -> []>,
-    // ###############
-    // An example to add a protocol feature guarded host method
-    // #["protocol_feature_evm", EVM] test_api<[a: u64] -> []>,
+    // #############
+    // # Alt BN128 #
+    // #############
+    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
 }

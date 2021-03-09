@@ -189,18 +189,13 @@ fn receive_network_block() {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
             block_merkle_tree.insert(last_block.header.hash);
-            let next_block_ordinal = {
-                #[cfg(feature = "protocol_feature_block_header_v3")]
-                {
-                    last_block.header.block_ordinal.unwrap() + 1
-                }
-                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                0
-            };
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
@@ -209,6 +204,8 @@ fn receive_network_block() {
                 } else {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                None,
                 vec![],
                 Rational::from_integer(0),
                 0,
@@ -267,18 +264,13 @@ fn produce_block_with_approvals() {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer1 = InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
             block_merkle_tree.insert(last_block.header.hash);
-            let next_block_ordinal = {
-                #[cfg(feature = "protocol_feature_block_header_v3")]
-                {
-                    last_block.header.block_ordinal.unwrap() + 1
-                }
-                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                0
-            };
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
@@ -287,6 +279,8 @@ fn produce_block_with_approvals() {
                 } else {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                None,
                 vec![],
                 Rational::from_integer(0),
                 0,
@@ -349,6 +343,7 @@ fn produce_block_with_approvals_arrived_early() {
             100,
             true,
             vec![false; validators.iter().map(|x| x.len()).sum()],
+            vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
             network_mock.clone(),
         );
@@ -436,18 +431,13 @@ fn invalid_blocks_common(is_requested: bool) {
             let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             block_merkle_tree.insert(last_block.header.hash);
-            let next_block_ordinal = {
-                #[cfg(feature = "protocol_feature_block_header_v3")]
-                {
-                    last_block.header.block_ordinal.unwrap() + 1
-                }
-                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                0
-            };
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 next_block_ordinal,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
@@ -456,6 +446,8 @@ fn invalid_blocks_common(is_requested: bool) {
                 } else {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                None,
                 vec![],
                 Rational::from_integer(0),
                 0,
@@ -561,6 +553,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             100,
             true,
             vec![false; validators.iter().map(|x| x.len()).sum()],
+            vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
             network_mock.clone(),
         );
@@ -980,8 +973,11 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().inner_lite.epoch_id = EpochId(CryptoHash(Digest([1; 32])));
         block.mut_header().get_mut().prev_hash = CryptoHash(Digest([1; 32]));
         block.mut_header().resign(&*signer);
-        let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
-        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::EpochOutOfBounds);
+        let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
+        assert_eq!(
+            res.as_ref().unwrap_err().kind(),
+            ErrorKind::EpochOutOfBounds(block.header().epoch_id().clone())
+        );
     }
     {
         // Orphan block with invalid signature
@@ -1168,11 +1164,11 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
             let block_hash = *blocks[i as usize].hash();
             assert!(matches!(
                 env.clients[0].chain.get_block(&block_hash).unwrap_err().kind(),
-                ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
+                ErrorKind::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
             ));
             assert!(matches!(
                 env.clients[0].chain.get_block_by_height(i).unwrap_err().kind(),
-                ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
+                ErrorKind::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
             ));
             assert!(env.clients[0]
                 .chain
@@ -1676,7 +1672,7 @@ fn test_incorrect_validator_key_produce_block() {
         vec![],
     ));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "seed"));
-    let mut config = ClientConfig::test(true, 10, 20, 2, false);
+    let mut config = ClientConfig::test(true, 10, 20, 2, false, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -1851,6 +1847,10 @@ fn test_block_height_processed_orphan() {
     assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
 }
 
+lazy_static_include::lazy_static_include_bytes! {
+    TEST_CONTRACT => "../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm"
+}
+
 #[test]
 fn test_validate_chunk_extra() {
     let epoch_length = 5;
@@ -1871,10 +1871,7 @@ fn test_validate_chunk_extra() {
         "test0".to_string(),
         "test0".to_string(),
         &signer,
-        vec![Action::DeployContract(DeployContractAction {
-            code: include_bytes!("../../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm")
-                .to_vec(),
-        })],
+        vec![Action::DeployContract(DeployContractAction { code: TEST_CONTRACT.to_vec() })],
         *genesis_block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
