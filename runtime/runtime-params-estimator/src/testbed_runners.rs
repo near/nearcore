@@ -226,10 +226,7 @@ where
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
     ));
-    #[cfg(feature = "costs_counting")]
-    node_runtime::EXT_COSTS_COUNTER.with(|f| {
-        f.borrow_mut().clear();
-    });
+    node_runtime::with_ext_cost_counter(|cc| cc.clear());
     for _ in 0..config.iter_per_block {
         for block_size in config.block_sizes.clone() {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();

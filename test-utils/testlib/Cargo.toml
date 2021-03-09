@@ -8,13 +8,15 @@ name = "run-nodes"
 path = "src/run_nodes.rs"
 
 [dependencies]
-actix = "0.11.0-beta.1"
+actix = "0.11.0-beta.2"
+actix-rt = "2"
 clap = "2.33"
 log = "0.4"
 rand = "0.7"
 serde_json = "1"
 futures = "0.3"
 lazy_static = "1.4"
+lazy-static-include = "3"
 byteorder = "1.2"
 tempfile = "3"
 assert_matches = "1.3"
@@ -27,6 +29,7 @@ ethereum-types = "0.11.0"
 
 borsh = "0.8.1"
 
+near-actix-test-utils = { path = "../actix-test-utils" }
 near-logger-utils = { path = "../../test-utils/logger" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -37,13 +40,17 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-chain = { path = "../../chain/chain" }
 near-client = { path = "../../chain/client" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
+near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
 near-network = { path = "../../chain/network" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
-near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 neard = { path = "../../neard" }
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]
 default = []
-protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-runtime-fees/protocol_feature_evm", "neard/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]
-costs_counting = ["node-runtime/costs_counting", "neard/costs_counting"]
+protocol_feature_alt_bn128 = [
+    "near-primitives/protocol_feature_alt_bn128",
+    "node-runtime/protocol_feature_alt_bn128",
+    "near-vm-errors/protocol_feature_alt_bn128",
+]
+protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "neard/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]

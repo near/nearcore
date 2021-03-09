@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-runner"
-version = "2.3.0"
+version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -14,38 +14,48 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 borsh = "0.8.1"
-wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near" }
+wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
+# Always used even for wasmer 1.0 for validating wasm, will be replaced when refactor prepare.rs
 wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }
+wasmer = { version = "1.0.2", optional = true }
+wasmer-types = { version = "1.0.2", optional = true }
+wasmer-compiler-singlepass = { version = "1.0.2", optional = true }
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.20.0", default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
-near-runtime-fees = { path="../near-runtime-fees", version = "2.3.0" }
-near-vm-logic = { path="../near-vm-logic", version = "2.3.0", default-features = false, features = []}
-near-vm-errors = { path = "../near-vm-errors", version = "2.3.0" }
+near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", default-features = false, features = [] }
+near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
 near-primitives = { path = "../../core/primitives" }
 log = "0.4"
-near-evm-runner = { path = "../near-evm-runner", version = "2.3.0", optional = true}
+near-evm-runner = { path = "../near-evm-runner", optional = true }
 cached = "0.23.0"
+tracing = { version = "0.1", default-features = false }
 
 [dev-dependencies]
 assert_matches = "1.3"
 wabt = "0.9"
 bencher = "^0.1.5"
+lazy-static-include = "3"
+base64 = "0.13"
 
 [features]
-default = [ "wasmer_default" ]
+# all vms enabled for tests, but only one default vm, specified by runtime crate
+default = ["wasmer0_vm", "wasmtime_vm", "wasmer1_vm"]
+wasmer0_vm = [ "wasmer-runtime" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
+wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass" ]
 lightbeam = ["wasmtime/lightbeam"]
-wasmer_default = []
-wasmtime_default = ["wasmtime_vm"]
 no_cpu_compatibility_checks = []
-protocol_feature_evm = ["near-runtime-fees/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
-
-# Use this feature to enable counting of fees and costs applied.
-costs_counting = ["near-vm-logic/costs_counting"]
+protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
 
 no_cache = []
+
+protocol_feature_alt_bn128 = [
+    "near-vm-logic/protocol_feature_alt_bn128",
+    "near-primitives/protocol_feature_alt_bn128",
+    "near-vm-errors/protocol_feature_alt_bn128"
+]
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
@@ -54,3 +64,6 @@ normal = ["cached"]
 [[bench]]
 name = "bench"
 harness = false
+
+[package.metadata.workspaces]
+independent = true

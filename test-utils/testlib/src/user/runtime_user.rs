@@ -7,6 +7,7 @@ use near_jsonrpc::ServerError;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
@@ -20,7 +21,6 @@ use near_store::{ShardTries, TrieUpdate};
 use neard::config::MIN_GAS_PRICE;
 #[cfg(feature = "protocol_feature_evm")]
 use neard::config::TESTNET_EVM_CHAIN_ID;
-use node_runtime::config::RuntimeConfig;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -141,8 +141,7 @@ impl RuntimeUser {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
-            #[cfg(feature = "costs_counting")]
-            profile: None,
+            profile: Default::default(),
         }
     }
 

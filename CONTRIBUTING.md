@@ -4,6 +4,8 @@ We welcome all external contributions. This document outlines the process of con
 For contributing to other repositories, see `CONTRIBUTING.md` in the corresponding repository.
 For non-technical contributions, such as e.g. content or events, see [this document](https://docs.nearprotocol.com/docs/contribution/contribution-overview).
 
+For an overview of the NEAR core architecture, see [this playlist](https://www.youtube.com/playlist?list=PL9tzQn_TEuFV4qlts0tVgndnytFs4QSYo).
+
 # Pull Requests and Issues
 
 All the contributions to `nearcore` happen via Pull Requests. To create a Pull Request, fork `nearcore`, create a new branch, do the work there, and then send the PR via Github interface.
@@ -71,6 +73,15 @@ Some of us use VIM with [rust.vim](https://github.com/rust-lang/rust.vim) and [r
 Refer to [this document](https://docs.nearprotocol.com/docs/contribution/nearcore) for details on setting up your environment.
 
 # Release Schedule
+
+If a crate is to be published individually the following needs to be added to its `Cargo.toml`:
+
+```toml
+[package.metadata.workspaces]
+independent = true
+```
+
+This is required by [cargo-workspaces](https://github.com/pksunkara/cargo-workspaces) which is used to publish non-private crates in the nearcore workspace.
 
 Once your change ends up in master, it will be released with the rest of the changes by other contributors on the regular release schedules.
 

@@ -19,6 +19,8 @@ panic = "abort"
 members = []
 
 [features]
-small_payload = []
-medium_payload = []
-large_payload = []
+nightly_protocol_features = ["protocol_feature_alt_bn128", "protocol_feature_evm"]
+protocol_feature_alt_bn128 = []
+protocol_feature_evm = []
+
+payload = []

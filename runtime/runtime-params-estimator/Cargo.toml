@@ -1,6 +1,6 @@
 [package]
 name = "runtime-params-estimator"
-version = "2.3.0"
+version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -22,7 +22,6 @@ borsh = "0.8.1"
 num-rational = "0.3"
 
 near-chain-configs = { path = "../../core/chain-configs" }
-near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic"  }
 near-vm-runner = {path = "../../runtime/near-vm-runner" }
@@ -32,7 +31,7 @@ near-primitives = { path = "../../core/primitives" }
 testlib = { path = "../../test-utils/testlib" }
 state-viewer = { path = "../../test-utils/state-viewer" }
 neard = { path = "../../neard" }
-rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
+rocksdb = { version = "0.15.0"}
 glob = "0.3.0"
 walrus = "0.18.0"
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
@@ -47,22 +46,24 @@ libc = "0.2.81"
 
 [features]
 default = ["costs_counting"]
-costs_counting = ["near-vm-logic/costs_counting",
-                  "near-vm-runner/costs_counting",
-                  "neard/costs_counting",
-                  "node-runtime/costs_counting",
-                  "testlib/costs_counting",
-                  "near-evm-runner/costs_counting"]
+costs_counting = ["near-vm-logic/costs_counting"]
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
-required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache", "near-store/single_thread_rocksdb"]
+required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
+nightly_protocol = ["near-primitives/nightly_protocol"]
+nightly_protocol_features = ["protocol_feature_alt_bn128", "protocol_feature_evm"]
+protocol_feature_alt_bn128 = [
+    "near-vm-logic/protocol_feature_alt_bn128",
+    "near-vm-runner/protocol_feature_alt_bn128",
+    "node-runtime/protocol_feature_alt_bn128",
+    "testlib/protocol_feature_alt_bn128",
+    "neard/protocol_feature_alt_bn128",
+]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
-                        "near-evm-runner/costs_counting",
                         "near-vm-runner/protocol_feature_evm",
                         "near-chain-configs/protocol_feature_evm",
-                        "near-runtime-fees/protocol_feature_evm",
                         "node-runtime/protocol_feature_evm",
                         "near-primitives/protocol_feature_evm",
                         "testlib/protocol_feature_evm"]

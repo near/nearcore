@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -6,7 +7,6 @@ use std::io::{Cursor, Read, Write};
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use near_primitives::challenge::PartialState;
@@ -22,7 +22,6 @@ use crate::trie::trie_storage::{
 };
 pub(crate) use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::StorageError;
-use std::cell::RefCell;
 
 mod insert_delete;
 pub mod iterator;
@@ -61,6 +60,15 @@ const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node
 enum NodeHandle {
     InMemory(StorageHandle),
     Hash(CryptoHash),
+}
+
+impl NodeHandle {
+    fn unwrap_hash(&self) -> &CryptoHash {
+        match self {
+            Self::Hash(hash) => hash,
+            Self::InMemory(_) => unreachable!(),
+        }
+    }
 }
 
 #[derive(Clone, Hash, Debug)]
@@ -424,7 +432,7 @@ pub struct Trie {
 /// Having old_root and values in deletions allows to apply TrieChanges in reverse
 ///
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
-#[derive(BorshSerialize, BorshDeserialize, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
@@ -673,7 +681,7 @@ impl Trie {
         }
     }
 
-    fn convert_to_insertions_and_deletions(
+    pub(crate) fn convert_to_insertions_and_deletions(
         changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
     ) -> (Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>) {
         let mut deletions = Vec::new();
@@ -725,12 +733,12 @@ impl Trie {
 mod tests {
     use rand::Rng;
 
+    use crate::db::DBCol::ColState;
     use crate::test_utils::{
         create_test_store, create_tries, gen_changes, simplify_changes, test_populate_trie,
     };
 
     use super::*;
-    use crate::db::DBCol::ColState;
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
 
@@ -950,6 +958,27 @@ mod tests {
                 panic!("MISMATCH!");
             }
             // TODO: compare state updates?
+        }
+    }
+
+    #[test]
+    fn test_iterator_seek() {
+        let mut rng = rand::thread_rng();
+        for _test_run in 0..10 {
+            let tries = create_tries();
+            let trie = tries.get_trie_for_shard(0);
+            let trie_changes = gen_changes(&mut rng, 500);
+
+            let state_root =
+                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let queries = gen_changes(&mut rng, 500).into_iter().map(|(key, _)| key);
+            for query in queries {
+                let mut iterator = trie.iter(&state_root).unwrap();
+                iterator.seek(&query).unwrap();
+                if let Some(Ok((key, _))) = iterator.next() {
+                    assert!(key >= query);
+                }
+            }
         }
     }
 

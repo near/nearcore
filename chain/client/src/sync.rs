@@ -1,6 +1,6 @@
 use near_chain::{ChainStoreAccess, Error};
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::{ops::Add, time::Duration as TimeDuration};
@@ -17,8 +17,11 @@ use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan}
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, ValidatorStake,
+};
 use near_primitives::utils::to_timestamp;
 
 use cached::{Cached, SizedCache};
@@ -34,8 +37,6 @@ pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 
 const BLOCK_REQUEST_TIMEOUT: i64 = 2;
 
-/// Sync state download timeout in seconds.
-pub const STATE_SYNC_TIMEOUT: i64 = 60;
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
 /// Number of state parts already requested stored as pending.
@@ -53,6 +54,78 @@ pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<F
     match highest_height_peers.iter().choose(&mut thread_rng()) {
         None => highest_height_peers.choose(&mut thread_rng()).cloned(),
         Some(peer) => Some(peer.clone()),
+    }
+}
+
+/// Helper to keep track of the Epoch Sync
+// TODO #3488
+#[allow(dead_code)]
+pub struct EpochSync {
+    network_adapter: Arc<dyn NetworkAdapter>,
+    /// Datastructure to keep track of when the last request to each peer was made.
+    /// Peers do not respond to Epoch Sync requests more frequently than once per a certain time
+    /// interval, thus there's no point in requesting more frequently.
+    peer_to_last_request_time: HashMap<PeerId, DateTime<Utc>>,
+    /// Tracks all the peers who have reported that we are already up to date
+    peers_reporting_up_to_date: HashSet<PeerId>,
+    /// The last epoch we are synced to
+    current_epoch_id: EpochId,
+    /// The next epoch id we need to sync
+    next_epoch_id: EpochId,
+    /// The block producers set to validate the light client block view for the next epoch
+    next_block_producers: Vec<ValidatorStake>,
+    /// The last epoch id that we have requested
+    requested_epoch_id: EpochId,
+    /// When and to whom was the last request made
+    last_request_time: DateTime<Utc>,
+    last_request_peer_id: Option<PeerId>,
+
+    /// How long to wait for a response before re-requesting the same light client block view
+    request_timeout: Duration,
+    /// How frequently to send request to the same peer
+    peer_timeout: Duration,
+
+    /// True, if all peers agreed that we're at the last Epoch.
+    /// Only finalization is needed.
+    have_all_epochs: bool,
+    /// Whether the Epoch Sync was performed to completion previously.
+    /// Current state machine allows for only one Epoch Sync.
+    pub done: bool,
+
+    pub sync_hash: CryptoHash,
+
+    received_epoch: bool,
+
+    is_just_started: bool,
+}
+
+impl EpochSync {
+    pub fn new(
+        network_adapter: Arc<dyn NetworkAdapter>,
+        genesis_epoch_id: EpochId,
+        genesis_next_epoch_id: EpochId,
+        first_epoch_block_producers: Vec<ValidatorStake>,
+        request_timeout: TimeDuration,
+        peer_timeout: TimeDuration,
+    ) -> Self {
+        Self {
+            network_adapter,
+            peer_to_last_request_time: HashMap::new(),
+            peers_reporting_up_to_date: HashSet::new(),
+            current_epoch_id: genesis_epoch_id.clone(),
+            next_epoch_id: genesis_next_epoch_id.clone(),
+            next_block_producers: first_epoch_block_producers,
+            requested_epoch_id: genesis_epoch_id,
+            last_request_time: Utc::now(),
+            last_request_peer_id: None,
+            request_timeout: Duration::from_std(request_timeout).unwrap(),
+            peer_timeout: Duration::from_std(peer_timeout).unwrap(),
+            received_epoch: false,
+            have_all_epochs: false,
+            done: false,
+            sync_hash: CryptoHash::default(),
+            is_just_started: true,
+        }
     }
 }
 
@@ -108,7 +181,7 @@ impl HeaderSync {
             SyncStatus::HeaderSync { .. }
             | SyncStatus::BodySync { .. }
             | SyncStatus::StateSyncDone => true,
-            SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
+            SyncStatus::NoSync | SyncStatus::AwaitingPeers | SyncStatus::EpochSync { .. } => {
                 debug!(target: "sync", "Sync: initial transition to Header sync. Header head {} at {}",
                     header_head.last_block_hash, header_head.height,
                 );
@@ -402,6 +475,47 @@ impl BlockSync {
             _ => chain.head()?.last_block_hash,
         };
 
+        let reference_hash = {
+            // Find the most recent block we know on the canonical chain.
+            // In practice the forks from the last final block are very short, so it is
+            // acceptable to perform this on each request
+            let header = chain.get_block_header(&reference_hash)?;
+            let mut candidate = (header.height(), *header.hash(), *header.prev_hash());
+
+            // First go back until we find the common block
+            while match chain.get_header_by_height(candidate.0) {
+                Ok(header) => header.hash() != &candidate.1,
+                Err(e) => match e.kind() {
+                    near_chain::ErrorKind::DBNotFoundErr(_) => true,
+                    _ => return Err(e),
+                },
+            } {
+                let prev_header = chain.get_block_header(&candidate.2)?;
+                candidate = (prev_header.height(), *prev_header.hash(), *prev_header.prev_hash());
+            }
+
+            // Then go forward for as long as we known the next block
+            let mut ret_hash = candidate.1;
+            loop {
+                match chain.mut_store().get_next_block_hash(&ret_hash) {
+                    Ok(hash) => {
+                        let hash = hash.clone();
+                        if chain.block_exists(&hash)? {
+                            ret_hash = hash;
+                        } else {
+                            break;
+                        }
+                    }
+                    Err(e) => match e.kind() {
+                        near_chain::ErrorKind::DBNotFoundErr(_) => break,
+                        _ => return Err(e),
+                    },
+                }
+            }
+
+            ret_hash
+        };
+
         let next_hash = match chain.mut_store().get_next_block_hash(&reference_hash) {
             Ok(hash) => *hash,
             Err(e) => match e.kind() {
@@ -469,13 +583,10 @@ struct PendingRequestStatus {
     wait_until: DateTime<Utc>,
 }
 
-impl Default for PendingRequestStatus {
-    fn default() -> Self {
-        Self { missing_parts: 1, wait_until: Utc::now().add(Duration::seconds(STATE_SYNC_TIMEOUT)) }
-    }
-}
-
 impl PendingRequestStatus {
+    fn new(timeout: Duration) -> Self {
+        Self { missing_parts: 1, wait_until: Utc::now().add(timeout) }
+    }
     fn expired(&self) -> bool {
         Utc::now() > self.wait_until
     }
@@ -491,16 +602,19 @@ pub struct StateSync {
     last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
     /// Map from which part we requested to whom.
     requested_target: SizedCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
+
+    timeout: Duration,
 }
 
 impl StateSync {
-    pub fn new(network_adapter: Arc<dyn NetworkAdapter>) -> Self {
+    pub fn new(network_adapter: Arc<dyn NetworkAdapter>, timeout: TimeDuration) -> Self {
         StateSync {
             network_adapter,
             state_sync_time: Default::default(),
             last_time_block_requested: None,
             last_part_id_requested: Default::default(),
             requested_target: SizedCache::with_size(MAX_PENDING_PART as usize),
+            timeout: Duration::from_std(timeout).unwrap(),
         }
     }
 
@@ -514,8 +628,8 @@ impl StateSync {
             match self.last_time_block_requested {
                 None => (true, false),
                 Some(last_time) => {
-                    if now - last_time >= Duration::seconds(STATE_SYNC_TIMEOUT) {
-                        error!(target: "sync", "State sync: block request for {} timed out in {} seconds", prev_hash, STATE_SYNC_TIMEOUT);
+                    if now - last_time >= self.timeout {
+                        error!(target: "sync", "State sync: block request for {} timed out in {} seconds", prev_hash, self.timeout.num_seconds());
                         (true, false)
                     } else {
                         (false, false)
@@ -594,7 +708,7 @@ impl StateSync {
                     } else {
                         let prev = shard_sync_download.downloads[0].prev_update_time;
                         let error = shard_sync_download.downloads[0].error;
-                        download_timeout = now - prev > Duration::seconds(STATE_SYNC_TIMEOUT);
+                        download_timeout = now - prev > self.timeout;
                         if download_timeout || error {
                             shard_sync_download.downloads[0].run_me.store(true, Ordering::SeqCst);
                             shard_sync_download.downloads[0].error = false;
@@ -612,7 +726,7 @@ impl StateSync {
                             parts_done = false;
                             let prev = part_download.prev_update_time;
                             let error = part_download.error;
-                            let part_timeout = now - prev > Duration::seconds(STATE_SYNC_TIMEOUT);
+                            let part_timeout = now - prev > self.timeout;
                             if part_timeout || error {
                                 download_timeout |= part_timeout;
                                 part_download.run_me.store(true, Ordering::SeqCst);
@@ -665,7 +779,7 @@ impl StateSync {
             all_done &= this_done;
 
             if download_timeout {
-                warn!(target: "sync", "State sync didn't download the state for shard {} in {} seconds, sending StateRequest again", shard_id, STATE_SYNC_TIMEOUT);
+                warn!(target: "sync", "State sync didn't download the state for shard {} in {} seconds, sending StateRequest again", shard_id, self.timeout.num_seconds());
                 info!(target: "sync", "State sync status: me {:?}, sync_hash {}, phase {}",
                       me,
                       sync_hash,
@@ -742,12 +856,13 @@ impl StateSync {
     ) {
         self.requested_target.cache_set((part_id, sync_hash), target.clone());
 
+        let timeout = self.timeout;
         self.last_part_id_requested
             .entry((target, shard_id))
             .and_modify(|pending_request| {
                 pending_request.missing_parts += 1;
             })
-            .or_default();
+            .or_insert_with(|| PendingRequestStatus::new(timeout));
     }
 
     pub fn received_requested_part(
@@ -1216,10 +1331,13 @@ mod test {
                 PROTOCOL_VERSION,
                 &last_block.header(),
                 current_height,
-                last_block.header().block_ordinal() + 1,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                (last_block.header().block_ordinal() + 1),
                 last_block.chunks().iter().cloned().collect(),
                 epoch_id,
                 next_epoch_id,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                None,
                 approvals,
                 Ratio::new(0, 1),
                 0,

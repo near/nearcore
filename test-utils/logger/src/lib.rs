@@ -14,6 +14,7 @@ fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
     }
 
     let _ = tracing_subscriber::fmt::Subscriber::builder()
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
         .with_env_filter(env_filter)
         .with_writer(std::io::stderr)
         .try_init();

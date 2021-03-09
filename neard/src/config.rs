@@ -23,6 +23,7 @@ use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
@@ -33,7 +34,6 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_runtime_configs::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
 
 /// Initial balance used in tests.
@@ -288,6 +288,10 @@ fn default_header_sync_stall_ban_timeout() -> Duration {
     Duration::from_secs(120)
 }
 
+fn default_state_sync_timeout() -> Duration {
+    Duration::from_secs(60)
+}
+
 fn default_header_sync_expected_height_per_second() -> u64 {
     10
 }
@@ -310,6 +314,10 @@ fn default_view_client_threads() -> usize {
 
 fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
+}
+
+fn default_view_client_throttle_period() -> Duration {
+    Duration::from_secs(30)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -348,6 +356,9 @@ pub struct Consensus {
     /// How much time to wait before banning a peer in header sync if sync is too slow
     #[serde(default = "default_header_sync_stall_ban_timeout")]
     pub header_sync_stall_ban_timeout: Duration,
+    /// How much to wait for a state sync response before re-requesting
+    #[serde(default = "default_state_sync_timeout")]
+    pub state_sync_timeout: Duration,
     /// Expected increase of header head weight per second during header sync
     #[serde(default = "default_header_sync_expected_height_per_second")]
     pub header_sync_expected_height_per_second: u64,
@@ -380,6 +391,7 @@ impl Default for Consensus {
             header_sync_initial_timeout: default_header_sync_initial_timeout(),
             header_sync_progress_timeout: default_header_sync_progress_timeout(),
             header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
+            state_sync_timeout: default_state_sync_timeout(),
             header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
             ),
             sync_check_period: default_sync_check_period(),
@@ -411,6 +423,9 @@ pub struct Config {
     pub gc_blocks_limit: NumBlocks,
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
+    pub epoch_sync_enabled: bool,
+    #[serde(default = "default_view_client_throttle_period")]
+    pub view_client_throttle_period: Duration,
 }
 
 impl Default for Config {
@@ -431,7 +446,9 @@ impl Default for Config {
             archive: false,
             log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
-            view_client_threads: 4,
+            epoch_sync_enabled: true,
+            view_client_threads: default_view_client_threads(),
+            view_client_throttle_period: default_view_client_throttle_period(),
         }
     }
 }
@@ -577,6 +594,7 @@ impl NearConfig {
                 header_sync_expected_height_per_second: config
                     .consensus
                     .header_sync_expected_height_per_second,
+                state_sync_timeout: config.consensus.state_sync_timeout,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -597,6 +615,8 @@ impl NearConfig {
                 log_summary_style: config.log_summary_style,
                 gc_blocks_limit: config.gc_blocks_limit,
                 view_client_threads: config.view_client_threads,
+                epoch_sync_enabled: config.epoch_sync_enabled,
+                view_client_throttle_period: config.view_client_throttle_period,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -718,6 +738,10 @@ fn generate_validator_key(account_id: &str, path: &Path) {
     signer.write_to_file(path);
 }
 
+lazy_static_include::lazy_static_include_bytes! {
+    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
+}
+
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -750,11 +774,8 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // TODO: add download genesis for mainnet
-            let genesis: Genesis = serde_json::from_str(
-                &std::str::from_utf8(include_bytes!("../res/mainnet_genesis.json"))
-                    .expect("Failed to convert genesis file into string"),
-            )
-            .expect("Failed to deserialize MainNet genesis");
+            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
+                .expect("Failed to deserialize MainNet genesis");
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
@@ -1002,7 +1023,7 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
     let url = url.clone();
     let path = path.clone();
 
-    actix::System::builder().build().block_on(async move {
+    actix::System::new().block_on(async move {
         let client = actix_web::client::Client::new();
         let mut response =
             client.get(url).send().await.expect("Unable to download the genesis file");

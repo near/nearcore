@@ -146,6 +146,15 @@ extern "C" {
     // ###############
     fn validator_stake(account_id_len: u64, account_id_ptr: u64, stake_ptr: u64);
     fn validator_total_stake(stake_ptr: u64);
+    // #################
+    // # alt_bn128 API #
+    // #################
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
 }
 
 macro_rules! ext_test {
@@ -185,7 +194,6 @@ macro_rules! ext_test_u128 {
 ext_test_u64!(ext_storage_usage, storage_usage);
 ext_test_u64!(ext_block_index, block_index);
 ext_test_u64!(ext_block_timestamp, block_timestamp);
-ext_test_u64!(ext_used_gas, used_gas);
 ext_test_u64!(ext_prepaid_gas, prepaid_gas);
 
 ext_test!(ext_random_seed, random_seed);
@@ -208,6 +216,47 @@ pub unsafe fn ext_sha256() {
     let result = vec![0; register_len(0) as usize];
     read_register(0, result.as_ptr() as *const u64 as u64);
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
+}
+
+#[no_mangle]
+pub unsafe fn ext_used_gas() {
+    let initial_used_gas = used_gas();
+    let mut a = 1;
+    let mut b = 1;
+    for _ in 0..30 {
+        let c = a + b;
+        a = b;
+        b = c;
+    }
+    assert_eq!(a, 1346269);
+    let gas = used_gas() - initial_used_gas;
+    let result = gas.to_le_bytes();
+    value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
+}
+
+#[cfg(feature = "protocol_feature_alt_bn128")]
+#[no_mangle]
+pub unsafe fn ext_alt_bn128_g1_multiexp() {
+    input(0);
+    alt_bn128_g1_multiexp(u64::MAX, 0, 1);
+    value_return(u64::MAX, 1);
+}
+
+#[cfg(feature = "protocol_feature_alt_bn128")]
+#[no_mangle]
+pub unsafe fn ext_alt_bn128_g1_sum() {
+    input(0);
+    alt_bn128_g1_sum(u64::MAX, 0, 1);
+    value_return(u64::MAX, 1);
+}
+
+#[cfg(feature = "protocol_feature_alt_bn128")]
+#[no_mangle]
+pub unsafe fn ext_alt_bn128_pairing_check() {
+    input(0);
+    let res = alt_bn128_pairing_check(u64::MAX, 0);
+    let byte = [res as u8; 1];
+    value_return(1, byte.as_ptr() as _);
 }
 
 #[no_mangle]
@@ -502,12 +551,19 @@ pub unsafe fn recurse() {
     value_return(data.len() as u64, data.as_ptr() as u64);
 }
 
+/// Rust compiler is getting smarter and starts to optimize my deep recursion.
+/// We're going to fight it with a more obscure implementations.
 #[no_mangle]
 fn internal_recurse(n: u64) -> u64 {
     if n <= 1 {
         n
     } else {
-        internal_recurse(n - 1) + 1
+        let a = internal_recurse(n - 1) + 1;
+        if a % 2 == 1 {
+            (a + n) / 2
+        } else {
+            a
+        }
     }
 }
 

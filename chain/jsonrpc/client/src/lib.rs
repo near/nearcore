@@ -8,13 +8,13 @@ use serde::Serialize;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_jsonrpc_primitives::rpc::{
-    RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
+    RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    QueryResponse, StatusResponse, ValidatorStakeView,
+    StatusResponse, ValidatorStakeView,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,7 +41,7 @@ where
     // TODO: simplify this.
     client
         .post(server_addr)
-        .header("Content-Type", "application/json")
+        .insert_header(("Content-Type", "application/json"))
         .send_json(&request)
         .map_err(|err| RpcError::server_error(Some(format!("{:?}", err))))
         .and_then(|mut response| {
@@ -194,11 +194,18 @@ jsonrpc_client!(pub struct JsonRpcClient {
 impl JsonRpcClient {
     /// This is a soft-deprecated method to do query RPC request with a path and data positional
     /// parameters.
-    pub fn query_by_path(&self, path: String, data: String) -> RpcRequest<QueryResponse> {
+    pub fn query_by_path(
+        &self,
+        path: String,
+        data: String,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::query::RpcQueryResponse> {
         call_method(&self.client, &self.server_addr, "query", [path, data])
     }
 
-    pub fn query(&self, request: RpcQueryRequest) -> RpcRequest<QueryResponse> {
+    pub fn query(
+        &self,
+        request: near_jsonrpc_primitives::types::query::RpcQueryRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::query::RpcQueryResponse> {
         call_method(&self.client, &self.server_addr, "query", request)
     }
 
@@ -232,6 +239,14 @@ impl JsonRpcClient {
         request: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
     ) -> RpcRequest<near_jsonrpc_primitives::types::receipts::RpcReceiptResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_receipt", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_protocol_config(
+        &self,
+        request: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_protocol_config", request)
     }
 }
 

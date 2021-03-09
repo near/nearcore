@@ -547,7 +547,10 @@ def doit(s, n, N, k, monkeys, timeout):
     logging.info(monkey_names)
 
     for i in range(N + k + 1):
-        local_config_changes[i] = {"consensus": {"block_header_fetch_horizon": BLOCK_HEADER_FETCH_HORIZON}}
+        local_config_changes[i] = {
+            "consensus": {"block_header_fetch_horizon": BLOCK_HEADER_FETCH_HORIZON, "state_sync_timeout": {"secs": 5, "nanos": 0}},
+            "view_client_throttle_period": {"secs": 0, "nanos": 0}
+        }
     for i in range(N, N + k + 1):
         # make all the observers track all the shards
         local_config_changes[i]["tracked_shards"] = list(range(s))
