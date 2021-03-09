@@ -251,18 +251,16 @@ fn test_validator_kickout() {
                                                         .clone(),
                                                 },
                                             ))
-                                            .then(move |res| {
-                                                match res.unwrap().unwrap().unwrap().kind {
-                                                    QueryResponseKind::ViewAccount(result) => {
-                                                        if result.locked == 0
-                                                            || result.amount == TESTING_INIT_BALANCE
-                                                        {
-                                                            mark.store(true, Ordering::SeqCst);
-                                                        }
-                                                        future::ready(())
+                                            .then(move |res| match res.unwrap().unwrap().kind {
+                                                QueryResponseKind::ViewAccount(result) => {
+                                                    if result.locked == 0
+                                                        || result.amount == TESTING_INIT_BALANCE
+                                                    {
+                                                        mark.store(true, Ordering::SeqCst);
                                                     }
-                                                    _ => panic!("wrong return result"),
+                                                    future::ready(())
                                                 }
+                                                _ => panic!("wrong return result"),
                                             }),
                                     );
                                 }
@@ -280,23 +278,17 @@ fn test_validator_kickout() {
                                                         .clone(),
                                                 },
                                             ))
-                                            .then(move |res| {
-                                                match res.unwrap().unwrap().unwrap().kind {
-                                                    QueryResponseKind::ViewAccount(result) => {
-                                                        assert_eq!(
-                                                            result.locked,
-                                                            TESTING_INIT_STAKE
-                                                        );
-                                                        assert_eq!(
-                                                            result.amount,
-                                                            TESTING_INIT_BALANCE
-                                                                - TESTING_INIT_STAKE
-                                                        );
-                                                        mark.store(true, Ordering::SeqCst);
-                                                        future::ready(())
-                                                    }
-                                                    _ => panic!("wrong return result"),
+                                            .then(move |res| match res.unwrap().unwrap().kind {
+                                                QueryResponseKind::ViewAccount(result) => {
+                                                    assert_eq!(result.locked, TESTING_INIT_STAKE);
+                                                    assert_eq!(
+                                                        result.amount,
+                                                        TESTING_INIT_BALANCE - TESTING_INIT_STAKE
+                                                    );
+                                                    mark.store(true, Ordering::SeqCst);
+                                                    future::ready(())
                                                 }
+                                                _ => panic!("wrong return result"),
                                             }),
                                     );
                                 }
@@ -421,16 +413,14 @@ fn test_validator_join() {
                                                 account_id: test_nodes[1].account_id.clone(),
                                             },
                                         ))
-                                        .then(move |res| {
-                                            match res.unwrap().unwrap().unwrap().kind {
-                                                QueryResponseKind::ViewAccount(result) => {
-                                                    if result.locked == 0 {
-                                                        done1_copy2.store(true, Ordering::SeqCst);
-                                                    }
-                                                    future::ready(())
+                                        .then(move |res| match res.unwrap().unwrap().kind {
+                                            QueryResponseKind::ViewAccount(result) => {
+                                                if result.locked == 0 {
+                                                    done1_copy2.store(true, Ordering::SeqCst);
                                                 }
-                                                _ => panic!("wrong return result"),
+                                                future::ready(())
                                             }
+                                            _ => panic!("wrong return result"),
                                         }),
                                 );
                                 actix::spawn(
@@ -442,17 +432,15 @@ fn test_validator_join() {
                                                 account_id: test_nodes[2].account_id.clone(),
                                             },
                                         ))
-                                        .then(move |res| {
-                                            match res.unwrap().unwrap().unwrap().kind {
-                                                QueryResponseKind::ViewAccount(result) => {
-                                                    if result.locked == TESTING_INIT_STAKE {
-                                                        done2_copy2.store(true, Ordering::SeqCst);
-                                                    }
-
-                                                    future::ready(())
+                                        .then(move |res| match res.unwrap().unwrap().kind {
+                                            QueryResponseKind::ViewAccount(result) => {
+                                                if result.locked == TESTING_INIT_STAKE {
+                                                    done2_copy2.store(true, Ordering::SeqCst);
                                                 }
-                                                _ => panic!("wrong return result"),
+
+                                                future::ready(())
                                             }
+                                            _ => panic!("wrong return result"),
                                         }),
                                 );
                             }

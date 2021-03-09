@@ -22,7 +22,8 @@ use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
     GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
     GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError,
-    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, TxStatus, TxStatusError,
+    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
+    TxStatusError,
 };
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
@@ -193,15 +194,7 @@ impl ViewClientActor {
         }
     }
 
-    fn handle_query(&mut self, msg: Query) -> Result<Option<QueryResponse>, String> {
-        {
-            let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-            if let Some(response) = request_manager.query_responses.cache_remove(&msg.query_id) {
-                request_manager.query_requests.cache_remove(&msg.query_id);
-                return response.map(Some);
-            }
-        }
-
+    fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
         let header = match msg.block_reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_header_by_height(block_height)
@@ -210,22 +203,20 @@ impl ViewClientActor {
                 self.chain.get_block_header(&block_hash)
             }
             BlockReference::Finality(ref finality) => {
-                let block_hash =
-                    self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
+                let block_hash = self.get_block_hash_by_finality(&finality)?;
                 self.chain.get_block_header(&block_hash)
             }
             BlockReference::SyncCheckpoint(ref synchronization_checkpoint) => {
-                if let Some(block_hash) = self
-                    .get_block_hash_by_sync_checkpoint(&synchronization_checkpoint)
-                    .map_err(|e| e.to_string())?
+                if let Some(block_hash) =
+                    self.get_block_hash_by_sync_checkpoint(&synchronization_checkpoint)?
                 {
                     self.chain.get_block_header(&block_hash)
                 } else {
-                    return Err("There are no fully synchronized blocks yet".into());
+                    return Err(QueryError::NoSyncedBlocks);
                 }
             }
         };
-        let header = header.map_err(|e| e.to_string())?.clone();
+        let header = header?.clone();
 
         let account_id = match &msg.request {
             QueryRequest::ViewAccount { account_id, .. } => account_id,
@@ -237,49 +228,54 @@ impl ViewClientActor {
         };
         let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
 
-        // If we have state for the shard that we query return query result directly.
-        // Otherwise route query to peers.
-        match self.chain.get_chunk_extra(header.hash(), shard_id) {
-            Ok(chunk_extra) => {
-                let state_root = chunk_extra.state_root;
-                self.runtime_adapter
-                    .query(
-                        shard_id,
-                        &state_root,
-                        header.height(),
-                        header.raw_timestamp(),
-                        header.prev_hash(),
-                        header.hash(),
-                        header.epoch_id(),
-                        &msg.request,
-                    )
-                    .map(Some)
-                    .map_err(|e| e.to_string())
-            }
-            Err(e) => {
-                match e.kind() {
-                    ErrorKind::DBNotFoundErr(_) => {}
-                    _ => {
-                        warn!(target: "client", "Getting chunk extra failed: {}", e.to_string());
-                    }
-                }
-                // route request
-                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if Self::need_request(msg.query_id.clone(), &mut request_manager.query_requests) {
-                    let validator = self
-                        .chain
-                        .find_validator_for_forwarding(shard_id)
-                        .map_err(|e| e.to_string())?;
-                    self.network_adapter.do_send(NetworkRequests::Query {
-                        query_id: msg.query_id,
-                        account_id: validator,
-                        block_reference: msg.block_reference,
-                        request: msg.request,
-                    });
-                }
-
-                Ok(None)
-            }
+        let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id)?;
+        let state_root = chunk_extra.state_root;
+        match self.runtime_adapter.query(
+            shard_id,
+            &state_root,
+            header.height(),
+            header.raw_timestamp(),
+            header.prev_hash(),
+            header.hash(),
+            header.epoch_id(),
+            &msg.request,
+        ) {
+            Ok(query_response) => Ok(query_response),
+            Err(query_error) => Err(match query_error {
+                near_chain::near_chain_primitives::error::QueryError::InternalError {
+                    error_message,
+                    ..
+                } => QueryError::InternalError { error_message },
+                near_chain::near_chain_primitives::error::QueryError::InvalidAccount {
+                    requested_account_id,
+                    block_height,
+                    block_hash,
+                } => QueryError::InvalidAccount { requested_account_id, block_height, block_hash },
+                near_chain::near_chain_primitives::error::QueryError::UnknownAccount {
+                    requested_account_id,
+                    block_height,
+                    block_hash,
+                } => QueryError::UnknownAccount { requested_account_id, block_height, block_hash },
+                near_chain::near_chain_primitives::error::QueryError::NoContractCode {
+                    contract_account_id,
+                    block_height,
+                    block_hash,
+                } => QueryError::NoContractCode { contract_account_id, block_height, block_hash },
+                near_chain::near_chain_primitives::error::QueryError::UnknownAccessKey {
+                    public_key,
+                    block_height,
+                    block_hash,
+                } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
+                near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
+                    error_message,
+                    block_hash,
+                    block_height,
+                } => QueryError::ContractExecutionError {
+                    vm_error: error_message,
+                    block_height,
+                    block_hash,
+                },
+            }),
         }
     }
 
@@ -469,7 +465,7 @@ impl Actor for ViewClientActor {
 }
 
 impl Handler<Query> for ViewClientActor {
-    type Result = Result<Option<QueryResponse>, String>;
+    type Result = Result<QueryResponse, QueryError>;
 
     #[perf]
     fn handle(&mut self, msg: Query, _: &mut Self::Context) -> Self::Result {
@@ -942,25 +938,6 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
                 if request_manager.tx_status_requests.cache_remove(&tx_hash).is_some() {
                     request_manager.tx_status_response.cache_set(tx_hash, *tx_result);
-                }
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::Query { query_id, block_reference, request } => {
-                let query = Query { query_id: query_id.clone(), block_reference, request };
-                match self.handle_query(query) {
-                    Ok(Some(r)) => {
-                        NetworkViewClientResponses::QueryResponse { query_id, response: Ok(r) }
-                    }
-                    Ok(None) => NetworkViewClientResponses::NoResponse,
-                    Err(e) => {
-                        NetworkViewClientResponses::QueryResponse { query_id, response: Err(e) }
-                    }
-                }
-            }
-            NetworkViewClientMessages::QueryResponse { query_id, response } => {
-                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if request_manager.query_requests.cache_get(&query_id).is_some() {
-                    request_manager.query_responses.cache_set(query_id, response);
                 }
                 NetworkViewClientResponses::NoResponse
             }

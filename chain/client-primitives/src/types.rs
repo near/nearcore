@@ -267,7 +267,68 @@ impl Query {
 }
 
 impl Message for Query {
-    type Result = Result<Option<QueryResponse>, String>;
+    type Result = Result<QueryResponse, QueryError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum QueryError {
+    #[error("Internal error: {error_message}")]
+    InternalError { error_message: String },
+    #[error("There are no fully synchronized blocks on the node yet")]
+    NoSyncedBlocks,
+    #[error("The node does not track the shard ID {requested_shard_id}")]
+    UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
+    #[error("Account ID {requested_account_id} is invalid")]
+    InvalidAccount {
+        requested_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
+        "Account {requested_account_id} does not exist while viewing at block #{block_height}"
+    )]
+    UnknownAccount {
+        requested_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
+        "Contract code for contract ID {contract_account_id} has never been observed on the node at block #{block_height}"
+    )]
+    NoContractCode {
+        contract_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("Access key for public key {public_key} has never been observed on the node at block #{block_height}")]
+    UnknownAccessKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("Function call returned an error: {vm_error}")]
+    ContractExecutionError {
+        vm_error: String,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
+    Unreachable { error_message: String },
+}
+
+impl From<near_chain_primitives::Error> for QueryError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                Self::InternalError { error_message }
+            }
+            _ => Self::Unreachable { error_message: error.to_string() },
+        }
+    }
 }
 
 pub struct Status {

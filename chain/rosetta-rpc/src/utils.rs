@@ -313,37 +313,19 @@ pub(crate) async fn query_account(
         block_id,
         near_primitives::views::QueryRequest::ViewAccount { account_id },
     );
-    let account_info_response = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        loop {
-            match view_client_addr.send(query.clone()).await? {
-                Ok(Some(query_response)) => return Ok(query_response),
-                Ok(None) => {}
-                // TODO: update this once we return structured errors from the view_client handlers
-                Err(err) => {
-                    if err.contains("does not exist") {
-                        return Err(crate::errors::ErrorKind::NotFound(err));
-                    }
-                    return Err(crate::errors::ErrorKind::InternalError(err));
-                }
+    let account_info_response = match view_client_addr.send(query).await? {
+        Ok(query_response) => query_response,
+        Err(err) => match err {
+            near_client_primitives::types::QueryError::UnknownAccount { .. } => {
+                return Err(crate::errors::ErrorKind::NotFound(err.to_string()))
             }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-    })
-    .await??;
+            _ => return Err(crate::errors::ErrorKind::InternalError(err.to_string())),
+        },
+    };
 
     match account_info_response.kind {
         near_primitives::views::QueryResponseKind::ViewAccount(account_info) => {
             Ok((account_info_response.block_hash, account_info_response.block_height, account_info))
-        }
-        near_primitives::views::QueryResponseKind::Error(near_primitives::views::QueryError {
-            error,
-            ..
-        }) => {
-            if error.contains("does not exist") {
-                Err(crate::errors::ErrorKind::NotFound(error))
-            } else {
-                Err(crate::errors::ErrorKind::InternalError(error))
-            }
         }
         _ => Err(crate::errors::ErrorKind::InternalInvariantError(format!(
             "queried ViewAccount, but received {:?}.",
@@ -399,26 +381,18 @@ pub(crate) async fn query_access_key(
         block_id,
         near_primitives::views::QueryRequest::ViewAccessKey { account_id, public_key },
     );
-
-    let access_key_query_response =
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            loop {
-                match view_client_addr.send(access_key_query.clone()).await? {
-                    Ok(Some(query_response)) => return Ok(query_response),
-                    Ok(None) => {}
-                    // TODO: update this once we return structured errors in the
-                    // view_client handlers
-                    Err(err) => {
-                        if err.contains("does not exist") {
-                            return Err(crate::errors::ErrorKind::NotFound(err));
-                        }
-                        return Err(crate::errors::ErrorKind::InternalError(err));
-                    }
+    let access_key_query_response = match view_client_addr.send(access_key_query).await? {
+        Ok(query_response) => query_response,
+        Err(err) => {
+            return match err {
+                near_client_primitives::types::QueryError::UnknownAccount { .. }
+                | near_client_primitives::types::QueryError::UnknownAccessKey { .. } => {
+                    Err(crate::errors::ErrorKind::NotFound(err.to_string()))
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                _ => Err(crate::errors::ErrorKind::InternalError(err.to_string())),
             }
-        })
-        .await??;
+        }
+    };
 
     match access_key_query_response.kind {
         near_primitives::views::QueryResponseKind::AccessKey(access_key) => Ok((
@@ -426,16 +400,6 @@ pub(crate) async fn query_access_key(
             access_key_query_response.block_height,
             access_key,
         )),
-        near_primitives::views::QueryResponseKind::Error(near_primitives::views::QueryError {
-            error,
-            ..
-        }) => {
-            if error.contains("does not exist") {
-                Err(crate::errors::ErrorKind::NotFound(error))
-            } else {
-                Err(crate::errors::ErrorKind::InternalError(error))
-            }
-        }
         _ => Err(crate::errors::ErrorKind::InternalInvariantError(
             "queried ViewAccessKey, but received something else.".to_string(),
         )),

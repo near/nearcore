@@ -3050,7 +3050,9 @@ dependencies = [
  "failure",
  "failure_derive",
  "log",
+ "near-crypto",
  "near-primitives",
+ "thiserror",
 ]
 
 [[package]]
@@ -3115,6 +3117,7 @@ dependencies = [
  "strum",
  "sysinfo",
  "testlib",
+ "thiserror",
 ]
 
 [[package]]
@@ -3126,6 +3129,7 @@ dependencies = [
  "near-chain-configs",
  "near-chain-primitives",
  "near-chunks",
+ "near-crypto",
  "near-network",
  "near-primitives",
  "serde",
@@ -3288,11 +3292,14 @@ dependencies = [
  "lazy_static",
  "near-chain-configs",
  "near-client-primitives",
+ "near-crypto",
  "near-metrics",
  "near-primitives",
+ "near-primitives-core",
  "serde",
  "serde_json",
  "thiserror",
+ "tracing",
  "uuid",
 ]
 
@@ -3463,6 +3470,7 @@ dependencies = [
  "lazy_static",
  "near-chain-configs",
  "near-client",
+ "near-client-primitives",
  "near-crypto",
  "near-network",
  "near-primitives",
@@ -3699,6 +3707,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "thiserror",
  "tracing",
  "tracing-subscriber",
 ]
@@ -3749,6 +3758,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "thiserror",
 ]
 
 [[package]]
@@ -5524,6 +5534,7 @@ dependencies = [
  "near-evm-runner",
  "near-jsonrpc",
  "near-jsonrpc-client",
+ "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-network",
  "near-primitives",
