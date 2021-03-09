@@ -22,7 +22,6 @@ use near_store::{
 
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::VerificationResult;
-use near_primitives::account::AccessKey;
 use near_primitives::checked_feature;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::types::BlockHeight;
@@ -79,7 +78,7 @@ pub fn verify_and_charge_transaction(
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
     verify_signature: bool,
-    block_height: Option<BlockHeight>,
+    #[allow(unused)] block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
@@ -125,7 +124,10 @@ pub fn verify_and_charge_transaction(
         current_protocol_version,
         {
             if let Some(height) = block_height {
-                if transaction.nonce > height * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER {
+                if transaction.nonce
+                    > height
+                        * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER
+                {
                     return Err(InvalidTxError::InvalidNonce {
                         tx_nonce: transaction.nonce,
                         ak_nonce: access_key.nonce,

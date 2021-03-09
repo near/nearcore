@@ -521,7 +521,8 @@ pub(crate) fn action_add_key(
         apply_state.current_protocol_version,
         {
             let mut access_key = add_key.access_key.clone();
-            access_key.nonce = (apply_state.block_index - 1) * 1_000_000;
+            access_key.nonce = (apply_state.block_index - 1)
+                * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
             set_access_key(
                 state_update,
                 account_id.clone(),

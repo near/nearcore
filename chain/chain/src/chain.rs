@@ -2465,6 +2465,7 @@ pub struct ChainUpdate<'a> {
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
     genesis: &'a Block,
+    #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
 }
 
