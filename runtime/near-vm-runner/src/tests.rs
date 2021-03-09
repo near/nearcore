@@ -6,6 +6,7 @@ mod ts_contract;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use near_primitives::profile::ProfileData;
 use wabt::Wat2Wasm;
 
 use crate::run_vm;
@@ -84,6 +85,7 @@ fn make_simple_contract_call_with_gas_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
+        ProfileData::new_disabled(),
     )
 }
 
@@ -128,5 +130,6 @@ fn make_cached_contract_call_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         Some(cache),
+        ProfileData::new_disabled(),
     )
 }

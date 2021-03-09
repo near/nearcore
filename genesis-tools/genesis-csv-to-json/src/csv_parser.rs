@@ -353,8 +353,10 @@ mod tests {
 
     #[test]
     fn test_res_file() {
-        let res = include_bytes!("../res/test_accounts.csv");
-        keys_to_state_records(&res[..], 1).unwrap();
+        lazy_static_include::lazy_static_include_bytes! {
+            RES => "res/test_accounts.csv"
+        }
+        keys_to_state_records(&RES[..], 1).unwrap();
     }
 
     #[test]

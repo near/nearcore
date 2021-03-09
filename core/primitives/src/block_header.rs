@@ -130,8 +130,6 @@ pub struct BlockHeaderInnerRestV3 {
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
-    /// The ordinal of the Block on the Canonical Chain
-    pub block_ordinal: NumBlocks,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -141,6 +139,9 @@ pub struct BlockHeaderInnerRestV3 {
     pub last_final_block: CryptoHash,
     /// Last block that has doomslug finality
     pub last_ds_final_block: CryptoHash,
+
+    /// The ordinal of the Block on the Canonical Chain
+    pub block_ordinal: NumBlocks,
 
     pub prev_height: BlockHeight,
 

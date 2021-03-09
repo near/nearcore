@@ -316,6 +316,10 @@ fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
 }
 
+fn default_view_client_throttle_period() -> Duration {
+    Duration::from_secs(30)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -420,6 +424,8 @@ pub struct Config {
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
     pub epoch_sync_enabled: bool,
+    #[serde(default = "default_view_client_throttle_period")]
+    pub view_client_throttle_period: Duration,
 }
 
 impl Default for Config {
@@ -440,8 +446,9 @@ impl Default for Config {
             archive: false,
             log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
-            view_client_threads: 4,
             epoch_sync_enabled: true,
+            view_client_threads: default_view_client_threads(),
+            view_client_throttle_period: default_view_client_throttle_period(),
         }
     }
 }
@@ -609,6 +616,7 @@ impl NearConfig {
                 gc_blocks_limit: config.gc_blocks_limit,
                 view_client_threads: config.view_client_threads,
                 epoch_sync_enabled: config.epoch_sync_enabled,
+                view_client_throttle_period: config.view_client_throttle_period,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -730,6 +738,10 @@ fn generate_validator_key(account_id: &str, path: &Path) {
     signer.write_to_file(path);
 }
 
+lazy_static_include::lazy_static_include_bytes! {
+    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
+}
+
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -762,11 +774,8 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // TODO: add download genesis for mainnet
-            let genesis: Genesis = serde_json::from_str(
-                &std::str::from_utf8(include_bytes!("../res/mainnet_genesis.json"))
-                    .expect("Failed to convert genesis file into string"),
-            )
-            .expect("Failed to deserialize MainNet genesis");
+            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
+                .expect("Failed to deserialize MainNet genesis");
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }

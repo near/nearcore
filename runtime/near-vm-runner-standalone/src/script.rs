@@ -7,7 +7,7 @@ use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
-use near_vm_runner::{run_vm_profiled, MockCompiledContractCache, VMError};
+use near_vm_runner::{run_vm, MockCompiledContractCache, VMError};
 
 use crate::State;
 
@@ -115,7 +115,7 @@ impl Script {
         let mut outcomes = Vec::new();
         for step in &self.steps {
             for _ in 0..step.repeat {
-                let res = run_vm_profiled(
+                let res = run_vm(
                     vec![],
                     &self.contracts[step.contract.0],
                     &step.method,
@@ -125,9 +125,9 @@ impl Script {
                     &RuntimeFeesConfig::default(),
                     &step.promise_results,
                     self.vm_kind,
-                    self.profile.clone(),
                     self.protocol_version,
                     self.contract_cache.as_deref(),
+                    self.profile.clone(),
                 );
                 outcomes.push(res);
             }
