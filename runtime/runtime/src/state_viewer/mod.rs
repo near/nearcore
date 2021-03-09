@@ -329,7 +329,7 @@ mod tests {
 
         let err = result.unwrap_err();
         assert!(
-            err.to_string().contains(r#"Contract ID "bad!contract" is not valid"#),
+            err.to_string().contains(r#"Account ID "bad!contract" is invalid"#),
             format!("Got different error that doesn't match: {}", err)
         );
     }

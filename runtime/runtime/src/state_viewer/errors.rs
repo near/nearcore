@@ -1,6 +1,6 @@
 #[derive(thiserror::Error, Debug)]
 pub enum ViewAccountError {
-    #[error("Account ID #{requested_account_id} is invalid")]
+    #[error("Account ID \"{requested_account_id}\" is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Account ID #{requested_account_id} does not exist")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
@@ -10,7 +10,7 @@ pub enum ViewAccountError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum ViewContractCodeError {
-    #[error("Account ID #{requested_account_id} is invalid")]
+    #[error("Account ID \"{requested_account_id}\" is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Account ID #{requested_account_id} does not exist")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
@@ -22,7 +22,7 @@ pub enum ViewContractCodeError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum ViewAccessKeyError {
-    #[error("Account ID #{requested_account_id} is invalid")]
+    #[error("Account ID \"{requested_account_id}\" is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Access key for public key #{public_key} does not exist")]
     AccessKeyDoesNotExist { public_key: near_crypto::PublicKey },
@@ -32,7 +32,7 @@ pub enum ViewAccessKeyError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum ViewStateError {
-    #[error("Account ID #{requested_account_id} is invalid")]
+    #[error("Account ID \"{requested_account_id}\" is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
@@ -40,7 +40,7 @@ pub enum ViewStateError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum CallFunctionError {
-    #[error("Account ID #{requested_account_id} is invalid")]
+    #[error("Account ID \"{requested_account_id}\" is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Account ID #{requested_account_id} does not exist")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
