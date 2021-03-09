@@ -536,6 +536,8 @@ pub fn migrate_17_to_18(path: &String) {
         pub latest_protocol_version: ProtocolVersion,
         pub slashed: Vec<SlashedValidator>,
         pub total_supply: Balance,
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        pub timestamp_nanosec: u64,
     }
     #[derive(BorshSerialize)]
     struct NewBlockInfo {
@@ -551,6 +553,8 @@ pub fn migrate_17_to_18(path: &String) {
         pub latest_protocol_version: ProtocolVersion,
         pub slashed: Vec<SlashedValidator>,
         pub total_supply: Balance,
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        pub timestamp_nanosec: u64,
     }
     let store = create_store(path);
     map_col_from_key(&store, DBCol::ColBlockInfo, |key| {
@@ -570,6 +574,8 @@ pub fn migrate_17_to_18(path: &String) {
             latest_protocol_version: old_block_info.latest_protocol_version,
             slashed: old_block_info.slashed,
             total_supply: old_block_info.total_supply,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            timestamp_nanosec: old_block_info.timestamp_nanosec,
         }
     })
     .unwrap();

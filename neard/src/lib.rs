@@ -184,15 +184,19 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         let store = create_store(&path);
         set_store_version(&store, 17);
     }
-    if db_version <= 17 {
-        info!(target: "near", "Migrate DB from version 17 to 18");
-        // version 17 => 18: add `hash` to `BlockInfo` and ColHeaderHashesByHeight
-        migrate_17_to_18(&path);
-    }
     #[cfg(feature = "protocol_feature_rectify_inflation")]
     if db_version <= 18 {
         // version 18 => rectify inflation: add `timestamp` to `BlockInfo`
         migrate_18_to_rectify_inflation(&path);
+    }
+    // Due to `protocol_feature_rectify_inflation` is enabled in Betanet,
+    // the order of migrations is different.
+    // TODO Bowen: fix the order of migrations after `protocol_feature_rectify_inflation`
+    // is enabled in Mainnet
+    if db_version <= 17 {
+        info!(target: "near", "Migrate DB from version 17 to 18");
+        // version 17 => 18: add `hash` to `BlockInfo` and ColHeaderHashesByHeight
+        migrate_17_to_18(&path);
     }
     #[cfg(feature = "nightly_protocol")]
     {
