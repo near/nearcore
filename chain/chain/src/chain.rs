@@ -294,11 +294,13 @@ impl Chain {
                     for chunk in genesis_chunks {
                         store_update.save_chunk(chunk.clone());
                     }
-                    runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
-                        &genesis.header(),
-                        // genesis height is considered final
-                        chain_genesis.height,
-                    ))?;
+                    store_update.merge(runtime_adapter.add_validator_proposals(
+                        BlockHeaderInfo::new(
+                            &genesis.header(),
+                            // genesis height is considered final
+                            chain_genesis.height,
+                        ),
+                    )?);
                     store_update.save_block_header(genesis.header().clone())?;
                     store_update.save_block(genesis.clone());
                     store_update.save_block_extra(
@@ -807,13 +809,15 @@ impl Chain {
 
                 chain_update.validate_header(header, &Provenance::SYNC, on_challenge)?;
                 chain_update.chain_store_update.save_block_header(header.clone())?;
-                chain_update.commit()?;
 
                 // Add validator proposals for given header.
-                self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
-                    &header,
-                    self.store.get_block_height(&header.last_final_block())?,
-                ))?;
+                let last_finalized_height =
+                    chain_update.chain_store_update.get_block_height(&header.last_final_block())?;
+                let epoch_manager_update = chain_update.runtime_adapter.add_validator_proposals(
+                    BlockHeaderInfo::new(&header, last_finalized_height),
+                )?;
+                chain_update.chain_store_update.merge(epoch_manager_update);
+                chain_update.commit()?;
             }
         }
 
@@ -3052,10 +3056,11 @@ impl<'a> ChainUpdate<'a> {
         } else {
             self.chain_store_update.get_block_header(last_final_block)?.height()
         };
-        self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
-            &block.header(),
-            last_finalized_height,
-        ))?;
+
+        let epoch_manager_update = self.runtime_adapter.add_validator_proposals(
+            BlockHeaderInfo::new(&block.header(), last_finalized_height),
+        )?;
+        self.chain_store_update.merge(epoch_manager_update);
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
