@@ -63,6 +63,10 @@ near-chain = { path = "./chain/chain" }
 
 node-runtime = { path = "./runtime/runtime" }
 
+near-vm-logic = { path = "./runtime/near-vm-logic" }
+near-vm-errors = { path = "./runtime/near-vm-errors" }
+near-vm-runner = { path = "./runtime/near-vm-runner" }
+
 near-jsonrpc = { path = "./chain/jsonrpc" }
 near-network = { path = "./chain/network" }
 
