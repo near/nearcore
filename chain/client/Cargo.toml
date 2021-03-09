@@ -23,6 +23,7 @@ borsh = "0.8.1"
 reed-solomon-erasure = "4"
 num-rational = "0.3"
 linked-hash-map = "0.5.3"
+thiserror = "1.0"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

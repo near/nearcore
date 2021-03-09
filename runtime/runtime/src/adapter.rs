@@ -15,14 +15,14 @@ pub trait ViewRuntimeAdapter {
         shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Account, Box<dyn std::error::Error>>;
+    ) -> Result<Account, crate::state_viewer::errors::ViewAccountError>;
 
     fn view_contract_code(
         &self,
         shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<ContractCode, Box<dyn std::error::Error>>;
+    ) -> Result<ContractCode, crate::state_viewer::errors::ViewContractCodeError>;
 
     fn call_function(
         &self,
@@ -41,7 +41,7 @@ pub trait ViewRuntimeAdapter {
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
         #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u64,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<u8>, crate::state_viewer::errors::CallFunctionError>;
 
     fn view_access_key(
         &self,
@@ -49,14 +49,14 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<AccessKey, Box<dyn std::error::Error>>;
+    ) -> Result<AccessKey, crate::state_viewer::errors::ViewAccessKeyError>;
 
     fn view_access_keys(
         &self,
         shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<(PublicKey, AccessKey)>, crate::state_viewer::errors::ViewAccessKeyError>;
 
     fn view_state(
         &self,
@@ -64,5 +64,5 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
-    ) -> Result<ViewStateResult, Box<dyn std::error::Error>>;
+    ) -> Result<ViewStateResult, crate::state_viewer::errors::ViewStateError>;
 }
