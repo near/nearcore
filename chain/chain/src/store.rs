@@ -2309,7 +2309,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         // The invariant is that ColOutgoingReceipts has same receipts as ColReceiptIdToShardId.
                     }
                     _ => {
-                        log::error!(target: "chain", "Error getting outgoing receipts for block {}, shard {}: {:?}", block_hash, shard_id, error);
+                        tracing::error!(target: "chain", "Error getting outgoing receipts for block {}, shard {}: {:?}", block_hash, shard_id, error);
                     }
                 }
             }
