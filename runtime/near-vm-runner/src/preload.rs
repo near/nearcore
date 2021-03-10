@@ -38,8 +38,7 @@ pub struct ContractCallPrepareRequest {
 
 #[derive(Clone)]
 pub struct ContractCallPrepareResult {
-    pub handle: Option<usize>,
-    pub error: Option<VMError>,
+    handle: usize,
 }
 
 pub struct ContractCaller {
@@ -67,7 +66,7 @@ impl ContractCaller {
                 let tx = tx.clone();
                 move || prepare_in_thread(request, vm_kind, tx)
             });
-            result.push(ContractCallPrepareResult { handle: Some(index), error: None });
+            result.push(ContractCallPrepareResult { handle: index });
         }
         result
     }
@@ -84,13 +83,8 @@ impl ContractCaller {
         current_protocol_version: ProtocolVersion,
         profile: ProfileData,
     ) -> (Option<VMOutcome>, Option<VMError>) {
-        match &prepared.error {
-            Some(error) => return (None, Some(error.clone())),
-            _ => {}
-        }
-        match prepared.handle {
-            Some(handle) => {
-                let call = self.prepared.get(handle).unwrap();
+        match self.prepared.get(prepared.handle) {
+            Some(call) => {
                 let call_data = call.rx.recv().unwrap();
                 match call_data.result {
                     Err(err) => (None, Some(err)),
