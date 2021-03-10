@@ -129,7 +129,7 @@ fn prepare_in_thread(request: ContractCallPrepareRequest, vm_kind: VMKind, tx: S
             &request.vm_config,
             cache,
         )
-        .map(|module| VMModule::Wasmer0(module)),
+        .map(VMModule::Wasmer0),
         _ => panic!("Unsupported VM"),
     };
     tx.send(VMCallData { result }).unwrap();
