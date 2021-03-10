@@ -3021,7 +3021,6 @@ dependencies = [
  "failure",
  "failure_derive",
  "lazy_static",
- "log",
  "near-chain-configs",
  "near-chain-primitives",
  "near-crypto",
