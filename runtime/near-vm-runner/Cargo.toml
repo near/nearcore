@@ -30,6 +30,7 @@ near-primitives = { path = "../../core/primitives" }
 near-evm-runner = { path = "../near-evm-runner", optional = true }
 cached = "0.23.0"
 tracing = { version = "0.1", default-features = false }
+threadpool = "1.8.1"
 
 [dev-dependencies]
 assert_matches = "1.3"
