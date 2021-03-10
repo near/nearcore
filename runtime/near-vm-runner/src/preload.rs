@@ -92,7 +92,7 @@ impl ContractCaller {
             Some(handle) => {
                 let call = self.prepared.get(handle).unwrap();
                 let call_data = call.rx.recv().unwrap();
-                return match call_data.result {
+                match call_data.result {
                     Err(err) => (None, Some(err)),
                     Ok(module) => match module {
                         Wasmer0(module) => run_wasmer_module(
@@ -107,7 +107,7 @@ impl ContractCaller {
                             current_protocol_version,
                         ),
                     },
-                };
+                }
             }
             None => panic!("Must be valid"),
         }
