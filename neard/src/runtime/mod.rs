@@ -1652,9 +1652,7 @@ mod test {
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::runtime::config::RuntimeConfig;
-    use near_primitives::transaction::{
-        Action, CreateAccountAction, DeleteAccountAction, StakeAction,
-    };
+    use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_primitives::views::{
@@ -1994,20 +1992,13 @@ mod test {
         assert_eq!(account.locked, 2 * TESTING_INIT_STAKE);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5);
 
-        // NOTE: The Runtime doesn't take invalid transactions anymore (e.g. one with a bad nonce),
-        // because they should be filtered before producing the chunk.
-        // Send invalid transaction to see if the rollback of the state affects the validator rewards.
-        let invalid_transaction = SignedTransaction::from_actions(
-            1,
-            new_validator.validator_id().clone(),
-            new_validator.validator_id().clone(),
+        let stake_transaction = stake(
+            (env.head.height + 1) * 1_000_000,
             &new_signer,
-            vec![Action::CreateAccount(CreateAccountAction {})],
-            // runtime does not validate block history
-            CryptoHash::default(),
+            &new_validator,
+            TESTING_INIT_STAKE * 2,
         );
-        let stake_transaction = stake(2, &new_signer, &new_validator, TESTING_INIT_STAKE * 2);
-        env.step_default(vec![invalid_transaction, stake_transaction]);
+        env.step_default(vec![stake_transaction]);
         env.step_default(vec![]);
 
         // Roll steps for 3 epochs to pass.
