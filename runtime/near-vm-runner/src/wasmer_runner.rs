@@ -246,7 +246,11 @@ pub fn run_wasmer<'a>(
         return (None, Some(e));
     }
 
-    match module.instantiate(&import_object) {
+    let instantiate = {
+        let _span = tracing::info_span!("run_wasmer/instantiate").entered();
+        module.instantiate(&import_object)
+    };
+    match instantiate {
         Ok(instance) => {
             let _span = tracing::info_span!("run_wasmer/call").entered();
 
