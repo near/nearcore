@@ -69,4 +69,11 @@ protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "near-chain-configs/protocol_feature_evm",
                         "node-runtime/protocol_feature_evm",
                         "near-primitives/protocol_feature_evm",
-                        "testlib/protocol_feature_evm"]
+                        "testlib/protocol_feature_evm",
+                        "crypto_extras"]
+crypto_extras = ["ripemd160", "blake2b", "ecrecover"]
+
+# cryptography extras
+ripemd160 = []
+blake2b = []
+ecrecover = []

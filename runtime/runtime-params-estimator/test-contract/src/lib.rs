@@ -47,8 +47,11 @@ extern "C" {
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "ripemd160")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "blake2b")]
     fn blake2b(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "ecrecover")]
     fn ecrecover(hash_ptr: u64, v: u32, r_ptr: u64, s_ptr: u64, register_id: u64);
     // #####################
     // # Miscellaneous API #
@@ -432,6 +435,7 @@ pub unsafe fn keccak512_10kib_10k() {
 // so we are okay overcharging it.
 // Compute ripemd160 on 10b 10k times.
 #[no_mangle]
+#[cfg(feature = "ripemd160")]
 pub unsafe fn ripemd160_10b_10k() {
     let buffer = [65u8; 10];
     for _ in 0..10_000 {
@@ -443,6 +447,7 @@ pub unsafe fn ripemd160_10b_10k() {
 // so we are okay overcharging it.
 // Compute ripemd160 on 10kib 10k times.
 #[no_mangle]
+#[cfg(feature = "ripemd160")]
 pub unsafe fn ripemd160_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
@@ -455,6 +460,7 @@ pub unsafe fn ripemd160_10kib_10k() {
 // so we are okay overcharging it.
 // Compute blake2b on 10b 10k times.
 #[no_mangle]
+#[cfg(feature = "blake2b")]
 pub unsafe fn blake2b_10b_10k() {
     let buffer = [65u8; 10];
     for _ in 0..10_000 {
@@ -466,6 +472,7 @@ pub unsafe fn blake2b_10b_10k() {
 // so we are okay overcharging it.
 // Compute blake2b on 10kib 10k times.
 #[no_mangle]
+#[cfg(feature = "blake2b")]
 pub unsafe fn blake2b_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
@@ -478,6 +485,7 @@ pub unsafe fn blake2b_10kib_10k() {
 // so we are okay overcharging it.
 // Compute ecrecover 10k times.
 #[no_mangle]
+#[cfg(feature = "ecrecover")]
 pub unsafe fn ecrecover_10k() {
     let hash = [0u8; 32];
     let signature = [0u8; 65];

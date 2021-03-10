@@ -224,16 +224,21 @@ pub struct ExtCostsConfig {
     pub keccak512_byte: Gas,
 
     /// Cost of getting ripemd160 base
+    #[cfg(feature = "ripemd160")]
     pub ripemd160_base: Gas,
     /// Cost of getting ripemd160 per byte
+    #[cfg(feature = "ripemd160")]
     pub ripemd160_byte: Gas,
 
     /// Cost of getting blake2b base
+    #[cfg(feature = "blake2b")]
     pub blake2b_base: Gas,
     /// Cost of getting blake2b per byte
+    #[cfg(feature = "blake2b")]
     pub blake2b_byte: Gas,
 
     /// Cost of calling ecrecover
+    #[cfg(feature = "ecrecover")]
     pub ecrecover_base: Gas,
 
     /// Cost for calling logging.
@@ -366,10 +371,15 @@ impl Default for ExtCostsConfig {
             keccak256_byte: SAFETY_MULTIPLIER * 7157035,
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
             keccak512_byte: SAFETY_MULTIPLIER * 12216567,
+            #[cfg(feature = "ripemd160")]
             ripemd160_base: SAFETY_MULTIPLIER * 1513656750, // TODO
+            #[cfg(feature = "ripemd160")]
             ripemd160_byte: SAFETY_MULTIPLIER * 8039117,    // TODO
+            #[cfg(feature = "blake2b")]
             blake2b_base: SAFETY_MULTIPLIER * 1513656750,   // TODO
+            #[cfg(feature = "blake2b")]
             blake2b_byte: SAFETY_MULTIPLIER * 8039117,      // TODO
+            #[cfg(feature = "ecrecover")]
             ecrecover_base: SAFETY_MULTIPLIER * 1000000000, // TODO
             log_base: SAFETY_MULTIPLIER * 1181104350,
             log_byte: SAFETY_MULTIPLIER * 4399597,
@@ -441,10 +451,15 @@ impl ExtCostsConfig {
             keccak256_byte: 0,
             keccak512_base: 0,
             keccak512_byte: 0,
+            #[cfg(feature = "ripemd160")]
             ripemd160_base: 0,
+            #[cfg(feature = "ripemd160")]
             ripemd160_byte: 0,
+            #[cfg(feature = "blake2b")]
             blake2b_base: 0,
+            #[cfg(feature = "blake2b")]
             blake2b_byte: 0,
+            #[cfg(feature = "ecrecover")]
             ecrecover_base: 0,
             log_base: 0,
             log_byte: 0,
@@ -517,10 +532,15 @@ pub enum ExtCosts {
     keccak256_byte,
     keccak512_base,
     keccak512_byte,
+    #[cfg(feature = "ripemd160")]
     ripemd160_base,
+    #[cfg(feature = "ripemd160")]
     ripemd160_byte,
+    #[cfg(feature = "blake2b")]
     blake2b_base,
+    #[cfg(feature = "blake2b")]
     blake2b_byte,
+    #[cfg(feature = "ecrecover")]
     ecrecover_base,
     log_base,
     log_byte,
@@ -646,10 +666,15 @@ impl ExtCosts {
             keccak256_byte => config.keccak256_byte,
             keccak512_base => config.keccak512_base,
             keccak512_byte => config.keccak512_byte,
+            #[cfg(feature = "ripemd160")]
             ripemd160_base => config.ripemd160_base,
+            #[cfg(feature = "ripemd160")]
             ripemd160_byte => config.ripemd160_byte,
+            #[cfg(feature = "blake2b")]
             blake2b_base => config.blake2b_base,
+            #[cfg(feature = "blake2b")]
             blake2b_byte => config.blake2b_byte,
+            #[cfg(feature = "ecrecover")]
             ecrecover_base => config.ecrecover_base,
             log_base => config.log_base,
             log_byte => config.log_byte,

@@ -532,6 +532,7 @@ fn test_keccak512() {
 }
 
 #[test]
+#[cfg(feature = "ripemd160")]
 fn test_ripemd160() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
@@ -561,6 +562,7 @@ fn test_ripemd160() {
 }
 
 #[test]
+#[cfg(feature = "blake2b")]
 fn test_blake2b() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
@@ -595,6 +597,7 @@ fn test_blake2b() {
 }
 
 #[test]
+#[cfg(feature = "ecrecover")]
 fn test_ecrecover() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));

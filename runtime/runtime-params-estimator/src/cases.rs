@@ -621,6 +621,28 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         data_receipt_100kib_1000 => data_receipt_100kib_1000
     };
 
+        v.append(&mut ripemd_v);
+    }
+
+    #[cfg(feature = "blake2b")]
+    {
+        let mut blake2b_v = calls_helper! {
+            blake2b_10b_10k => blake2b_10b_10k,
+            blake2b_10kib_10k => blake2b_10kib_10k
+        };
+
+        v.append(&mut blake2b_v);
+    }
+
+    #[cfg(feature = "ecrecover")]
+    {
+        let mut ecrecover_v = calls_helper! {
+           ecrecover_10k => ecrecover_10k
+        };
+
+        v.append(&mut ecrecover_v);
+    }
+
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
         testbed = measure_function(
@@ -774,10 +796,15 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
         keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
         keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
+        #[cfg(feature = "ripemd160")]
         ripemd160_base: measured_to_gas(metric, &measured, ripemd160_base),
+        #[cfg(feature = "ripemd160")]
         ripemd160_byte: measured_to_gas(metric, &measured, ripemd160_byte),
+        #[cfg(feature = "blake2b")]
         blake2b_base: measured_to_gas(metric, &measured, blake2b_base),
+        #[cfg(feature = "blake2b")]
         blake2b_byte: measured_to_gas(metric, &measured, blake2b_byte),
+        #[cfg(feature = "ecrecover")]
         ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
         log_base: measured_to_gas(metric, &measured, log_base),
         log_byte: measured_to_gas(metric, &measured, log_byte),

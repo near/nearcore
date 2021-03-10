@@ -65,12 +65,17 @@ impl ExtCostsGenerator {
         self.extract(keccak512_10b_10k, keccak512_base);
         self.extract(keccak512_10kib_10k, keccak512_byte);
 
+        #[cfg(ripemod160)]
         self.extract(ripemd160_10b_10k, ripemd160_base);
+        #[cfg(ripemod160)]
         self.extract(ripemd160_10kib_10k, ripemd160_byte);
 
+        #[cfg(feature = "blake2b")]
         self.extract(blake2b_10b_10k, blake2b_base);
+        #[cfg(feature = "blake2b")]
         self.extract(blake2b_10kib_10k, blake2b_byte);
 
+        #[cfg(feature = "ecrecover")]
         self.extract(ecrecover_10k, ecrecover_base);
 
         #[cfg(feature = "protocol_feature_alt_bn128")]
