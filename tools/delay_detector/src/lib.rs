@@ -1,7 +1,6 @@
 use cpu_time::ProcessTime;
 use log::{info, warn};
 use std::borrow::Cow;
-use std::cmp::Reverse;
 use std::time::{Duration, Instant};
 
 struct Snapshot {
