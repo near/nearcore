@@ -7,8 +7,9 @@ use near_vm_errors::{
 };
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
-use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
+use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store};
 use wasmer_compiler_singlepass::Singlepass;
+use wasmer_engine_native::Native;
 
 pub struct Wasmer1Memory(Memory);
 
@@ -173,7 +174,7 @@ pub fn run_wasmer1<'a>(
         );
     }
 
-    let engine = JIT::new(Singlepass::default()).engine();
+    let engine = Native::new(Singlepass::default()).engine();
     let store = Store::new(&engine);
     let module = match cache::wasmer1_cache::compile_module_cached_wasmer1(
         code_hash,
@@ -240,7 +241,7 @@ fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Resu
 }
 
 pub fn compile_module(code: &[u8]) -> bool {
-    let engine = JIT::new(Singlepass::default()).engine();
+    let engine = Native::new(Singlepass::default()).engine();
     let store = Store::new(&engine);
     Module::new(&store, code).is_ok()
 }
