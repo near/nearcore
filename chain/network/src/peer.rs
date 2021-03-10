@@ -382,12 +382,6 @@ impl Peer {
             PeerMessage::Routed(message) => {
                 msg_hash = Some(message.hash());
                 match message.body {
-                    RoutedMessageBody::QueryRequest { query_id, block_reference, request } => {
-                        NetworkViewClientMessages::Query { query_id, block_reference, request }
-                    }
-                    RoutedMessageBody::QueryResponse { query_id, response } => {
-                        NetworkViewClientMessages::QueryResponse { query_id, response }
-                    }
                     RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
                         NetworkViewClientMessages::TxStatus {
                             tx_hash,

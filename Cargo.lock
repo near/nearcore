@@ -1007,6 +1007,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea221b5284a47e40033bf9b66f35f984ec0ea2931eb03505246cd27a963f981b"
 
 [[package]]
+name = "cpu-time"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9e393a7668fe1fad3075085b86c781883000b4ede868f43627b34a87c8b7ded"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "cpuid-bool"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1394,6 +1404,7 @@ dependencies = [
 name = "delay-detector"
 version = "0.1.0"
 dependencies = [
+ "cpu-time",
  "log",
 ]
 
@@ -3050,7 +3061,9 @@ dependencies = [
  "failure",
  "failure_derive",
  "log",
+ "near-crypto",
  "near-primitives",
+ "thiserror",
 ]
 
 [[package]]
@@ -3115,6 +3128,7 @@ dependencies = [
  "strum",
  "sysinfo",
  "testlib",
+ "thiserror",
 ]
 
 [[package]]
@@ -3126,6 +3140,7 @@ dependencies = [
  "near-chain-configs",
  "near-chain-primitives",
  "near-chunks",
+ "near-crypto",
  "near-network",
  "near-primitives",
  "serde",
@@ -3288,11 +3303,14 @@ dependencies = [
  "lazy_static",
  "near-chain-configs",
  "near-client-primitives",
+ "near-crypto",
  "near-metrics",
  "near-primitives",
+ "near-primitives-core",
  "serde",
  "serde_json",
  "thiserror",
+ "tracing",
  "uuid",
 ]
 
@@ -3463,6 +3481,7 @@ dependencies = [
  "lazy_static",
  "near-chain-configs",
  "near-client",
+ "near-client-primitives",
  "near-crypto",
  "near-network",
  "near-primitives",
@@ -3699,6 +3718,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "thiserror",
  "tracing",
  "tracing-subscriber",
 ]
@@ -3749,6 +3769,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "thiserror",
 ]
 
 [[package]]
@@ -5524,6 +5545,7 @@ dependencies = [
  "near-evm-runner",
  "near-jsonrpc",
  "near-jsonrpc-client",
+ "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-network",
  "near-primitives",
