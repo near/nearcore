@@ -53,7 +53,7 @@ impl ContractCaller {
     }
 
     pub fn preload(
-        self: &mut ContractCaller,
+        &mut self,
         requests: Vec<ContractCallPrepareRequest>,
         vm_kind: VMKind,
     ) -> Vec<ContractCallPrepareResult> {
