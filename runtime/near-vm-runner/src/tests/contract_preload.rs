@@ -1,7 +1,7 @@
+use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError};
 use near_primitives::hash::hash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
-use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError};
 
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::types::CompiledContractCache;
@@ -13,10 +13,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
-const TEST_CONTRACT_1: &'static [u8] =
-    include_bytes!("../../tests/res/test_contract_rs.wasm");
-const TEST_CONTRACT_2: &'static [u8] =
-    include_bytes!("../../tests/res/test_contract_ts.wasm");
+const TEST_CONTRACT_1: &'static [u8] = include_bytes!("../../tests/res/test_contract_rs.wasm");
+const TEST_CONTRACT_2: &'static [u8] = include_bytes!("../../tests/res/test_contract_ts.wasm");
 
 fn default_vm_context() -> VMContext {
     return VMContext {
