@@ -62,10 +62,10 @@ impl ContractCaller {
             let index = self.prepared.len();
             let (tx, rx) = channel();
             self.prepared.push(CallInner { rx });
-            let copy_request = request.clone();
-            let tx = tx.clone();
-            self.pool.execute(move || {
-                prepare_in_thread(copy_request, vm_kind, tx);
+            self.pool.execute({
+                let request = request.clone();
+                let tx = tx.clone();
+                move || prepare_in_thread(request, vm_kind, tx)
             });
             result.push(ContractCallPrepareResult { handle: Some(index), error: None });
         }
