@@ -15,9 +15,9 @@ use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
-    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomeIds, ColStateHeaders,
-    ColTransactionResult, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, FORK_TAIL_KEY,
-    HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
+    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColHeaderHashesByHeight, ColOutcomeIds,
+    ColStateHeaders, ColTransactionResult, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY,
+    FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -292,6 +292,42 @@ pub(crate) fn chunk_indexed_by_height_created(
     if !chunk_hashes.contains(&shard_chunk.chunk_hash()) {
         err!("Can't find ShardChunk {:?} on Height {:?}", shard_chunk, height);
     }
+    Ok(())
+}
+
+pub(crate) fn header_hash_indexed_by_height(
+    sv: &mut StoreValidator,
+    _hash: &CryptoHash,
+    header: &BlockHeader,
+) -> Result<(), StoreValidatorError> {
+    let height = header.height();
+    let _hashes = match sv
+        .store
+        .get_ser::<HashSet<CryptoHash>>(ColHeaderHashesByHeight, &index_to_bytes(height))
+    {
+        Ok(hashes) => hashes,
+        Err(e) => err!("Storage error, {:?}", e),
+    };
+    // TODO #3488: enable
+    // This check is disabled because currently we can accept Headers that below chunk_tail.
+    // It creates a mess which records for ColHeaderHashesByHeight exist.
+    // It will be resolved after #3488 is introduced by migration
+    // that is removing Block Headers forcibly from the DB.
+
+    /*if height < sv.inner.chunk_tail {
+        // The data must be GCed
+        if hashes.is_some() {
+            err!(
+                "ColHeaderHashesByHeight should be GCed, however for height {:?}, values {:?}",
+                height,
+                hashes
+            )
+        }
+    } else {
+        if hashes.is_none() || !hashes.unwrap().contains(&header.hash()) {
+            err!("Can't find Header {:?} on Height {:?}", header, height);
+        }
+    }*/
     Ok(())
 }
 
@@ -571,6 +607,22 @@ pub(crate) fn chunk_of_height_exists(
             "Invalid ShardChunk {:?} stored",
             shard_chunk
         );
+    }
+    Ok(())
+}
+
+pub(crate) fn header_hash_of_height_exists(
+    sv: &mut StoreValidator,
+    height: &BlockHeight,
+    header_hashes: &HashSet<CryptoHash>,
+) -> Result<(), StoreValidatorError> {
+    for hash in header_hashes {
+        let header = unwrap_or_err_db!(
+            sv.store.get_ser::<BlockHeader>(ColBlockHeader, hash.as_ref()),
+            "Can't get Header from storage with Hash {:?}",
+            hash
+        );
+        check_discrepancy!(header.height(), *height, "Invalid Header {:?} stored", header);
     }
     Ok(())
 }

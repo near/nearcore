@@ -294,11 +294,13 @@ impl Chain {
                     for chunk in genesis_chunks {
                         store_update.save_chunk(chunk.clone());
                     }
-                    runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
-                        &genesis.header(),
-                        // genesis height is considered final
-                        chain_genesis.height,
-                    ))?;
+                    store_update.merge(runtime_adapter.add_validator_proposals(
+                        BlockHeaderInfo::new(
+                            &genesis.header(),
+                            // genesis height is considered final
+                            chain_genesis.height,
+                        ),
+                    )?);
                     store_update.save_block_header(genesis.header().clone())?;
                     store_update.save_block(genesis.clone());
                     store_update.save_block_extra(
@@ -807,13 +809,15 @@ impl Chain {
 
                 chain_update.validate_header(header, &Provenance::SYNC, on_challenge)?;
                 chain_update.chain_store_update.save_block_header(header.clone())?;
-                chain_update.commit()?;
 
                 // Add validator proposals for given header.
-                self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
-                    &header,
-                    self.store.get_block_height(&header.last_final_block())?,
-                ))?;
+                let last_finalized_height =
+                    chain_update.chain_store_update.get_block_height(&header.last_final_block())?;
+                let epoch_manager_update = chain_update.runtime_adapter.add_validator_proposals(
+                    BlockHeaderInfo::new(&header, last_finalized_height),
+                )?;
+                chain_update.chain_store_update.merge(epoch_manager_update);
+                chain_update.commit()?;
             }
         }
 
@@ -915,19 +919,15 @@ impl Chain {
         let mut chain_store_update = self.mut_store().store_update();
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
-        chain_store_update.clear_chunk_data(chunk_height)?;
+        chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
 
         // clear all trie data
-        let keys: Vec<Vec<u8>> =
-            self.store().store().iter_prefix(ColState, &[]).map(|kv| kv.0.into()).collect();
+
         let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
         let mut store_update = StoreUpdate::new_with_tries(tries);
-        for key in keys.iter() {
-            store_update.delete(ColState, key.as_ref());
-            chain_store_update.inc_gc_col_state();
-        }
+        store_update.delete_all(ColState);
         chain_store_update.merge(store_update);
 
         // The reason to reset tail here is not to allow Tail be greater than Head
@@ -1113,10 +1113,10 @@ impl Chain {
                             block_hash, missing_chunks,
                         );
                     }
-                    ErrorKind::EpochOutOfBounds => {
+                    ErrorKind::EpochOutOfBounds(ref epoch_id) => {
                         // Possibly block arrived before we finished processing all of the blocks for epoch before last.
                         // Or someone is attacking with invalid chain.
-                        debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block_height, block.hash());
+                        debug!(target: "chain", "Received block {}/{} ignored, as epoch {:?} is unknown", block_height, block.hash(), epoch_id);
                     }
                     ErrorKind::Unfit(ref msg) => {
                         debug!(
@@ -1741,14 +1741,17 @@ impl Chain {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk_height_included();
         let state_root = shard_state_header.chunk_prev_state_root();
-        let mut parts = vec![];
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            parts.push(self.store.owned_store().get(ColStateParts, &key)?.unwrap());
+            let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
+            self.runtime_adapter.apply_state_part(
+                shard_id,
+                &state_root,
+                part_id,
+                num_parts,
+                &part,
+            )?;
         }
-
-        // Confirm that state matches the parts we received
-        self.runtime_adapter.confirm_state(shard_id, &state_root, &parts)?;
 
         // Applying the chunk starts here
         let mut chain_update = self.chain_update();
@@ -2909,7 +2912,7 @@ impl<'a> ChainUpdate<'a> {
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
         if !self.runtime_adapter.epoch_exists(&block.header().epoch_id()) {
-            return Err(ErrorKind::EpochOutOfBounds.into());
+            return Err(ErrorKind::EpochOutOfBounds(block.header().epoch_id().clone()).into());
         }
 
         // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
@@ -3053,10 +3056,11 @@ impl<'a> ChainUpdate<'a> {
         } else {
             self.chain_store_update.get_block_header(last_final_block)?.height()
         };
-        self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
-            &block.header(),
-            last_finalized_height,
-        ))?;
+
+        let epoch_manager_update = self.runtime_adapter.add_validator_proposals(
+            BlockHeaderInfo::new(&block.header(), last_finalized_height),
+        )?;
+        self.chain_store_update.merge(epoch_manager_update);
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
@@ -3069,7 +3073,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Update the chain head if it's the new tip
-        let res = self.update_head(block)?;
+        let res = self.update_head(block.header())?;
 
         if res.is_some() {
             // On the epoch switch record the epoch light client block
@@ -3337,11 +3341,11 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    fn update_final_head_from_block(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    fn update_final_head_from_block(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         let final_head = self.chain_store_update.final_head()?;
         let last_final_block_header =
-            match self.chain_store_update.get_block_header(block.header().last_final_block()) {
-                Ok(header) => header,
+            match self.chain_store_update.get_block_header(header.last_final_block()) {
+                Ok(final_header) => final_header,
                 Err(e) => match e.kind() {
                     ErrorKind::DBNotFoundErr(_) => return Ok(None),
                     _ => return Err(e),
@@ -3358,13 +3362,13 @@ impl<'a> ChainUpdate<'a> {
 
     /// Directly updates the head if we've just appended a new block to it or handle
     /// the situation where the block has higher height to have a fork
-    fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    fn update_head(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         // if we made a fork with higher height than the head (which should also be true
         // when extending the head), update it
-        self.update_final_head_from_block(block)?;
+        self.update_final_head_from_block(header)?;
         let head = self.chain_store_update.head()?;
-        if block.header().height() > head.height {
-            let tip = Tip::from_header(&block.header());
+        if header.height() > head.height {
+            let tip = Tip::from_header(header);
 
             self.chain_store_update.save_body_head(&tip)?;
             near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);

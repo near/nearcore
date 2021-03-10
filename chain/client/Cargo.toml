@@ -6,7 +6,8 @@ edition = "2018"
 
 [dependencies]
 ansi_term = "0.12"
-actix = "0.11.0-beta.1"
+actix = "0.11.0-beta.2"
+actix-rt = "2"
 futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
 log = "0.4"
@@ -22,6 +23,7 @@ borsh = "0.8.1"
 reed-solomon-erasure = "4"
 num-rational = "0.3"
 linked-hash-map = "0.5.3"
+thiserror = "1.0"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
@@ -41,8 +43,10 @@ delay-detector = { path = "../../tools/delay_detector", optional = true }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
+near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 testlib = { path = "../../test-utils/testlib" }
 neard = { path = "../../neard" }
+lazy-static-include = "3"
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.

@@ -2,7 +2,7 @@ use log::warn;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::stats_enabled::{get_entry, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
+use crate::stats_enabled::{get_thread_stats_logger, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
 
 use near_rust_allocator_proxy::allocator::get_tid;
 
@@ -11,7 +11,7 @@ where
     F: futures::Future<Output = ()> + 'static,
 {
     *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
-    actix_rt::spawn(MyFuture { f, class_name, file, line });
+    actix::spawn(MyFuture { f, class_name, file, line });
 }
 
 pub fn run_later<F, A, B>(
@@ -28,7 +28,7 @@ where
 {
     *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
     let f2 = move |a: &mut A, b: &mut A::Context| {
-        let stat = get_entry();
+        let stat = get_thread_stats_logger();
         let now = Instant::now();
         stat.lock().unwrap().pre_log(now);
 

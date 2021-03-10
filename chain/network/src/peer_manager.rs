@@ -7,7 +7,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::{Duration, Instant};
 
-use actix::io::FramedWrite;
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, SyncContext, WrapFuture,
@@ -47,6 +46,7 @@ use crate::types::{
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
+use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use rand::thread_rng;
 
@@ -441,7 +441,7 @@ impl PeerManagerActor {
         let peer_counter = self.peer_counter.clone();
         peer_counter.fetch_add(1, Ordering::SeqCst);
 
-        Peer::start_in_arbiter(&arbiter, move |ctx| {
+        Peer::start_in_arbiter(&arbiter.handle(), move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
@@ -463,7 +463,7 @@ impl PeerManagerActor {
                 remote_addr,
                 peer_info,
                 peer_type,
-                FramedWrite::new(write, Codec::new(), ctx),
+                FramedWrite::new(write, Codec::new(), Codec::new(), ctx),
                 handshake_timeout,
                 recipient,
                 client_addr,
@@ -1307,6 +1307,24 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            NetworkRequests::EpochSyncRequest { peer_id, epoch_id } => {
+                if self.send_message(ctx, peer_id, PeerMessage::EpochSyncRequest(epoch_id)) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            NetworkRequests::EpochSyncFinalizationRequest { peer_id, epoch_id } => {
+                if self.send_message(
+                    ctx,
+                    peer_id,
+                    PeerMessage::EpochSyncFinalizationRequest(epoch_id),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 self.try_ban_peer(ctx, &peer_id, ban_reason);
                 NetworkResponses::NoResponse
@@ -1449,7 +1467,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::Sync { peer_id, sync_data } => {
                 // Process edges and add new edges to the routing table. Also broadcast new edges.
-                let SyncData { edges, accounts } = sync_data;
+                let SyncData { mut edges, accounts } = sync_data;
+                edges.retain(|edge| {
+                    match self.routing_table.get_edge(edge.peer0.clone(), edge.peer1.clone()) {
+                        // only consider edges with bigger nonce
+                        Some(cur_edge) => cur_edge.nonce < edge.nonce,
+                        None => true,
+                    }
+                });
 
                 self.edge_verifier_pool.send(EdgeList(edges.clone()))
                     .into_actor(self)

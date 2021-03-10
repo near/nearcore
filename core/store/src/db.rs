@@ -18,7 +18,6 @@ use near_primitives::version::DbVersion;
 
 use crate::db::refcount::merge_refcounted_records;
 
-pub(crate) mod migration_utils;
 pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
 
@@ -114,10 +113,14 @@ pub enum DBCol {
     ColReceipts = 45,
     /// Precompiled machine code of the contract
     ColCachedContractCode = 46,
+    /// Epoch validator information used for rpc purposes
+    ColEpochValidatorInfo = 47,
+    /// Header Hashes indexed by Height
+    ColHeaderHashesByHeight = 48,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 47;
+pub const NUM_COLS: usize = 49;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -169,6 +172,8 @@ impl std::fmt::Display for DBCol {
             Self::ColProcessedBlockHeights => "processed block heights",
             Self::ColReceipts => "receipts",
             Self::ColCachedContractCode => "cached code",
+            Self::ColEpochValidatorInfo => "epoch validator info",
+            Self::ColHeaderHashesByHeight => "header hashes indexed by their height",
         };
         write!(formatter, "{}", desc)
     }
@@ -186,6 +191,7 @@ lazy_static! {
         let mut col_gc = vec![true; NUM_COLS];
         col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
         col_gc[DBCol::ColBlockMisc as usize] = false;
+        // TODO #3488 remove
         col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
         col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
         col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
@@ -198,6 +204,7 @@ lazy_static! {
         col_gc[DBCol::ColComponentEdges as usize] = false;
         col_gc[DBCol::ColBlockOrdinal as usize] = false;
         col_gc[DBCol::ColEpochInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+        col_gc[DBCol::ColEpochValidatorInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
         col_gc[DBCol::ColEpochStart as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
         col_gc[DBCol::ColCachedContractCode as usize] = false;
         col_gc
@@ -249,6 +256,7 @@ pub enum DBOp {
     Insert { col: DBCol, key: Vec<u8>, value: Vec<u8> },
     UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
     Delete { col: DBCol, key: Vec<u8> },
+    DeleteAll { col: DBCol },
 }
 
 impl DBTransaction {
@@ -275,6 +283,10 @@ impl DBTransaction {
 
     pub fn delete<K: AsRef<[u8]>>(&mut self, col: DBCol, key: K) {
         self.ops.push(DBOp::Delete { col, key: key.as_ref().to_owned() });
+    }
+
+    pub fn delete_all(&mut self, col: DBCol) {
+        self.ops.push(DBOp::DeleteAll { col });
     }
 }
 
@@ -381,6 +393,17 @@ impl Database for RocksDB {
                 DBOp::Delete { col, key } => unsafe {
                     batch.delete_cf(&*self.cfs[col as usize], key);
                 },
+                DBOp::DeleteAll { col } => {
+                    let cf_handle = unsafe { &*self.cfs[col as usize] };
+                    let opt_first = self.db.iterator_cf(cf_handle, IteratorMode::Start).next();
+                    let opt_last = self.db.iterator_cf(cf_handle, IteratorMode::End).next();
+                    assert_eq!(opt_first.is_some(), opt_last.is_some());
+                    if let (Some((min_key, _)), Some((max_key, _))) = (opt_first, opt_last) {
+                        batch.delete_range_cf(cf_handle, &min_key, &max_key);
+                        // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
+                        batch.delete_cf(cf_handle, max_key)
+                    }
+                }
             }
         }
         Ok(self.db.write(batch)?)
@@ -428,17 +451,22 @@ impl Database for TestDB {
         let mut db = self.db.write().unwrap();
         for op in transaction.ops {
             match op {
-                DBOp::Insert { col, key, value } => db[col as usize].insert(key, value),
+                DBOp::Insert { col, key, value } => {
+                    db[col as usize].insert(key, value);
+                }
                 DBOp::UpdateRefcount { col, key, value } => {
                     let mut val = db[col as usize].get(&key).cloned().unwrap_or_default();
                     merge_refcounted_records(&mut val, &value);
                     if val.len() != 0 {
-                        db[col as usize].insert(key, val)
+                        db[col as usize].insert(key, val);
                     } else {
-                        db[col as usize].remove(&key)
+                        db[col as usize].remove(&key);
                     }
                 }
-                DBOp::Delete { col, key } => db[col as usize].remove(&key),
+                DBOp::Delete { col, key } => {
+                    db[col as usize].remove(&key);
+                }
+                DBOp::DeleteAll { col } => db[col as usize].clear(),
             };
         }
         Ok(())
@@ -597,6 +625,27 @@ mod tests {
                 self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
             Ok(result)
         }
+    }
+
+    #[test]
+    fn test_clear_column() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
+        let store = create_store(tmp_dir.path().to_str().unwrap());
+        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        {
+            let mut store_update = store.store_update();
+            store_update.update_refcount(ColState, &[1], &[1], 1);
+            store_update.update_refcount(ColState, &[2], &[2], 1);
+            store_update.update_refcount(ColState, &[3], &[3], 1);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1]));
+        {
+            let mut store_update = store.store_update();
+            store_update.delete_all(ColState);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
     }
 
     #[test]

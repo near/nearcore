@@ -3,7 +3,7 @@ use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde_json::json;
 
 use near_chain_configs::GenesisConfig;
-use near_client::test_utils::setup_no_network_with_validity_period;
+use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_network::test_utils::open_port;
@@ -22,15 +22,15 @@ pub enum NodeType {
 }
 
 pub fn start_all(node_type: NodeType) -> (Addr<ViewClientActor>, String) {
-    start_all_with_validity_period(node_type, 100, false)
+    start_all_with_validity_period_and_no_epoch_sync(node_type, 100, false)
 }
 
-pub fn start_all_with_validity_period(
+pub fn start_all_with_validity_period_and_no_epoch_sync(
     node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> (Addr<ViewClientActor>, String) {
-    let (client_addr, view_client_addr) = setup_no_network_with_validity_period(
+    let (client_addr, view_client_addr) = setup_no_network_with_validity_period_and_no_epoch_sync(
         vec!["test1", "test2"],
         if let NodeType::Validator = node_type { "test1" } else { "other" },
         true,
@@ -54,19 +54,16 @@ macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
-        System::builder()
-            .stop_on_panic(true)
-            .run(|| {
-                let (_view_client_addr, addr) = test_utils::start_all($node_type);
+        near_actix_test_utils::run_actix_until_stop(async {
+            let (_view_client_addr, addr) = test_utils::start_all($node_type);
 
-                let $client = new_client(&format!("http://{}", addr));
+            let $client = new_client(&format!("http://{}", addr));
 
-                actix::spawn(async move {
-                    $block.await;
-                    System::current().stop();
-                });
-            })
-            .unwrap();
+            actix::spawn(async move {
+                $block.await;
+                System::current().stop();
+            });
+        });
     };
 }
 
@@ -91,7 +88,7 @@ where
     // TODO: simplify this.
     client
         .post(server_addr)
-        .header("Content-Type", "application/json")
+        .insert_header(("Content-Type", "application/json"))
         .send_json(&request)
         .map_err(|err| {
             near_jsonrpc_primitives::errors::RpcError::server_error(Some(format!("{:?}", err)))

@@ -692,7 +692,7 @@ pub enum EpochError {
     /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
     ThresholdError { stake_sum: Balance, num_seats: u64 },
     /// Requesting validators for an epoch that wasn't computed yet.
-    EpochOutOfBounds,
+    EpochOutOfBounds(EpochId),
     /// Missing block hash in the storage (means there is some structural issue).
     MissingBlock(CryptoHash),
     /// Error due to IO (DB read/write, serialization, etc.).
@@ -711,7 +711,9 @@ impl Display for EpochError {
                 "Total stake {} must be higher than the number of seats {}",
                 stake_sum, num_seats
             ),
-            EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
+            EpochError::EpochOutOfBounds(epoch_id) => {
+                write!(f, "Epoch {:?} is out of bounds", epoch_id)
+            }
             EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
             EpochError::IOErr(err) => write!(f, "IO: {}", err),
             EpochError::NotAValidator(account_id, epoch_id) => {
@@ -727,7 +729,7 @@ impl Debug for EpochError {
             EpochError::ThresholdError { stake_sum, num_seats } => {
                 write!(f, "ThresholdError({}, {})", stake_sum, num_seats)
             }
-            EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
+            EpochError::EpochOutOfBounds(epoch_id) => write!(f, "EpochOutOfBounds({:?})", epoch_id),
             EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
             EpochError::IOErr(err) => write!(f, "IOErr({})", err),
             EpochError::NotAValidator(account_id, epoch_id) => {

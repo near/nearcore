@@ -4,17 +4,18 @@ use actix::{Actor, System};
 use futures::{future, FutureExt};
 use serde_json::json;
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
-use near_jsonrpc_primitives::rpc::RpcQueryRequest;
 use near_jsonrpc_primitives::rpc::RpcValidatorsOrderedRequest;
+use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::QueryRequest;
 
 #[macro_use]
 pub mod test_utils;
@@ -160,21 +161,21 @@ fn test_query_account() {
         let status = client.status().await.unwrap();
         let block_hash = status.sync_info.latest_block_hash;
         let query_response_1 = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
         let query_response_2 = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::BlockId(BlockId::Height(0)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
         let query_response_3 = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
@@ -223,7 +224,7 @@ fn test_query_by_path_access_keys() {
 fn test_query_access_keys() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKeyList { account_id: "test".to_string() },
             })
@@ -269,7 +270,7 @@ fn test_query_by_path_access_key() {
 fn test_query_access_key() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "test".to_string(),
@@ -296,7 +297,7 @@ fn test_query_access_key() {
 fn test_query_state() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewState {
                     account_id: "test".to_string(),
@@ -320,7 +321,7 @@ fn test_query_state() {
 fn test_query_call_function() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::CallFunction {
                     account_id: "test".to_string(),
@@ -349,7 +350,7 @@ fn test_query_call_function() {
 fn test_query_contract_code() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewCode { account_id: "test".to_string() },
             })
@@ -382,27 +383,24 @@ fn test_status() {
 fn test_status_fail() {
     init_test_logger();
 
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
+    run_actix_until_stop(async {
+        let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
-            let client = new_client(&format!("http://{}", addr));
-            WaitOrTimeout::new(
-                Box::new(move |_| {
-                    actix::spawn(client.health().then(|res| {
-                        if res.is_err() {
-                            System::current().stop();
-                        }
-                        future::ready(())
-                    }));
-                }),
-                100,
-                10000,
-            )
-            .start();
-        })
-        .unwrap();
+        let client = new_client(&format!("http://{}", addr));
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                actix::spawn(client.health().then(|res| {
+                    if res.is_err() {
+                        System::current().stop();
+                    }
+                    future::ready(())
+                }));
+            }),
+            100,
+            10000,
+        )
+        .start();
+    });
 }
 
 /// Check health fails when node is absent.
@@ -410,17 +408,14 @@ fn test_status_fail() {
 fn test_health_fail() {
     init_test_logger();
 
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let client = new_client(&"http://127.0.0.1:12322/health");
-            actix::spawn(client.health().then(|res| {
-                assert!(res.is_err());
-                System::current().stop();
-                future::ready(())
-            }));
-        })
-        .unwrap();
+    run_actix_until_stop(async {
+        let client = new_client(&"http://127.0.0.1:12322/health");
+        actix::spawn(client.health().then(|res| {
+            assert!(res.is_err());
+            System::current().stop();
+            future::ready(())
+        }));
+    });
 }
 
 /// Health fails when node doesn't produce block for period of time.
@@ -428,27 +423,24 @@ fn test_health_fail() {
 fn test_health_fail_no_blocks() {
     init_test_logger();
 
-    System::builder()
-        .stop_on_panic(true)
-        .run(|| {
-            let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
+    run_actix_until_stop(async {
+        let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
-            let client = new_client(&format!("http://{}", addr));
-            WaitOrTimeout::new(
-                Box::new(move |_| {
-                    actix::spawn(client.health().then(|res| {
-                        if res.is_err() {
-                            System::current().stop();
-                        }
-                        future::ready(())
-                    }));
-                }),
-                300,
-                10000,
-            )
-            .start();
-        })
-        .unwrap();
+        let client = new_client(&format!("http://{}", addr));
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                actix::spawn(client.health().then(|res| {
+                    if res.is_err() {
+                        System::current().stop();
+                    }
+                    future::ready(())
+                }));
+            }),
+            300,
+            10000,
+        )
+        .start();
+    });
 }
 
 /// Retrieve client health.
@@ -544,7 +536,7 @@ fn test_invalid_methods() {
             let response = &mut client
                 .client
                 .post(&client.server_addr)
-                .header("Content-Type", "application/json")
+                .insert_header(("Content-Type", "application/json"))
                 .send_json(&json)
                 .await
                 .unwrap();
@@ -567,7 +559,7 @@ fn test_invalid_methods() {
 fn test_query_view_account_non_existing_account_must_return_error() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccount { account_id: "invalidaccount".to_string() },
             })
@@ -586,7 +578,7 @@ fn test_query_view_account_non_existing_account_must_return_error() {
 fn test_view_access_key_non_existing_account_id_and_public_key_must_return_error() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "\u{0}\u{0}\u{0}\u{0}\u{0}9".to_string(),
@@ -608,7 +600,7 @@ fn test_view_access_key_non_existing_account_id_and_public_key_must_return_error
 fn test_call_function_non_existing_account_method_name() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::CallFunction {
                     method_name:
@@ -633,7 +625,7 @@ fn test_call_function_non_existing_account_method_name() {
 fn test_view_access_key_list_non_existing_account() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKeyList {
                     account_id: "\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0},".to_string(),
@@ -654,7 +646,7 @@ fn test_view_access_key_list_non_existing_account() {
 fn test_view_state_non_existing_account_invalid_prefix() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
-            .query(RpcQueryRequest {
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewState {
                     account_id: "\u{0}\u{0}\u{0}\u{0}\u{0}\u{4}\u{0}\u{0}\u{0}\u{8}\u{0}\u{0}\u{0}\u{0}\u{0}eeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string(),

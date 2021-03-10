@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix = "0.11.0-beta.1"
+actix = "0.11.0-beta.2"
 chrono = { version = "0.4.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 strum = { version = "0.20", features = ["derive"] }
@@ -17,6 +17,7 @@ near-chain-primitives = { path = "../chain-primitives" }
 near-chain-configs = { path = "../../core/chain-configs" }
 
 near-chunks = { path = "../chunks" }
+near-crypto = { path = "../../core/crypto" }
 near-network = { path = "../network" }
 near-primitives = { path = "../../core/primitives" }
 

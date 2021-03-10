@@ -93,12 +93,13 @@ impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
             near_client_primitives::types::GetChunkError::UnknownChunk(hash) => {
                 Self::UnknownChunk(hash)
             }
-            near_client_primitives::types::GetChunkError::Unreachable(s) => {
+            near_client_primitives::types::GetChunkError::Unreachable(error_message) => {
+                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcChunkError", &s],
+                    &["RpcChunkError", &error_message],
                 );
-                Self::Unreachable(s)
+                Self::Unreachable(error_message)
             }
         }
     }

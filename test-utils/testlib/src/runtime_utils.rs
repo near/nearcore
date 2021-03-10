@@ -33,11 +33,12 @@ pub fn default_code_hash() -> CryptoHash {
     hash(&genesis_wasm)
 }
 
-const DEFAULT_TEST_CONTRACT: &[u8] =
-    include_bytes!("../../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
-
 lazy_static::lazy_static! {
     static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(&DEFAULT_TEST_CONTRACT);
+}
+
+lazy_static_include::lazy_static_include_bytes! {
+    DEFAULT_TEST_CONTRACT => "../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm"
 }
 
 pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {

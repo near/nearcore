@@ -6,18 +6,20 @@
 //! ```
 //! Optional `--context-file=/tmp/context.json --config-file=/tmp/config.json` could be added
 //! to provide custom context and VM config.
+mod script;
+mod tracing_timings;
+
+use crate::script::Script;
 use clap::{App, Arg};
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
-use near_vm_logic::profile::ProfileData;
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
-use near_vm_runner::{run_vm, run_vm_profiled, VMError};
+use near_vm_logic::mocks::mock_external::Receipt;
+use near_vm_logic::{VMKind, VMOutcome};
+use near_vm_runner::VMError;
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeMap,
     {Deserialize, Deserializer, Serialize, Serializer},
 };
+use std::path::Path;
 use std::{collections::HashMap, fmt, fs};
 
 #[derive(Debug, Clone)]
@@ -70,27 +72,6 @@ struct StandaloneOutput {
     pub state: State,
 }
 
-fn default_vm_context() -> VMContext {
-    return VMContext {
-        current_account_id: "alice".to_string(),
-        signer_account_id: "bob".to_string(),
-        signer_account_pk: vec![0, 1, 2],
-        predecessor_account_id: "carol".to_string(),
-        input: vec![],
-        block_index: 1,
-        block_timestamp: 1586796191203000000,
-        account_balance: 10u128.pow(25),
-        account_locked_balance: 0,
-        storage_usage: 100,
-        attached_deposit: 0,
-        prepaid_gas: 10u64.pow(18),
-        random_seed: vec![0, 1, 2],
-        is_view: false,
-        output_data_receivers: vec![],
-        epoch_height: 1,
-    };
-}
-
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
@@ -122,7 +103,8 @@ fn main() {
                 .long("method-name")
                 .value_name("METHOD_NAME")
                 .help("The name of the method to call on the smart contract.")
-                .takes_value(true),
+                .takes_value(true)
+                .required(true),
         )
         .arg(
             Arg::with_name("state")
@@ -160,19 +142,26 @@ fn main() {
                 .long("wasm-file")
                 .value_name("WASM_FILE")
                 .help("File path that contains the Wasm code to run.")
-                .takes_value(true),
+                .takes_value(true)
+                .required(true),
         )
         .arg(
             Arg::with_name("vm-kind")
                 .long("vm-kind")
                 .value_name("VM_KIND")
                 .help("Select VM kind to run.")
-                .takes_value(true),
+                .takes_value(true)
+                .possible_values(&["wasmer", "wasmer1", "wasmtime"]),
         )
         .arg(
             Arg::with_name("profile-gas")
                 .long("profile-gas")
                 .help("Profiles gas consumption.")
+        )
+        .arg(
+            Arg::with_name("timings")
+                .long("timings")
+                .help("Prints execution times of various components.")
         )
         .arg(
             Arg::with_name("protocol-version")
@@ -182,118 +171,78 @@ fn main() {
         )
         .get_matches();
 
-    let vm_kind: VMKind = match matches.value_of("vm-kind") {
-        Some(value) => match value {
-            "wasmtime" => VMKind::Wasmtime,
-            "wasmer" => VMKind::Wasmer,
-            _ => VMKind::default(),
-        },
-        None => VMKind::default(),
-    };
-
-    let mut context: VMContext = match matches.value_of("context") {
-        Some(value) => serde_json::from_str(value).unwrap(),
-        None => match matches.value_of("context-file") {
-            Some(filepath) => {
-                let data = fs::read(&filepath).unwrap();
-                serde_json::from_slice(&data).unwrap()
-            }
-            None => default_vm_context(),
-        },
-    };
-
-    if let Some(value_str) = matches.value_of("input") {
-        context.input = value_str.as_bytes().to_vec();
+    if matches.is_present("timings") {
+        tracing_timings::enable();
     }
 
-    let mut fake_external = MockedExternal::new();
+    let mut script = Script::default();
+
+    match matches.value_of("vm-kind") {
+        Some("wasmtime") => script.vm_kind(VMKind::Wasmtime),
+        Some("wasmer") => script.vm_kind(VMKind::Wasmer0),
+        Some("wasmer1") => script.vm_kind(VMKind::Wasmer1),
+        _ => (),
+    };
+    if let Some(config) = matches.value_of("config") {
+        script.vm_config(serde_json::from_str(config).unwrap());
+    }
+    if let Some(path) = matches.value_of("config-file") {
+        script.vm_config_from_file(Path::new(path));
+    }
+    if let Some(version) = matches.value_of("protocol-version") {
+        script.protocol_version(version.parse().unwrap())
+    }
+    let profile_gas = matches.is_present("profile-gas");
+    script.profile(profile_gas);
 
     if let Some(state_str) = matches.value_of("state") {
-        let state: State = serde_json::from_str(state_str).unwrap();
-        fake_external.fake_trie = state.0;
+        script.initial_state(serde_json::from_str(state_str).unwrap());
     }
 
-    let method_name = matches
-        .value_of("method-name")
-        .expect("Name of the method must be specified")
-        .as_bytes()
-        .to_vec();
+    let code = fs::read(matches.value_of("wasm-file").unwrap()).unwrap();
+    let contract = script.contract(code);
 
-    let promise_results: Vec<PromiseResult> = matches
-        .values_of("promise-results")
-        .unwrap_or_default()
-        .map(|res_str| serde_json::from_str(res_str).unwrap())
-        .collect();
+    let method = matches.value_of("method-name").unwrap();
+    let step = script.step(contract, method);
 
-    let config: VMConfig = match matches.value_of("config") {
-        Some(value) => serde_json::from_str(value).unwrap(),
-        None => match matches.value_of("config-file") {
-            Some(filepath) => {
-                let data = fs::read(&filepath).unwrap();
-                serde_json::from_slice(&data).unwrap()
-            }
-            None => VMConfig::default(),
-        },
-    };
+    if let Some(value) = matches.value_of("context") {
+        step.context(serde_json::from_str(value).unwrap());
+    }
+    if let Some(path) = matches.value_of("context-file") {
+        step.context_from_file(Path::new(path));
+    }
 
-    let protocol_version = matches
-        .value_of("protocol-version")
-        .map(|s| s.parse().unwrap())
-        .unwrap_or(ProtocolVersion::MAX);
+    if let Some(value) = matches.value_of("input") {
+        step.input(value.as_bytes().to_vec());
+    }
 
-    let code =
-        fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
+    if let Some(values) = matches.values_of("promise-results") {
+        let promise_results =
+            values.map(serde_json::from_str).collect::<Result<Vec<_>, _>>().unwrap();
+        step.promise_results(promise_results);
+    }
 
-    let fees = RuntimeFeesConfig::default();
-    let profile_data = ProfileData::new();
-    let do_profile = matches.is_present("profile-gas");
-    let (outcome, err) = if do_profile {
-        run_vm_profiled(
-            vec![],
-            &code,
-            &method_name,
-            &mut fake_external,
-            context,
-            &config,
-            &fees,
-            &promise_results,
-            vm_kind,
-            profile_data.clone(),
-            protocol_version,
-            None,
-        )
-    } else {
-        run_vm(
-            vec![],
-            &code,
-            &method_name,
-            &mut fake_external,
-            context,
-            &config,
-            &fees,
-            &promise_results,
-            vm_kind,
-            protocol_version,
-            None,
-        )
-    };
-    let all_gas = match outcome.clone() {
+    let mut results = script.run();
+    let (outcome, err) = results.outcomes.pop().unwrap();
+
+    let all_gas = match &outcome {
         Some(outcome) => outcome.burnt_gas,
         _ => 1,
     };
+
     println!(
         "{}",
         serde_json::to_string(&StandaloneOutput {
             outcome,
             err,
-            receipts: fake_external.get_receipt_create_calls().clone(),
-            state: State(fake_external.fake_trie),
+            receipts: results.state.get_receipt_create_calls().clone(),
+            state: State(results.state.fake_trie),
         })
         .unwrap()
     );
 
-    if do_profile {
-        assert_eq!(all_gas, profile_data.all_gas());
-        println!("{:#?}", profile_data);
+    if profile_gas {
+        assert_eq!(all_gas, results.profile.all_gas());
+        println!("{:#?}", results.profile);
     }
 }

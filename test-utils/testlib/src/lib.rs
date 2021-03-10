@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use actix::{Addr, Arbiter};
+use actix::Addr;
+use actix_rt::ArbiterHandle;
 use tempfile::{tempdir, TempDir};
 
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -14,7 +15,6 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards,
 use near_store::test_utils::create_test_store;
 use neard::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 
-pub mod actix_utils;
 pub mod fees_utils;
 pub mod node;
 pub mod runtime_utils;
@@ -56,7 +56,7 @@ pub fn start_nodes(
     num_lightclient: usize,
     epoch_length: BlockHeightDelta,
     genesis_height: BlockHeight,
-) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<Arbiter>)>) {
+) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>)>) {
     init_integration_logger();
 
     let num_nodes = dirs.len();
@@ -96,6 +96,7 @@ pub fn start_nodes(
             );
             near_config.client_config.tracked_shards.extend(&(from..to).collect::<Vec<_>>());
         }
+        near_config.client_config.epoch_sync_enabled = false;
         near_configs.push(near_config);
     }
 

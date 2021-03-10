@@ -50,8 +50,7 @@ criterion = "0.3.0"
 near-crypto = { path = "../../core/crypto" }
 
 [features]
-costs_counting = ["near-vm-logic/costs_counting"]
-protocol_feature_evm = ["near-vm-logic/protocol_feature_evm", "near-primitives/protocol_feature_evm"]
+protocol_feature_evm = ["near-vm-logic/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-errors/protocol_feature_alt_bn128"]
 
 [[test]]
 name = "failures"

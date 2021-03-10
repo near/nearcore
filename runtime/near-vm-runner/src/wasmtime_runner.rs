@@ -112,15 +112,15 @@ pub mod wasmtime_runner {
     }
 
     pub fn run_wasmtime<'a>(
-        _code_hash: Vec<u8>,
+        _code_hash: &[u8],
         code: &[u8],
-        method_name: &[u8],
+        method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
         wasm_config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
-        profile: Option<ProfileData>,
+        profile: ProfileData,
         current_protocol_version: ProtocolVersion,
         _cache: Option<&'a dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
@@ -163,17 +163,6 @@ pub mod wasmtime_runner {
         // lifetimes of the logic instance and pass raw pointers here.
         let raw_logic = &mut logic as *mut _ as *mut c_void;
         imports::link_wasmtime(&mut linker, memory_copy, raw_logic, current_protocol_version);
-        let func_name = match str::from_utf8(method_name) {
-            Ok(name) => name,
-            Err(_) => {
-                return (
-                    None,
-                    Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                        MethodResolveError::MethodUTF8Error,
-                    ))),
-                )
-            }
-        };
         if method_name.is_empty() {
             return (
                 None,
@@ -182,7 +171,7 @@ pub mod wasmtime_runner {
                 ))),
             );
         }
-        match module.get_export(func_name) {
+        match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {
                     if !func_type.params().is_empty() || !func_type.results().is_empty() {
@@ -215,7 +204,7 @@ pub mod wasmtime_runner {
             }
         }
         match linker.instantiate(&module) {
-            Ok(instance) => match instance.get_func(func_name) {
+            Ok(instance) => match instance.get_func(method_name) {
                 Some(func) => match func.get0::<()>() {
                     Ok(run) => match run() {
                         Ok(_) => (Some(logic.outcome()), None),
@@ -226,7 +215,7 @@ pub mod wasmtime_runner {
                 None => (
                     None,
                     Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                        MethodResolveError::MethodUTF8Error,
+                        MethodResolveError::MethodNotFound,
                     ))),
                 ),
             },

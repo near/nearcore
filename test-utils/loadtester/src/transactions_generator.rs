@@ -10,6 +10,7 @@ use byteorder::ByteOrder;
 use byteorder::LittleEndian;
 
 use crate::remote_node::RemoteNode;
+
 use std::mem::size_of;
 use std::str::FromStr;
 
@@ -62,8 +63,10 @@ impl Generator {
 
     /// Returns transactions that deploy test contract to an every account used by the node.
     pub fn deploy_test_contract(node: &Arc<RwLock<RemoteNode>>) -> Vec<SignedTransaction> {
-        let wasm_binary: &[u8] =
-            include_bytes!("../../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+        lazy_static_include::lazy_static_include_bytes! {
+            TEST_CONTRACT => "../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm"
+        }
+
         let mut res = vec![];
         let mut node = node.write().unwrap();
         for ind in 0..node.signers.len() {
@@ -78,7 +81,7 @@ impl Generator {
                 contract_id.clone(),
                 contract_id,
                 &*signer,
-                vec![Action::DeployContract(DeployContractAction { code: wasm_binary.to_vec() })],
+                vec![Action::DeployContract(DeployContractAction { code: TEST_CONTRACT.to_vec() })],
                 block_hash,
             ));
         }
