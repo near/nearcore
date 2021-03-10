@@ -185,6 +185,7 @@ pub mod wasmer0_cache {
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<wasmer_runtime::Module, VMError> {
+        let _span = tracing::info_span!("compile_module_cached_wasmer").entered();
         let key = get_key(wasm_code_hash, wasm_code, VMKind::Wasmer0, config);
         #[cfg(not(feature = "no_cache"))]
         return memcache_compile_module_cached_wasmer(key, wasm_code, config, cache);

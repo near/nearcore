@@ -209,7 +209,7 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
-        let _span = tracing::debug_span!("Runtime::process_transaction").entered();
+        let _span = tracing::info_span!("Runtime::process_transaction").entered();
         near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
         match verify_and_charge_transaction(
             &apply_state.config,
@@ -795,7 +795,7 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        let _span = tracing::debug_span!("Runtime::process_receipt").entered();
+        let _span = tracing::info_span!("Runtime::process_receipt").entered();
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -1075,7 +1075,7 @@ impl Runtime {
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ApplyResult, RuntimeError> {
-        let _span = tracing::debug_span!("Runtime::apply").entered();
+        let _span = tracing::info_span!("Runtime::apply").entered();
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);

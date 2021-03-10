@@ -182,6 +182,7 @@ pub fn run_wasmer<'a>(
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let _span = tracing::info_span!("run_wasmer").entered();
+    let _drop_span;
 
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -203,64 +204,94 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::wasmer0_cache::compile_module_cached_wasmer(
-        &code_hash,
-        code,
-        wasm_config,
-        cache,
-    ) {
-        Ok(x) => x,
-        Err(err) => return (None, Some(err)),
-    };
-    let mut memory = WasmerMemory::new(
-        wasm_config.limit_config.initial_memory_pages,
-        wasm_config.limit_config.max_memory_pages,
-    )
-    .expect("Cannot create memory for a contract call");
-    // Note that we don't clone the actual backing memory, just increase the RC.
-    let memory_copy = memory.clone();
-
-    let mut logic = VMLogic::new_with_protocol_version(
-        ext,
-        context,
-        wasm_config,
-        fees_config,
-        promise_results,
-        &mut memory,
-        profile,
-        current_protocol_version,
-    );
-
-    if logic.add_contract_compile_fee(code.len() as u64).is_err() {
-        return (
-            Some(logic.outcome()),
-            Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                near_vm_errors::HostError::GasExceeded,
-            ))),
-        );
-    }
-
-    let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
-
-    if let Err(e) = check_method(&module, method_name) {
-        return (None, Some(e));
-    }
-
-    let instantiate = {
-        let _span = tracing::info_span!("run_wasmer/instantiate").entered();
-        module.instantiate(&import_object)
-    };
-    match instantiate {
-        Ok(instance) => {
-            let _span = tracing::info_span!("run_wasmer/call").entered();
-
-            match instance.call(&method_name, &[]) {
-                Ok(_) => (Some(logic.outcome()), None),
-                Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-            }
+    let module = {
+        let _span = tracing::info_span!("run_wasmer/compile_module_cached_wasmer").entered();
+        match cache::wasmer0_cache::compile_module_cached_wasmer(
+            &code_hash,
+            code,
+            wasm_config,
+            cache,
+        ) {
+            Ok(x) => x,
+            Err(err) => return (None, Some(err)),
         }
-        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+    };
+
+    let (mut memory, memory_copy) = {
+        let _span = tracing::info_span!("run_wasmer/memory").entered();
+        let mem = WasmerMemory::new(
+            wasm_config.limit_config.initial_memory_pages,
+            wasm_config.limit_config.max_memory_pages,
+        )
+        .expect("Cannot create memory for a contract call");
+        // Note that we don't clone the actual backing memory, just increase the RC.
+        let mem_copy = mem.clone();
+        (mem, mem_copy)
+    };
+
+    let mut logic = {
+        let _span = tracing::info_span!("run_wasmer/VMLogic::new_with_protocol_version").entered();
+        VMLogic::new_with_protocol_version(
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            &mut memory,
+            profile,
+            current_protocol_version,
+        )
+    };
+
+    {
+        let _span = tracing::info_span!("run_wasmer/logic.add_contract_compile_fee").entered();
+        if logic.add_contract_compile_fee(code.len() as u64).is_err() {
+            return (
+                Some(logic.outcome()),
+                Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
+                ))),
+            );
+        }
     }
+
+    let import_object = {
+        let _span = tracing::info_span!("run_wasmer/imports::build_wasmer").entered();
+        imports::build_wasmer(memory_copy, &mut logic, current_protocol_version)
+    };
+
+    {
+        let _span = tracing::info_span!("run_wasmer/check_method").entered();
+        if let Err(e) = check_method(&module, method_name) {
+            return (None, Some(e));
+        }
+    }
+
+    let instance = {
+        let _span = tracing::info_span!("run_wasmer/instantiate").entered();
+        match module.instantiate(&import_object) {
+            Ok(instance) => instance,
+            Err(err) => return (Some(logic.outcome()), Some(err.into_vm_error())),
+        }
+    };
+
+    let res = {
+        let _span = tracing::info_span!("run_wasmer/call").entered();
+
+        match instance.call(&method_name, &[]) {
+            Ok(_) => (Some(logic.outcome()), None),
+            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+        }
+    };
+
+    {
+        let _span = tracing::info_span!("run_wasmer/drop_vm").entered();
+        drop((instance, memory, import_object, module));
+    }
+
+    _drop_span = tracing::info_span!("run_wasmer/drop_rest").entered();
+
+    res
 }
 
 pub fn compile_module(code: &[u8]) -> bool {
