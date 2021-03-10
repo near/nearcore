@@ -181,7 +181,7 @@ pub fn run_wasmer<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::info_span!("run_wasmer").entered();
+    let _span = tracing::debug_span!("run_wasmer").entered();
 
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -247,12 +247,12 @@ pub fn run_wasmer<'a>(
     }
 
     let instantiate = {
-        let _span = tracing::info_span!("run_wasmer/instantiate").entered();
+        let _span = tracing::debug_span!("run_wasmer/instantiate").entered();
         module.instantiate(&import_object)
     };
     match instantiate {
         Ok(instance) => {
-            let _span = tracing::info_span!("run_wasmer/call").entered();
+            let _span = tracing::debug_span!("run_wasmer/call").entered();
 
             match instance.call(&method_name, &[]) {
                 Ok(_) => (Some(logic.outcome()), None),
