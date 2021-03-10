@@ -60,6 +60,10 @@ pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverfl
     a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
 }
 
+pub fn safe_add_usize(a: usize, b: usize) -> Result<usize, IntegerOverflowError> {
+    a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
+}
+
 #[macro_export]
 macro_rules! safe_add_balance_apply {
     ($x: expr) => {$x};
@@ -262,6 +266,11 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
         total_balance = safe_add_balance(total_balance, action.get_deposit_balance())?;
     }
     Ok(total_balance)
+}
+
+/// Get the total size of given actions.
+pub fn total_size(actions: &[Action]) -> Result<usize, IntegerOverflowError> {
+    actions.iter().try_fold(0, |acc, action| safe_add_usize(acc, action.get_size()))
 }
 
 /// Get the total sum of prepaid gas for given actions.

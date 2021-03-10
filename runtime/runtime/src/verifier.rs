@@ -20,7 +20,7 @@ use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
 
-use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
+use crate::config::{total_prepaid_gas, tx_cost, TransactionCost, total_size};
 use crate::VerificationResult;
 use near_primitives::runtime::config::RuntimeConfig;
 
@@ -302,6 +302,15 @@ pub(crate) fn validate_actions(
         return Err(ActionsValidationError::TotalPrepaidGasExceeded {
             total_prepaid_gas,
             limit: limit_config.max_total_prepaid_gas,
+        });
+    }
+
+    let total_size =
+        total_size(actions).map_err(|_| ActionsValidationError::IntegerOverflow)? as u64;
+    if total_size > limit_config.max_transaction_size {
+        return Err(ActionsValidationError::TransactionSizeExceeded {
+            total_size,
+            limit: limit_config.max_transaction_size,
         });
     }
 

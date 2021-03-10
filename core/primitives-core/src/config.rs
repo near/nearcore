@@ -68,6 +68,8 @@ pub struct VMLimitConfig {
     pub max_length_returned_data: u64,
     /// Max contract size
     pub max_contract_size: u64,
+    /// Max contract size
+    pub max_transaction_size: u64,
     /// Max storage key size
     pub max_length_storage_key: u64,
     /// Max storage value size
@@ -146,9 +148,12 @@ impl Default for VMLimitConfig {
             // Should be low enough to deserialize an access key without paying.
             max_number_bytes_method_names: 2000,
             max_length_method_name: 256,            // basic safety limit
-            max_arguments_length: 4 * 2u64.pow(20), // 4 Mib
+            // max_arguments_length: 4 * 2u64.pow(20), // 4 Mib
+            max_arguments_length: 100 * 2u64.pow(10), // 100 Kib
             max_length_returned_data: 4 * 2u64.pow(20), // 4 Mib
-            max_contract_size: 4 * 2u64.pow(20),    // 4 Mib,
+            // max_contract_size: 4 * 2u64.pow(20),    // 4 Mib,
+            max_contract_size: 300 * 2u64.pow(10), // 300 Kib
+            max_transaction_size: 300 * 2u64.pow(10), // 300 Kib
 
             max_length_storage_key: 4 * 2u64.pow(20), // 4 Mib
             max_length_storage_value: 4 * 2u64.pow(20), // 4 Mib

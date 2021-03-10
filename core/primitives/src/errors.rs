@@ -197,6 +197,8 @@ pub enum ActionsValidationError {
     UnsuitableStakingKey { public_key: PublicKey },
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
     FunctionCallZeroAttachedGas,
+    /// The size of all actions exceeded the limit.
+    TransactionSizeExceeded { total_size: u64, limit: u64 },
 }
 
 /// Describes the error for validating a receipt.
@@ -310,6 +312,11 @@ impl Display for ActionsValidationError {
             ActionsValidationError::FunctionCallZeroAttachedGas => write!(
                 f,
                 "The attached amount of gas in a FunctionCall action has to be a positive number",
+            ),
+            ActionsValidationError::TransactionSizeExceeded { total_size, limit } => write!(
+                f,
+                "Total transaction size {} exceeded the limit {}",
+                total_size, limit
             ),
         }
     }
