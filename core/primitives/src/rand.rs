@@ -8,14 +8,16 @@ pub struct WeightedIndex {
 }
 
 impl WeightedIndex {
-    pub fn new(weights: Vec<Balance>, weight_sum: Balance) -> Self {
-        // We allow the weights sum to be passed in to not duplicate the
-        // work of computing it, but of course the following must still hold:
-        debug_assert_eq!(weights.iter().sum::<Balance>(), weight_sum);
-
+    pub fn new(weights: Vec<Balance>) -> Self {
         let n = Balance::from(weights.len() as u64);
-        let mut no_alias_odds: Vec<Balance> = weights.iter().map(|w| w * n).collect();
         let mut aliases = Aliases::new(weights.len());
+
+        let mut no_alias_odds = weights;
+        let mut weight_sum: Balance = 0;
+        for w in no_alias_odds.iter_mut() {
+            weight_sum += *w;
+            *w *= n;
+        }
 
         for (index, &odds) in no_alias_odds.iter().enumerate() {
             if odds < weight_sum {
@@ -144,8 +146,7 @@ mod test {
     fn test_should_correctly_compute_odds_and_aliases() {
         // Example taken from https://www.keithschwarz.com/darts-dice-coins/
         let weights = vec![5, 8, 4, 10, 4, 4, 5];
-        let weight_sum = weights.iter().sum();
-        let weighted_index = WeightedIndex::new(weights, weight_sum);
+        let weighted_index = WeightedIndex::new(weights);
 
         assert_eq!(weighted_index.get_aliases(), &[1, 0, 3, 1, 3, 3, 3]);
 
@@ -155,8 +156,7 @@ mod test {
     #[test]
     fn test_sample_should_produce_correct_distribution() {
         let weights = vec![5, 1, 1];
-        let weight_sum = weights.iter().sum();
-        let weighted_index = WeightedIndex::new(weights, weight_sum);
+        let weighted_index = WeightedIndex::new(weights);
 
         let n_samples = 1_000_000;
         let mut seed = hash(&[0; 32]);

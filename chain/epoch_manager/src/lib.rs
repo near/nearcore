@@ -36,6 +36,7 @@ mod proposals;
 mod reward_calculator;
 pub mod test_utils;
 mod types;
+mod validator_selection;
 
 const EPOCH_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 1000;
