@@ -3616,7 +3616,6 @@ dependencies = [
  "borsh",
  "cached",
  "lazy-static-include",
- "log",
  "near-evm-runner",
  "near-primitives",
  "near-vm-errors",

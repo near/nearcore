@@ -27,7 +27,6 @@ anyhow = { version = "1.0.19", optional = true }
 near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", default-features = false, features = [] }
 near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
 near-primitives = { path = "../../core/primitives" }
-log = "0.4"
 near-evm-runner = { path = "../near-evm-runner", optional = true }
 cached = "0.23.0"
 tracing = { version = "0.1", default-features = false }
