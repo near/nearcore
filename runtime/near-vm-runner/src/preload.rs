@@ -52,7 +52,7 @@ impl ContractCaller {
         ContractCaller { pool: ThreadPool::new(num_threads), prepared: Vec::new() }
     }
 
-    pub fn preload<'a>(
+    pub fn preload(
         self: &mut ContractCaller,
         requests: Vec<ContractCallPrepareRequest>,
         vm_kind: VMKind,
