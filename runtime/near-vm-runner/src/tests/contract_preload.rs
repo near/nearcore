@@ -1,7 +1,7 @@
 use near_primitives::hash::hash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
-use near_vm_runner::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError};
+use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError};
 
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::types::CompiledContractCache;
@@ -14,9 +14,9 @@ use std::thread::sleep;
 use std::time::Duration;
 
 const TEST_CONTRACT_1: &'static [u8] =
-    include_bytes!("../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+    include_bytes!("../../tests/res/test_contract_rs.wasm");
 const TEST_CONTRACT_2: &'static [u8] =
-    include_bytes!("../runtime/near-vm-runner/tests/res/test_contract_ts.wasm");
+    include_bytes!("../../tests/res/test_contract_ts.wasm");
 
 fn default_vm_context() -> VMContext {
     return VMContext {
@@ -51,10 +51,6 @@ impl MockCompiledContractCache {
             store: Arc::new(Mutex::new(HashMap::new())),
             delay: Duration::from_millis(delay as u64),
         }
-    }
-
-    pub fn len(&self) -> usize {
-        self.store.lock().unwrap().len()
     }
 }
 
