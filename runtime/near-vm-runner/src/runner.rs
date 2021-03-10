@@ -62,7 +62,7 @@ pub fn run_vm(
     cache: Option<&dyn CompiledContractCache>,
     profile: ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::info_span!("run_vm").entered();
+    let _span = tracing::debug_span!("run_vm").entered();
 
     #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;
