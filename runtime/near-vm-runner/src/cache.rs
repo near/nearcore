@@ -179,7 +179,7 @@ pub mod wasmer0_cache {
         }
     }
 
-    pub(crate) fn compile_module_cached_wasmer(
+    pub(crate) fn compile_module_cached_wasmer0(
         wasm_code_hash: &[u8],
         wasm_code: &[u8],
         config: &VMConfig,
@@ -196,7 +196,6 @@ pub mod wasmer0_cache {
 #[cfg(feature = "wasmer1_vm")]
 pub mod wasmer1_cache {
     use super::*;
-
     pub(crate) fn compile_module_cached_wasmer1(
         wasm_code_hash: &[u8],
         wasm_code: &[u8],

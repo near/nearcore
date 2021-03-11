@@ -185,8 +185,8 @@ pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) -> bool {
     match vm_kind {
         #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => {
-            use crate::wasmer_runner::compile_module;
-            compile_module(code)
+            use crate::wasmer_runner::compile_wasmer0_module;
+            compile_wasmer0_module(code)
         }
         #[cfg(not(feature = "wasmer0_vm"))]
         VMKind::Wasmer0 => panic!("Wasmer0 is not supported, compile with '--features wasmer0_vm'"),
@@ -201,8 +201,8 @@ pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) -> bool {
         }
         #[cfg(feature = "wasmer1_vm")]
         VMKind::Wasmer1 => {
-            use crate::wasmer1_runner::compile_module;
-            compile_module(code)
+            use crate::wasmer1_runner::compile_wasmer1_module;
+            compile_wasmer1_module(code)
         }
         #[cfg(not(feature = "wasmer1_vm"))]
         VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),

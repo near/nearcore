@@ -239,8 +239,59 @@ fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Resu
     Ok(())
 }
 
-pub fn compile_module(code: &[u8]) -> bool {
-    let engine = JIT::new(Singlepass::default()).engine();
-    let store = Store::new(&engine);
+pub(crate) fn compile_wasmer1_module(code: &[u8]) -> bool {
+    let store = default_wasmer1_store();
     Module::new(&store, code).is_ok()
+}
+
+pub(crate) fn default_wasmer1_store() -> Store {
+    // TODO: replace with NativeEngine ASAP.
+    let engine = JIT::new(Singlepass::default()).engine();
+    Store::new(&engine)
+}
+
+pub(crate) fn run_wasmer1_module<'a>(
+    module: &Module,
+    store: &Store,
+    method_name: &str,
+    ext: &mut dyn External,
+    context: VMContext,
+    wasm_config: &'a VMConfig,
+    fees_config: &'a RuntimeFeesConfig,
+    promise_results: &'a [PromiseResult],
+    profile: ProfileData,
+    current_protocol_version: ProtocolVersion,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    if method_name.is_empty() {
+        return (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ))),
+        );
+    }
+    let mut memory = Wasmer1Memory::new(
+        store,
+        wasm_config.limit_config.initial_memory_pages,
+        wasm_config.limit_config.max_memory_pages,
+    )
+    .unwrap();
+
+    // Note that we don't clone the actual backing memory, just increase the RC.
+    let memory_copy = memory.clone();
+
+    let mut logic = VMLogic::new_with_protocol_version(
+        ext,
+        context,
+        wasm_config,
+        fees_config,
+        promise_results,
+        &mut memory,
+        profile,
+        current_protocol_version,
+    );
+
+    let import = imports::build_wasmer1(store, memory_copy, &mut logic, current_protocol_version);
+    let err = run_method(module, &import, method_name).err();
+    (Some(logic.outcome()), err)
 }
