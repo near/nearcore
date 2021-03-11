@@ -248,9 +248,11 @@ pub(crate) fn default_wasmer1_store() -> Store {
     let use_native_engine = false;
     if use_native_engine {
         let engine = if use_cranelift {
-            wasmer_engine_native::Native::new(wasmer_compiler_cranelift::Cranelift::default()).engine()
+            wasmer_engine_native::Native::new(wasmer_compiler_cranelift::Cranelift::default())
+                .engine()
         } else {
-            wasmer_engine_native::Native::new(wasmer_compiler_singlepass::Singlepass::default()).engine()
+            wasmer_engine_native::Native::new(wasmer_compiler_singlepass::Singlepass::default())
+                .engine()
         };
         Store::new(&engine)
     } else {
