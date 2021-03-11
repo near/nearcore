@@ -173,8 +173,7 @@ pub fn run_wasmer1<'a>(
         );
     }
 
-    let engine = JIT::new(Singlepass::default()).engine();
-    let store = Store::new(&engine);
+    let store = default_wasmer1_store();
     let module = match cache::wasmer1_cache::compile_module_cached_wasmer1(
         code_hash,
         &code,
@@ -262,6 +261,7 @@ pub(crate) fn run_wasmer1_module<'a>(
     profile: ProfileData,
     current_protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    // Do we really need that code?
     if method_name.is_empty() {
         return (
             None,
@@ -292,6 +292,11 @@ pub(crate) fn run_wasmer1_module<'a>(
     );
 
     let import = imports::build_wasmer1(store, memory_copy, &mut logic, current_protocol_version);
+
+    if let Err(e) = check_method(&module, method_name) {
+        return (None, Some(e));
+    }
+
     let err = run_method(module, &import, method_name).err();
     (Some(logic.outcome()), err)
 }
