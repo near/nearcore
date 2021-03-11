@@ -319,3 +319,8 @@ pub(crate) fn run_wasmer_module<'a>(
 pub fn compile_module(code: &[u8]) -> bool {
     wasmer_runtime::compile(code).is_ok()
 }
+
+pub(crate) fn wasmer0_vm_hash() -> u64 {
+    // TODO: take into account compiler and engine used to compile the contract.
+    42
+}

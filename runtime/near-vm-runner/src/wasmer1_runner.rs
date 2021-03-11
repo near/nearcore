@@ -244,3 +244,8 @@ pub fn compile_module(code: &[u8]) -> bool {
     let store = Store::new(&engine);
     Module::new(&store, code).is_ok()
 }
+
+pub(crate) fn wasmer1_vm_hash() -> u64 {
+    // TODO: take into account compiler and engine used to compile the contract.
+    53
+}
