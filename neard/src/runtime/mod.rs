@@ -1992,12 +1992,8 @@ mod test {
         assert_eq!(account.locked, 2 * TESTING_INIT_STAKE);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5);
 
-        let stake_transaction = stake(
-            (env.head.height + 1) * 1_000_000,
-            &new_signer,
-            &new_validator,
-            TESTING_INIT_STAKE * 2,
-        );
+        let stake_transaction =
+            stake(env.head.height * 1_000_000, &new_signer, &new_validator, TESTING_INIT_STAKE * 2);
         env.step_default(vec![stake_transaction]);
         env.step_default(vec![]);
 
