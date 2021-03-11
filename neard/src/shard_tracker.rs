@@ -3,7 +3,7 @@ use std::io::Cursor;
 use std::sync::{Arc, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use log::info;
+use tracing::info;
 
 use near_epoch_manager::EpochManager;
 use near_primitives::errors::EpochError;

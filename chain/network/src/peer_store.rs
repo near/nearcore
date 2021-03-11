@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 use chrono::Utc;
-use log::{debug, error};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use tracing::{debug, error};
 
 use near_primitives::network::PeerId;
 use near_primitives::utils::to_timestamp;
