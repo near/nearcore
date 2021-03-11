@@ -203,12 +203,26 @@ impl ViewClientActor {
                 self.chain.get_block_header(&block_hash)
             }
             BlockReference::Finality(ref finality) => {
-                let block_hash = self.get_block_hash_by_finality(&finality)?;
+                let block_hash = match self.get_block_hash_by_finality(&finality) {
+                    Ok(block_hash) => block_hash,
+                    Err(_) => {
+                        return Err(QueryError::UnknownBlock {
+                            block_reference: msg.block_reference,
+                        })
+                    }
+                };
                 self.chain.get_block_header(&block_hash)
             }
             BlockReference::SyncCheckpoint(ref synchronization_checkpoint) => {
                 if let Some(block_hash) =
-                    self.get_block_hash_by_sync_checkpoint(&synchronization_checkpoint)?
+                    match self.get_block_hash_by_sync_checkpoint(&synchronization_checkpoint) {
+                        Ok(block_hash) => block_hash,
+                        Err(_) => {
+                            return Err(QueryError::UnknownBlock {
+                                block_reference: msg.block_reference,
+                            })
+                        }
+                    }
                 {
                     self.chain.get_block_header(&block_hash)
                 } else {
@@ -216,7 +230,12 @@ impl ViewClientActor {
                 }
             }
         };
-        let header = header?.clone();
+        let header = match header {
+            Ok(header) => header.clone(),
+            Err(_) => {
+                return Err(QueryError::UnknownBlock { block_reference: msg.block_reference })
+            }
+        };
 
         let account_id = match &msg.request {
             QueryRequest::ViewAccount { account_id, .. } => account_id,
