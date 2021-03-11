@@ -374,11 +374,11 @@ impl Default for ExtCostsConfig {
             #[cfg(feature = "ripemd160")]
             ripemd160_base: SAFETY_MULTIPLIER * 1513656750, // TODO
             #[cfg(feature = "ripemd160")]
-            ripemd160_byte: SAFETY_MULTIPLIER * 8039117,    // TODO
+            ripemd160_byte: SAFETY_MULTIPLIER * 8039117, // TODO
             #[cfg(feature = "blake2b")]
-            blake2b_base: SAFETY_MULTIPLIER * 1513656750,   // TODO
+            blake2b_base: SAFETY_MULTIPLIER * 1513656750, // TODO
             #[cfg(feature = "blake2b")]
-            blake2b_byte: SAFETY_MULTIPLIER * 8039117,      // TODO
+            blake2b_byte: SAFETY_MULTIPLIER * 8039117, // TODO
             #[cfg(feature = "ecrecover")]
             ecrecover_base: SAFETY_MULTIPLIER * 1000000000, // TODO
             log_base: SAFETY_MULTIPLIER * 1181104350,
