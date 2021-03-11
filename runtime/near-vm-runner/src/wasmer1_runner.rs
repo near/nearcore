@@ -244,9 +244,16 @@ pub(crate) fn compile_wasmer1_module(code: &[u8]) -> bool {
 }
 
 pub(crate) fn default_wasmer1_store() -> Store {
-    // TODO: replace with NativeEngine ASAP.
-    let engine = JIT::new(Singlepass::default()).engine();
-    Store::new(&engine)
+    if false {
+        let engine = wasmer_engine_native::Native::new(
+            wasmer_compiler_singlepass::Singlepass::default(),
+        )
+            .engine();
+        Store::new(&engine)
+    } else {
+        let engine = JIT::new(Singlepass::default()).engine();
+        Store::new(&engine)
+    }
 }
 
 pub(crate) fn run_wasmer1_module<'a>(

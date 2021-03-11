@@ -3626,6 +3626,7 @@ dependencies = [
  "wabt",
  "wasmer",
  "wasmer-compiler-singlepass",
+ "wasmer-engine-native",
  "wasmer-runtime-core-near",
  "wasmer-runtime-near",
  "wasmer-types",

@@ -20,6 +20,7 @@ wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" 
 wasmer = { version = "1.0.2", optional = true }
 wasmer-types = { version = "1.0.2", optional = true }
 wasmer-compiler-singlepass = { version = "1.0.2", optional = true }
+wasmer-engine-native = { version = "1.0.2", optional = true }
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.20.0", default-features = false, optional = true }
@@ -44,7 +45,7 @@ base64 = "0.13"
 default = ["wasmer0_vm", "wasmtime_vm", "wasmer1_vm"]
 wasmer0_vm = [ "wasmer-runtime" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
-wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass" ]
+wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-engine-native", ]
 lightbeam = ["wasmtime/lightbeam"]
 no_cpu_compatibility_checks = []
 protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
