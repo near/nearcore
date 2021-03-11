@@ -13,8 +13,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
-const TEST_CONTRACT_1: &'static [u8] = include_bytes!("../../tests/res/test_contract_rs.wasm");
-const TEST_CONTRACT_2: &'static [u8] = include_bytes!("../../tests/res/test_contract_ts.wasm");
+lazy_static_include::lazy_static_include_bytes! {
+    TEST_CONTRACT_1 => "tests/res/test_contract_rs.wasm",
+    TEST_CONTRACT_2 => "tests/res/test_contract_ts.wasm",
+}
 
 fn default_vm_context() -> VMContext {
     return VMContext {
@@ -91,8 +93,8 @@ fn test_result(result: (Option<VMOutcome>, Option<VMError>), check_gas: bool) ->
 }
 
 fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
-    let code1 = TEST_CONTRACT_1;
-    let code2 = TEST_CONTRACT_2;
+    let code1 = &TEST_CONTRACT_1;
+    let code2 = &TEST_CONTRACT_2;
     let method_name1 = "log_something";
     let code1_hash = hash(code1);
     let code2_hash = hash(code2);
