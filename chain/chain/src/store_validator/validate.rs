@@ -181,6 +181,11 @@ pub(crate) fn block_header_height_validity(
     if height > head {
         err!("Invalid Block Header stored, Head = {:?}, header = {:?}", head, header);
     }
+    // KRYA
+    /*let chunk_tail = sv.inner.chunk_tail;
+    if height < chunk_tail && height != sv.config.genesis_height {
+        err!("Invalid Block Header stored, Chunk Tail = {:?}, header = {:?}", chunk_tail, header);
+    }*/
     Ok(())
 }
 
@@ -453,22 +458,8 @@ pub(crate) fn block_increase_refcount(
     Ok(())
 }
 
-pub(crate) fn canonical_header_validity(
-    sv: &mut StoreValidator,
-    height: &BlockHeight,
-    hash: &CryptoHash,
-) -> Result<(), StoreValidatorError> {
-    let header = unwrap_or_err_db!(
-        sv.store.get_ser::<BlockHeader>(ColBlockHeader, hash.as_ref()),
-        "Can't get Block Header {:?} from ColBlockHeader",
-        hash
-    );
-    if header.height() != *height {
-        err!("Block on Height {:?} doesn't have required Height, {:?}", height, header);
-    }
-    Ok(())
-}
-
+// TODO KRYA
+#[allow(dead_code)]
 pub(crate) fn canonical_prev_block_validity(
     sv: &mut StoreValidator,
     height: &BlockHeight,
@@ -751,6 +742,7 @@ pub(crate) fn block_info_block_header_exists(
     if *block_hash == CryptoHash::default() {
         return Ok(());
     }
+    // TODO KRYA
     unwrap_or_err_db!(
         sv.store.get_ser::<BlockHeader>(ColBlockHeader, block_hash.as_ref()),
         "Can't get Block Header from DB"

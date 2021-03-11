@@ -18,9 +18,11 @@ fn chain_sync_headers() {
         ));
     }
     chain
-        .sync_block_headers(blocks.drain(1..).map(|block| block.header().clone()).collect(), |_| {
-            panic!("Unexpected")
-        })
+        .sync_block_headers(
+            blocks.drain(1..).map(|block| block.header().clone()).collect(),
+            false,
+            |_| panic!("Unexpected"),
+        )
         .unwrap();
     assert_eq!(chain.header_head().unwrap().height, 4);
 }

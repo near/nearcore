@@ -455,7 +455,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 
-    // TODO #3488 this likely to be updated
     /// Data that is necessary for prove Epochs in Epoch Sync.
     fn get_epoch_sync_data(
         &self,
@@ -464,7 +463,6 @@ pub trait RuntimeAdapter: Send + Sync {
         next_epoch_id: &EpochId,
     ) -> Result<(BlockInfo, BlockInfo, BlockInfo, EpochInfo, EpochInfo, EpochInfo), Error>;
 
-    // TODO #3488 this likely to be updated
     /// Hash that is necessary for prove Epochs in Epoch Sync.
     fn get_epoch_sync_data_hash(
         &self,

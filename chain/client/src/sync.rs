@@ -12,13 +12,16 @@ use log::{debug, error, info, warn};
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 
-use near_chain::{Chain, RuntimeAdapter};
+use near_chain::{byzantine_assert, Chain, RuntimeAdapter};
 use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::block::Tip;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::syncing::{
+    get_num_state_parts, EpochSyncFinalizationResponse, EpochSyncResponse,
+};
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, ValidatorStake,
 };
@@ -58,8 +61,6 @@ pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<F
 }
 
 /// Helper to keep track of the Epoch Sync
-// TODO #3488
-#[allow(dead_code)]
 pub struct EpochSync {
     network_adapter: Arc<dyn NetworkAdapter>,
     /// Datastructure to keep track of when the last request to each peer was made.
@@ -96,7 +97,7 @@ pub struct EpochSync {
 
     received_epoch: bool,
 
-    is_just_started: bool,
+    pub reset_data_done: bool,
 }
 
 impl EpochSync {
@@ -124,8 +125,375 @@ impl EpochSync {
             have_all_epochs: false,
             done: false,
             sync_hash: CryptoHash::default(),
-            is_just_started: true,
+            reset_data_done: false,
         }
+    }
+
+    pub fn ready_reset_data(&self) -> bool {
+        return self.have_all_epochs && !self.reset_data_done;
+    }
+
+    // Returns whether the Epoch Sync is done
+    pub fn run(
+        &mut self,
+        sync_status: &mut SyncStatus,
+        all_peers: &Vec<FullPeerInfo>,
+        cur_time: DateTime<Utc>,
+    ) -> bool {
+        println!(
+            "Epoch Sync: done {:?}, have_all_epochs {:?}, peers {:?}, up-to-date {:?} epoch {:?} last request time {:?}",
+            self.done,
+            self.have_all_epochs,
+            all_peers.len(),
+            self.peers_reporting_up_to_date.len(),
+            self.current_epoch_id,
+            self.last_request_time
+        );
+        if self.done {
+            return true;
+        }
+
+        if self.have_all_epochs {
+            if !self.reset_data_done {
+                return false;
+            }
+            if cur_time > self.last_request_time.add(self.peer_timeout) {
+                self.last_request_time = cur_time;
+                for peer in all_peers {
+                    let peer_id = peer.peer_info.id.clone();
+                    println!(
+                        "Sent EpochSyncFinalizationRequest epoch {:?} to {:?}",
+                        self.current_epoch_id, peer
+                    );
+                    self.network_adapter.do_send(NetworkRequests::EpochSyncFinalizationRequest {
+                        epoch_id: self.current_epoch_id.clone(),
+                        peer_id,
+                    });
+                }
+            }
+            return false;
+        }
+
+        let is_epoch_sync = matches!(sync_status, SyncStatus::EpochSync { .. });
+        let request_timed_out =
+            !self.received_epoch && cur_time > self.last_request_time + self.request_timeout;
+
+        let need_to_request = !is_epoch_sync
+            || self.received_epoch
+            || request_timed_out
+            || self.last_request_peer_id.is_none()
+            || self
+                .peers_reporting_up_to_date
+                .contains(self.last_request_peer_id.as_ref().unwrap());
+
+        /*debug!(target: "client",
+               "Epoch Sync: need to request details: {:?} {:?} {:?} {:?} {:?}",
+            !is_epoch_sync,
+               self.received_epoch,
+            request_timed_out,
+            self.last_request_peer_id.is_none(),
+            if self.last_request_peer_id.is_some() {
+                self.peers_reporting_up_to_date
+                    .contains(self.last_request_peer_id.as_ref().unwrap())
+            } else {
+                false
+            }
+        );*/
+
+        if !need_to_request {
+            return false;
+        }
+
+        // MOO make this more resilient to lost messages
+        if request_timed_out && self.last_request_peer_id.is_some() {
+            // KRYA enable
+            /*debug!(target: "client", "Epoch Sync didn't get response from Peer {}, banning", self.last_request_peer_id.take().unwrap());
+            self.network_adapter.do_send(NetworkRequests::BanPeer {
+                peer_id: self.last_request_peer_id.take().unwrap(),
+                ban_reason: ReasonForBan::EpochSyncNoResponse,
+            });*/
+        }
+
+        let mut request_from = None;
+        self.have_all_epochs = true; // will be overwritten if at least one peer hasn't reported we're done
+
+        for peer in all_peers {
+            let peer_id = peer.peer_info.id.clone();
+            match self.peer_to_last_request_time.get(&peer_id) {
+                None => {
+                    self.have_all_epochs = false;
+                    request_from = Some(peer_id);
+                    break;
+                }
+                Some(last_request_time) => {
+                    if self.peers_reporting_up_to_date.contains(&peer_id) {
+                        continue;
+                    }
+
+                    self.have_all_epochs = false;
+                    let better_than_best_known = match &request_from {
+                        None => true,
+                        Some(cur_best_peer_id) => {
+                            // Unwrap here is safe. If the entry for the current best peer didn't exist,
+                            // the loop would break above
+                            last_request_time
+                                < self.peer_to_last_request_time.get(&cur_best_peer_id).unwrap()
+                        }
+                    };
+                    if cur_time > last_request_time.add(self.peer_timeout) && better_than_best_known
+                    {
+                        request_from = Some(peer_id);
+                    }
+                }
+            }
+        }
+
+        if self.have_all_epochs {
+            debug!(target: "client", "Epoch Sync collected all Epochs, finalizing");
+            // Now we need to finalize Epoch Sync, do it on the next iteration
+            if self.current_epoch_id == EpochId::default() {
+                self.done = true;
+                return true;
+            }
+            return false;
+        }
+
+        if let Some(request_from) = request_from {
+            self.peer_to_last_request_time.insert(request_from.clone(), cur_time);
+            self.last_request_time = cur_time;
+            self.requested_epoch_id = self.next_epoch_id.clone();
+            self.last_request_peer_id = Some(request_from.clone());
+            self.received_epoch = false;
+            println!("KRYA send request {:?} {:?}", self.next_epoch_id.clone(), request_from);
+            debug!(target: "client", "Epoch Sync is sending a request for Epoch {:?} to Peer {:?}", self.next_epoch_id, request_from);
+            self.network_adapter.do_send(NetworkRequests::EpochSyncRequest {
+                epoch_id: self.next_epoch_id.clone(),
+                peer_id: request_from,
+            });
+        }
+
+        if !is_epoch_sync {
+            *sync_status = SyncStatus::EpochSync { epoch_ord: 0 }
+        }
+
+        return false;
+    }
+
+    pub fn on_response(&mut self, from_whom: PeerId, response: EpochSyncResponse) {
+        match response {
+            EpochSyncResponse::UpToDate => {
+                debug!(target: "client", "Epoch Sync got UpToDate from Peer {:?}", from_whom);
+                self.peers_reporting_up_to_date.insert(from_whom);
+            }
+            EpochSyncResponse::Advance { light_client_block_view } => {
+                debug!(target: "client", "Epoch Sync got Light Client Block from Peer {:?}", from_whom);
+                // KRYA assert `from_whom` is not in `peers_reporting_up_to_date`
+                if light_client_block_view.inner_lite.epoch_id != self.requested_epoch_id.0 {
+                    // This is not a response to the request we are making
+                    return;
+                }
+                if light_client_block_view.next_bps.is_none() {
+                    // A light client response must contain the bps. We might consider here to
+                    // ban the peer.
+                    return;
+                }
+
+                // KRYA fix and enable
+                /*if !Chain::validate_light_block_no_height_or_epoch_check(
+                    &light_client_block_view,
+                    &self.next_block_producers,
+                ) {
+                    self.network_adapter.do_send(NetworkRequests::BanPeer {
+                        peer_id: from_whom,
+                        ban_reason: ReasonForBan::EpochSyncInvalidResponse,
+                    });
+                    return;
+                }*/
+
+                self.next_block_producers = light_client_block_view
+                    .next_bps
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.clone().into())
+                    .collect();
+                self.current_epoch_id = self.next_epoch_id.clone();
+                self.next_epoch_id =
+                    EpochId(light_client_block_view.inner_lite.next_epoch_id.clone());
+                self.received_epoch = true;
+            }
+        };
+    }
+
+    pub fn is_epoch_sync_finalization_response_valid(
+        &self,
+        response: &EpochSyncFinalizationResponse,
+    ) -> bool {
+        let EpochSyncFinalizationResponse {
+            cur_epoch_header,
+            prev_epoch_headers,
+            header_sync_init_header: _,
+            header_sync_init_header_tree: _,
+            prev_epoch_first_block_info: _,
+            prev_epoch_prev_last_block_info: _,
+            prev_epoch_last_block_info: _,
+            prev_epoch_info: _,
+            cur_epoch_info: _,
+            next_epoch_info: _,
+        } = response;
+
+        // 1. Check Block Headers validity
+        // 1a. There are at least two Headers
+        if prev_epoch_headers.len() < 2 {
+            // KRYA check the case when there is only block in the Chain
+            byzantine_assert!(false);
+            return false;
+        }
+        // 1b. First Header must be in the Epoch that we required
+        /*if cur_epoch_header.epoch_id() != &self.prev_epoch_id {
+            byzantine_assert!(false);
+            return false;
+        }*/
+        // 1c. Second Header must NOT be in the Epoch that we required
+        /*if prev_epoch_headers[0].epoch_id() == &self.prev_epoch_id {
+            byzantine_assert!(false);
+            return false;
+        }*/
+        // 1d. All Headers must refer to previous ones
+        for i in 1..prev_epoch_headers.len() {
+            if prev_epoch_headers[i].prev_hash() != prev_epoch_headers[i - 1].hash() {
+                byzantine_assert!(false);
+                return false;
+            }
+        }
+        if cur_epoch_header.prev_hash() != prev_epoch_headers[0].hash() {
+            byzantine_assert!(false);
+            return false;
+        }
+        // 1e. Chunk mask of all Headers in prev-to-requested Epoch must be equal to ones
+        let mut chunk_mask = vec![0; prev_epoch_headers[0].chunk_mask().len()];
+        for i in 1..prev_epoch_headers.len() {
+            for j in 0..chunk_mask.len() {
+                chunk_mask[j] += prev_epoch_headers[i].chunk_mask()[j] as i32; // Rust guarantees that bool is 0 or 1
+            }
+        }
+        for value in chunk_mask {
+            // KRYA test it with pytest and replace with 2
+            if value <= 1 {
+                // One of the Shards in not covered
+                byzantine_assert!(false);
+                return false;
+            }
+        }
+        // 1f. Check hashes of Headers
+        for header in prev_epoch_headers.iter() {
+            if *header.hash()
+                != BlockHeader::compute_hash(
+                    *header.prev_hash(),
+                    &header.inner_lite_bytes(),
+                    &header.inner_rest_bytes(),
+                )
+            {
+                byzantine_assert!(false);
+                return false;
+            }
+        }
+        if *cur_epoch_header.hash()
+            != BlockHeader::compute_hash(
+                *cur_epoch_header.prev_hash(),
+                &cur_epoch_header.inner_lite_bytes(),
+                &cur_epoch_header.inner_rest_bytes(),
+            )
+        {
+            byzantine_assert!(false);
+            return false;
+        }
+
+        // 2. Check Block Merkle Proof
+        // KRYA
+        /*if !verify_path(
+            *response.headers[0].block_merkle_root(),
+            &response.block_merkle_proof,
+            &response.headers[0],
+        ) {
+            byzantine_assert!(false);
+            return false;
+        }*/
+
+        true
+    }
+
+    pub fn on_response_finalize(
+        &mut self,
+        from_whom: &PeerId,
+        chain: &mut Chain,
+        response: EpochSyncFinalizationResponse,
+    ) -> Result<(), Error> {
+        debug!(target: "client", "Epoch Sync got finalization response from Peer {:?}", from_whom);
+        // KRYA enable ebanle
+        /*if !self.is_epoch_sync_finalization_response_valid(&response) {
+            self.network_adapter.do_send(NetworkRequests::BanPeer {
+                peer_id: from_whom,
+                ban_reason: ReasonForBan::EpochSyncInvalidFinalizationResponse,
+            });
+            return;
+        }*/
+
+        // At this point we ensured that Block with hash `response.headers[0].hash()`
+        // is valid, proven and exists on the Canonical Chain as the first Block
+        // of the Epoch `self.prev_epoch_id`.
+        //
+        // Now we start preparing for regular Sync routine with setting up Header Sync.
+
+        let EpochSyncFinalizationResponse {
+            cur_epoch_header,
+            prev_epoch_headers,
+            header_sync_init_header,
+            header_sync_init_header_tree,
+            prev_epoch_first_block_info,
+            prev_epoch_prev_last_block_info,
+            prev_epoch_last_block_info,
+            prev_epoch_info,
+            cur_epoch_info,
+            next_epoch_info,
+        } = response;
+
+        let mut store_update = chain.mut_store().store_update();
+        store_update
+            .save_block_merkle_tree(*header_sync_init_header.hash(), header_sync_init_header_tree);
+        println!("KRYA save_block_merkle_tree is finished");
+        let tip = Tip::from_header(&header_sync_init_header);
+        println!("KRYA header_sync_init_header {:?}", header_sync_init_header);
+        store_update.force_save_header_head(&tip)?;
+        println!("KRYA save_head is finished");
+        store_update.save_block_header_no_update_tree(header_sync_init_header.clone())?;
+        println!("KRYA save_block_header_no_update_tree is finished");
+        store_update.commit().unwrap();
+        /*else {
+            self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
+        }*/
+        // KRYA TODO if we die here - how to continue?
+        let prev_header = prev_epoch_headers[0].clone();
+        chain.runtime_adapter.epoch_sync_init_epoch_manager(
+            prev_epoch_first_block_info,
+            prev_epoch_prev_last_block_info,
+            prev_epoch_last_block_info,
+            prev_header.epoch_id(),
+            prev_epoch_info,
+            prev_header.next_epoch_id(),
+            cur_epoch_info,
+            cur_epoch_header.next_epoch_id(),
+            next_epoch_info,
+        )?;
+        // KRYA TODO if we die here - how to continue?
+        println!("KRYA commit is finished");
+        chain.sync_block_headers(prev_epoch_headers, true, |_| {})?;
+        println!("KRYA sync_block_headers phase 1 is finished");
+        self.sync_hash = cur_epoch_header.hash().clone();
+        chain.sync_block_headers(vec![cur_epoch_header], false, |_| {})?;
+        println!("KRYA sync_block_headers is finished");
+        self.done = true;
+        println!("KRYA Epoch Sync is finished");
+        Ok(())
     }
 }
 
@@ -1447,7 +1815,7 @@ mod test {
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
         let peer_infos = create_peer_infos(2);
-        env.clients[1].chain.sync_block_headers(block_headers, |_| unreachable!()).unwrap();
+        env.clients[1].chain.sync_block_headers(block_headers, false, |_| unreachable!()).unwrap();
 
         for block in blocks.iter().take(5) {
             let is_state_sync =
@@ -1489,7 +1857,7 @@ mod test {
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
         let peer_infos = create_peer_infos(2);
-        env.clients[1].chain.sync_block_headers(block_headers, |_| unreachable!()).unwrap();
+        env.clients[1].chain.sync_block_headers(block_headers, false, |_| unreachable!()).unwrap();
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());

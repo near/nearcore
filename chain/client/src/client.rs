@@ -129,8 +129,8 @@ impl Client {
                 .iter()
                 .map(|x| x.0.clone().into())
                 .collect(),
-            Duration::from_millis(EPOCH_SYNC_REQUEST_TIMEOUT_MS),
-            Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
+            EPOCH_SYNC_REQUEST_TIMEOUT_MS,
+            EPOCH_SYNC_PEER_TIMEOUT_MS,
         );
         let header_sync = HeaderSync::new(
             network_adapter.clone(),
@@ -893,8 +893,9 @@ impl Client {
         headers: Vec<BlockHeader>,
     ) -> Result<(), near_chain::Error> {
         let challenges = Arc::new(RwLock::new(vec![]));
-        self.chain
-            .sync_block_headers(headers, |challenge| challenges.write().unwrap().push(challenge))?;
+        self.chain.sync_block_headers(headers, false, |challenge| {
+            challenges.write().unwrap().push(challenge)
+        })?;
         self.send_challenges(challenges);
         Ok(())
     }

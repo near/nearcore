@@ -60,6 +60,8 @@ while node0_height < AFTER_SYNC_HEIGHT:
 
 print('Restart node 1')
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+# KRYA update store validator
+nodes[1].stop_checking_store()
 time.sleep(3)
 
 start_time = time.time()
@@ -67,12 +69,17 @@ start_time = time.time()
 node1_height = 0
 while True:
     assert time.time() - start_time < TIMEOUT, "Block sync timed out"
-    status = nodes[1].get_status()
+    status = nodes[1].get_status(timeout=15)
     print(status)
     node1_height = status['sync_info']['latest_block_height']
     if node1_height >= node0_height:
         break
     time.sleep(2)
+
+time.sleep(5)
+status = nodes[1].get_status(timeout=15)
+node1_height = status['sync_info']['latest_block_height']
+print(status)
 
 # all fresh data should be synced
 blocks_count = 0
@@ -80,6 +87,7 @@ for height in range(node1_height - 10, node1_height):
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     assert block0 == block1
+    print("Height %d OK" % height)
     if 'result' in block0:
         blocks_count += 1
 assert blocks_count > 0
@@ -90,7 +98,6 @@ blocks_count = 0
 for height in range(1, 60):
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
-    assert block0 == block1
-    if 'result' in block0:
-        blocks_count += 1
-assert blocks_count == 0
+    assert(block0['error']['data'].startswith('DB Not Found Error'))
+    assert(block1['error']['data'].startswith('DB Not Found Error'))
+    print("Height %d OK" % height)

@@ -1056,7 +1056,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount)
     }
 
-    // TODO #3488 this likely to be updated
     fn get_epoch_sync_data_hash(
         &self,
         prev_epoch_last_block_hash: &CryptoHash,
@@ -1080,7 +1079,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(hash(data.as_slice()))
     }
 
-    // TODO #3488 this likely to be updated
     fn get_epoch_sync_data(
         &self,
         prev_epoch_last_block_hash: &CryptoHash,

@@ -137,10 +137,7 @@ impl EpochManager {
         self.save_epoch_info(&mut store_update, &prev_epoch_id, prev_epoch_info)?;
         self.save_epoch_info(&mut store_update, &epoch_id, epoch_info)?;
         self.save_epoch_info(&mut store_update, &next_epoch_id, next_epoch_info)?;
-        // TODO #3488
-        // put unreachable! here to avoid warnings
-        unreachable!();
-        // Ok(store_update)
+        Ok(store_update)
     }
 
     /// # Parameters

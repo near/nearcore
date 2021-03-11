@@ -203,7 +203,7 @@ lazy_static! {
         col_gc[DBCol::ColLastComponentNonce as usize] = false;
         col_gc[DBCol::ColComponentEdges as usize] = false;
         col_gc[DBCol::ColBlockOrdinal as usize] = false;
-        col_gc[DBCol::ColEpochInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+        col_gc[DBCol::ColEpochInfo as usize] = false; // needed by Epoch Sync, no reason to clear
         col_gc[DBCol::ColEpochValidatorInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
         col_gc[DBCol::ColEpochStart as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
         col_gc[DBCol::ColCachedContractCode as usize] = false;

@@ -468,13 +468,30 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::EpochSyncResponse(_peer_id, _response) => {
-                // TODO #3488
+            NetworkClientMessages::EpochSyncResponse(peer_id, response) => {
+                // KRYA make sure we really sent EpochSyncRequest, ban otherwise
+                self.client.epoch_sync.on_response(peer_id, response);
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::EpochSyncFinalizationResponse(_peer_id, _response) => {
-                // TODO #3488
-                NetworkClientResponses::NoResponse
+            NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response) => {
+                // KRYA make sure we really sent EpochSyncFinalizationRequest, ban otherwise
+                if self.client.epoch_sync.done {
+                    // We shouldn't go forward because Epoch Sync is finished
+                    return NetworkClientResponses::NoResponse;
+                }
+                debug!(target: "epoch_sync", "Epoch sync received finalization response {:?} from peer {:?}", response, peer_id);
+                match self.client.epoch_sync.on_response_finalize(
+                    &peer_id,
+                    &mut self.client.chain,
+                    response,
+                ) {
+                    Ok(_) => NetworkClientResponses::NoResponse,
+                    Err(e) => {
+                        error!(target: "epoch_sync", "Epoch sync received invalid finalization response from peer {:?}, error {}", peer_id, e);
+                        // Invalid finalization response. Ban peer?
+                        NetworkClientResponses::NoResponse
+                    }
+                }
             }
             NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
                 let _ = self.client.shards_mgr.process_partial_encoded_chunk_request(
@@ -1139,7 +1156,8 @@ impl ClientActor {
         self.sync_started = true;
 
         // Start main sync loop.
-        self.sync(ctx);
+        debug!(target: "client", "Epoch Sync is started");
+        self.init_sync(ctx);
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
@@ -1216,6 +1234,67 @@ impl ClientActor {
         f(self, ctx);
 
         return now.checked_add_signed(OldDuration::from_std(duration).unwrap()).unwrap();
+    }
+
+    fn init_sync(&mut self, ctx: &mut Context<ClientActor>) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("init sync".into());
+
+        macro_rules! run_later(() => ({
+             near_performance_metrics::actix::run_later(
+                 ctx,
+                 file!(),
+                 line!(),
+                 self.client.config.sync_step_period, move |act, ctx| {
+                     act.init_sync(ctx);
+
+                }
+            );
+            return;
+        }));
+        if !self.client.config.epoch_sync_enabled {
+            debug!(target: "client", "Epoch Sync is disabled, go to standard syncing procedures");
+            self.sync(ctx);
+            return;
+        }
+
+        let now = Utc::now();
+
+        let epoch_sync_done = self.client.epoch_sync.run(
+            &mut self.client.sync_status,
+            &self.network_info.highest_height_peers,
+            now,
+        );
+        if !epoch_sync_done {
+            if self.client.epoch_sync.ready_reset_data() {
+                debug!(target: "client", "Epoch Sync: resetting data");
+                match self.client.chain.reset_data() {
+                    Err(e) => {
+                        error!(target:"client","Epoch Sync: cannot clear data in reset_data, {}", e);
+                        return;
+                    }
+                    Ok(_) => self.client.epoch_sync.reset_data_done = true,
+                }
+            }
+            run_later!();
+        }
+
+        // Init Sync in completed, transition to regular Sync, starting with StateSync
+        if self.client.epoch_sync.sync_hash != CryptoHash::default() {
+            debug!(target: "client", "Epoch Sync is finished, transition to State Sync, sync_hash {:?}", self.client.epoch_sync.sync_hash);
+            self.client.sync_status =
+                SyncStatus::StateSync(self.client.epoch_sync.sync_hash, HashMap::default());
+        }
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            self.client.config.sync_step_period,
+            move |act, ctx| {
+                act.sync(ctx);
+            },
+        );
     }
 
     /// Main syncing job responsible for syncing client with other peers.

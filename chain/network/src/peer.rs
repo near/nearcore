@@ -63,10 +63,10 @@ const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
 
 /// The time we wait for the response to a Epoch Sync request before retrying
 // TODO #3488 set 30_000
-pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
+pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: Duration = Duration::from_millis(1_000);
 /// How frequently a Epoch Sync response can be sent to a particular peer
 // TODO #3488 set 60_000
-pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
+pub const EPOCH_SYNC_PEER_TIMEOUT_MS: Duration = Duration::from_millis(10);
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
@@ -230,8 +230,7 @@ impl Peer {
             network_metrics,
             txns_since_last_block,
             peer_counter,
-            last_time_received_epoch_sync_request: Instant::now()
-                - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
+            last_time_received_epoch_sync_request: Instant::now() - EPOCH_SYNC_PEER_TIMEOUT_MS,
         }
     }
 
@@ -414,6 +413,12 @@ impl Peer {
                 NetworkViewClientMessages::BlockHeadersRequest(hashes)
             }
             PeerMessage::EpochSyncRequest(epoch_id) => {
+                // The 2/3 coefficient to have a buffer to account for network delays
+                /*if Instant::now() - self.last_time_received_epoch_sync_request
+                    < Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS * 2 / 3)
+                {
+                    return;
+                }*/
                 self.last_time_received_epoch_sync_request = Instant::now();
                 NetworkViewClientMessages::EpochSyncRequest { epoch_id }
             }

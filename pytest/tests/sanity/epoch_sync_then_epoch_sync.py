@@ -1,6 +1,8 @@
 # Spins up three validating nodes. Stop one of them and make another one produce
 # sufficient number of blocks. Restart the stopped node and check that it can
 # still sync. Repeat. Then check all old data is removed.
+#
+# Make sure that second run 
 
 import sys, time
 
@@ -12,9 +14,7 @@ if "swap_nodes" in sys.argv:
 
 from cluster import start_cluster
 
-TARGET_HEIGHT_1 = 60
-TARGET_HEIGHT_2 = 170
-TARGET_HEIGHT_3 = 250
+ENOUGH_BLOCKS_TO_GC_ALL_DATA = 70
 TIMEOUT = 300
 
 consensus_config = {
@@ -43,7 +43,7 @@ print('Kill node 1')
 nodes[1].kill()
 
 node0_height = 0
-while node0_height < TARGET_HEIGHT_1:
+while node0_height < ENOUGH_BLOCKS_TO_GC_ALL_DATA:
     status = nodes[0].get_status()
     print(status)
     node0_height = status['sync_info']['latest_block_height']
@@ -59,7 +59,7 @@ start_time = time.time()
 
 node1_height = 0
 while True:
-    assert time.time() - start_time < TIMEOUT, "Block sync timed out, phase 1"
+    assert time.time() - start_time < TIMEOUT, "Sync timed out, phase 1"
     status = nodes[1].get_status()
     print(status)
     node1_height = status['sync_info']['latest_block_height']
@@ -71,11 +71,13 @@ if swap_nodes:
     print('Swap nodes 0 and 1')
     nodes[0], nodes[1] = nodes[1], nodes[0]
 
+from_height = node1_height
+
 print('Kill node 1')
 nodes[1].kill()
 
 node0_height = 0
-while node0_height < TARGET_HEIGHT_2:
+while node0_height < from_height + ENOUGH_BLOCKS_TO_GC_ALL_DATA:
     status = nodes[0].get_status()
     print(status)
     node0_height = status['sync_info']['latest_block_height']
@@ -91,7 +93,7 @@ start_time = time.time()
 
 node1_height = 0
 while True:
-    assert time.time() - start_time < TIMEOUT, "Block sync timed out, phase 2"
+    assert time.time() - start_time < TIMEOUT, "Sync timed out, phase 2"
     status = nodes[1].get_status()
     print(status)
     node1_height = status['sync_info']['latest_block_height']
@@ -127,20 +129,25 @@ for height in range(1, 30):
 
 # all data after first sync should be GCed
 blocks_count = 0
-for height in range(60, 80):
+for height in range(ENOUGH_BLOCKS_TO_GC_ALL_DATA - 10, ENOUGH_BLOCKS_TO_GC_ALL_DATA + 10):
+    block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
+    assert(block0['error']['data'].startswith('DB Not Found Error'))
     assert(block1['error']['data'].startswith('DB Not Found Error'))
     print("Height %d OK" % height)
 
 # all data before second sync should be GCed
 blocks_count = 0
-for height in range(130, 150):
+for height in range(from_height + ENOUGH_BLOCKS_TO_GC_ALL_DATA - 20, from_height + ENOUGH_BLOCKS_TO_GC_ALL_DATA - 10):
+    block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
+    assert(block0['error']['data'].startswith('DB Not Found Error'))
     assert(block1['error']['data'].startswith('DB Not Found Error'))
     print("Height %d OK" % height)
 
+from_height = node1_height
 # check that node can GC normally after syncing
-while node1_height < TARGET_HEIGHT_3:
+while node1_height < from_height + ENOUGH_BLOCKS_TO_GC_ALL_DATA * 2:
     status = nodes[1].get_status()
     print(status)
     node1_height = status['sync_info']['latest_block_height']

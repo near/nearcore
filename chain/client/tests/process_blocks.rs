@@ -2547,18 +2547,22 @@ fn test_block_ordinal() {
 
     // Test skips
     for i in 1..=5 {
-        let block = env.clients[0].produce_block(i * 10).unwrap().unwrap();
-        env.process_block(0, block.clone(), Provenance::PRODUCED);
-        ordinal += 1;
-        assert_eq!(block.header().block_ordinal(), ordinal);
+        // This cycle is to update `last_final_block` value.
+        // Otherwise `get_block_header(last_final_block)` will fail due to GC Headers
+        for j in 0..=2 {
+            let block = env.clients[0].produce_block(i * 10 + j).unwrap().unwrap();
+            env.process_block(0, block.clone(), Provenance::PRODUCED);
+            ordinal += 1;
+            assert_eq!(block.header().block_ordinal(), ordinal);
+        }
     }
 
     // Test forks
-    let last_block = env.clients[0].produce_block(99).unwrap().unwrap();
+    let last_block = env.clients[0].produce_block(55).unwrap().unwrap();
     env.process_block(0, last_block.clone(), Provenance::PRODUCED);
     ordinal += 1;
     assert_eq!(last_block.header().block_ordinal(), ordinal);
-    let fork1_block = env.clients[0].produce_block(100).unwrap().unwrap();
+    let fork1_block = env.clients[0].produce_block(56).unwrap().unwrap();
     env.clients[0]
         .chain
         .mut_store()
@@ -2567,7 +2571,7 @@ fn test_block_ordinal() {
             seen: last_block.header().raw_timestamp(),
         })
         .unwrap();
-    let fork2_block = env.clients[0].produce_block(101).unwrap().unwrap();
+    let fork2_block = env.clients[0].produce_block(57).unwrap().unwrap();
     assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
     env.process_block(0, fork1_block.clone(), Provenance::NONE);
     env.process_block(0, fork2_block.clone(), Provenance::NONE);
@@ -2575,7 +2579,7 @@ fn test_block_ordinal() {
     assert_eq!(fork1_block.header().block_ordinal(), ordinal);
     assert_eq!(fork2_block.header().block_ordinal(), ordinal);
     // Next block on top of fork
-    let next_block = env.clients[0].produce_block(102).unwrap().unwrap();
+    let next_block = env.clients[0].produce_block(58).unwrap().unwrap();
     env.process_block(0, next_block.clone(), Provenance::PRODUCED);
     ordinal += 1;
     assert_eq!(next_block.header().block_ordinal(), ordinal);
@@ -2713,5 +2717,41 @@ mod access_key_nonce_range_tests {
             res,
             NetworkClientResponses::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
         ));
+    }
+}
+
+#[cfg(feature = "protocol_feature_block_header_v3")]
+#[test]
+fn test_epoch_sync_data_hash() {
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    let epoch_length = 5;
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let runtimes = create_nightshade_runtimes(&genesis, 1);
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes.clone());
+    let mut blocks: Vec<Block> = vec![];
+    for i in 1..=epoch_length * 10 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        if i > 1 {
+            if block.header().epoch_id() == blocks.last().unwrap().header().next_epoch_id() {
+                // Epoch is changed, current block must have epoch data hash
+                assert_ne!(block.header().epoch_sync_data_hash(), None);
+                assert_eq!(
+                    runtimes[0]
+                        .get_epoch_sync_data_hash(
+                            block.header().prev_hash(),
+                            blocks.last().unwrap().header().next_epoch_id(),
+                            block.header().next_epoch_id(),
+                        )
+                        .unwrap(),
+                    block.header().epoch_sync_data_hash().unwrap()
+                )
+            } else {
+                assert_eq!(block.header().epoch_sync_data_hash(), None);
+            }
+        }
+        blocks.push(block);
     }
 }
