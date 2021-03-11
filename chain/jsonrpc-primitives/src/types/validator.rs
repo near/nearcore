@@ -49,7 +49,7 @@ impl From<near_client_primitives::types::GetValidatorInfoError> for RpcValidator
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcValidatorError"],
                 );
-                Self::Unreachable(s)
+                Self::Unreachable(error_message)
             }
         }
     }
