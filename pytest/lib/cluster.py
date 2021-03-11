@@ -743,12 +743,13 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
 
     is_local = config['local']
     near_root = config['near_root']
+    binary_name = config.get('binary_name', 'near')
 
     print("Creating %s cluster configuration with %s nodes" %
           ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
     process = subprocess.Popen([
-        os.path.join(near_root, "near"), "testnet", "--v",
+        os.path.join(near_root, binary_name), "testnet", "--v",
         str(num_nodes), "--shards",
         str(num_shards), "--n",
         str(num_observers), "--prefix", "test"
