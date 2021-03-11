@@ -40,6 +40,8 @@ pub struct AccessKey {
 }
 
 impl AccessKey {
+    pub const ACCESS_KEY_NONCE_RANGE_MULTIPLIER: u64 = 1_000_000;
+
     pub fn full_access() -> Self {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
