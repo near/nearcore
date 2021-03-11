@@ -5,10 +5,10 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use chrono::Utc;
-use log::{debug, error, info, warn};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use tracing::{debug, error, info, warn};
 
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};

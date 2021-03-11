@@ -5,9 +5,9 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
-use log::debug;
 use num_rational::Rational;
 use serde::Serialize;
+use tracing::debug;
 
 use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};

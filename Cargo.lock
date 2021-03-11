@@ -1007,6 +1007,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea221b5284a47e40033bf9b66f35f984ec0ea2931eb03505246cd27a963f981b"
 
 [[package]]
+name = "cpu-time"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9e393a7668fe1fad3075085b86c781883000b4ede868f43627b34a87c8b7ded"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "cpuid-bool"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1394,6 +1404,7 @@ dependencies = [
 name = "delay-detector"
 version = "0.1.0"
 dependencies = [
+ "cpu-time",
  "log",
 ]
 
@@ -3010,7 +3021,6 @@ dependencies = [
  "failure",
  "failure_derive",
  "lazy_static",
- "log",
  "near-chain-configs",
  "near-chain-primitives",
  "near-crypto",
@@ -3605,13 +3615,13 @@ dependencies = [
  "borsh",
  "cached",
  "lazy-static-include",
- "log",
  "near-evm-runner",
  "near-primitives",
  "near-vm-errors",
  "near-vm-logic",
  "parity-wasm",
  "pwasm-utils",
+ "threadpool",
  "tracing",
  "wabt",
  "wasmer",
@@ -5593,6 +5603,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8018d24e04c95ac8790716a5987d0fec4f8b27249ffa0f7d33f1369bdfb88cbd"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "threadpool"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d050e60b33d41c19108b32cea32164033a9013fe3b46cbd4457559bfbf77afaa"
+dependencies = [
+ "num_cpus",
 ]
 
 [[package]]

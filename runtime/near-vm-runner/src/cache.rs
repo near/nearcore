@@ -99,6 +99,8 @@ pub mod wasmer0_cache {
         key: &CryptoHash,
         cache: &dyn CompiledContractCache,
     ) -> Result<wasmer_runtime::Module, VMError> {
+        let _span = tracing::debug_span!("compile_and_serialize_wasmer");
+
         let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
         let artifact = module
             .cache()
@@ -117,6 +119,8 @@ pub mod wasmer0_cache {
     fn deserialize_wasmer(
         serialized: &[u8],
     ) -> Result<Result<wasmer_runtime::Module, VMError>, CacheError> {
+        let _span = tracing::debug_span!("deserialize_wasmer");
+
         let record = CacheRecord::try_from_slice(serialized).map_err(|_e| DeserializationError)?;
         let serialized_artifact = match record {
             CacheRecord::Error(err) => return Ok(Err(err)),
@@ -220,6 +224,8 @@ pub mod wasmer1_cache {
         cache: &dyn CompiledContractCache,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
+        let _span = tracing::debug_span!("compile_and_serialize_wasmer1");
+
         let module = compile_module_wasmer1(wasm_code, config, store)
             .map_err(|e| cache_error(e, &key, cache))?;
         let code = module
@@ -234,6 +240,8 @@ pub mod wasmer1_cache {
         serialized: &[u8],
         store: &wasmer::Store,
     ) -> Result<Result<wasmer::Module, VMError>, CacheError> {
+        let _span = tracing::debug_span!("deserialize_wasmer1");
+
         let record = CacheRecord::try_from_slice(serialized).map_err(|_e| DeserializationError)?;
         let serialized_module = match record {
             CacheRecord::Error(err) => return Ok(Err(err)),
