@@ -5,9 +5,9 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
-use log::debug;
 use num_rational::Rational;
 use serde::Serialize;
+use tracing::debug;
 
 use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
@@ -550,6 +550,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_limit: Gas,
         _shard_id: ShardId,
         _state_root: StateRoot,
+        _next_block_height: BlockHeight,
         transactions: &mut dyn PoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,

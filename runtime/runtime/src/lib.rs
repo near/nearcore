@@ -216,6 +216,7 @@ impl Runtime {
             apply_state.gas_price,
             signed_transaction,
             true,
+            Some(apply_state.block_index),
             apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
@@ -395,7 +396,7 @@ impl Runtime {
             Action::AddKey(add_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_ADD_KEY_TOTAL);
                 action_add_key(
-                    &apply_state.config.transaction_costs,
+                    apply_state,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -1517,7 +1518,7 @@ mod tests {
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            block_index: 0,
+            block_index: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             epoch_id: Default::default(),

@@ -1,17 +1,14 @@
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use glob::glob;
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
-use std::collections::hash_map::DefaultHasher;
 use std::fs;
-use std::{
-    hash::{Hash, Hasher},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 use walrus::{Module, Result};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -48,12 +45,9 @@ fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
 
     let promise_results = vec![];
 
-    let mut hash = DefaultHasher::new();
-    code.hash(&mut hash);
-    let code_hash = hash.finish().to_le_bytes().to_vec();
+    let code = ContractCode::new(code.to_vec(), None);
     near_vm_runner::run(
-        code_hash,
-        code,
+        &code,
         "cpu_ram_soak_test",
         &mut fake_external,
         context,

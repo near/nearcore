@@ -9,9 +9,9 @@ use std::time::Duration;
 use actix;
 use actix_web;
 use chrono::Utc;
-use log::info;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use lazy_static::lazy_static;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};

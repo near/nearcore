@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
-use log::{error, info};
-use tracing::trace;
+use tracing::{error, info, trace};
 
 use near_chain::ChainGenesis;
 #[cfg(feature = "adversarial")]

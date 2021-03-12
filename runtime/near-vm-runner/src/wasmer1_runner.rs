@@ -153,7 +153,7 @@ pub fn run_wasmer1<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::info_span!("run_wasmer1").entered();
+    let _span = tracing::debug_span!("run_wasmer1").entered();
     // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
     // So doesn't require x86. However, when it is on x86, AVX is required:
     // https://github.com/wasmerio/wasmer/issues/1567
@@ -227,13 +227,13 @@ pub fn run_wasmer1<'a>(
 
 fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
     let instance = {
-        let _span = tracing::info_span!("run_method/instantiate").entered();
+        let _span = tracing::debug_span!("run_method/instantiate").entered();
         Instance::new(&module, &import).map_err(|err| err.into_vm_error())?
     };
     let f = instance.exports.get_function(method_name).map_err(|err| err.into_vm_error())?;
     let f = f.native::<(), ()>().map_err(|err| err.into_vm_error())?;
     let () = {
-        let _span = tracing::info_span!("run_method/call").entered();
+        let _span = tracing::debug_span!("run_method/call").entered();
         f.call().map_err(|err| err.into_vm_error())?
     };
     Ok(())

@@ -1,3 +1,4 @@
+use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{
@@ -20,8 +21,7 @@ use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
 ///   - sets the return data
 ///  returns result as `VMOutcome`
 pub fn run<'a>(
-    code_hash: Vec<u8>,
-    code: &[u8],
+    code: &ContractCode,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -33,8 +33,8 @@ pub fn run<'a>(
     profile: &ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     run_vm(
-        code_hash,
-        code,
+        code.hash.as_ref().to_vec(),
+        code.code.as_slice(),
         method_name,
         ext,
         context,
@@ -62,7 +62,7 @@ pub fn run_vm(
     cache: Option<&dyn CompiledContractCache>,
     profile: ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::info_span!("run_vm").entered();
+    let _span = tracing::debug_span!("run_vm").entered();
 
     #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;
