@@ -238,3 +238,8 @@ pub fn compile_module(code: &[u8]) -> bool {
     let engine = wasmtime_runner::get_engine(&mut config);
     Module::new(&engine, code).is_ok()
 }
+
+pub(crate) fn wasmtime_vm_hash() -> u64 {
+    // TODO: take into account compiler and engine used to compile the contract.
+    64
+}
