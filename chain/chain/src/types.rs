@@ -713,6 +713,7 @@ mod tests {
         let num_shards = 32;
         let genesis_chunks =
             genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
+        let genesis_bps: Vec<ValidatorStake> = Vec::new();
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
@@ -720,7 +721,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            Chain::compute_bp_hash_inner(vec![]).unwrap(),
+            Chain::compute_bp_hash_inner(genesis_bps).unwrap(),
         );
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);

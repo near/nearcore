@@ -51,6 +51,7 @@ use near_primitives::types::{
     NumBlocks, ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
+use near_primitives::version::VALIDATOR_STAKE_UPGRADE_VERSION;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
@@ -357,7 +358,7 @@ impl Chain {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
 
-    pub fn compute_bp_hash_inner(bps: Vec<ValidatorStake>) -> Result<CryptoHash, Error> {
+    pub fn compute_bp_hash_inner<T: BorshSerialize>(bps: Vec<T>) -> Result<CryptoHash, Error> {
         Ok(hash(&bps.try_to_vec()?))
     }
 
@@ -367,7 +368,14 @@ impl Chain {
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        Chain::compute_bp_hash_inner(bps.iter().map(|(bp, _)| bp).cloned().collect::<Vec<_>>())
+        let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        if protocol_version < VALIDATOR_STAKE_UPGRADE_VERSION {
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
+            Chain::compute_bp_hash_inner(validator_stakes)
+        } else {
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
+            Chain::compute_bp_hash_inner(validator_stakes)
+        }
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
