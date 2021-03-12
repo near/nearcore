@@ -189,11 +189,17 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
 }
 
 #[test]
-pub fn test_vm_run_sequential() {
+pub fn test_run_sequential() {
+    #[cfg(feature = "wasmer0_vm")]
     test_vm_runner(false, VMKind::Wasmer0, 100);
+    #[cfg(feature = "wasmer1_vm")]
+    test_vm_runner(false, VMKind::Wasmer1, 100);
 }
 
 #[test]
-pub fn test_vm_run_preloaded() {
+pub fn test_run_preloaded() {
+    #[cfg(feature = "wasmer0_vm")]
     test_vm_runner(true, VMKind::Wasmer0, 100);
+    #[cfg(feature = "wasmer1_vm")]
+    test_vm_runner(true, VMKind::Wasmer1, 100);
 }

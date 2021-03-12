@@ -203,7 +203,7 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::wasmer0_cache::compile_module_cached_wasmer(
+    let module = match cache::wasmer0_cache::compile_module_cached_wasmer0(
         &code_hash,
         code,
         wasm_config,
@@ -263,7 +263,7 @@ pub fn run_wasmer<'a>(
     }
 }
 
-pub(crate) fn run_wasmer_module<'a>(
+pub(crate) fn run_wasmer0_module<'a>(
     module: Module,
     method_name: &str,
     ext: &mut dyn External,
@@ -316,6 +316,6 @@ pub(crate) fn run_wasmer_module<'a>(
     }
 }
 
-pub fn compile_module(code: &[u8]) -> bool {
+pub fn compile_wasmer0_module(code: &[u8]) -> bool {
     wasmer_runtime::compile(code).is_ok()
 }
