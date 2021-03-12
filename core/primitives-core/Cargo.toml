@@ -31,6 +31,6 @@ protocol_feature_alt_bn128 = []
 protocol_feature_tx_size_limit = []
 
 # cryptography extras
-ripemd160 = []
-blake2b = []
-ecrecover = []
+protocol_feature_ripemd160 = []
+protocol_feature_blake2b = []
+protocol_feature_ecrecover = []
