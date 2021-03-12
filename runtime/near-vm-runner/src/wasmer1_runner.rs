@@ -7,6 +7,8 @@ use near_vm_errors::{
 };
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
 use wasmer_compiler_singlepass::Singlepass;
 
@@ -243,11 +245,31 @@ pub(crate) fn compile_wasmer1_module(code: &[u8]) -> bool {
     Module::new(&store, code).is_ok()
 }
 
+#[derive(Hash)]
+struct Wasmer1Config {
+    seed: i32,
+    use_cranelift: bool,
+    use_native_engine: bool,
+}
+
+impl Wasmer1Config {
+    fn config_hash(self: Self) -> u64 {
+        let mut s = DefaultHasher::new();
+        self.hash(&mut s);
+        s.finish()
+    }
+}
+
+const WASMER1_CONFIG: Wasmer1Config =
+    Wasmer1Config { seed: 53, use_cranelift: false, use_native_engine: false };
+
+pub(crate) fn wasmer1_vm_hash() -> u64 {
+    WASMER1_CONFIG.config_hash()
+}
+
 pub(crate) fn default_wasmer1_store() -> Store {
-    let use_cranelift = false;
-    let use_native_engine = false;
-    if use_native_engine {
-        let engine = if use_cranelift {
+    if WASMER1_CONFIG.use_native_engine {
+        let engine = if WASMER1_CONFIG.use_cranelift {
             wasmer_engine_native::Native::new(wasmer_compiler_cranelift::Cranelift::default())
                 .engine()
         } else {
