@@ -3,8 +3,8 @@ use std::io::{Error, ErrorKind};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
-use log::error;
 use tokio_util::codec::{Decoder, Encoder};
+use tracing::error;
 
 use crate::metrics;
 use crate::types::{PeerMessage, ReasonForBan};

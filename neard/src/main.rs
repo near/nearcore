@@ -6,8 +6,8 @@ use std::path::Path;
 
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 #[cfg(feature = "adversarial")]
-use log::error;
-use log::info;
+use tracing::error;
+use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
