@@ -33,6 +33,7 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::ValidatorStake;
 use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::rc::Rc;
@@ -182,7 +183,7 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                 header.inner.gas_limit,
                 header.inner.balance_burnt,
                 header.inner.tx_root,
-                header.inner.validator_proposals.clone(),
+                header.inner.validator_proposals.iter().map(|v| ValidatorStake::lift(v.clone())).collect(),
                 transactions,
                 &receipts,
                 header.inner.outgoing_receipts_root,
@@ -518,7 +519,7 @@ pub fn migrate_17_to_18(path: &String) {
     use std::convert::TryFrom;
 
     use near_primitives::challenge::SlashedValidator;
-    use near_primitives::types::{Balance, BlockHeight, EpochId, ValidatorStake};
+    use near_primitives::types::{Balance, BlockHeight, EpochId, ValidatorStakeV1};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::version::ProtocolVersion;
 
@@ -531,7 +532,7 @@ pub fn migrate_17_to_18(path: &String) {
         pub prev_hash: CryptoHash,
         pub epoch_first_block: CryptoHash,
         pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStake>,
+        pub proposals: Vec<ValidatorStakeV1>,
         pub validator_mask: Vec<bool>,
         pub latest_protocol_version: ProtocolVersion,
         pub slashed: Vec<SlashedValidator>,
@@ -546,7 +547,7 @@ pub fn migrate_17_to_18(path: &String) {
         pub prev_hash: CryptoHash,
         pub epoch_first_block: CryptoHash,
         pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStake>,
+        pub proposals: Vec<ValidatorStakeV1>,
         pub validator_mask: Vec<bool>,
         pub latest_protocol_version: ProtocolVersion,
         pub slashed: Vec<SlashedValidator>,
@@ -605,7 +606,7 @@ pub fn migrate_17_to_18(path: &String) {
 pub fn migrate_18_to_rectify_inflation(path: &String) {
     use near_primitives::epoch_manager::BlockInfo;
     use near_primitives::epoch_manager::SlashState;
-    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
+    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStakeV1};
     use near_primitives::version::ProtocolVersion;
     #[derive(BorshDeserialize)]
     struct OldBlockInfo {
@@ -616,7 +617,7 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
         pub prev_hash: CryptoHash,
         pub epoch_first_block: CryptoHash,
         pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStake>,
+        pub proposals: Vec<ValidatorStakeV1>,
         pub chunk_mask: Vec<bool>,
         pub latest_protocol_version: ProtocolVersion,
         pub slashed: HashMap<AccountId, SlashState>,

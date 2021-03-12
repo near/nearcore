@@ -46,7 +46,7 @@ use near_primitives::syncing::{
     StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::{AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, MerkleHash, NumBlocks, ShardId, ValidatorStakeIter};
+use near_primitives::types::{AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, MerkleHash, NumBlocks, ShardId, ValidatorStake};
 use near_primitives::unwrap_or_return;
 use near_primitives::version::VALIDATOR_STAKE_UPGRADE_VERSION;
 use near_primitives::views::{
@@ -1439,7 +1439,7 @@ impl Chain {
                 let prev_chunk_header =
                     prev_chunk_header.and_then(|prev_header| match prev_header {
                         ShardChunkHeader::V1(header) => Some(header),
-                        ShardChunkHeader::V2(_) => None,
+                        ShardChunkHeader::V2(_) | ShardChunkHeader::V3(_) => None,
                     });
                 ShardStateSyncResponseHeader::V1(ShardStateSyncResponseHeaderV1 {
                     chunk,
@@ -1685,7 +1685,7 @@ impl Chain {
         let chunk_inner = chunk.take_header().take_inner();
         if !self.runtime_adapter.validate_state_root_node(
             shard_state_header.state_root_node(),
-            &chunk_inner.prev_state_root,
+            chunk_inner.prev_state_root(),
         ) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
@@ -1721,7 +1721,7 @@ impl Chain {
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
-        let state_root = chunk.take_header().take_inner().prev_state_root;
+        let state_root = *chunk.take_header().take_inner().prev_state_root();
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
@@ -2683,16 +2683,16 @@ impl<'a> ChainUpdate<'a> {
             .runtime_adapter
             .apply_transactions_with_optional_storage_proof(
                 chunk_shard_id,
-                &prev_chunk_inner.prev_state_root,
+                prev_chunk_inner.prev_state_root(),
                 prev_chunk.height_included(),
                 prev_block.header().raw_timestamp(),
-                &prev_chunk_inner.prev_block_hash,
+                prev_chunk_inner.prev_block_hash(),
                 &prev_block.hash(),
                 &receipts,
                 prev_chunk.transactions(),
-                ValidatorStakeIter::v1(&prev_chunk_inner.validator_proposals),
+                prev_chunk_inner.validator_proposals(),
                 prev_block.header().gas_price(),
-                prev_chunk_inner.gas_limit,
+                prev_chunk_inner.gas_limit(),
                 &challenges_result,
                 *block.header().random_value(),
                 true,
@@ -2829,21 +2829,21 @@ impl<'a> ChainUpdate<'a> {
                     );
 
                     let chunk_inner = chunk.cloned_header().take_inner();
-                    let gas_limit = chunk_inner.gas_limit;
+                    let gas_limit = chunk_inner.gas_limit();
 
                     // Apply transactions and receipts.
                     let apply_result = self
                         .runtime_adapter
                         .apply_transactions(
                             shard_id,
-                            &chunk_inner.prev_state_root,
+                            chunk_inner.prev_state_root(),
                             chunk_header.height_included(),
                             block.header().raw_timestamp(),
                             &chunk_header.prev_block_hash(),
                             &block.hash(),
                             &receipts,
                             chunk.transactions(),
-                            ValidatorStakeIter::v1(&chunk_inner.validator_proposals),
+                            chunk_inner.validator_proposals(),
                             prev_block.header().gas_price(),
                             gas_limit,
                             &block.header().challenges_result(),
@@ -3072,14 +3072,19 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Verify that proposals from chunks match block header proposals.
-        let mut all_chunk_proposals = vec![];
-        for chunk in block.chunks().iter() {
-            if block.header().height() == chunk.height_included() {
-                all_chunk_proposals.extend(chunk.validator_proposals().iter().cloned());
+        let header_proposals = block.header().validator_proposals();
+        for (i, p) in block.chunks()
+            .iter()
+            .filter(|chunk| block.header().height() == chunk.height_included())
+            .flat_map(|chunk| chunk.validator_proposals())
+            .enumerate() {
+            if i >= header_proposals.len() {
+                return Err(ErrorKind::InvalidValidatorProposals.into());
             }
-        }
-        if all_chunk_proposals.as_slice() != block.header().validator_proposals() {
-            return Err(ErrorKind::InvalidValidatorProposals.into());
+            let q = ValidatorStake::lift(header_proposals[i].clone());
+            if p != q {
+                return Err(ErrorKind::InvalidValidatorProposals.into());
+            }
         }
 
         // If block checks out, record validator proposals for given block.
@@ -3577,7 +3582,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.hash(),
             &receipts,
             chunk.transactions(),
-            ValidatorStakeIter::v1(chunk_header.validator_proposals()),
+            chunk_header.validator_proposals(),
             gas_price,
             gas_limit,
             &block_header.challenges_result(),

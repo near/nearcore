@@ -11,10 +11,10 @@ use near_primitives::challenge::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{
-    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2,
+    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce, ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce, ValidatorStakeIter};
 use near_store::PartialStorage;
 
 use crate::byzantine_assert;
@@ -31,6 +31,7 @@ pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAd
         ShardChunk::V2(chunk) => match &chunk.header {
             ShardChunkHeader::V1(header) => ShardChunkHeaderV1::compute_hash(&header.inner),
             ShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
+            ShardChunkHeader::V3(header) => ShardChunkHeaderV3::compute_hash(&header.inner),
         },
     };
 
@@ -51,20 +52,13 @@ pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAd
         byzantine_assert!(false);
         return false;
     }
-    let header_inner = match chunk {
-        ShardChunk::V1(chunk) => &chunk.header.inner,
-        ShardChunk::V2(chunk) => match &chunk.header {
-            ShardChunkHeader::V1(header) => &header.inner,
-            ShardChunkHeader::V2(header) => &header.inner,
-        },
-    };
     let height_created = chunk.height_created();
     let outgoing_receipts_root = chunk.outgoing_receipts_root();
     let (transactions, receipts) = (chunk.transactions(), chunk.receipts());
 
     // 2b. Checking that chunk transactions are valid
     let (tx_root, _) = merklize(transactions);
-    if tx_root != header_inner.tx_root {
+    if tx_root != chunk.tx_root() {
         byzantine_assert!(false);
         return false;
     }
@@ -135,7 +129,7 @@ pub fn validate_chunk_with_chunk_extra(
     let chunk_extra_proposals = prev_chunk_extra.validator_proposals();
     let chunk_header_proposals = chunk_header.validator_proposals();
     if chunk_header_proposals.len() != chunk_extra_proposals.len() ||
-        !chunk_extra_proposals.zip(chunk_header_proposals.into_iter()).all(|(a, b)| a == ValidatorStake::lift(b.clone())) {
+        !chunk_extra_proposals.zip(chunk_header_proposals).all(|(a, b)| a == b) {
         return Err(ErrorKind::InvalidValidatorProposals.into());
     }
 
@@ -344,7 +338,7 @@ fn validate_chunk_state_challenge(
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
     let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
     let proposals_match = result.validator_proposals.len() == chunk_state.chunk_header.validator_proposals().len() &&
-        result.validator_proposals.iter().zip(chunk_state.chunk_header.validator_proposals().into_iter()).all(|(x, y)| &x.clone().into_v1() == y);
+        result.validator_proposals.iter().zip(chunk_state.chunk_header.validator_proposals()).all(|(x, y)| x == &y);
     if result.new_root != chunk_state.chunk_header.prev_state_root()
         || outcome_root != chunk_state.chunk_header.outcome_root()
         || !proposals_match

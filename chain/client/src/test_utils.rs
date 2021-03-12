@@ -1226,7 +1226,7 @@ pub fn create_chunk(
             header.gas_limit(),
             header.balance_burnt(),
             tx_root,
-            header.validator_proposals().iter().cloned().collect(),
+            header.validator_proposals().collect(),
             transactions,
             decoded_chunk.receipts(),
             header.outgoing_receipts_root(),

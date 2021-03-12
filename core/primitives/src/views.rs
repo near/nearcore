@@ -33,7 +33,7 @@ use crate::serialize::{
     u128_dec_format, u64_dec_format,
 };
 use crate::sharding::{
-    ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV2,
+    ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2, ShardChunkHeaderV3,
 };
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -670,22 +670,22 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
         let inner = chunk.take_inner();
         ChunkHeaderView {
             chunk_hash: hash.0,
-            prev_block_hash: inner.prev_block_hash,
-            outcome_root: inner.outcome_root,
-            prev_state_root: inner.prev_state_root,
-            encoded_merkle_root: inner.encoded_merkle_root,
-            encoded_length: inner.encoded_length,
-            height_created: inner.height_created,
+            prev_block_hash: *inner.prev_block_hash(),
+            outcome_root: *inner.outcome_root(),
+            prev_state_root: *inner.prev_state_root(),
+            encoded_merkle_root: *inner.encoded_merkle_root(),
+            encoded_length: inner.encoded_length(),
+            height_created: inner.height_created(),
             height_included,
-            shard_id: inner.shard_id,
-            gas_used: inner.gas_used,
-            gas_limit: inner.gas_limit,
+            shard_id: inner.shard_id(),
+            gas_used: inner.gas_used(),
+            gas_limit: inner.gas_limit(),
             rent_paid: 0,
             validator_reward: 0,
-            balance_burnt: inner.balance_burnt,
-            outgoing_receipts_root: inner.outgoing_receipts_root,
-            tx_root: inner.tx_root,
-            validator_proposals: inner.validator_proposals.into_iter().map(|p| ValidatorStake::lift(p).into()).collect(),
+            balance_burnt: inner.balance_burnt(),
+            outgoing_receipts_root: *inner.outgoing_receipts_root(),
+            tx_root: *inner.tx_root(),
+            validator_proposals: inner.validator_proposals().map(Into::into).collect(),
             signature,
         }
     }
@@ -693,8 +693,8 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
 
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
-        let mut header = ShardChunkHeaderV2 {
-            inner: ShardChunkHeaderInner {
+        let mut header = ShardChunkHeaderV3 {
+            inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
                 prev_block_hash: view.prev_block_hash,
                 prev_state_root: view.prev_state_root,
                 outcome_root: view.outcome_root,
@@ -707,14 +707,14 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 balance_burnt: view.balance_burnt,
                 outgoing_receipts_root: view.outgoing_receipts_root,
                 tx_root: view.tx_root,
-                validator_proposals: view.validator_proposals.into_iter().map(|p| p.into_validator_stake().into_v1()).collect(),
-            },
+                validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
+            }),
             height_included: view.height_included,
             signature: view.signature,
             hash: ChunkHash::default(),
         };
         header.init();
-        ShardChunkHeader::V2(header)
+        ShardChunkHeader::V3(header)
     }
 }
 

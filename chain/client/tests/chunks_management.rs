@@ -21,7 +21,7 @@ use near_network::types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkReque
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2,
+    ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2, ShardChunkHeaderInner,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
@@ -333,6 +333,10 @@ fn update_chunk_hash(chunk: PartialEncodedChunkV2, new_hash: ChunkHash) -> Parti
             header.hash = new_hash;
             ShardChunkHeader::V2(header)
         }
+        ShardChunkHeader::V3(mut header) => {
+            header.hash = new_hash;
+            ShardChunkHeader::V3(header)
+        }
     };
     PartialEncodedChunkV2 { header: new_header, parts: chunk.parts, receipts: chunk.receipts }
 }
@@ -349,6 +353,13 @@ fn update_chunk_height_created(
         ShardChunkHeader::V2(mut header) => {
             header.inner.height_created = new_height;
             ShardChunkHeader::V2(header)
+        }
+        ShardChunkHeader::V3(mut header) => {
+            match &mut header.inner {
+                ShardChunkHeaderInner::V1(inner) => inner.height_created = new_height,
+                ShardChunkHeaderInner::V2(inner) => inner.height_created = new_height,
+            }
+            ShardChunkHeader::V3(header)
         }
     }
 }

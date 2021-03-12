@@ -33,7 +33,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
-    ValidatorStakeV1,
+    ValidatorStake,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -1447,7 +1447,7 @@ impl ShardsManager {
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,
-        validator_proposals: Vec<ValidatorStakeV1>,
+        validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
@@ -1524,7 +1524,7 @@ impl ShardsManager {
             ShardChunkHeader::V1(header) => {
                 PartialEncodedChunk::V1(PartialEncodedChunkV1 { header, parts, receipts })
             }
-            header @ ShardChunkHeader::V2(_) => {
+            header => {
                 PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts })
             }
         };

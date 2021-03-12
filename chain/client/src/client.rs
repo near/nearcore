@@ -590,7 +590,7 @@ impl Client {
             chunk_extra.gas_used(),
             chunk_extra.gas_limit(),
             chunk_extra.balance_burnt(),
-            chunk_extra.validator_proposals().map(|p| p.into_v1()).collect(),
+            chunk_extra.validator_proposals().collect(),
             transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
@@ -1690,7 +1690,7 @@ mod test {
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::block_header::ApprovalType;
     use near_primitives::network::PeerId;
-    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
+    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader, ShardChunkHeaderInner};
     use near_primitives::utils::MaybeValidated;
 
     fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
@@ -1768,6 +1768,13 @@ mod test {
             }
             ShardChunkHeader::V2(ref mut header) => {
                 header.inner.prev_block_hash = hash(b"some_prev_block");
+                header.init();
+            }
+            ShardChunkHeader::V3(header) => {
+                match &mut header.inner {
+                    ShardChunkHeaderInner::V1(inner) => inner.prev_block_hash = hash(b"some_prev_block"),
+                    ShardChunkHeaderInner::V2(inner) => inner.prev_block_hash = hash(b"some_prev_block"),
+                }
                 header.init();
             }
         }

@@ -38,7 +38,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash, Digest};
 use near_primitives::merkle::verify_hash;
 use near_primitives::sharding::{
-    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderV2,
+    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderV3, ShardChunkHeaderInner,
 };
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
@@ -478,6 +478,9 @@ fn invalid_blocks_common(is_requested: bool) {
                     chunk.signature = some_signature;
                 }
                 ShardChunkHeader::V2(chunk) => {
+                    chunk.signature = some_signature;
+                }
+                ShardChunkHeader::V3(chunk) => {
                     chunk.signature = some_signature;
                 }
             };
@@ -998,10 +1001,14 @@ fn test_bad_orphan() {
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
-                ShardChunkHeader::V2(chunk) => chunk,
+                ShardChunkHeader::V2(_) => unreachable!(),
+                ShardChunkHeader::V3(chunk) => chunk,
             };
-            chunk.inner.outcome_root = CryptoHash(Digest([1; 32]));
-            chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
+            match &mut chunk.inner {
+                ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash(Digest([1; 32])),
+                ShardChunkHeaderInner::V2(inner) => inner.outcome_root = CryptoHash(Digest([1; 32])),
+            }
+            chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
         block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
         block.mut_header().resign(&*signer);
@@ -1030,10 +1037,11 @@ fn test_bad_orphan() {
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
-                ShardChunkHeader::V2(chunk) => chunk,
+                ShardChunkHeader::V2(_) => unreachable!(),
+                ShardChunkHeader::V3(chunk) => chunk,
             };
             chunk.signature = some_signature;
-            chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
+            chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
         block.mut_header().get_mut().prev_hash = CryptoHash(Digest([4; 32]));
         block.mut_header().resign(&*signer);
@@ -2051,7 +2059,7 @@ fn test_catchup_gas_price_change() {
     let state_root = match &state_sync_header {
         ShardStateSyncResponseHeader::V1(header) => header.chunk.header.inner.prev_state_root,
         ShardStateSyncResponseHeader::V2(header) => {
-            header.chunk.cloned_header().take_inner().prev_state_root
+            *header.chunk.cloned_header().take_inner().prev_state_root()
         }
     };
     //let state_root = state_sync_header.chunk.header.inner.prev_state_root;
