@@ -11,7 +11,7 @@ from cluster import start_cluster
 from utils import TxContext
 from transaction import sign_payment_tx
 
-TIMEOUT = 240
+TIMEOUT = 180
 
 # give more stake to the bootnode so that it can produce the blocks alone
 nodes = start_cluster(
@@ -19,7 +19,8 @@ nodes = start_cluster(
     [["num_block_producer_seats", 199],
      ["num_block_producer_seats_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]],
      ["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 70],
+     ["block_producer_kickout_threshold", 60],
+     ["chunk_producer_kickout_threshold", 60],
      ["validators", 0, "amount", "110000000000000000000000000000000"],
      [
          "records", 0, "Account", "account", "locked",
