@@ -77,10 +77,6 @@ pub(crate) fn execute_function_call(
             is_view,
         )
     } else {
-        let cache = match &apply_state.cache {
-            Some(cache) => Some((*cache).as_ref()),
-            None => None,
-        };
         let code = match runtime_ext.get_code(account.code_hash) {
             Ok(Some(code)) => code,
             Ok(None) => {
@@ -133,8 +129,7 @@ pub(crate) fn execute_function_call(
         };
 
         near_vm_runner::run(
-            code.hash.as_ref().to_vec(),
-            &code.code,
+            &code,
             &function_call.method_name,
             runtime_ext,
             context,
@@ -142,7 +137,7 @@ pub(crate) fn execute_function_call(
             &config.transaction_costs,
             promise_results,
             apply_state.current_protocol_version,
-            cache,
+            apply_state.cache.as_deref(),
             &apply_state.profile,
         )
     }

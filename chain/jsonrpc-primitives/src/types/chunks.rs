@@ -97,7 +97,7 @@ impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcChunkError", &error_message],
+                    &["RpcChunkError"],
                 );
                 Self::Unreachable(error_message)
             }

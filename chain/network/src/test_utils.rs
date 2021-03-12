@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::{future, FutureExt};
-use log::debug;
 use rand::{thread_rng, RngCore};
+use tracing::debug;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
