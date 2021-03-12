@@ -12,11 +12,13 @@ use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
 
 use crate::cache;
-use crate::preload::VMModule::Wasmer0;
-use crate::wasmer_runner::run_wasmer_module;
+use crate::preload::VMModule::{Wasmer0, Wasmer1};
+use crate::wasmer1_runner::{default_wasmer1_store, run_wasmer1_module};
+use crate::wasmer_runner::run_wasmer0_module;
 
 enum VMModule {
     Wasmer0(wasmer_runtime::Module),
+    Wasmer1(wasmer::Module, wasmer::Store),
 }
 
 struct VMCallData {
@@ -89,8 +91,20 @@ impl ContractCaller {
                 match call_data.result {
                     Err(err) => (None, Some(err)),
                     Ok(module) => match module {
-                        Wasmer0(module) => run_wasmer_module(
+                        Wasmer0(module) => run_wasmer0_module(
                             module,
+                            method_name,
+                            ext,
+                            context,
+                            vm_config,
+                            fees_config,
+                            promise_results,
+                            profile,
+                            current_protocol_version,
+                        ),
+                        Wasmer1(module, store) => run_wasmer1_module(
+                            &module,
+                            &store,
                             method_name,
                             ext,
                             context,
@@ -117,13 +131,25 @@ impl Drop for ContractCaller {
 fn prepare_in_thread(request: ContractCallPrepareRequest, vm_kind: VMKind, tx: Sender<VMCallData>) {
     let cache = request.cache.as_deref();
     let result = match vm_kind {
-        VMKind::Wasmer0 => cache::wasmer0_cache::compile_module_cached_wasmer(
+        VMKind::Wasmer0 => cache::wasmer0_cache::compile_module_cached_wasmer0(
             &(request.code_hash.0).0,
             request.code.as_slice(),
             &request.vm_config,
             cache,
         )
         .map(VMModule::Wasmer0),
+        VMKind::Wasmer1 => {
+            let store = default_wasmer1_store();
+            cache::wasmer1_cache::compile_module_cached_wasmer1(
+                &(request.code_hash.0).0,
+                request.code.as_slice(),
+                &request.vm_config,
+                cache,
+                &store,
+            )
+            .map(|m| VMModule::Wasmer1(m, store))
+        }
+
         _ => panic!("Unsupported VM"),
     };
     tx.send(VMCallData { result }).unwrap();
