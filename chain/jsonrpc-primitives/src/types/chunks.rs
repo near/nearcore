@@ -27,22 +27,20 @@ pub struct RpcChunkResponse {
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcChunkError {
-    #[error("The node reached its limits. Try again later. More details: {0}")]
-    InternalError(String),
-    #[error("Block not found")]
-    UnknownBlock(String),
-    #[error("Block `{0}` is unavailable on the node")]
-    UnavailableBlock(near_primitives::hash::CryptoHash),
-    #[error("Shard id {0} does not exist")]
-    InvalidShardId(u64),
-    #[error("Chunk with hash {0:?} has never been observed on this node")]
-    UnknownChunk(near_primitives::sharding::ChunkHash),
+    #[error("The node reached its limits. Try again later. More details: {error_message}")]
+    InternalError { error_message: String },
+    #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
+    UnknownBlock { error_message: String },
+    #[error("Shard id {shard_id} does not exist")]
+    InvalidShardId { shard_id: u64 },
+    #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]
+    UnknownChunk { chunk_hash: near_primitives::sharding::ChunkHash },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
     // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
-    Unreachable(String),
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
+    Unreachable { error_message: String },
 }
 
 impl From<ChunkReference> for near_client_primitives::types::GetChunk {
@@ -82,24 +80,25 @@ impl RpcChunkRequest {
 impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
     fn from(error: near_client_primitives::types::GetChunkError) -> Self {
         match error {
-            near_client_primitives::types::GetChunkError::IOError(s) => Self::InternalError(s),
-            near_client_primitives::types::GetChunkError::UnknownBlock(s) => Self::UnknownBlock(s),
-            near_client_primitives::types::GetChunkError::UnavailableBlock(hash) => {
-                Self::UnavailableBlock(hash)
+            near_client_primitives::types::GetChunkError::IOError { error_message } => {
+                Self::InternalError { error_message }
             }
-            near_client_primitives::types::GetChunkError::InvalidShardId(shard_id) => {
-                Self::InvalidShardId(shard_id)
+            near_client_primitives::types::GetChunkError::UnknownBlock { error_message } => {
+                Self::UnknownBlock { error_message }
             }
-            near_client_primitives::types::GetChunkError::UnknownChunk(hash) => {
-                Self::UnknownChunk(hash)
+            near_client_primitives::types::GetChunkError::InvalidShardId { shard_id } => {
+                Self::InvalidShardId { shard_id }
             }
-            near_client_primitives::types::GetChunkError::Unreachable(error_message) => {
+            near_client_primitives::types::GetChunkError::UnknownChunk { chunk_hash } => {
+                Self::UnknownChunk { chunk_hash }
+            }
+            near_client_primitives::types::GetChunkError::Unreachable { error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcChunkError"],
                 );
-                Self::Unreachable(error_message)
+                Self::Unreachable { error_message }
             }
         }
     }
@@ -107,27 +106,24 @@ impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
 
 impl From<actix::MailboxError> for RpcChunkError {
     fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError(error.to_string())
+        Self::InternalError { error_message: error.to_string() }
     }
 }
 
 impl From<RpcChunkError> for crate::errors::RpcError {
     fn from(error: RpcChunkError) -> Self {
         let error_data = match error {
-            RpcChunkError::InternalError(_) => Some(Value::String(error.to_string())),
-            RpcChunkError::UnavailableBlock(hash) => Some(Value::String(format!(
+            RpcChunkError::InternalError { .. } => Some(Value::String(error.to_string())),
+            RpcChunkError::UnknownBlock { error_message } => Some(Value::String(format!(
                 "DB Not Found Error: {} \n Cause: Unknown",
-                hash.to_string()
+                error_message
             ))),
-            RpcChunkError::UnknownBlock(s) => {
-                Some(Value::String(format!("DB Not Found Error: {} \n Cause: Unknown", s)))
-            }
-            RpcChunkError::InvalidShardId(_) => Some(Value::String(error.to_string())),
-            RpcChunkError::UnknownChunk(hash) => Some(Value::String(format!(
+            RpcChunkError::InvalidShardId { .. } => Some(Value::String(error.to_string())),
+            RpcChunkError::UnknownChunk { chunk_hash } => Some(Value::String(format!(
                 "Chunk Missing (unavailable on the node): ChunkHash(`{}`) \n Cause: Unknown",
-                hash.0.to_string()
+                chunk_hash.0.to_string()
             ))),
-            RpcChunkError::Unreachable(s) => Some(Value::String(s)),
+            RpcChunkError::Unreachable { error_message } => Some(Value::String(error_message)),
         };
 
         Self::new(-32_000, "Server error".to_string(), error_data)
