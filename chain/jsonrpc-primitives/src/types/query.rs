@@ -52,6 +52,8 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("Block either has never been observed on the node or has been garbage collected: {block_reference:?}")]
+    UnknownBlock { block_reference: near_primitives::types::BlockReference },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
@@ -164,6 +166,9 @@ impl From<near_client_primitives::types::QueryError> for RpcQueryError {
             near_client_primitives::types::QueryError::NoSyncedBlocks => Self::NoSyncedBlocks,
             near_client_primitives::types::QueryError::UnavailableShard { requested_shard_id } => {
                 Self::UnavailableShard { requested_shard_id }
+            }
+            near_client_primitives::types::QueryError::UnknownBlock { block_reference } => {
+                Self::UnknownBlock { block_reference }
             }
             near_client_primitives::types::QueryError::InvalidAccount {
                 requested_account_id,
