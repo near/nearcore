@@ -12,7 +12,6 @@ actix-rt = "2"
 actix-web = { version = "4.0.0-beta.1", features = [ "openssl" ] }
 byteorder = "1.2"
 easy-ext = "0.2"
-log = "0.4"
 chrono = { version = "0.4.4", features = ["serde"] }
 git-version = "0.3.1"
 futures = "0.3"
