@@ -173,8 +173,7 @@ pub fn run_wasmer1<'a>(
         );
     }
 
-    let engine = JIT::new(Singlepass::default()).engine();
-    let store = Store::new(&engine);
+    let store = default_wasmer1_store();
     let module = match cache::wasmer1_cache::compile_module_cached_wasmer1(
         code_hash,
         &code,
@@ -239,13 +238,83 @@ fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Resu
     Ok(())
 }
 
-pub fn compile_module(code: &[u8]) -> bool {
-    let engine = JIT::new(Singlepass::default()).engine();
-    let store = Store::new(&engine);
+pub(crate) fn compile_wasmer1_module(code: &[u8]) -> bool {
+    let store = default_wasmer1_store();
     Module::new(&store, code).is_ok()
 }
 
+let use_cranelift = false;
+let use_native_engine = false;
+
 pub(crate) fn wasmer1_vm_hash() -> u64 {
     // TODO: take into account compiler and engine used to compile the contract.
-    53
+    53 + (use_cranelift as u64) + (use_native_engine as u64) * 2
+}
+
+pub(crate) fn default_wasmer1_store() -> Store {
+    if use_native_engine {
+        let engine = if use_cranelift {
+            wasmer_engine_native::Native::new(wasmer_compiler_cranelift::Cranelift::default())
+                .engine()
+        } else {
+            wasmer_engine_native::Native::new(wasmer_compiler_singlepass::Singlepass::default())
+                .engine()
+        };
+        Store::new(&engine)
+    } else {
+        let engine = JIT::new(Singlepass::default()).engine();
+        Store::new(&engine)
+    }
+}
+
+pub(crate) fn run_wasmer1_module<'a>(
+    module: &Module,
+    store: &Store,
+    method_name: &str,
+    ext: &mut dyn External,
+    context: VMContext,
+    wasm_config: &'a VMConfig,
+    fees_config: &'a RuntimeFeesConfig,
+    promise_results: &'a [PromiseResult],
+    profile: ProfileData,
+    current_protocol_version: ProtocolVersion,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    // Do we really need that code?
+    if method_name.is_empty() {
+        return (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ))),
+        );
+    }
+    let mut memory = Wasmer1Memory::new(
+        store,
+        wasm_config.limit_config.initial_memory_pages,
+        wasm_config.limit_config.max_memory_pages,
+    )
+    .unwrap();
+
+    // Note that we don't clone the actual backing memory, just increase the RC.
+    let memory_copy = memory.clone();
+
+    let mut logic = VMLogic::new_with_protocol_version(
+        ext,
+        context,
+        wasm_config,
+        fees_config,
+        promise_results,
+        &mut memory,
+        profile,
+        current_protocol_version,
+    );
+
+    let import = imports::build_wasmer1(store, memory_copy, &mut logic, current_protocol_version);
+
+    if let Err(e) = check_method(&module, method_name) {
+        return (None, Some(e));
+    }
+
+    let err = run_method(module, &import, method_name).err();
+    (Some(logic.outcome()), err)
 }
