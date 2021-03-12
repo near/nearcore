@@ -24,10 +24,7 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
     TransferAction,
 };
-use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
-    ShardId, StateRoot, StateRootNode, ValidatorStake,
-};
+use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards, ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStakeIter};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -594,7 +591,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        _last_validator_proposals: &[ValidatorStake],
+        _last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         _gas_limit: Gas,
         _challenges: &ChallengesResult,
@@ -773,7 +770,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         _receipts: &[Receipt],
         _transactions: &[SignedTransaction],
-        _last_validator_proposals: &[ValidatorStake],
+        _last_validator_proposals: ValidatorStakeIter,
         _gas_price: Balance,
         _gas_limit: Gas,
         _challenges: &ChallengesResult,

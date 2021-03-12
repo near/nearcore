@@ -46,10 +46,7 @@ use near_primitives::syncing::{
     StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, MerkleHash,
-    NumBlocks, ShardId, ValidatorStake,
-};
+use near_primitives::types::{AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, MerkleHash, NumBlocks, ShardId, ValidatorStakeIter};
 use near_primitives::unwrap_or_return;
 use near_primitives::version::VALIDATOR_STAKE_UPGRADE_VERSION;
 use near_primitives::views::{
@@ -2693,7 +2690,7 @@ impl<'a> ChainUpdate<'a> {
                 &prev_block.hash(),
                 &receipts,
                 prev_chunk.transactions(),
-                &prev_chunk_inner.validator_proposals.iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
+                ValidatorStakeIter::v1(&prev_chunk_inner.validator_proposals),
                 prev_block.header().gas_price(),
                 prev_chunk_inner.gas_limit,
                 &challenges_result,
@@ -2846,7 +2843,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &receipts,
                             chunk.transactions(),
-                            &chunk_inner.validator_proposals.iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
+                            ValidatorStakeIter::v1(&chunk_inner.validator_proposals),
                             prev_block.header().gas_price(),
                             gas_limit,
                             &block.header().challenges_result(),
@@ -2865,7 +2862,7 @@ impl<'a> ChainUpdate<'a> {
                         ChunkExtra::new(
                             &apply_result.new_root,
                             outcome_root,
-                            apply_result.validator_proposals.into_iter().map(ValidatorStake::into_v1).collect(),
+                            apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,
                             apply_result.total_balance_burnt,
@@ -2893,23 +2890,23 @@ impl<'a> ChainUpdate<'a> {
                         .runtime_adapter
                         .apply_transactions(
                             shard_id,
-                            &new_extra.state_root,
+                            new_extra.state_root(),
                             block.header().height(),
                             block.header().raw_timestamp(),
                             &prev_block.hash(),
                             &block.hash(),
                             &[],
                             &[],
-                            &new_extra.validator_proposals.iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
+                            new_extra.validator_proposals(),
                             block.header().gas_price(),
-                            new_extra.gas_limit,
+                            new_extra.gas_limit(),
                             &block.header().challenges_result(),
                             *block.header().random_value(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
                     self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-                    new_extra.state_root = apply_result.new_root;
+                    *new_extra.state_root_mut() = apply_result.new_root;
 
                     self.chain_store_update.save_chunk_extra(&block.hash(), shard_id, new_extra);
                 }
@@ -3580,7 +3577,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.hash(),
             &receipts,
             chunk.transactions(),
-            &chunk_header.validator_proposals().iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
+            ValidatorStakeIter::v1(chunk_header.validator_proposals()),
             gas_price,
             gas_limit,
             &block_header.challenges_result(),
@@ -3596,7 +3593,7 @@ impl<'a> ChainUpdate<'a> {
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
             outcome_root,
-            apply_result.validator_proposals.into_iter().map(ValidatorStake::into_v1).collect(),
+            apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
             apply_result.total_balance_burnt,
@@ -3651,22 +3648,22 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
-            &chunk_extra.state_root,
+            chunk_extra.state_root(),
             block_header.height(),
             block_header.raw_timestamp(),
             &prev_block_header.hash(),
             &block_header.hash(),
             &[],
             &[],
-            &chunk_extra.validator_proposals.iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
+            chunk_extra.validator_proposals(),
             prev_block_header.gas_price(),
-            chunk_extra.gas_limit,
+            chunk_extra.gas_limit(),
             &block_header.challenges_result(),
             *block_header.random_value(),
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-        chunk_extra.state_root = apply_result.new_root;
+        *chunk_extra.state_root_mut() = apply_result.new_root;
 
         self.chain_store_update.save_chunk_extra(&block_header.hash(), shard_id, chunk_extra);
         Ok(true)

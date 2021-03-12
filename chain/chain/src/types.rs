@@ -20,10 +20,7 @@ use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStakeV1,
-};
+use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStakeV1, ValidatorStakeIter};
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
@@ -508,7 +505,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
+        last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
@@ -542,7 +539,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
+        last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
@@ -561,7 +558,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
+        last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,

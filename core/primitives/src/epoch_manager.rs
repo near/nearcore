@@ -7,10 +7,7 @@ use smart_default::SmartDefault;
 
 use crate::challenge::SlashedValidator;
 use crate::hash::CryptoHash;
-use crate::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
-    EpochId, NumSeats, NumShards, ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStakeV1,
-};
+use crate::types::{AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, NumSeats, NumShards, ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStakeV1, ValidatorStakeIter};
 use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
 
 pub type RngSeed = [u8; 32];
@@ -110,12 +107,8 @@ impl BlockInfo {
         }
     }
 
-    pub fn proposals_iter(&self) -> ValidatorsIter {
-        ValidatorsIter {
-            collection: &self.proposals,
-            curr_index: 0,
-            len: self.proposals.len(),
-        }
+    pub fn proposals_iter(&self) -> ValidatorStakeIter {
+        ValidatorStakeIter::v1(&self.proposals)
     }
 }
 
@@ -157,41 +150,13 @@ pub struct EpochInfo {
     pub protocol_version: ProtocolVersion,
 }
 
-pub struct ValidatorsIter<'a> {
-    collection: &'a [ValidatorStakeV1],
-    curr_index: usize,
-    len: usize,
-}
-
-impl<'a> Iterator for ValidatorsIter<'a> {
-    type Item = ValidatorStake;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.curr_index < self.len {
-            let item = ValidatorStake::lift(self.collection[self.curr_index].clone());
-            self.curr_index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-}
-
 impl EpochInfo {
-    pub fn validators_iter(&self) -> ValidatorsIter {
-        ValidatorsIter {
-            collection: &self.validators,
-            curr_index: 0,
-            len: self.validators.len(),
-        }
+    pub fn validators_iter(&self) -> ValidatorStakeIter {
+        ValidatorStakeIter::v1(&self.validators)
     }
 
-    pub fn fishermen_iter(&self) -> ValidatorsIter {
-        ValidatorsIter {
-            collection: &self.fishermen,
-            curr_index: 0,
-            len: self.fishermen.len(),
-        }
+    pub fn fishermen_iter(&self) -> ValidatorStakeIter {
+        ValidatorStakeIter::v1(&self.fishermen)
     }
 
     pub fn validator_stake(&self, validator_id: u64) -> Balance {
@@ -229,12 +194,8 @@ pub struct EpochSummary {
 }
 
 impl EpochSummary {
-    pub fn proposals_iter(&self) -> ValidatorsIter {
-        ValidatorsIter {
-            collection: &self.all_proposals,
-            curr_index: 0,
-            len: self.all_proposals.len(),
-        }
+    pub fn proposals_iter(&self) -> ValidatorStakeIter {
+        ValidatorStakeIter::v1(&self.all_proposals)
     }
 }
 

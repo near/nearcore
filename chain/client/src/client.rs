@@ -583,14 +583,14 @@ impl Client {
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(epoch_id)?;
         let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
-            chunk_extra.state_root,
-            chunk_extra.outcome_root,
+            *chunk_extra.state_root(),
+            *chunk_extra.outcome_root(),
             next_height,
             shard_id,
-            chunk_extra.gas_used,
-            chunk_extra.gas_limit,
-            chunk_extra.balance_burnt,
-            chunk_extra.validator_proposals,
+            chunk_extra.gas_used(),
+            chunk_extra.gas_limit(),
+            chunk_extra.balance_burnt(),
+            chunk_extra.validator_proposals().map(|p| p.into_v1()).collect(),
             transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
@@ -632,9 +632,9 @@ impl Client {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime_adapter.prepare_transactions(
                 prev_block_header.gas_price(),
-                chunk_extra.gas_limit,
+                chunk_extra.gas_limit(),
                 shard_id,
-                chunk_extra.state_root.clone(),
+                *chunk_extra.state_root(),
                 // while the height of the next block that includes the chunk might not be prev_height + 1,
                 // passing it will result in a more conservative check and will not accidentally allow
                 // invalid transactions to be included.
@@ -1470,7 +1470,7 @@ impl Client {
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
-                Ok(chunk_extra) => chunk_extra.state_root,
+                Ok(chunk_extra) => *chunk_extra.state_root(),
                 Err(_) => {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.

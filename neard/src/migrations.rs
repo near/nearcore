@@ -5,7 +5,7 @@ use near_chain::types::ApplyTransactionResult;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::{BlockHeight, ShardId, ValidatorStake};
+use near_primitives::types::{BlockHeight, ShardId, ValidatorStakeIter};
 use near_store::migrations::set_store_version;
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
@@ -55,7 +55,7 @@ fn apply_block_at_height(
             block.hash(),
             &receipts,
             &chunk.transactions,
-            &chunk_header.validator_proposals().iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
+            ValidatorStakeIter::v1(chunk_header.validator_proposals()),
             prev_block.header().gas_price(),
             chunk_header.gas_limit(),
             &block.header().challenges_result(),

@@ -33,10 +33,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake,
-};
+use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake, ValidatorStakeIter};
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
@@ -369,7 +366,7 @@ impl NightshadeRuntime {
         prev_block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
+        last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
@@ -406,10 +403,10 @@ impl NightshadeRuntime {
                     .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
                     .collect();
                 let last_proposals = last_validator_proposals
-                    .iter()
                     .filter(|v| self.account_id_to_shard_id(v.account_id()) == shard_id)
                     .fold(HashMap::new(), |mut acc, v| {
-                        acc.insert(v.account_id().clone(), v.stake());
+                        let (account_id, stake) = v.account_and_stake();
+                        acc.insert(account_id, stake);
                         acc
                     });
                 let double_sign_slashing_info: HashMap<_, _> = double_sign_slashing_info
@@ -1174,7 +1171,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
+        last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
         challenges: &ChallengesResult,
@@ -1220,7 +1217,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
+        last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
         challenges: &ChallengesResult,
@@ -1695,7 +1692,7 @@ mod test {
             block_hash: &CryptoHash,
             receipts: &[Receipt],
             transactions: &[SignedTransaction],
-            last_proposals: &[ValidatorStake],
+            last_proposals: ValidatorStakeIter,
             gas_price: Balance,
             gas_limit: Gas,
             challenges: &ChallengesResult,
@@ -1834,7 +1831,7 @@ mod test {
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],
-                    self.last_shard_proposals.get(&i).unwrap_or(&vec![]),
+                    ValidatorStakeIter::new(self.last_shard_proposals.get(&i).unwrap_or(&vec![])),
                     self.runtime.genesis_config.min_gas_price,
                     u64::max_value(),
                     &challenges_result,

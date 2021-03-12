@@ -24,7 +24,7 @@ pub use crate::runtime::NightshadeRuntime;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_6_to_7,
-    migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
+    migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version, migrate_18_to_19,
 };
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
@@ -193,6 +193,10 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
     if db_version <= 18 {
         // version 18 => rectify inflation: add `timestamp` to `BlockInfo`
         migrate_18_to_rectify_inflation(&path);
+    }
+    if db_version <= 19 {
+        info!(target: "near", "Migrate DB from version 18 to 19");
+        migrate_18_to_19(&path);
     }
     #[cfg(feature = "nightly_protocol")]
     {

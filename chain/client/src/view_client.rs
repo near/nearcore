@@ -229,10 +229,10 @@ impl ViewClientActor {
         let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
 
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id)?;
-        let state_root = chunk_extra.state_root;
+        let state_root = chunk_extra.state_root();
         match self.runtime_adapter.query(
             shard_id,
-            &state_root,
+            state_root,
             header.height(),
             header.raw_timestamp(),
             header.prev_hash(),

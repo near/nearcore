@@ -1353,7 +1353,7 @@ fn test_process_block_after_state_sync() {
     let sync_hash = *sync_block.hash();
     let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
     let state_part =
-        env.clients[0].runtime_adapter.obtain_state_part(0, &chunk_extra.state_root, 0, 1).unwrap();
+        env.clients[0].runtime_adapter.obtain_state_part(0, chunk_extra.state_root(), 0, 1).unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
@@ -1362,7 +1362,7 @@ fn test_process_block_after_state_sync() {
     env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
     env.clients[0]
         .runtime_adapter
-        .apply_state_part(0, &chunk_extra.state_root, 0, 1, &state_part)
+        .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
     let (_, res) = env.clients[0].process_block(block, Provenance::PRODUCED);

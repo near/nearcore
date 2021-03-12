@@ -644,3 +644,14 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
     })
     .unwrap();
 }
+
+pub fn migrate_18_to_19(path: &str) {
+    use near_primitives::types::{ChunkExtraV1, ChunkExtra};
+    let store = create_store(path);
+
+    map_col(&store, DBCol::ColChunkExtra, |extra: ChunkExtraV1| {
+        ChunkExtra::V1(extra)
+    }).unwrap();
+
+    set_store_version(&store, 19);
+}

@@ -570,8 +570,8 @@ pub(crate) fn trie_changes_chunk_extra_exists(
                 &get_block_shard_id(block.header().prev_hash(), *shard_id),
             ) {
                 check_discrepancy!(
-                    prev_chunk_extra.state_root,
-                    trie_changes.old_root,
+                    prev_chunk_extra.state_root(),
+                    &trie_changes.old_root,
                     "Prev State Root discrepancy, previous ChunkExtra {:?}",
                     prev_chunk_extra
                 );
@@ -579,8 +579,8 @@ pub(crate) fn trie_changes_chunk_extra_exists(
 
             // 7. State Roots should be equal
             check_discrepancy!(
-                chunk_extra.state_root,
-                new_root,
+                chunk_extra.state_root(),
+                &new_root,
                 "State Root discrepancy, ShardChunk {:?}",
                 chunk_header
             );

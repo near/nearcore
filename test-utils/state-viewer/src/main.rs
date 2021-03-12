@@ -19,7 +19,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{BlockHeight, ChunkExtra, ShardId, StateRoot, ValidatorStake};
+use near_primitives::types::{BlockHeight, ChunkExtra, ShardId, StateRoot, ValidatorStakeIter};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
 use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
@@ -243,7 +243,7 @@ fn apply_block_at_height(
             block.hash(),
             &receipts,
             chunk.transactions(),
-            &chunk_inner.validator_proposals.iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
+            ValidatorStakeIter::v1(&chunk_inner.validator_proposals),
             prev_block.header().gas_price(),
             chunk_inner.gas_limit,
             &block.header().challenges_result(),
@@ -254,7 +254,7 @@ fn apply_block_at_height(
     let chunk_extra = ChunkExtra::new(
         &apply_result.new_root,
         outcome_root,
-        apply_result.validator_proposals.iter().cloned().map(ValidatorStake::into_v1).collect(),
+        apply_result.validator_proposals,
         apply_result.total_gas_burnt,
         chunk_inner.gas_limit,
         apply_result.total_balance_burnt,
