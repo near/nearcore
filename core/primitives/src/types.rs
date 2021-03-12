@@ -376,12 +376,6 @@ impl StateRootNode {
 #[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
 
-pub trait ValidatorStakeLike {
-    fn account_id(&self) -> &AccountId;
-    fn public_key(&self) -> &PublicKey;
-    fn stake(&self) -> Balance;
-}
-
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum ValidatorStake {
     V1(ValidatorStakeV1),
