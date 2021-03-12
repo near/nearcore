@@ -275,11 +275,11 @@ pub(crate) fn action_stake(
             }
         }
 
-        result.validator_proposals.push(ValidatorStake {
-            account_id: account_id.clone(),
-            public_key: stake.public_key.clone(),
-            stake: stake.stake,
-        });
+        result.validator_proposals.push(ValidatorStake::v1(
+            account_id.clone(),
+            stake.public_key.clone(),
+            stake.stake,
+        ));
         if stake.stake > account.locked {
             // We've checked above `account.amount >= increment`
             account.amount -= increment;

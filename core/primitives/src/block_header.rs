@@ -9,7 +9,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
 use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ValidatorStakeV1,
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
@@ -50,7 +50,7 @@ pub struct BlockHeaderInnerRest {
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
     /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStake>,
+    pub validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -86,7 +86,7 @@ pub struct BlockHeaderInnerRestV2 {
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
     /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStake>,
+    pub validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -125,7 +125,7 @@ pub struct BlockHeaderInnerRestV3 {
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
     /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStake>,
+    pub validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -345,7 +345,7 @@ impl BlockHeader {
         timestamp: u64,
         challenges_root: MerkleHash,
         random_value: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        validator_proposals: Vec<ValidatorStakeV1>,
         chunk_mask: Vec<bool>,
         #[cfg(feature = "protocol_feature_block_header_v3")] block_ordinal: NumBlocks,
         epoch_id: EpochId,
@@ -776,7 +776,7 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn validator_proposals(&self) -> &[ValidatorStake] {
+    pub fn validator_proposals(&self) -> &[ValidatorStakeV1] {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.validator_proposals,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.validator_proposals,

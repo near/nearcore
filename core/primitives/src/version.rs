@@ -55,6 +55,9 @@ pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
 pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
 
+/// Changes ValidatorStake and related data structures to be versioned
+pub const VALIDATOR_STAKE_UPGRADE_VERSION: ProtocolVersion = 43;
+
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
     upper: Option<ProtocolVersion>,

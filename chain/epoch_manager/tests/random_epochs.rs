@@ -268,11 +268,11 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
                 .unwrap();
             assert_eq!(aggregator.all_proposals, proposals, "Proposals do not match");
             proposals = BTreeMap::from_iter(
-                block_info.proposals.iter().map(|p| (p.account_id.clone(), p.clone())),
+                block_info.proposals_iter().map(|p| (p.account_id().clone(), p)),
             );
         } else {
             proposals
-                .extend(block_info.proposals.iter().map(|p| (p.account_id.clone(), p.clone())));
+                .extend(block_info.proposals_iter().map(|p| (p.account_id().clone(), p)));
         }
     }
 }
@@ -400,9 +400,8 @@ fn is_possible_bad_epochs_case(prev: &EpochInfo, curr: &EpochInfo) -> bool {
 
 fn get_stakes_map(epoch_info: &EpochInfo) -> HashMap<AccountId, Balance> {
     epoch_info
-        .validators
-        .iter()
-        .chain(epoch_info.fishermen.iter())
-        .map(|stake| (stake.account_id.clone(), stake.stake))
+        .validators_iter()
+        .chain(epoch_info.fishermen_iter())
+        .map(|stake| stake.account_and_stake())
         .collect::<HashMap<_, _>>()
 }

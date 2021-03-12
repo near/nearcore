@@ -340,9 +340,11 @@ fn validate_chunk_state_challenge(
         )
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
     let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
+    let proposals_match = result.validator_proposals.len() == chunk_state.chunk_header.validator_proposals().len() &&
+        result.validator_proposals.iter().zip(chunk_state.chunk_header.validator_proposals().into_iter()).all(|(x, y)| &x.clone().into_v1() == y);
     if result.new_root != chunk_state.chunk_header.prev_state_root()
         || outcome_root != chunk_state.chunk_header.outcome_root()
-        || result.validator_proposals != chunk_state.chunk_header.validator_proposals()
+        || !proposals_match
         || result.total_gas_burnt != chunk_state.chunk_header.gas_used()
     {
         Ok((*block_header.hash(), vec![chunk_producer]))

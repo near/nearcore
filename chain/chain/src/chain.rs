@@ -2685,7 +2685,7 @@ impl<'a> ChainUpdate<'a> {
                 &prev_block.hash(),
                 &receipts,
                 prev_chunk.transactions(),
-                &prev_chunk_inner.validator_proposals,
+                &prev_chunk_inner.validator_proposals.iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
                 prev_block.header().gas_price(),
                 prev_chunk_inner.gas_limit,
                 &challenges_result,
@@ -2838,7 +2838,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &receipts,
                             chunk.transactions(),
-                            &chunk_inner.validator_proposals,
+                            &chunk_inner.validator_proposals.iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
                             prev_block.header().gas_price(),
                             gas_limit,
                             &block.header().challenges_result(),
@@ -2857,7 +2857,7 @@ impl<'a> ChainUpdate<'a> {
                         ChunkExtra::new(
                             &apply_result.new_root,
                             outcome_root,
-                            apply_result.validator_proposals,
+                            apply_result.validator_proposals.into_iter().map(ValidatorStake::into_v1).collect(),
                             apply_result.total_gas_burnt,
                             gas_limit,
                             apply_result.total_balance_burnt,
@@ -2892,7 +2892,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &[],
                             &[],
-                            &new_extra.validator_proposals,
+                            &new_extra.validator_proposals.iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
                             block.header().gas_price(),
                             new_extra.gas_limit,
                             &block.header().challenges_result(),
@@ -3572,7 +3572,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.hash(),
             &receipts,
             chunk.transactions(),
-            chunk_header.validator_proposals(),
+            &chunk_header.validator_proposals().iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
             gas_price,
             gas_limit,
             &block_header.challenges_result(),
@@ -3588,7 +3588,7 @@ impl<'a> ChainUpdate<'a> {
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
             outcome_root,
-            apply_result.validator_proposals,
+            apply_result.validator_proposals.into_iter().map(ValidatorStake::into_v1).collect(),
             apply_result.total_gas_burnt,
             gas_limit,
             apply_result.total_balance_burnt,
@@ -3650,7 +3650,7 @@ impl<'a> ChainUpdate<'a> {
             &block_header.hash(),
             &[],
             &[],
-            &chunk_extra.validator_proposals,
+            &chunk_extra.validator_proposals.iter().cloned().map(ValidatorStake::lift).collect::<Vec<_>>(),
             prev_block_header.gas_price(),
             chunk_extra.gas_limit,
             &block_header.challenges_result(),
@@ -3714,7 +3714,7 @@ impl<'a> ChainUpdate<'a> {
             &head.last_block_hash,
             &block_producer,
         )?;
-        Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
+        Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
     }
 }
 

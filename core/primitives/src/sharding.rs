@@ -8,7 +8,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
+use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStakeV1};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use reed_solomon_erasure::ReconstructShard;
@@ -82,7 +82,7 @@ pub struct ShardChunkHeaderInner {
     /// Tx merkle root.
     pub tx_root: CryptoHash,
     /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStake>,
+    pub validator_proposals: Vec<ValidatorStakeV1>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
@@ -138,7 +138,7 @@ impl ShardChunkHeaderV2 {
         balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        validator_proposals: Vec<ValidatorStakeV1>,
         signer: &dyn ValidatorSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInner {
@@ -219,7 +219,7 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn validator_proposals(&self) -> &[ValidatorStake] {
+    pub fn validator_proposals(&self) -> &[ValidatorStakeV1] {
         match self {
             Self::V1(header) => &header.inner.validator_proposals,
             Self::V2(header) => &header.inner.validator_proposals,
@@ -368,7 +368,7 @@ impl ShardChunkHeaderV1 {
         balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        validator_proposals: Vec<ValidatorStakeV1>,
         signer: &dyn ValidatorSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInner {
@@ -828,7 +828,7 @@ impl EncodedShardChunk {
         balance_burnt: Balance,
 
         tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        validator_proposals: Vec<ValidatorStakeV1>,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
@@ -890,7 +890,7 @@ impl EncodedShardChunk {
         balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        validator_proposals: Vec<ValidatorStakeV1>,
 
         encoded_length: u64,
         parts: Vec<Option<Box<[u8]>>>,

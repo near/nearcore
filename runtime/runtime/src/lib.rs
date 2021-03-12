@@ -1221,8 +1221,9 @@ impl Runtime {
         let mut unique_proposals = vec![];
         let mut account_ids = HashSet::new();
         for proposal in validator_proposals.into_iter().rev() {
-            if !account_ids.contains(&proposal.account_id) {
-                account_ids.insert(proposal.account_id.clone());
+            let account_id = proposal.account_id();
+            if !account_ids.contains(account_id) {
+                account_ids.insert(account_id.clone());
                 unique_proposals.push(proposal);
             }
         }

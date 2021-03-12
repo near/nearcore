@@ -907,14 +907,15 @@ impl StateSync {
             .get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?
             .iter()
             .filter_map(|(validator_stake, _slashed)| {
+                let account_id = validator_stake.account_id();
                 if runtime_adapter.cares_about_shard(
-                    Some(&validator_stake.account_id),
+                    Some(account_id),
                     &prev_block_hash,
                     shard_id,
                     false,
                 ) {
-                    if me.as_ref().map(|me| me != &validator_stake.account_id).unwrap_or(true) {
-                        Some(AccountOrPeerIdOrHash::AccountId(validator_stake.account_id.clone()))
+                    if me.as_ref().map(|me| me != account_id).unwrap_or(true) {
+                        Some(AccountOrPeerIdOrHash::AccountId(account_id.clone()))
                     } else {
                         None
                     }

@@ -92,23 +92,23 @@ pub fn epoch_info_with_num_seats(
     let account_to_validators = |accounts: Vec<(&str, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()
-            .map(|(account_id, stake)| ValidatorStake {
-                account_id: account_id.to_string(),
-                public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
+            .map(|(account_id, stake)| ValidatorStake::v1 (
+                account_id.to_string(),
+                SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
                 stake,
-            })
+            ))
             .collect()
     };
     let validator_kickout =
         validator_kickout.into_iter().map(|(s, r)| (s.to_string(), r)).collect();
     EpochInfo {
         epoch_height,
-        validators: account_to_validators(accounts),
+        validators: account_to_validators(accounts).into_iter().map(ValidatorStake::into_v1).collect::<Vec<_>>(),
         validator_to_index,
         block_producers_settlement,
         chunk_producers_settlement,
         hidden_validators_settlement,
-        fishermen: account_to_validators(fishermen),
+        fishermen: account_to_validators(fishermen).into_iter().map(ValidatorStake::into_v1).collect::<Vec<_>>(),
         fishermen_to_index,
         stake_change,
         validator_reward,
@@ -152,7 +152,7 @@ pub fn epoch_config(
 
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
     let public_key = SecretKey::from_seed(KeyType::ED25519, account_id).public_key();
-    ValidatorStake::new(account_id.to_string(), public_key, amount)
+    ValidatorStake::v1(account_id.to_string(), public_key, amount)
 }
 
 /// No-op reward calculator. Will produce no reward
@@ -243,7 +243,7 @@ pub fn record_block_with_final_block_hash(
                 height.saturating_sub(2),
                 last_final_block_hash,
                 prev_h,
-                proposals,
+                proposals.into_iter().map(ValidatorStake::into_v1).collect::<Vec<_>>(),
                 vec![],
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
@@ -276,7 +276,7 @@ pub fn record_block_with_slashes(
                 height.saturating_sub(2),
                 prev_h,
                 prev_h,
-                proposals,
+                proposals.into_iter().map(ValidatorStake::into_v1).collect::<Vec<_>>(),
                 vec![],
                 slashed,
                 DEFAULT_TOTAL_SUPPLY,

@@ -364,8 +364,10 @@ impl Client {
             &head.last_block_hash,
             &next_block_proposer,
         )?;
-        if validator_stake.public_key != validator_signer.public_key() {
-            debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_stake.public_key);
+
+        let validator_pk = validator_stake.take_public_key();
+        if validator_pk!= validator_signer.public_key() {
+            debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_pk);
             #[cfg(not(feature = "adversarial"))]
             return Ok(None);
             #[cfg(feature = "adversarial")]
@@ -1184,7 +1186,7 @@ impl Client {
                     .get_validator_by_account_id(epoch_id, block_hash, account_id)
                 {
                     Ok((validator_stake, is_slashed)) => {
-                        !is_slashed && validator_stake.public_key == signer.public_key()
+                        !is_slashed && validator_stake.take_public_key() == signer.public_key()
                     }
                     Err(_) => false,
                 }

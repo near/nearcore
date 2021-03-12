@@ -166,12 +166,12 @@ impl KeyValueRuntime {
                 .map(|account_ids| {
                     account_ids
                         .iter()
-                        .map(|account_id| ValidatorStake {
-                            account_id: account_id.clone(),
-                            public_key: SecretKey::from_seed(KeyType::ED25519, account_id)
+                        .map(|account_id| ValidatorStake::v1(
+                            account_id.clone(),
+                            SecretKey::from_seed(KeyType::ED25519, account_id)
                                 .public_key(),
-                            stake: 1_000_000,
-                        })
+                            1_000_000,
+                        ))
                         .collect()
                 })
                 .collect(),
@@ -330,7 +330,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators = &self.validators
             [self.get_epoch_and_valset(*header.prev_hash()).map_err(|err| err.to_string())?.1];
         let validator = &validators[(header.height() as usize) % validators.len()];
-        Ok(header.verify_block_producer(&validator.public_key))
+        Ok(header.verify_block_producer(validator.public_key()))
     }
 
     fn verify_chunk_signature_with_header_parts(
@@ -376,12 +376,12 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for (validator, may_be_signature) in validators.iter().zip(approvals.iter()) {
             if let Some(signature) = may_be_signature {
-                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
+                if !signature.verify(message_to_sign.as_ref(), validator.public_key()) {
                     return Err(ErrorKind::InvalidApprovals.into());
                 }
             }
         }
-        let stakes = validators.iter().map(|stake| (stake.stake, 0, false)).collect::<Vec<_>>();
+        let stakes = validators.iter().map(|stake| (stake.stake(), 0, false)).collect::<Vec<_>>();
         if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
             Err(ErrorKind::NotEnoughApprovals.into())
         } else {
@@ -414,7 +414,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 self.validators[self.get_valset_for_epoch(&next_epoch)?]
                     .iter()
                     .filter(|x| {
-                        !validators_copy.iter().any(|entry| entry.account_id == x.account_id)
+                        !validators_copy.iter().any(|entry| &entry.account_id == x.account_id())
                     })
                     .map(|x| x.get_approval_stake(true)),
             );
@@ -429,7 +429,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         height: BlockHeight,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
-        Ok(validators[(height as usize) % validators.len()].account_id.clone())
+        Ok(validators[(height as usize) % validators.len()].account_id().clone())
     }
 
     fn get_chunk_producer(
@@ -445,7 +445,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let coef = validators.len() as ShardId / self.num_shards();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
-        Ok(validators[offset + delta].account_id.clone())
+        Ok(validators[offset + delta].account_id().clone())
     }
 
     fn num_shards(&self) -> ShardId {
@@ -475,7 +475,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
         let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
-        Ok(validators[idx as usize % validators.len()].account_id.clone())
+        Ok(validators[idx as usize % validators.len()].account_id().clone())
     }
 
     fn cares_about_shard(
@@ -498,7 +498,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         assert!(offset + validators_per_shard as usize <= validators.len());
         if let Some(account_id) = account_id {
             for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
-                if validator.account_id == *account_id {
+                if validator.account_id() == account_id {
                     return true;
                 }
             }
@@ -525,7 +525,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         if let Some(account_id) = account_id {
             for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
-                if validator.account_id == *account_id {
+                if validator.account_id() == account_id {
                     return true;
                 }
             }
@@ -727,7 +727,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         for validator in self.validators.iter().flatten() {
             let mut seen = false;
             for (key, value) in state.amounts.iter() {
-                if key == &validator.account_id {
+                if key == validator.account_id() {
                     assert!(!seen);
                     seen = true;
                     new_balances.push(*value);
@@ -1067,7 +1067,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<(ValidatorStake, bool), Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         for validator_stake in validators.iter() {
-            if &validator_stake.account_id == account_id {
+            if validator_stake.account_id() == account_id {
                 return Ok((validator_stake.clone(), false));
             }
         }

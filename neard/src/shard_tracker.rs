@@ -277,11 +277,11 @@ mod tests {
                 initial_epoch_config,
                 PROTOCOL_VERSION,
                 reward_calculator,
-                vec![ValidatorStake {
-                    account_id: "test".to_string(),
-                    public_key: PublicKey::empty(KeyType::ED25519),
-                    stake: 100,
-                }],
+                vec![ValidatorStake::v1(
+                    "test".to_string(),
+                    PublicKey::empty(KeyType::ED25519),
+                    100,
+                )],
             )
             .unwrap(),
         ))
@@ -302,7 +302,7 @@ mod tests {
                     0,
                     prev_h,
                     prev_h,
-                    proposals,
+                    proposals.into_iter().map(ValidatorStake::into_v1).collect(),
                     vec![],
                     vec![],
                     DEFAULT_TOTAL_SUPPLY,

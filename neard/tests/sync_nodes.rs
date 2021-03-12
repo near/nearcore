@@ -74,11 +74,11 @@ fn add_blocks(
             vec![],
             vec![],
             signer,
-            Chain::compute_bp_hash_inner(vec![ValidatorStake {
-                account_id: "other".to_string(),
-                public_key: signer.public_key(),
-                stake: TESTING_INIT_STAKE,
-            }])
+            Chain::compute_bp_hash_inner(vec![ValidatorStake::v1(
+                "other".to_string(),
+                signer.public_key(),
+                TESTING_INIT_STAKE,
+            )])
             .unwrap(),
             block_merkle_tree.root(),
         );

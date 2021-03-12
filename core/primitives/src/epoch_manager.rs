@@ -9,7 +9,7 @@ use crate::challenge::SlashedValidator;
 use crate::hash::CryptoHash;
 use crate::types::{
     AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
-    EpochId, NumSeats, NumShards, ValidatorId, ValidatorKickoutReason, ValidatorStake,
+    EpochId, NumSeats, NumShards, ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStakeV1,
 };
 use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
 
@@ -59,7 +59,7 @@ pub struct BlockInfo {
     pub prev_hash: CryptoHash,
     pub epoch_first_block: CryptoHash,
     pub epoch_id: EpochId,
-    pub proposals: Vec<ValidatorStake>,
+    pub proposals: Vec<ValidatorStakeV1>,
     pub chunk_mask: Vec<bool>,
     /// Latest protocol version this validator observes.
     pub latest_protocol_version: ProtocolVersion,
@@ -78,7 +78,7 @@ impl BlockInfo {
         last_finalized_height: BlockHeight,
         last_final_block_hash: CryptoHash,
         prev_hash: CryptoHash,
-        proposals: Vec<ValidatorStake>,
+        proposals: Vec<ValidatorStakeV1>,
         validator_mask: Vec<bool>,
         slashed: Vec<SlashedValidator>,
         total_supply: Balance,
@@ -109,6 +109,14 @@ impl BlockInfo {
             timestamp_nanosec,
         }
     }
+
+    pub fn proposals_iter(&self) -> ValidatorsIter {
+        ValidatorsIter {
+            collection: &self.proposals,
+            curr_index: 0,
+            len: self.proposals.len(),
+        }
+    }
 }
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
@@ -121,7 +129,7 @@ pub struct EpochInfo {
     /// There can be multiple epochs with the same ordinal in case of long forks.
     pub epoch_height: EpochHeight,
     /// List of current validators.
-    pub validators: Vec<ValidatorStake>,
+    pub validators: Vec<ValidatorStakeV1>,
     /// Validator account id to index in proposals.
     pub validator_to_index: HashMap<AccountId, ValidatorId>,
     /// Settlement of validators responsible for block production.
@@ -131,7 +139,7 @@ pub struct EpochInfo {
     /// Settlement of hidden validators with weights used to determine how many shards they will validate.
     pub hidden_validators_settlement: Vec<ValidatorWeight>,
     /// List of current fishermen.
-    pub fishermen: Vec<ValidatorStake>,
+    pub fishermen: Vec<ValidatorStakeV1>,
     /// Fisherman account id to index of proposal.
     pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
     /// New stake for validators.
@@ -149,17 +157,85 @@ pub struct EpochInfo {
     pub protocol_version: ProtocolVersion,
 }
 
+pub struct ValidatorsIter<'a> {
+    collection: &'a [ValidatorStakeV1],
+    curr_index: usize,
+    len: usize,
+}
+
+impl<'a> Iterator for ValidatorsIter<'a> {
+    type Item = ValidatorStake;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.curr_index < self.len {
+            let item = ValidatorStake::lift(self.collection[self.curr_index].clone());
+            self.curr_index += 1;
+            Some(item)
+        } else {
+            None
+        }
+    }
+}
+
+impl EpochInfo {
+    pub fn validators_iter(&self) -> ValidatorsIter {
+        ValidatorsIter {
+            collection: &self.validators,
+            curr_index: 0,
+            len: self.validators.len(),
+        }
+    }
+
+    pub fn fishermen_iter(&self) -> ValidatorsIter {
+        ValidatorsIter {
+            collection: &self.fishermen,
+            curr_index: 0,
+            len: self.fishermen.len(),
+        }
+    }
+
+    pub fn validator_stake(&self, validator_id: u64) -> Balance {
+        self.validators[validator_id as usize].stake
+    }
+
+    pub fn validator_account_id(&self, validator_id: u64) -> &AccountId {
+        &self.validators[validator_id as usize].account_id
+    }
+
+    pub fn get_validator(&self, validator_id: u64) -> ValidatorStake {
+        ValidatorStake::lift(self.validators[validator_id as usize].clone())
+    }
+
+    pub fn get_fisherman(&self, fisherman_id: u64) -> ValidatorStake {
+        ValidatorStake::lift(self.fishermen[fisherman_id as usize].clone())
+    }
+
+    pub fn validators_len(&self) -> usize {
+        self.validators.len()
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct EpochSummary {
     pub prev_epoch_last_block_hash: CryptoHash,
     /// Proposals from the epoch, only the latest one per account
-    pub all_proposals: Vec<ValidatorStake>,
+    pub all_proposals: Vec<ValidatorStakeV1>,
     /// Kickout set, includes slashed
     pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     /// Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
     /// Protocol version for next epoch.
     pub next_version: ProtocolVersion,
+}
+
+impl EpochSummary {
+    pub fn proposals_iter(&self) -> ValidatorsIter {
+        ValidatorsIter {
+            collection: &self.all_proposals,
+            curr_index: 0,
+            len: self.all_proposals.len(),
+        }
+    }
 }
 
 /// State that a slashed validator can be in.

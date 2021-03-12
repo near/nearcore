@@ -97,10 +97,10 @@ impl EpochInfoAggregator {
             .or_insert_with(|| block_info.latest_protocol_version);
 
         // Step 4: update proposals
-        for proposal in block_info.proposals.iter() {
+        for proposal in block_info.proposals_iter() {
             self.all_proposals
-                .entry(proposal.account_id.clone())
-                .or_insert_with(|| proposal.clone());
+                .entry(proposal.account_id().clone())
+                .or_insert(proposal);
         }
     }
 

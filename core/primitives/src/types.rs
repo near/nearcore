@@ -376,9 +376,20 @@ impl StateRootNode {
 #[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
 
+pub trait ValidatorStakeLike {
+    fn account_id(&self) -> &AccountId;
+    fn public_key(&self) -> &PublicKey;
+    fn stake(&self) -> Balance;
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub enum ValidatorStake {
+    V1(ValidatorStakeV1),
+}
+
 /// Stores validator and its stake.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct ValidatorStake {
+pub struct ValidatorStakeV1 {
     /// Account that stakes money.
     pub account_id: AccountId,
     /// Public key of the proposed validator.
@@ -402,16 +413,82 @@ pub struct ApprovalStake {
 }
 
 impl ValidatorStake {
-    pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
-        ValidatorStake { account_id, public_key, stake }
+    pub fn v1(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
+        Self::V1(ValidatorStakeV1 { account_id, public_key, stake })
+    }
+
+    pub fn lift(v1: ValidatorStakeV1) -> Self {
+        Self::V1(v1)
+    }
+
+    pub fn into_v1(self) -> ValidatorStakeV1 {
+        match self {
+            Self::V1(v1) => v1,
+        }
+    }
+
+    #[inline]
+    pub fn account_and_stake(self) -> (AccountId, Balance) {
+        match self {
+            Self::V1(v1) => (v1.account_id, v1.stake)
+        }
+    }
+
+    #[inline]
+    pub fn destructure(self) -> (AccountId, PublicKey, Balance) {
+        match self {
+            Self::V1(v1) => (v1.account_id, v1.public_key, v1.stake)
+        }
+    }
+
+    #[inline]
+    pub fn take_account_id(self) -> AccountId {
+        match self {
+            Self::V1(v1) => v1.account_id,
+        }
+    }
+
+    #[inline]
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            Self::V1(v1) => &v1.account_id,
+        }
+    }
+
+    #[inline]
+    pub fn take_public_key(self) -> PublicKey {
+        match self {
+            Self::V1(v1) => v1.public_key,
+        }
+    }
+
+    #[inline]
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            Self::V1(v1) => &v1.public_key,
+        }
+    }
+
+    #[inline]
+    pub fn stake(&self) -> Balance {
+        match self {
+            Self::V1(v1) => v1.stake,
+        }
+    }
+
+    #[inline]
+    pub fn stake_mut(&mut self) -> &mut Balance {
+        match self {
+            Self::V1(v1) => &mut v1.stake,
+        }
     }
 
     pub fn get_approval_stake(&self, is_next_epoch: bool) -> ApprovalStake {
         ApprovalStake {
-            account_id: self.account_id.clone(),
-            public_key: self.public_key.clone(),
-            stake_this_epoch: if is_next_epoch { 0 } else { self.stake },
-            stake_next_epoch: if is_next_epoch { self.stake } else { 0 },
+            account_id: self.account_id().clone(),
+            public_key: self.public_key().clone(),
+            stake_this_epoch: if is_next_epoch { 0 } else { self.stake() },
+            stake_next_epoch: if is_next_epoch { self.stake() } else { 0 },
         }
     }
 }
@@ -430,7 +507,7 @@ pub struct ChunkExtra {
     /// Root of merklizing results of receipts (transactions) execution.
     pub outcome_root: CryptoHash,
     /// Validator proposals produced by given chunk.
-    pub validator_proposals: Vec<ValidatorStake>,
+    pub validator_proposals: Vec<ValidatorStakeV1>,
     /// Actually how much gas were used.
     pub gas_used: Gas,
     /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
@@ -443,7 +520,7 @@ impl ChunkExtra {
     pub fn new(
         state_root: &StateRoot,
         outcome_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        validator_proposals: Vec<ValidatorStakeV1>,
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,

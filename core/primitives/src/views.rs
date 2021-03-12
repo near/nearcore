@@ -410,7 +410,7 @@ impl From<BlockHeader> for BlockHeaderView {
             validator_proposals: header
                 .validator_proposals()
                 .iter()
-                .map(|v| v.clone().into())
+                .map(|v| ValidatorStake::lift(v.clone()).into())
                 .collect(),
             chunk_mask: header.chunk_mask().to_vec(),
             #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -473,7 +473,7 @@ impl From<BlockHeaderView> for BlockHeader {
                     validator_proposals: view
                         .validator_proposals
                         .into_iter()
-                        .map(|v| v.into())
+                        .map(|v| v.into_validator_stake().into_v1())
                         .collect(),
                     chunk_mask: view.chunk_mask,
                     gas_price: view.gas_price,
@@ -504,7 +504,7 @@ impl From<BlockHeaderView> for BlockHeader {
                     validator_proposals: view
                         .validator_proposals
                         .into_iter()
-                        .map(|v| v.into())
+                        .map(|v| v.into_validator_stake().into_v1())
                         .collect(),
                     chunk_mask: view.chunk_mask,
                     gas_price: view.gas_price,
@@ -537,7 +537,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         validator_proposals: view
                             .validator_proposals
                             .into_iter()
-                            .map(|v| v.into())
+                            .map(|v| v.into_validator_stake().into_v1())
                             .collect(),
                         chunk_mask: view.chunk_mask,
                         gas_price: view.gas_price,
@@ -685,7 +685,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             balance_burnt: inner.balance_burnt,
             outgoing_receipts_root: inner.outgoing_receipts_root,
             tx_root: inner.tx_root,
-            validator_proposals: inner.validator_proposals.into_iter().map(Into::into).collect(),
+            validator_proposals: inner.validator_proposals.into_iter().map(|p| ValidatorStake::lift(p).into()).collect(),
             signature,
         }
     }
@@ -707,7 +707,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 balance_burnt: view.balance_burnt,
                 outgoing_receipts_root: view.outgoing_receipts_root,
                 tx_root: view.tx_root,
-                validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
+                validator_proposals: view.validator_proposals.into_iter().map(|p| p.into_validator_stake().into_v1()).collect(),
             },
             height_included: view.height_included,
             signature: view.signature,
@@ -1075,7 +1075,32 @@ impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
-pub struct ValidatorStakeView {
+pub enum ValidatorStakeView {
+    V1(ValidatorStakeViewV1),
+}
+
+impl ValidatorStakeView {
+    pub fn into_validator_stake(self) -> ValidatorStake {
+        self.into()
+    }
+
+    #[inline]
+    pub fn take_account_id(self) -> AccountId {
+        match self {
+            Self::V1(v1) => v1.account_id,
+        }
+    }
+
+    #[inline]
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            Self::V1(v1) => &v1.account_id,
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct ValidatorStakeViewV1 {
     pub account_id: AccountId,
     pub public_key: PublicKey,
     #[serde(with = "u128_dec_format")]
@@ -1084,13 +1109,25 @@ pub struct ValidatorStakeView {
 
 impl From<ValidatorStake> for ValidatorStakeView {
     fn from(stake: ValidatorStake) -> Self {
-        Self { account_id: stake.account_id, public_key: stake.public_key, stake: stake.stake }
+        match stake {
+            ValidatorStake::V1(v1) => {
+                Self::V1(ValidatorStakeViewV1 {
+                    account_id: v1.account_id, public_key: v1.public_key, stake: v1.stake
+                })
+            }
+        }
     }
 }
 
 impl From<ValidatorStakeView> for ValidatorStake {
     fn from(view: ValidatorStakeView) -> Self {
-        Self { account_id: view.account_id, public_key: view.public_key, stake: view.stake }
+        match view {
+            ValidatorStakeView::V1(v1) => {
+                Self::v1(
+                    v1.account_id, v1.public_key, v1.stake
+                )
+            }
+        }
     }
 }
 

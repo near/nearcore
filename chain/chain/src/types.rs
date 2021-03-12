@@ -22,7 +22,7 @@ use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
+    NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStakeV1,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -111,7 +111,7 @@ pub struct BlockHeaderInfo {
     pub random_value: CryptoHash,
     pub last_finalized_height: BlockHeight,
     pub last_finalized_block_hash: CryptoHash,
-    pub proposals: Vec<ValidatorStake>,
+    pub proposals: Vec<ValidatorStakeV1>,
     pub slashed_validators: Vec<SlashedValidator>,
     pub chunk_mask: Vec<bool>,
     pub total_supply: Balance,

@@ -33,7 +33,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
-    ValidatorStake,
+    ValidatorStakeV1,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -560,16 +560,17 @@ impl ShardsManager {
         for (validator_stake, is_slashed) in
             self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, parent_hash)?
         {
+            let account_id = validator_stake.take_account_id();
             if !is_slashed
                 && self.cares_about_shard_this_or_next_epoch(
-                    Some(&validator_stake.account_id),
+                    Some(&account_id),
                     &parent_hash,
                     shard_id,
                     false,
                 )
-                && self.me.as_ref() != Some(&validator_stake.account_id)
+                && self.me.as_ref() != Some(&account_id)
             {
-                block_producers.push(validator_stake.account_id);
+                block_producers.push(account_id);
             }
         }
 
@@ -1368,20 +1369,21 @@ impl ShardsManager {
         let block_producers =
             self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, &parent_hash)?;
         for (bp, _) in block_producers {
+            let bp_account_id = bp.take_account_id();
             // no need to send anything to myself
-            if me == &bp.account_id {
+            if me == &bp_account_id {
                 continue;
             }
 
             let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
-                Some(&bp.account_id),
+                Some(&bp_account_id),
                 &parent_hash,
                 shard_id,
                 false,
             );
             if cares_about_shard {
                 self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkForward {
-                    account_id: bp.account_id.clone(),
+                    account_id: bp_account_id,
                     forward: forward.clone(),
                 });
             }
@@ -1445,7 +1447,7 @@ impl ShardsManager {
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,
-        validator_proposals: Vec<ValidatorStake>,
+        validator_proposals: Vec<ValidatorStakeV1>,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,

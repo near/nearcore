@@ -69,6 +69,8 @@ impl<T: Sized> Deref for MaybeValidated<T> {
     }
 }
 
+
+
 pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);
     res.extend_from_slice(block_hash.as_ref());
