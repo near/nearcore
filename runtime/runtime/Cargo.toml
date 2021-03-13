@@ -51,6 +51,7 @@ protocol_feature_alt_bn128 = [
     "near-vm-runner/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
+protocol_feature_tx_size_limit = []
 
 [dev-dependencies]
 tempfile = "3"
