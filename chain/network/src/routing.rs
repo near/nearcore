@@ -264,6 +264,8 @@ pub struct RoutingTable {
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Shared version of edges_info used by multiple threads
     edges_info_shared: Arc<RwLock<HashMap<(PeerId, PeerId), u64>>>,
+    /// List of edges that should be added
+    edges_to_add_shared: Arc<RwLock<Vec<Edge>>>,
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: RouteBackCache,
     /// Last time a peer with reachable through active edges.
@@ -308,15 +310,16 @@ impl RoutingTable {
 
         Self {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
-            peer_forwarding: HashMap::new(),
-            edges_info: HashMap::new(),
+            peer_forwarding: Default::default(),
+            edges_info: Default::default(),
             edges_info_shared: Default::default(),
+            edges_to_add_shared: Default::default(),
             route_back: RouteBackCache::new(
                 ROUTE_BACK_CACHE_SIZE,
                 ROUTE_BACK_CACHE_EVICT_TIMEOUT,
                 ROUTE_BACK_CACHE_REMOVE_BATCH,
             ),
-            peer_last_time_reachable: HashMap::new(),
+            peer_last_time_reachable: Default::default(),
             store,
             raw_graph: Graph::new(peer_id),
             route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
@@ -564,6 +567,10 @@ impl RoutingTable {
 
     pub fn get_edges_info_shared(&self) -> Arc<RwLock<HashMap<(PeerId, PeerId), u64>>> {
         self.edges_info_shared.clone()
+    }
+
+    pub fn get_edges_to_add_shared(&self) -> Arc<RwLock<Vec<Edge>>> {
+        self.edges_to_add_shared.clone()
     }
 
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
