@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eo pipefail
+set -eo pipefailbuildkite mac
 
 release="release"
 if [ ! -z "$1" ];
