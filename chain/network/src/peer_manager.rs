@@ -114,7 +114,21 @@ impl Handler<EdgeList> for EdgeVerifier {
 
     #[perf]
     fn handle(&mut self, msg: EdgeList, _ctx: &mut Self::Context) -> Self::Result {
-        msg.0.iter().all(|edge| edge.verify())
+        for edge in msg.0.iter() {
+            let key = (edge.peer0.clone(), edge.peer1.clone());
+            if msg.1.read().unwrap().get(&key).cloned().unwrap_or(0u64) >= edge.nonce {
+                continue;
+            }
+            if !edge.verify() {
+                return false;
+            }
+            let mut guard = msg.1.write().unwrap();
+            let entry = guard.entry(key);
+
+            let cur_nonce = entry.or_insert(edge.nonce);
+            *cur_nonce = max(*cur_nonce, edge.nonce);
+        }
+        true
     }
 }
 
@@ -1475,8 +1489,18 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         None => true,
                     }
                 });
+                info!(
+                    "PIOTR SYNC edges.len: {} announce_len: {} active_edges: {} nodes.used: {} nodes.unused: {} new_edges: {}/{}",
+                    self.routing_table.edges_info.len(),
+                    self.routing_table.get_announce_accounts_size(),
+                    self.routing_table.raw_graph.total_active_edges,
+                    self.routing_table.raw_graph.used.len(),
+                    self.routing_table.raw_graph.unused.len(),
+                    edges.len(),
+                    edges_len,
+                );
 
-                self.edge_verifier_pool.send(EdgeList(edges.clone()))
+                self.edge_verifier_pool.send(EdgeList(edges.clone(), self.routing_table.edges_info_shared.clone()))
                     .into_actor(self)
                     .then(move |response, act, ctx| {
                         match response {

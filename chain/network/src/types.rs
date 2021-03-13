@@ -1282,7 +1282,7 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-pub struct EdgeList(pub Vec<Edge>);
+pub struct EdgeList(pub Vec<Edge>, pub Arc<RwLock<HashMap<(PeerId, PeerId), u64>>>);
 
 impl Message for EdgeList {
     type Result = bool;

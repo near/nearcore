@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::ops::Sub;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -308,6 +308,7 @@ impl RoutingTable {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
+            edges_info_shared: Default::default(),
             route_back: RouteBackCache::new(
                 ROUTE_BACK_CACHE_SIZE,
                 ROUTE_BACK_CACHE_EVICT_TIMEOUT,
