@@ -71,7 +71,7 @@ pub enum EdgeType {
 }
 
 /// Edge object. Contains information relative to a new edge that is being added or removed
-/// from the network. This is the information that is required
+/// from the network. This is the information that is required.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
