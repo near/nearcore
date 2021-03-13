@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::ops::Sub;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -22,6 +22,8 @@ use near_store::{
     StoreUpdate,
 };
 
+use crate::ibf_peer_set::{IbfPeerSet, SimpleEdge};
+use crate::ibf_set::IbfSet;
 use crate::metrics;
 use crate::{
     cache::RouteBackCache,
@@ -30,6 +32,7 @@ use crate::{
 };
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use std::hash::{Hash, Hasher};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
@@ -87,6 +90,14 @@ pub struct Edge {
     /// The bool says which party is removing the edge: false for Peer0, true for Peer1
     /// The signature from the party removing the edge.
     removal_info: Option<(bool, Signature)>,
+}
+
+impl Hash for Edge {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.peer0.0.try_to_vec().unwrap());
+        state.write(&self.peer1.0.try_to_vec().unwrap());
+        state.write_u64(self.nonce)
+    }
 }
 
 impl Edge {
@@ -262,6 +273,9 @@ pub struct RoutingTable {
     pub peer_forwarding: HashMap<PeerId, Vec<PeerId>>,
     /// Store last update for known edges.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
+    /// Store verified edges
+    pub edges_info_shared: Arc<RwLock<HashMap<(PeerId, PeerId), u64>>>,
+
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: RouteBackCache,
     /// Last time a peer with reachable through active edges.
@@ -269,7 +283,7 @@ pub struct RoutingTable {
     /// Access to store on disk
     store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
-    raw_graph: Graph,
+    pub raw_graph: Graph,
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
@@ -286,6 +300,8 @@ pub struct RoutingTable {
     last_ping_nonce: SizedCache<PeerId, usize>,
     /// Last nonce used to store edges on disk.
     pub component_nonce: u64,
+
+    pub peer_ibf_set: IbfPeerSet,
 }
 
 #[derive(Debug)]
@@ -308,6 +324,7 @@ impl RoutingTable {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
+            edges_info_shared: Default::default(),
             route_back: RouteBackCache::new(
                 ROUTE_BACK_CACHE_SIZE,
                 ROUTE_BACK_CACHE_EVICT_TIMEOUT,
@@ -323,7 +340,34 @@ impl RoutingTable {
             waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             component_nonce,
+            peer_ibf_set: Default::default(),
         }
+    }
+
+    pub fn get_edges_for_peer(&self, peer_id: &PeerId, unknown_edges: &[u64]) -> Vec<Edge> {
+        let ibf = self.peer_ibf_set.get(peer_id).unwrap();
+        let unknown_edges = ibf.lock().unwrap().get_edges_by_hashes(unknown_edges);
+        self.peer_ibf_set
+            .get_edges_by_ids(unknown_edges.as_slice())
+            .iter()
+            .filter_map(|v| self.edges_info.get(&(v.peer0.clone(), v.peer1.clone())))
+            .cloned()
+            .collect()
+    }
+
+    pub fn split_edges(&self, peer_id: &PeerId, unknown_edges: &[u64]) -> (Vec<Edge>, Vec<u64>) {
+        // TODO remove code duplication?
+        let ibf = self.peer_ibf_set.get(peer_id).unwrap();
+        let (known_edges, unknown_edges) = ibf.lock().unwrap().get_edges_by_hashes2(unknown_edges);
+        (
+            self.peer_ibf_set
+                .get_edges_by_ids(known_edges.as_slice())
+                .iter()
+                .filter_map(|v| self.edges_info.get(&(v.peer0.clone(), v.peer1.clone())))
+                .cloned()
+                .collect(),
+            unknown_edges,
+        )
     }
 
     fn peer_id(&self) -> &PeerId {
@@ -332,6 +376,18 @@ impl RoutingTable {
 
     pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peer_forwarding.keys()
+    }
+
+    pub fn add_peer(&mut self, peer_id: PeerId, ibf_set: Arc<Mutex<IbfSet<SimpleEdge>>>) {
+        self.peer_ibf_set.add_peer(peer_id, ibf_set, &mut self.edges_info);
+    }
+
+    pub fn get_ibf_set(&mut self, peer_id: &PeerId) -> Option<Arc<Mutex<IbfSet<SimpleEdge>>>> {
+        self.peer_ibf_set.get(peer_id)
+    }
+
+    pub fn remove_peer(&mut self, peer_id: &PeerId) {
+        self.peer_ibf_set.remove_peer(peer_id);
     }
 
     /// Find peer that is connected to `source` and belong to the shortest path
@@ -494,6 +550,18 @@ impl RoutingTable {
                     self.raw_graph.remove_edge(&key.0, &key.1);
                 }
             }
+            // Remove old edge from IbfPeerSet
+            if let Some(old_edge) = self.edges_info.get(&key) {
+                let old_se = SimpleEdge {
+                    peer0: key.0.clone(),
+                    peer1: key.1.clone(),
+                    nonce: old_edge.nonce,
+                };
+                self.peer_ibf_set.remove_edge(&old_se);
+            }
+
+            let se = SimpleEdge { peer0: key.0.clone(), peer1: key.1.clone(), nonce: edge.nonce };
+            self.peer_ibf_set.add_edge(&se);
             self.edges_info.insert(key, edge);
             true
         }
@@ -557,6 +625,10 @@ impl RoutingTable {
 
     pub fn get_edges(&self) -> Vec<Edge> {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
+    }
+
+    pub fn get_edges_len(&self) -> u64 {
+        self.edges_info.len() as u64
     }
 
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
@@ -719,6 +791,11 @@ impl RoutingTable {
         self.account_peers.value_order().cloned().collect()
     }
 
+    /// Get number of accounts
+    pub fn get_announce_accounts_size(&mut self) -> usize {
+        self.account_peers.cache_size()
+    }
+
     /// Get account announce from
     pub fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
         if let Some(announce_account) = self.account_peers.cache_get(&account_id) {
@@ -775,11 +852,11 @@ pub struct Graph {
     source_id: u32,
     p2id: HashMap<PeerId, u32>,
     id2p: Vec<PeerId>,
-    used: Vec<bool>,
-    unused: Vec<u32>,
+    pub used: Vec<bool>,
+    pub unused: Vec<u32>,
     adjacency: Vec<Vec<u32>>,
 
-    total_active_edges: u64,
+    pub total_active_edges: u64,
 }
 
 impl Graph {

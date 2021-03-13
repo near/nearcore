@@ -3,7 +3,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::time::{Duration, Instant};
 
@@ -26,6 +26,8 @@ use near_primitives::version::{
 };
 
 use crate::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::ibf_peer_set::SimpleEdge;
+use crate::ibf_set::IbfSet;
 use crate::rate_counter::RateCounter;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{PeerMessageMetadata, Status};
@@ -192,6 +194,8 @@ pub struct Peer {
     peer_counter: Arc<AtomicUsize>,
     /// The last time a Epoch Sync request was received from this peer
     last_time_received_epoch_sync_request: Instant,
+
+    ibf_set: Arc<Mutex<IbfSet<SimpleEdge>>>,
 }
 
 impl Peer {
@@ -232,6 +236,7 @@ impl Peer {
             peer_counter,
             last_time_received_epoch_sync_request: Instant::now()
                 - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
+            ibf_set: Arc::new(Mutex::new(IbfSet::new())),
         }
     }
 
@@ -581,6 +586,7 @@ impl Peer {
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
             | PeerMessage::RoutingTableSync(_)
+            | PeerMessage::IbfMessage(_)
             | PeerMessage::LastEdge(_)
             | PeerMessage::Disconnect
             | PeerMessage::RequestUpdateNonce(_)
@@ -688,6 +694,7 @@ impl Actor for Peer {
                     remove_from_peer_store: self.peer_status != PeerStatus::Connecting,
                 })
             }
+            // TODO PIOTR tell PeerManager to remove DATA
         }
         Running::Stop
     }
@@ -902,6 +909,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         chain_info: handshake.chain_info.clone(),
                         this_edge_info: self.edge_info.clone(),
                         other_edge_info: handshake.edge_info.clone(),
+                        ibfp2: self.ibf_set.clone(),
+                        protocol_version: self.protocol_version,
                     })
                     .into_actor(self)
                     .then(move |res, act, ctx| {
@@ -909,6 +918,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                             Ok(ConsolidateResponse::Accept(edge_info)) => {
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
+
                                 // Respond to handshake if it's inbound and connection was consolidated.
                                 if act.peer_type == PeerType::Inbound {
                                     act.edge_info = edge_info;
@@ -1017,6 +1027,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             (_, PeerStatus::Ready, PeerMessage::RoutingTableSync(sync_data)) => {
                 self.peer_manager_addr
                     .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
+            }
+            (_, PeerStatus::Ready, PeerMessage::IbfMessage(ibf_message)) => {
+                self.peer_manager_addr.do_send(NetworkRequests::IbfMessage {
+                    peer_id: self.peer_id().unwrap(),
+                    ibf_msg: ibf_message,
+                    ibf_set: self.ibf_set.clone(),
+                });
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);

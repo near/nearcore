@@ -114,6 +114,7 @@ protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_
 protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128", "testlib/protocol_feature_alt_bn128", "runtime-params-estimator/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
 protocol_feature_access_key_nonce_range = ["neard/protocol_feature_access_key_nonce_range"]
+nightly_routing_exchange = ["near-network/nightly_routing_exchange"]
 
 # enable this to build neard with wasmer 1.0 runner
 # now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default

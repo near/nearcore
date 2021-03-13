@@ -51,6 +51,7 @@ metric_recorder = []
 delay_detector = ["delay-detector"]
 protocol_feature_forward_chunk_parts = ["near-primitives/protocol_feature_forward_chunk_parts"]
 performance_stats = ["near-performance-metrics/performance_stats"]
+nightly_routing_exchange = []
 
 [[bench]]
 name = "graph"

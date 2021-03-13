@@ -21,4 +21,7 @@ pub mod routing;
 pub mod types;
 pub mod utils;
 
+mod ibf;
+pub mod ibf_peer_set;
+mod ibf_set;
 pub mod test_utils;

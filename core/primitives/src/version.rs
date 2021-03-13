@@ -102,7 +102,9 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 42;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 106;
+pub const PROTOCOL_VERSION: ProtocolVersion = 107;
+
+pub const NEW_ROUTING_PROTOCOL_VERSION: ProtocolVersion = 107;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =

@@ -3,7 +3,7 @@ use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -46,6 +46,10 @@ use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use std::fmt::{Debug, Error, Formatter};
 use std::io;
 
+use crate::ibf::IbfElem;
+use crate::ibf_peer_set::SimpleEdge;
+use crate::ibf_set::IbfSet;
+use near_primitives::borsh::maybestd::sync::Arc;
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_primitives::merkle::combine_hash;
 
@@ -769,6 +773,20 @@ pub enum PeerMessage {
     EpochSyncResponse(EpochSyncResponse),
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
+
+    IbfMessage(IbfMsg),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct IbfMsg {
+    pub known_edges: u64,
+    pub ibf_level: u64,
+    pub ibf: Vec<IbfElem>,
+    pub request_all_edges: bool,
+    pub seed: u64,
+    pub edges: Vec<Edge>,
+    pub requested_edges: Vec<u64>,
+    pub done: bool,
 }
 
 impl fmt::Display for PeerMessage {
@@ -1062,6 +1080,8 @@ pub struct Consolidate {
     pub this_edge_info: Option<EdgeInfo>,
     // Edge information from other node.
     pub other_edge_info: EdgeInfo,
+    pub ibfp2: Arc<Mutex<IbfSet<SimpleEdge>>>,
+    pub protocol_version: ProtocolVersion,
 }
 
 impl Message for Consolidate {
@@ -1162,7 +1182,7 @@ pub struct Ban {
 }
 
 // TODO(#1313): Use Box
-#[derive(Debug, Clone, PartialEq, strum::AsRefStr)]
+#[derive(Clone, strum::AsRefStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
@@ -1272,6 +1292,13 @@ pub enum NetworkRequests {
 
     /// A challenge to invalidate a block.
     Challenge(Challenge),
+
+    // IbfMessage
+    IbfMessage {
+        peer_id: PeerId,
+        ibf_msg: IbfMsg,
+        ibf_set: Arc<Mutex<IbfSet<SimpleEdge>>>,
+    },
 }
 
 /// Messages from PeerManager to Peer
@@ -1282,7 +1309,7 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-pub struct EdgeList(pub Vec<Edge>);
+pub struct EdgeList(pub Vec<Edge>, pub Arc<RwLock<HashMap<(PeerId, PeerId), u64>>>);
 
 impl Message for EdgeList {
     type Result = bool;

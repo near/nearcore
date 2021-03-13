@@ -869,6 +869,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::Sync { .. }
+                        | NetworkRequests::IbfMessage { .. }
                         | NetworkRequests::FetchRoutingTable
                         | NetworkRequests::PingTo(_, _)
                         | NetworkRequests::FetchPingPongInfo
