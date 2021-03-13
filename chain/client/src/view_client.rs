@@ -568,6 +568,9 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Self::Context) -> Self::Result {
+        if msg.block_id.is_some() {
+            return Err("Only latest validator information can be queried".to_string());
+        }
         self.maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.runtime_adapter.get_validator_info(&block_hash))
             .map_err(|err| err.to_string())
