@@ -3,7 +3,7 @@ use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -1284,8 +1284,8 @@ pub enum PeerManagerRequest {
 
 pub struct EdgeList(
     pub Vec<Edge>,
-    pub Arc<RwLock<HashMap<(PeerId, PeerId), u64>>>,
-    pub Arc<RwLock<Vec<Edge>>>,
+    pub Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    pub Arc<Mutex<Vec<Edge>>>,
 );
 
 impl Message for EdgeList {

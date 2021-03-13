@@ -117,18 +117,20 @@ impl Handler<EdgeList> for EdgeVerifier {
     fn handle(&mut self, msg: EdgeList, _ctx: &mut Self::Context) -> Self::Result {
         for edge in msg.0 {
             let key = (edge.peer0.clone(), edge.peer1.clone());
-            if msg.1.read().unwrap().get(&key).cloned().unwrap_or(0u64) >= edge.nonce {
+            if msg.1.lock().unwrap().get(&key).cloned().unwrap_or(0u64) >= edge.nonce {
                 continue;
             }
             if !edge.verify() {
                 return false;
             }
-            let mut guard = msg.1.write().unwrap();
-            let entry = guard.entry(key);
+            {
+                let mut guard = msg.1.lock().unwrap();
+                let entry = guard.entry(key);
 
-            let cur_nonce = entry.or_insert(edge.nonce);
-            *cur_nonce = max(*cur_nonce, edge.nonce);
-            msg.2.write().unwrap().push(edge);
+                let cur_nonce = entry.or_insert(edge.nonce);
+                *cur_nonce = max(*cur_nonce, edge.nonce);
+            }
+            msg.2.lock().unwrap().push(edge);
         }
         true
     }
@@ -1529,7 +1531,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                         // Filter known edges.
                                         let me = act.peer_id.clone();
 
-                                        let new_edges: Vec<_> = act.routing_table.get_edges_to_add_shared().write().unwrap().drain(..)
+                                        let new_edges: Vec<_> = act.routing_table.get_edges_to_add_shared().lock().unwrap().drain(..)
                                             .into_iter()
                                             .filter( |edge| {
                                                 if let Some(cur_edge) = act.routing_table.get_edge(edge.peer0.clone(), edge.peer1.clone()){

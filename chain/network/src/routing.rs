@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::ops::Sub;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -263,9 +263,9 @@ pub struct RoutingTable {
     /// Store last update for known edges.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Shared version of edges_info used by multiple threads
-    edges_info_shared: Arc<RwLock<HashMap<(PeerId, PeerId), u64>>>,
+    edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
     /// List of edges that should be added
-    edges_to_add_shared: Arc<RwLock<Vec<Edge>>>,
+    edges_to_add_shared: Arc<Mutex<Vec<Edge>>>,
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: RouteBackCache,
     /// Last time a peer with reachable through active edges.
@@ -565,11 +565,11 @@ impl RoutingTable {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
     }
 
-    pub fn get_edges_info_shared(&self) -> Arc<RwLock<HashMap<(PeerId, PeerId), u64>>> {
+    pub fn get_edges_info_shared(&self) -> Arc<Mutex<HashMap<(PeerId, PeerId), u64>>> {
         self.edges_info_shared.clone()
     }
 
-    pub fn get_edges_to_add_shared(&self) -> Arc<RwLock<Vec<Edge>>> {
+    pub fn get_edges_to_add_shared(&self) -> Arc<Mutex<Vec<Edge>>> {
         self.edges_to_add_shared.clone()
     }
 
