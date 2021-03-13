@@ -262,6 +262,8 @@ pub struct RoutingTable {
     pub peer_forwarding: HashMap<PeerId, Vec<PeerId>>,
     /// Store last update for known edges.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
+    /// Shared version of edges_info used by multiple threads
+    edges_info_shared: Arc<RwLock<HashMap<(PeerId, PeerId), u64>>>,
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: RouteBackCache,
     /// Last time a peer with reachable through active edges.
@@ -558,6 +560,10 @@ impl RoutingTable {
 
     pub fn get_edges(&self) -> Vec<Edge> {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
+    }
+
+    pub fn get_edges_info_shared(&self) -> Arc<RwLock<HashMap<(PeerId, PeerId), u64>>> {
+        self.edges_info_shared.clone()
     }
 
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {

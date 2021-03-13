@@ -3,7 +3,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc, RwLock,
+    Arc,
 };
 use std::time::{Duration, Instant};
 

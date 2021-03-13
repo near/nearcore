@@ -49,6 +49,7 @@ use metrics::NetworkMetrics;
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use rand::thread_rng;
+use std::cmp::max;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: u64 = 60;
@@ -1489,18 +1490,8 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         None => true,
                     }
                 });
-                info!(
-                    "PIOTR SYNC edges.len: {} announce_len: {} active_edges: {} nodes.used: {} nodes.unused: {} new_edges: {}/{}",
-                    self.routing_table.edges_info.len(),
-                    self.routing_table.get_announce_accounts_size(),
-                    self.routing_table.raw_graph.total_active_edges,
-                    self.routing_table.raw_graph.used.len(),
-                    self.routing_table.raw_graph.unused.len(),
-                    edges.len(),
-                    edges_len,
-                );
 
-                self.edge_verifier_pool.send(EdgeList(edges.clone(), self.routing_table.edges_info_shared.clone()))
+                self.edge_verifier_pool.send(EdgeList(edges.clone(), self.routing_table.get_edges_info_shared()))
                     .into_actor(self)
                     .then(move |response, act, ctx| {
                         match response {
