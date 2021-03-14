@@ -1,6 +1,11 @@
+use std::sync::Arc;
+
 use borsh::BorshDeserialize;
+use log::debug;
+
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ExternalError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
@@ -8,12 +13,13 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
-use near_primitives::utils::create_nonce_with_nonce;
-use near_store::{TrieUpdate, TrieUpdateValuePtr};
-use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
-use sha3::{Keccak256, Keccak512};
+use near_primitives::utils::create_data_id;
+use near_primitives::version::ProtocolVersion;
+use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
+use near_vm_errors::{HostError, InconsistentStateError, VMLogicError};
+use near_vm_logic::{External, ValuePtr};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -22,11 +28,13 @@ pub struct RuntimeExt<'a> {
     signer_id: &'a AccountId,
     signer_public_key: &'a PublicKey,
     gas_price: Balance,
-    base_data_id: &'a CryptoHash,
+    action_hash: &'a CryptoHash,
     data_count: u64,
     epoch_id: &'a EpochId,
+    prev_block_hash: &'a CryptoHash,
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
+    current_protocol_version: ProtocolVersion,
 }
 
 pub struct RuntimeExtValuePtr<'a>(TrieUpdateValuePtr<'a>);
@@ -48,10 +56,12 @@ impl<'a> RuntimeExt<'a> {
         signer_id: &'a AccountId,
         signer_public_key: &'a PublicKey,
         gas_price: Balance,
-        base_data_id: &'a CryptoHash,
+        action_hash: &'a CryptoHash,
         epoch_id: &'a EpochId,
+        prev_block_hash: &'a CryptoHash,
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
+        current_protocol_version: ProtocolVersion,
     ) -> Self {
         RuntimeExt {
             trie_update,
@@ -60,12 +70,28 @@ impl<'a> RuntimeExt<'a> {
             signer_id,
             signer_public_key,
             gas_price,
-            base_data_id,
+            action_hash,
             data_count: 0,
             epoch_id,
+            prev_block_hash,
             last_block_hash,
             epoch_info_provider,
+            current_protocol_version,
         }
+    }
+
+    #[inline]
+    pub fn account_id(&self) -> &'a AccountId {
+        self.account_id
+    }
+
+    pub fn get_code(
+        &self,
+        code_hash: CryptoHash,
+    ) -> Result<Option<Arc<ContractCode>>, StorageError> {
+        debug!(target:"runtime", "Calling the contract at account {}", self.account_id);
+        let code = || get_code(self.trie_update, self.account_id, Some(code_hash));
+        crate::cache::get_code(code_hash, code)
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
@@ -73,7 +99,13 @@ impl<'a> RuntimeExt<'a> {
     }
 
     fn new_data_id(&mut self) -> CryptoHash {
-        let data_id = create_nonce_with_nonce(&self.base_data_id, self.data_count);
+        let data_id = create_data_id(
+            self.current_protocol_version,
+            &self.action_hash,
+            &self.prev_block_hash,
+            &self.last_block_hash,
+            self.data_count as usize,
+        );
         self.data_count += 1;
         data_id
     }
@@ -97,6 +129,11 @@ impl<'a> RuntimeExt<'a> {
             .1
             .actions
             .push(action);
+    }
+
+    #[inline]
+    pub fn protocol_version(&self) -> ProtocolVersion {
+        self.current_protocol_version
     }
 }
 
@@ -133,6 +170,37 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_has_key(&mut self, key: &[u8]) -> ExtResult<bool> {
         let storage_key = self.create_storage_key(key);
         self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_storage_error)
+    }
+
+    fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {
+        let data_keys = self
+            .trie_update
+            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&self.account_id, prefix))
+            .map_err(|err| {
+                VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(
+                    err.to_string(),
+                ))
+            })?
+            .map(|raw_key| {
+                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, self.account_id)
+                    .map_err(|_e| {
+                        StorageError::StorageInconsistentState(
+                            "Can't parse data key from raw key for ContractData".to_string(),
+                        )
+                    })
+                    .map(Vec::from)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| {
+                VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(
+                    err.to_string(),
+                ))
+            })?;
+        for key in data_keys {
+            self.trie_update
+                .remove(TrieKey::ContractData { account_id: self.account_id.clone(), key });
+        }
+        Ok(())
     }
 
     fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> ExtResult<u64> {
@@ -293,33 +361,6 @@ impl<'a> External for RuntimeExt<'a> {
             Action::DeleteAccount(DeleteAccountAction { beneficiary_id }),
         );
         Ok(())
-    }
-
-    fn sha256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
-        use sha2::Digest;
-
-        let value_hash = sha2::Sha256::digest(data);
-        Ok(value_hash.as_ref().to_vec())
-    }
-
-    fn keccak256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
-        use sha3::Digest;
-
-        let mut hasher = Keccak256::default();
-        hasher.input(&data);
-        let mut res = [0u8; 32];
-        res.copy_from_slice(hasher.result().as_slice());
-        Ok(res.to_vec())
-    }
-
-    fn keccak512(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
-        use sha3::Digest;
-
-        let mut hasher = Keccak512::default();
-        hasher.input(&data);
-        let mut res = [0u8; 64];
-        res.copy_from_slice(hasher.result().as_slice());
-        Ok(res.to_vec())
     }
 
     fn get_touched_nodes_count(&self) -> u64 {

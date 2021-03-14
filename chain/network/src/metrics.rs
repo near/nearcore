@@ -67,6 +67,11 @@ lazy_static! {
             "Total messages dropped because target account is not known"
         );
     pub static ref RECEIVED_INFO_ABOUT_ITSELF: near_metrics::Result<IntCounter> = try_create_int_counter("received_info_about_itself", "Number of times a peer tried to connect to itself");
+    pub static ref DROPPED_MESSAGES_COUNT: near_metrics::Result<IntCounter> =
+        near_metrics::try_create_int_counter(
+            "near_dropped_messages_count",
+            "Total count of messages which were dropped, because write buffer was full"
+        );
 }
 
 #[derive(Clone)]
@@ -124,7 +129,7 @@ impl NetworkMetrics {
         }
     }
 
-    pub fn inc_by(&self, message_name: &str, value: i64) {
+    pub fn inc_by(&self, message_name: &str, value: u64) {
         if let Some(counter) = self.peer_messages.get(message_name) {
             inc_counter_by_opt(counter.as_ref(), value);
         }

@@ -8,6 +8,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, System};
 use chrono::{DateTime, Utc};
 use futures::{future, FutureExt, TryFutureExt};
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
@@ -25,10 +26,8 @@ use near_network::{
 };
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
-use num_rational::Rational;
 
 pub type SharedRunningInfo = Arc<RwLock<RunningInfo>>;
 
@@ -59,26 +58,19 @@ pub fn setup_network_node(
         account_id.as_str(),
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let chain_genesis = ChainGenesis::new(
-        genesis_time,
-        0,
-        1_000_000,
-        100,
-        1_000_000_000,
-        1_000_000_000,
-        Rational::from_integer(0),
-        Rational::from_integer(0),
-        1000,
-        5,
-        PROTOCOL_VERSION,
-    );
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.time = genesis_time;
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
-        let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false);
+        let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
+        client_config.archive = config.archive;
         client_config.ttl_account_id_router = config.ttl_account_id_router;
         let network_adapter = NetworkRecipient::new();
         network_adapter.set_recipient(ctx.address().recipient());
         let network_adapter = Arc::new(network_adapter);
+        #[cfg(feature = "adversarial")]
+        let adv = Arc::new(RwLock::new(Default::default()));
+
         let client_actor = ClientActor::new(
             client_config.clone(),
             chain_genesis.clone(),
@@ -88,6 +80,8 @@ pub fn setup_network_node(
             Some(signer),
             telemetry_actor,
             false,
+            #[cfg(feature = "adversarial")]
+            adv.clone(),
         )
         .unwrap()
         .start();
@@ -97,6 +91,8 @@ pub fn setup_network_node(
             runtime.clone(),
             network_adapter.clone(),
             client_config,
+            #[cfg(feature = "adversarial")]
+            adv.clone(),
         );
 
         PeerManagerActor::new(
@@ -369,6 +365,7 @@ struct TestConfig {
     ideal_connections: Option<(u32, u32)>,
     minimum_outbound_peers: Option<u32>,
     safe_set_size: Option<u32>,
+    archive: bool,
 }
 
 impl TestConfig {
@@ -383,6 +380,7 @@ impl TestConfig {
             ideal_connections: None,
             minimum_outbound_peers: None,
             safe_set_size: None,
+            archive: false,
         }
     }
 }
@@ -431,6 +429,12 @@ impl Runner {
         self
     }
 
+    /// Set node `u` as archival node.
+    pub fn set_as_archival(mut self, u: usize) -> Self {
+        self.test_config[u].archive = true;
+        self
+    }
+
     /// Specify boot nodes. By default there are no boot nodes.
     pub fn use_boot_nodes(mut self, boot_nodes: Vec<usize>) -> Self {
         self.apply_all(move |test_config| {
@@ -459,7 +463,7 @@ impl Runner {
 
     pub fn safe_set_size(mut self, safe_set_size: u32) -> Self {
         self.apply_all(move |test_config| {
-            test_config.minimum_outbound_peers = Some(safe_set_size);
+            test_config.safe_set_size = Some(safe_set_size);
         });
         self
     }
@@ -545,6 +549,7 @@ impl Runner {
         network_config.blacklist = blacklist;
         network_config.outbound_disabled = test_config.outbound_disabled;
         network_config.boot_nodes = boot_nodes;
+        network_config.archive = test_config.archive;
 
         network_config.ideal_connections_lo =
             test_config.ideal_connections.map_or(network_config.ideal_connections_lo, |(lo, _)| lo);
@@ -596,10 +601,9 @@ impl Runner {
 /// Use to start running the test.
 /// It will fail if it doesn't solve all actions.
 pub fn start_test(runner: Runner) {
-    System::run(|| {
+    run_actix_until_stop(async {
         runner.start();
     })
-    .unwrap();
 }
 
 impl Actor for Runner {
@@ -671,8 +675,14 @@ impl Handler<RunnerMessage> for Runner {
     }
 }
 
-/// Check that `node_id` has at least `expected_connections` as active peers.
-pub fn check_expected_connections(node_id: usize, expected_connections: usize) -> ActionFn {
+/// Check that the number of connections of `node_id` is in the range:
+/// [expected_connections_lo, expected_connections_hi]
+/// Use None to denote semi-open interval
+pub fn check_expected_connections(
+    node_id: usize,
+    expected_connections_lo: Option<usize>,
+    expected_connections_hi: Option<usize>,
+) -> ActionFn {
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
@@ -687,8 +697,53 @@ pub fn check_expected_connections(node_id: usize, expected_connections: usize) -
                     .send(GetInfo {})
                     .map_err(|_| ())
                     .and_then(move |res| {
-                        if res.num_active_peers >= expected_connections {
+                        let left = if let Some(expected_connections_lo) = expected_connections_lo {
+                            expected_connections_lo <= res.num_active_peers
+                        } else {
+                            true
+                        };
+
+                        let right = if let Some(expected_connections_hi) = expected_connections_hi {
+                            res.num_active_peers <= expected_connections_hi
+                        } else {
+                            true
+                        };
+
+                        if left && right {
                             flag.store(true, Ordering::Relaxed);
+                        }
+                        future::ok(())
+                    })
+                    .map(drop),
+            );
+        },
+    )
+}
+
+/// Check that `node_id` has a direct connection to `target_id`.
+pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
+    Box::new(
+        move |info: SharedRunningInfo,
+              flag: Arc<AtomicBool>,
+              _ctx: &mut Context<WaitOrTimeout>,
+              _runner| {
+            let info = info.read().unwrap();
+            let target_peer_id = info.peers_info[target_id].id.clone();
+
+            actix::spawn(
+                info.pm_addr
+                    .get(node_id)
+                    .unwrap()
+                    .send(NetworkRequests::FetchRoutingTable)
+                    .map_err(|_| ())
+                    .and_then(move |res| {
+                        if let NetworkResponses::RoutingTableInfo(routing_table) = res {
+                            if let Some(routes) = routing_table.peer_forwarding.get(&target_peer_id)
+                            {
+                                if routes.contains(&target_peer_id) {
+                                    flag.store(true, Ordering::Relaxed);
+                                }
+                            }
                         }
                         future::ok(())
                     })

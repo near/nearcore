@@ -10,8 +10,19 @@ class BlockV1:
     pass
 
 
-class BlockHeader:
+class BlockV2:
     pass
+
+
+class BlockHeader:
+    def inner_lite(self):
+        if self.enum == 'BlockHeaderV3':
+            return self.BlockHeaderV3.inner_lite
+        elif self.enum == 'BlockHeaderV2':
+            return self.BlockHeaderV2.inner_lite
+        elif self.enum == 'BlockHeaderV1':
+            return self.BlockHeaderV1.inner_lite
+        assert False, "inner_lite is called on BlockHeader, but the enum variant `%s` is unknown" % self.enum
 
 
 class BlockHeaderV1:
@@ -19,6 +30,10 @@ class BlockHeaderV1:
 
 
 class BlockHeaderV2:
+    pass
+
+
+class BlockHeaderV3:
     pass
 
 
@@ -34,12 +49,45 @@ class BlockHeaderInnerRestV2:
     pass
 
 
+class BlockHeaderInnerRestV3:
+    pass
+
+
 class ShardChunk:
+    pass
+
+
+class ShardChunkV1:
+    pass
+
+
+class ShardChunkV2:
     pass
 
 
 class ShardChunkHeader:
     pass
+
+
+class ShardChunkHeaderV1:
+    @staticmethod
+    def chunk_hash(inner):
+        import hashlib
+        from messages.crypto import crypto_schema
+        from serializer import BinarySerializer
+        inner_serialized = BinarySerializer(dict(block_schema + crypto_schema)).serialize(inner)
+        return hashlib.sha256(inner_serialized).digest()
+
+class ShardChunkHeaderV2:
+    @staticmethod
+    def chunk_hash(inner):
+        import hashlib
+        from messages.crypto import crypto_schema
+        from serializer import BinarySerializer
+        inner_serialized = BinarySerializer(dict(block_schema + crypto_schema)).serialize(inner)
+        inner_hash = hashlib.sha256(inner_serialized).digest()
+
+        return hashlib.sha256(inner_hash + inner.encoded_merkle_root).digest()
 
 
 class ShardChunkHeaderInner:
@@ -55,6 +103,31 @@ class ReceiptProof:
 
 
 class PartialEncodedChunk:
+    def inner_header(self):
+        version = self.enum
+        if version == 'V1':
+            return self.V1.header.inner
+        elif version == 'V2':
+            header = self.V2.header
+            header_version = header.enum
+            if header_version == 'V1':
+                return header.V1.inner
+            elif header_version == 'V2':
+                return header.V2.inner
+    
+    def header_version(self):
+        version = self.enum
+        if version == 'V1':
+            return version
+        elif version == 'V2':
+            return self.V2.header.enum
+
+
+class PartialEncodedChunkV1:
+    pass
+
+
+class PartialEncodedChunkV2:
     pass
 
 
@@ -65,6 +138,9 @@ class PartialEncodedChunkRequestMsg:
 class PartialEncodedChunkResponseMsg:
     pass
 
+
+class PartialEncodedChunkForwardMsg:
+    pass
 
 class ValidatorStake:
     pass
@@ -84,12 +160,26 @@ block_schema = [
             'kind': 'enum',
             'field': 'enum',
             'values': [
-                ['BlockV1', BlockV1]
+                ['BlockV1', BlockV1],
+                ['BlockV2', BlockV2],
             ]
         }
     ],
     [
         BlockV1, {
+            'kind': 'struct',
+            'fields': [
+                ['header', BlockHeader],
+                ['chunks', [ShardChunkHeaderV1]],
+                ['challenges', [()]], # TODO
+
+                ['vrf_value', [32]],
+                ['vrf_proof', [64]],
+            ]
+        }
+    ],
+    [
+        BlockV2, {
             'kind': 'struct',
             'fields': [
                 ['header', BlockHeader],
@@ -107,7 +197,8 @@ block_schema = [
             'field': 'enum',
             'values': [
                 ['BlockHeaderV1', BlockHeaderV1],
-                ['BlockHeaderV2', BlockHeaderV2]
+                ['BlockHeaderV2', BlockHeaderV2],
+                ['BlockHeaderV3', BlockHeaderV3]
             ]
         }
     ],
@@ -129,6 +220,17 @@ block_schema = [
                 ['prev_hash', [32]],
                 ['inner_lite', BlockHeaderInnerLite],
                 ['inner_rest', BlockHeaderInnerRestV2],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        BlockHeaderV3, {
+            'kind' : 'struct',
+            'fields': [
+                ['prev_hash', [32]],
+                ['inner_lite', BlockHeaderInnerLite],
+                ['inner_rest', BlockHeaderInnerRestV3],
                 ['signature', Signature],
             ]
         }
@@ -192,7 +294,51 @@ block_schema = [
         }
     ],
     [
+        BlockHeaderInnerRestV3, {
+            'kind': 'struct',
+            'fields': [
+                ['chunk_receipts_root', [32]],
+                ['chunk_headers_root', [32]],
+                ['chunk_tx_root', [32]],
+                ['challenges_root', [32]],
+                ['random_value', [32]],
+                ['validator_proposals', [ValidatorStake]],
+                ['chunk_mask', ['u8']],
+                ['gas_price', 'u128'],
+                ['total_supply', 'u128'],
+                ['challenges_result', [()]], # TODO
+                ['last_final_block', [32]],
+                ['last_ds_final_block', [32]],
+                ['block_ordinal', 'u64'],
+                ['prev_height', 'u64'],
+                ['epoch_sync_data_hash', {'kind': 'option', 'type': [32]}],
+                ['approvals', [{'kind': 'option', 'type': Signature}]],
+                ['latest_protocol_verstion', 'u32'],
+            ]
+        }
+    ],
+    [
         ShardChunkHeader, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                ['V1', ShardChunkHeaderV1],
+                ['V2', ShardChunkHeaderV2]
+            ]
+        }
+    ],
+    [
+        ShardChunkHeaderV1, {
+            'kind': 'struct',
+            'fields': [
+                ['inner', ShardChunkHeaderInner],
+                ['height_included', 'u64'],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ShardChunkHeaderV2, {
             'kind': 'struct',
             'fields': [
                 ['inner', ShardChunkHeaderInner],
@@ -223,6 +369,27 @@ block_schema = [
     ],
     [
         ShardChunk, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                ['V1', ShardChunkV1],
+                ['V2', ShardChunkV2]
+            ]
+        }
+    ],
+    [
+        ShardChunkV1, {
+            'kind': 'struct',
+            'fields': [
+                ['chunk_hash', [32]],
+                ['header', ShardChunkHeaderV1],
+                ['transactions', [SignedTransaction]],
+                ['receipts', [Receipt]],
+            ]
+        }
+    ],
+    [
+        ShardChunkV2, {
             'kind': 'struct',
             'fields': [
                 ['chunk_hash', [32]],
@@ -253,6 +420,26 @@ block_schema = [
     ],
     [
         PartialEncodedChunk, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                ['V1', PartialEncodedChunkV1],
+                ['V2', PartialEncodedChunkV2]
+            ]
+        }
+    ],
+    [
+        PartialEncodedChunkV1, {
+            'kind': 'struct',
+            'fields': [
+                ['header', ShardChunkHeaderV1],
+                ['parts', [PartialEncodedChunkPart]],
+                ['receipts', [ReceiptProof]]
+            ]
+        }
+    ],
+    [
+        PartialEncodedChunkV2, {
             'kind': 'struct',
             'fields': [
                 ['header', ShardChunkHeader],
@@ -278,6 +465,21 @@ block_schema = [
                 ['chunk_hash', [32]],
                 ['parts', [PartialEncodedChunkPart]],
                 ['receipts', [ReceiptProof]]
+            ]
+        }
+    ],
+    [
+        PartialEncodedChunkForwardMsg, {
+            'kind': 'struct',
+            'fields': [
+                ['chunk_hash', [32]],
+                ['inner_header_hash', [32]],
+                ['merkle_root', [32]],
+                ['signature', Signature],
+                ['prev_block_hash', [32]],
+                ['height_created', 'u64'],
+                ['shard_id', 'u64'],
+                ['parts', [PartialEncodedChunkPart]]
             ]
         }
     ],

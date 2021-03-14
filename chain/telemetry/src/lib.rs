@@ -3,6 +3,7 @@ use std::time::Duration;
 use actix::{Actor, Addr, Context, Handler, Message};
 use actix_web::client::{Client, Connector};
 use futures::FutureExt;
+use near_performance_metrics_macros::perf;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -15,7 +16,7 @@ pub struct TelemetryConfig {
 }
 
 /// Event to send over telemetry.
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct TelemetryEvent {
     content: serde_json::Value,
@@ -42,8 +43,8 @@ impl TelemetryActor {
                 );
             }
         }
-        openssl_probe::init_ssl_cert_env_vars();
-        let client = Client::build()
+
+        let client = Client::builder()
             .timeout(CONNECT_TIMEOUT)
             .connector(
                 Connector::new()
@@ -63,19 +64,20 @@ impl Actor for TelemetryActor {
 impl Handler<TelemetryEvent> for TelemetryActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: TelemetryEvent, _ctx: &mut Context<Self>) {
         for endpoint in self.config.endpoints.iter() {
-            actix::spawn(
-                self.client
-                    .post(endpoint)
-                    .header("Content-Type", "application/json")
-                    .send_json(&msg.content)
-                    .map(|response| {
-                        if let Err(error) = response {
-                            info!(target: "telemetry", "Telemetry data could not be sent due to: {}", error);
-                        }
-                    }),
-            );
+            near_performance_metrics::actix::spawn("telemetry", file!(), line!(),
+                                           self.client
+                        .post(endpoint)
+                        .insert_header(("Content-Type", "application/json"))
+                        .send_json(&msg.content)
+                        .map(|response| {
+                            if let Err(error) = response {
+                                info!(target: "telemetry", "Telemetry data could not be sent due to: {}", error);
+                            }
+                        }),
+                );
         }
     }
 }

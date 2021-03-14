@@ -4,6 +4,7 @@
 mod test {
     use near_logger_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
+    use std::time::{Duration, Instant};
     use testlib::node::{create_nodes, sample_two_nodes, Node};
     use testlib::test_helpers::{heavy_test, wait};
 
@@ -17,6 +18,21 @@ mod test {
 
         for i in 0..num_nodes {
             nodes[i].write().unwrap().start();
+        }
+
+        // waiting for nodes to be synced
+        let started = Instant::now();
+        loop {
+            if started.elapsed() > Duration::from_secs(10) {
+                panic!("nodes are not synced in 10s");
+            }
+            let all_synced = nodes
+                .iter()
+                .all(|node| node.read().unwrap().view_account(&account_names[0]).is_ok());
+            if all_synced {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
         }
 
         // Execute N trials. In each trial we submit a transaction to a random node i, that sends

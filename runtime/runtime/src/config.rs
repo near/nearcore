@@ -1,17 +1,19 @@
 //! Settings of the parameters of the runtime.
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
-use near_primitives::types::{Balance, Gas};
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives::types::{AccountId, Balance, Gas};
 
 // Just re-exporting RuntimeConfig for backwards compatibility.
-pub use near_runtime_configs::RuntimeConfig;
+pub use near_primitives::num_rational::Rational;
+pub use near_primitives::runtime::config::RuntimeConfig;
 
+use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_runtime_utils::is_account_id_64_len_hex;
 use num_bigint::BigUint;
-use num_rational::Rational;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
 use std::convert::TryFrom;
@@ -39,8 +41,8 @@ pub fn safe_gas_price_inflated(
     inflation_base: Rational,
     inflation_exponent: u8,
 ) -> Result<Balance, IntegerOverflowError> {
-    let numer = BigUint::from(*inflation_base.numer() as usize).pow(inflation_exponent);
-    let denom = BigUint::from(*inflation_base.denom() as usize).pow(inflation_exponent);
+    let numer = BigUint::from(*inflation_base.numer() as usize).pow(inflation_exponent as u32);
+    let denom = BigUint::from(*inflation_base.denom() as usize).pow(inflation_exponent as u32);
     // Rounding up
     let inflated_gas_price: BigUint = (numer * gas_price + &denom - 1u8) / denom;
     inflated_gas_price.to_u128().ok_or_else(|| IntegerOverflowError {})
@@ -71,6 +73,8 @@ pub fn total_send_fees(
     config: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     actions: &[Action],
+    receiver_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let cfg = &config.action_creation_config;
     let mut result = 0;
@@ -88,7 +92,20 @@ pub fn total_send_fees(
                 cfg.function_call_cost.send_fee(sender_is_receiver)
                     + cfg.function_call_cost_per_byte.send_fee(sender_is_receiver) * num_bytes
             }
-            Transfer(_) => cfg.transfer_cost.send_fee(sender_is_receiver),
+            Transfer(_) => {
+                // Account for implicit account creation
+                if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    && is_account_id_64_len_hex(&receiver_id)
+                {
+                    // Transfer action fee for implicit account creation always includes extra fees
+                    // for the CreateAccount and AddFullAccessKey actions that are implicit.
+                    cfg.create_account_cost.send_fee(sender_is_receiver)
+                        + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
+                        + cfg.transfer_cost.send_fee(sender_is_receiver)
+                } else {
+                    cfg.transfer_cost.send_fee(sender_is_receiver)
+                }
+            }
             Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
             AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
                 AccessKeyPermission::FunctionCall(call_perm) => {
@@ -117,7 +134,12 @@ pub fn total_send_fees(
     Ok(result)
 }
 
-pub fn exec_fee(config: &RuntimeFeesConfig, action: &Action) -> Gas {
+pub fn exec_fee(
+    config: &RuntimeFeesConfig,
+    action: &Action,
+    receiver_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
+) -> Gas {
     let cfg = &config.action_creation_config;
     use Action::*;
     match action {
@@ -132,7 +154,18 @@ pub fn exec_fee(config: &RuntimeFeesConfig, action: &Action) -> Gas {
             cfg.function_call_cost.exec_fee()
                 + cfg.function_call_cost_per_byte.exec_fee() * num_bytes
         }
-        Transfer(_) => cfg.transfer_cost.exec_fee(),
+        Transfer(_) => {
+            // Account for implicit account creation
+            if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                && is_account_id_64_len_hex(&receiver_id)
+            {
+                cfg.create_account_cost.exec_fee()
+                    + cfg.add_key_cost.full_access_cost.exec_fee()
+                    + cfg.transfer_cost.exec_fee()
+            } else {
+                cfg.transfer_cost.exec_fee()
+            }
+        }
         Stake(_) => cfg.stake_cost.exec_fee(),
         AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
             AccessKeyPermission::FunctionCall(call_perm) => {
@@ -157,11 +190,18 @@ pub fn tx_cost(
     transaction: &Transaction,
     gas_price: Balance,
     sender_is_receiver: bool,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
     let mut gas_burnt: Gas = config.action_receipt_creation_config.send_fee(sender_is_receiver);
     gas_burnt = safe_add_gas(
         gas_burnt,
-        total_send_fees(&config, sender_is_receiver, &transaction.actions)?,
+        total_send_fees(
+            &config,
+            sender_is_receiver,
+            &transaction.actions,
+            &transaction.receiver_id,
+            current_protocol_version,
+        )?,
     )?;
     let prepaid_gas = total_prepaid_gas(&transaction.actions)?;
     // If signer is equals to receiver the receipt will be processed at the same block as this
@@ -185,7 +225,15 @@ pub fn tx_cost(
 
     let mut gas_remaining =
         safe_add_gas(prepaid_gas, config.action_receipt_creation_config.exec_fee())?;
-    gas_remaining = safe_add_gas(gas_remaining, total_exec_fees(&config, &transaction.actions)?)?;
+    gas_remaining = safe_add_gas(
+        gas_remaining,
+        total_exec_fees(
+            &config,
+            &transaction.actions,
+            &transaction.receiver_id,
+            current_protocol_version,
+        )?,
+    )?;
     let burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
@@ -197,10 +245,12 @@ pub fn tx_cost(
 pub fn total_exec_fees(
     config: &RuntimeFeesConfig,
     actions: &[Action],
+    receiver_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
     for action in actions {
-        let delta = exec_fee(&config, action);
+        let delta = exec_fee(&config, action, receiver_id, current_protocol_version);
         result = safe_add_gas(result, delta)?;
     }
     Ok(result)

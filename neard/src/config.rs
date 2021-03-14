@@ -9,12 +9,12 @@ use std::time::Duration;
 use actix;
 use actix_web;
 use chrono::Utc;
-use log::info;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use lazy_static::lazy_static;
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -23,6 +23,7 @@ use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
@@ -31,7 +32,8 @@ use near_primitives::types::{
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_runtime_configs::RuntimeConfig;
+#[cfg(feature = "rosetta_rpc")]
+use near_rosetta_rpc::RosettaRpcConfig;
 use near_telemetry::TelemetryConfig;
 
 /// Initial balance used in tests.
@@ -104,7 +106,7 @@ pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 
 /// Initial gas price.
-pub const MIN_GAS_PRICE: Balance = 5000;
+pub const MIN_GAS_PRICE: Balance = 1_000_000_000;
 
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
@@ -126,6 +128,9 @@ pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 
 /// Number of epochs before protocol upgrade.
 pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
+
+#[cfg(feature = "protocol_feature_evm")]
+pub const TESTNET_EVM_CHAIN_ID: u64 = 0x99;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -176,6 +181,11 @@ fn default_peer_recent_time_window() -> Duration {
 fn default_safe_set_size() -> u32 {
     20
 }
+/// Lower bound of the number of connections to archival peers to keep
+/// if we are an archival node.
+fn default_archival_peer_connections_lower_bound() -> u32 {
+    10
+}
 /// Time to persist Accounts Id in the router without removing them in seconds.
 fn default_ttl_account_id_router() -> Duration {
     Duration::from_secs(TTL_ACCOUNT_ID_ROUTER)
@@ -213,6 +223,10 @@ pub struct Network {
     /// Used to avoid disconnecting from peers we have been connected since long time.
     #[serde(default = "default_safe_set_size")]
     pub safe_set_size: u32,
+    /// Lower bound of the number of connections to archival peers to keep
+    /// if we are an archival node.
+    #[serde(default = "default_archival_peer_connections_lower_bound")]
+    pub archival_peer_connections_lower_bound: u32,
     /// Handshake timeout.
     pub handshake_timeout: Duration,
     /// Duration before trying to reconnect to a peer.
@@ -245,6 +259,7 @@ impl Default for Network {
             ideal_connections_hi: default_ideal_connections_hi(),
             peer_recent_time_window: default_peer_recent_time_window(),
             safe_set_size: default_safe_set_size(),
+            archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
             handshake_timeout: Duration::from_secs(20),
             reconnect_delay: Duration::from_secs(60),
             skip_sync_wait: false,
@@ -273,6 +288,10 @@ fn default_header_sync_stall_ban_timeout() -> Duration {
     Duration::from_secs(120)
 }
 
+fn default_state_sync_timeout() -> Duration {
+    Duration::from_secs(60)
+}
+
 fn default_header_sync_expected_height_per_second() -> u64 {
     10
 }
@@ -295,6 +314,10 @@ fn default_view_client_threads() -> usize {
 
 fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
+}
+
+fn default_view_client_throttle_period() -> Duration {
+    Duration::from_secs(30)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -333,6 +356,9 @@ pub struct Consensus {
     /// How much time to wait before banning a peer in header sync if sync is too slow
     #[serde(default = "default_header_sync_stall_ban_timeout")]
     pub header_sync_stall_ban_timeout: Duration,
+    /// How much to wait for a state sync response before re-requesting
+    #[serde(default = "default_state_sync_timeout")]
+    pub state_sync_timeout: Duration,
     /// Expected increase of header head weight per second during header sync
     #[serde(default = "default_header_sync_expected_height_per_second")]
     pub header_sync_expected_height_per_second: u64,
@@ -365,6 +391,7 @@ impl Default for Consensus {
             header_sync_initial_timeout: default_header_sync_initial_timeout(),
             header_sync_progress_timeout: default_header_sync_progress_timeout(),
             header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
+            state_sync_timeout: default_state_sync_timeout(),
             header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
             ),
             sync_check_period: default_sync_check_period(),
@@ -382,16 +409,23 @@ pub struct Config {
     pub validator_key_file: String,
     pub node_key_file: String,
     pub rpc: RpcConfig,
+    #[cfg(feature = "rosetta_rpc")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rosetta_rpc: Option<RosettaRpcConfig>,
     pub telemetry: TelemetryConfig,
     pub network: Network,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
     pub archive: bool,
+    pub log_summary_style: LogSummaryStyle,
     #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
+    pub epoch_sync_enabled: bool,
+    #[serde(default = "default_view_client_throttle_period")]
+    pub view_client_throttle_period: Duration,
 }
 
 impl Default for Config {
@@ -402,14 +436,19 @@ impl Default for Config {
             validator_key_file: VALIDATOR_KEY_FILE.to_string(),
             node_key_file: NODE_KEY_FILE.to_string(),
             rpc: RpcConfig::default(),
+            #[cfg(feature = "rosetta_rpc")]
+            rosetta_rpc: None,
             telemetry: TelemetryConfig::default(),
             network: Network::default(),
             consensus: Consensus::default(),
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
+            log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
-            view_client_threads: 4,
+            epoch_sync_enabled: true,
+            view_client_threads: default_view_client_threads(),
+            view_client_throttle_period: default_view_client_throttle_period(),
         }
     }
 }
@@ -456,16 +495,13 @@ impl Genesis {
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records.extend(
-                state_records_account_with_key(
-                    account,
-                    &signer.public_key.clone(),
-                    TESTING_INIT_BALANCE
-                        - if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
-                    if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
-                    CryptoHash::default(),
-                )
-                .into_iter(),
+            add_account_with_key(
+                &mut records,
+                account,
+                &signer.public_key.clone(),
+                TESTING_INIT_BALANCE - if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
+                if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
+                CryptoHash::default(),
             );
         }
         add_protocol_account(&mut records);
@@ -523,15 +559,17 @@ pub struct NearConfig {
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
+    #[cfg(feature = "rosetta_rpc")]
+    pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
-    pub genesis: Arc<Genesis>,
+    pub genesis: Genesis,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
 }
 
 impl NearConfig {
     pub fn new(
         config: Config,
-        genesis: Arc<Genesis>,
+        genesis: Genesis,
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
@@ -556,6 +594,7 @@ impl NearConfig {
                 header_sync_expected_height_per_second: config
                     .consensus
                     .header_sync_expected_height_per_second,
+                state_sync_timeout: config.consensus.state_sync_timeout,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -573,8 +612,11 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
+                log_summary_style: config.log_summary_style,
                 gc_blocks_limit: config.gc_blocks_limit,
                 view_client_threads: config.view_client_threads,
+                epoch_sync_enabled: config.epoch_sync_enabled,
+                view_client_throttle_period: config.view_client_throttle_period,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -604,6 +646,9 @@ impl NearConfig {
                 ideal_connections_hi: config.network.ideal_connections_hi,
                 peer_recent_time_window: config.network.peer_recent_time_window,
                 safe_set_size: config.network.safe_set_size,
+                archival_peer_connections_lower_bound: config
+                    .network
+                    .archival_peer_connections_lower_bound,
                 ban_window: config.network.ban_window,
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
@@ -615,9 +660,12 @@ impl NearConfig {
                 push_info_period: Duration::from_millis(100),
                 blacklist: blacklist_from_iter(config.network.blacklist),
                 outbound_disabled: false,
+                archive: config.archive,
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
+            #[cfg(feature = "rosetta_rpc")]
+            rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
         }
@@ -650,37 +698,48 @@ fn add_protocol_account(records: &mut Vec<StateRecord>) {
         KeyType::ED25519,
         PROTOCOL_TREASURY_ACCOUNT,
     );
-    records.extend(state_records_account_with_key(
+    add_account_with_key(
+        records,
         PROTOCOL_TREASURY_ACCOUNT,
         &signer.public_key,
         TESTING_INIT_BALANCE,
         0,
         CryptoHash::default(),
-    ));
+    );
 }
 
 fn random_chain_id() -> String {
     format!("test-chain-{}", generate_random_string(5))
 }
 
-fn state_records_account_with_key(
+fn add_account_with_key(
+    records: &mut Vec<StateRecord>,
     account_id: &str,
     public_key: &PublicKey,
     amount: u128,
     staked: u128,
     code_hash: CryptoHash,
-) -> Vec<StateRecord> {
-    vec![
-        StateRecord::Account {
-            account_id: account_id.to_string(),
-            account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
-        },
-        StateRecord::AccessKey {
-            account_id: account_id.to_string(),
-            public_key: public_key.clone(),
-            access_key: AccessKey::full_access(),
-        },
-    ]
+) {
+    records.push(StateRecord::Account {
+        account_id: account_id.to_string(),
+        account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
+    });
+    records.push(StateRecord::AccessKey {
+        account_id: account_id.to_string(),
+        public_key: public_key.clone(),
+        access_key: AccessKey::full_access(),
+    });
+}
+
+/// Generate a validator key and save it to the file path.
+fn generate_validator_key(account_id: &str, path: &Path) {
+    let signer = InMemoryValidatorSigner::from_random(account_id.to_string(), KeyType::ED25519);
+    info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
+    signer.write_to_file(path);
+}
+
+lazy_static_include::lazy_static_include_bytes! {
+    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -715,11 +774,11 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // TODO: add download genesis for mainnet
-            let genesis: Genesis = serde_json::from_str(
-                &std::str::from_utf8(include_bytes!("../res/mainnet_genesis.json"))
-                    .expect("Failed to convert genesis file into string"),
-            )
-            .expect("Failed to deserialize MainNet genesis");
+            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
+                .expect("Failed to deserialize MainNet genesis");
+            if let Some(account_id) = account_id {
+                generate_validator_key(account_id, &dir.join(config.validator_key_file));
+            }
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
@@ -727,7 +786,7 @@ pub fn init_configs(
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated MainNet genesis file in {}", dir.to_str().unwrap());
         }
-        "testnet" | "betanet" | "devnet" => {
+        "testnet" | "betanet" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
@@ -735,14 +794,8 @@ pub fn init_configs(
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            // If account id was given, create new key pair for this validator.
-            if let Some(account_id) =
-                account_id.and_then(|x| if x.is_empty() { None } else { Some(x.to_string()) })
-            {
-                let signer =
-                    InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519);
-                info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
-                signer.write_to_file(&dir.join(config.validator_key_file));
+            if let Some(account_id) = account_id {
+                generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
@@ -795,11 +848,24 @@ pub fn init_configs(
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
-            let mut records = state_records_account_with_key(
+            let mut records = vec![];
+            add_account_with_key(
+                &mut records,
                 &account_id,
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
+                CryptoHash::default(),
+            );
+            #[cfg(feature = "protocol_feature_evm")]
+            // EVM account is created here only for new generated genesis
+            // For existing network, evm account has to be created with linkdrop
+            add_account_with_key(
+                &mut records,
+                "evm",
+                &signer.public_key(),
+                TESTING_INIT_BALANCE,
+                0,
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
@@ -952,12 +1018,12 @@ pub fn get_genesis_url(chain_id: &String) -> String {
 }
 
 pub fn download_genesis(url: &String, path: &PathBuf) {
-    info!(target: "near", "Downloading config file from: {} ...", url);
+    info!(target: "near", "Downloading genesis file from: {} ...", url);
 
     let url = url.clone();
     let path = path.clone();
 
-    actix::System::builder().build().block_on(async move {
+    actix::System::new().block_on(async move {
         let client = actix_web::client::Client::new();
         let mut response =
             client.get(url).send().await.expect("Unable to download the genesis file");
@@ -966,9 +1032,9 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
         // In case where the genesis is bigger than the specified limit Overflow Error is thrown
         let body = response
             .body()
-            .limit(250_000_000)
+            .limit(10_000_000_000)
             .await
-            .expect("Genesis file is bigger than 250MB. Please make the limit higher.");
+            .expect("Genesis file is bigger than 10GB. Please make the limit higher.");
 
         std::fs::write(&path, &body).expect("Failed to create / write a config file.");
 
@@ -992,10 +1058,10 @@ pub fn load_config(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = InMemorySigner::from_file(&dir.join(&config.node_key_file));
-    NearConfig::new(config, Arc::new(genesis), (&network_signer).into(), validator_signer)
+    NearConfig::new(config, genesis, (&network_signer).into(), validator_signer)
 }
 
-pub fn load_test_config(seed: &str, port: u16, genesis: Arc<Genesis>) -> NearConfig {
+pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", open_port());
@@ -1014,24 +1080,4 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Arc<Genesis>) -> NearCon
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer)
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    /// make sure testnet genesis can be deserialized
-    #[test]
-    fn test_deserialize_state() {
-        let genesis_config_str = include_str!("../res/genesis_config.json");
-        let genesis_config = GenesisConfig::from_json(&genesis_config_str);
-        assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
-    }
-
-    #[test]
-    fn test_res_genesis_fees_are_default() {
-        let genesis_config_str = include_str!("../res/genesis_config.json");
-        let genesis_config = GenesisConfig::from_json(&genesis_config_str);
-        assert_eq!(genesis_config.runtime_config, RuntimeConfig::default());
-    }
 }

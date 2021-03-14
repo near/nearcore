@@ -1,15 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-pub type AccountId = String;
+pub use near_primitives_core::types::*;
+
 pub type PublicKey = Vec<u8>;
-pub type BlockHeight = u64;
-pub type EpochHeight = u64;
-pub type Balance = u128;
-pub type Gas = u64;
 pub type PromiseIndex = u64;
 pub type ReceiptIndex = u64;
 pub type IteratorIndex = u64;
-pub type StorageUsage = u64;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub enum ReturnData {
@@ -25,10 +21,21 @@ pub enum ReturnData {
     None,
 }
 
+impl ReturnData {
+    /// Function to extract value from ReturnData.
+    pub fn as_value(self) -> Option<Vec<u8>> {
+        match self {
+            ReturnData::Value(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
 /// When there is a callback attached to one or more contract calls the execution results of these
 /// calls are available to the contract invoked through the callback.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum PromiseResult {
+    /// Current version of the protocol never returns `PromiseResult::NotReady`.
     NotReady,
     #[serde(with = "crate::serde_with::bytes_as_str")]
     Successful(Vec<u8>),

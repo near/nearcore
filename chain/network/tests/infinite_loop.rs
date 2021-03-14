@@ -6,6 +6,7 @@ use actix::actors::mocker::Mocker;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_client::ClientActor;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
@@ -49,6 +50,7 @@ pub fn make_peer_manager(
                     genesis_id: GenesisId::default(),
                     height: 1,
                     tracked_shards: vec![],
+                    archival: false,
                 }))
             }
             _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
@@ -70,7 +72,7 @@ type ViewClientMock = Mocker<ClientActor>;
 #[test]
 fn test_infinite_loop() {
     init_integration_logger();
-    System::run(|| {
+    run_actix_until_stop(async {
         let (port1, port2) = (open_port(), open_port());
         let (pm1, peer_id1, counter1) = make_peer_manager("test1", port1, vec![], 10);
         let (pm2, peer_id2, counter2) =
@@ -146,6 +148,5 @@ fn test_infinite_loop() {
             10000,
         )
         .start();
-    })
-    .unwrap();
+    });
 }

@@ -107,13 +107,15 @@ impl std::error::Error for StorageError {}
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
     InvalidAccessKeyError(InvalidAccessKeyError),
-    /// TX signer_id is not in a valid format or not satisfy requirements see `near_core::primitives::utils::is_valid_account_id`
+    /// TX signer_id is not in a valid format or not satisfy requirements see `near_runtime_utils::utils::is_valid_account_id`
     InvalidSignerId { signer_id: AccountId },
     /// TX signer_id is not found in a storage
     SignerDoesNotExist { signer_id: AccountId },
     /// Transaction nonce must be account[access_key].nonce + 1
     InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
-    /// TX receiver_id is not in a valid format or not satisfy requirements see `near_core::primitives::utils::is_valid_account_id`
+    /// Transaction nonce is larger than the upper bound given by the block height
+    NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
+    /// TX receiver_id is not in a valid format or not satisfy requirements see `near_runtime_utils::is_valid_account_id`
     InvalidReceiverId { receiver_id: AccountId },
     /// TX signature is not valid
     InvalidSignature,
@@ -384,6 +386,9 @@ pub enum ActionErrorKind {
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
+    /// Error occurs when a `CreateAccount` action is called on hex-characters account of length 64.
+    /// See implicit account creation NEP: https://github.com/nearprotocol/NEPs/pull/71
+    OnlyImplicitAccountCreationAllowed { account_id: AccountId },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -419,7 +424,7 @@ impl Display for InvalidTxError {
                 signer_id, balance, cost
             ),
             InvalidTxError::LackBalanceForState { signer_id, amount } => {
-                write!(f, "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {}", signer_id, amount)
+                write!(f, "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {} yoctoNEAR more", signer_id, amount)
             }
             InvalidTxError::CostOverflow => {
                 write!(f, "Transaction gas or balance cost is too high")
@@ -433,6 +438,7 @@ impl Display for InvalidTxError {
             InvalidTxError::ActionsValidation(error) => {
                 write!(f, "Transaction actions validation error: {}", error)
             }
+            InvalidTxError::NonceTooLarge { tx_nonce, upper_bound } => { write!(f, "Transaction nonce {} must be smaller than the access key nonce upper bound {}", tx_nonce, upper_bound) }
         }
     }
 }
@@ -632,7 +638,7 @@ impl Display for ActionErrorKind {
             ),
             ActionErrorKind::LackBalanceForState { account_id, amount } => write!(
                 f,
-                "The account {} wouldn't have enough balance to cover storage, required to have {}",
+                "The account {} wouldn't have enough balance to cover storage, required to have {} yoctoNEAR more",
                 account_id, amount
             ),
             ActionErrorKind::TriesToUnstake { account_id } => {
@@ -670,7 +676,8 @@ impl Display for ActionErrorKind {
             ActionErrorKind::NewReceiptValidationError(e) => {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }
-            ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(f, "Account {} tries to stake {} but minimum required stake is {}", account_id, stake, minimum_stake)
+            ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(f, "Account {} tries to stake {} but minimum required stake is {}", account_id, stake, minimum_stake),
+            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id)
         }
     }
 }
@@ -681,7 +688,7 @@ pub enum EpochError {
     /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
     ThresholdError { stake_sum: Balance, num_seats: u64 },
     /// Requesting validators for an epoch that wasn't computed yet.
-    EpochOutOfBounds,
+    EpochOutOfBounds(EpochId),
     /// Missing block hash in the storage (means there is some structural issue).
     MissingBlock(CryptoHash),
     /// Error due to IO (DB read/write, serialization, etc.).
@@ -700,7 +707,9 @@ impl Display for EpochError {
                 "Total stake {} must be higher than the number of seats {}",
                 stake_sum, num_seats
             ),
-            EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
+            EpochError::EpochOutOfBounds(epoch_id) => {
+                write!(f, "Epoch {:?} is out of bounds", epoch_id)
+            }
             EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
             EpochError::IOErr(err) => write!(f, "IO: {}", err),
             EpochError::NotAValidator(account_id, epoch_id) => {
@@ -716,7 +725,7 @@ impl Debug for EpochError {
             EpochError::ThresholdError { stake_sum, num_seats } => {
                 write!(f, "ThresholdError({}, {})", stake_sum, num_seats)
             }
-            EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
+            EpochError::EpochOutOfBounds(epoch_id) => write!(f, "EpochOutOfBounds({:?})", epoch_id),
             EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
             EpochError::IOErr(err) => write!(f, "IOErr({})", err),
             EpochError::NotAValidator(account_id, epoch_id) => {

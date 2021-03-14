@@ -50,8 +50,9 @@ pub struct EpochConfig {
 }
 
 /// Information per each block.
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Clone, Debug)]
 pub struct BlockInfo {
+    pub hash: CryptoHash,
     pub height: BlockHeight,
     pub last_finalized_height: BlockHeight,
     pub last_final_block_hash: CryptoHash,
@@ -66,10 +67,13 @@ pub struct BlockInfo {
     pub slashed: HashMap<AccountId, SlashState>,
     /// Total supply at this block.
     pub total_supply: Balance,
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    pub timestamp_nanosec: u64,
 }
 
 impl BlockInfo {
     pub fn new(
+        hash: CryptoHash,
         height: BlockHeight,
         last_finalized_height: BlockHeight,
         last_final_block_hash: CryptoHash,
@@ -79,8 +83,10 @@ impl BlockInfo {
         slashed: Vec<SlashedValidator>,
         total_supply: Balance,
         latest_protocol_version: ProtocolVersion,
+        #[cfg(feature = "protocol_feature_rectify_inflation")] timestamp_nanosec: u64,
     ) -> Self {
         Self {
+            hash,
             height,
             last_finalized_height,
             last_final_block_hash,
@@ -99,6 +105,8 @@ impl BlockInfo {
             total_supply,
             epoch_first_block: Default::default(),
             epoch_id: Default::default(),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            timestamp_nanosec,
         }
     }
 }
@@ -141,6 +149,7 @@ pub struct EpochInfo {
     pub protocol_version: ProtocolVersion,
 }
 
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct EpochSummary {
     pub prev_epoch_last_block_hash: CryptoHash,
     /// Proposals from the epoch, only the latest one per account

@@ -1,19 +1,21 @@
 #[macro_use]
 extern crate lazy_static;
 
-pub use chain::{collect_receipts, Chain, ChainGenesis, MAX_ORPHAN_SIZE};
+pub use chain::{collect_receipts, Chain, MAX_ORPHAN_SIZE};
 pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
-pub use error::{Error, ErrorKind};
-pub use lightclient::create_light_client_block_view;
+pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
+pub use near_chain_primitives::{self, Error, ErrorKind};
 pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 pub use store_validator::{ErrorMessage, StoreValidator};
-pub use types::{Block, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter};
+pub use types::{
+    Block, BlockHeader, BlockStatus, ChainGenesis, Provenance, ReceiptResult, RuntimeAdapter,
+};
 
 pub mod chain;
 mod doomslug;
-mod error;
 mod lightclient;
 mod metrics;
+pub mod missing_chunks;
 mod store;
 pub mod store_validator;
 pub mod test_utils;

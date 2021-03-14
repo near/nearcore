@@ -5,8 +5,9 @@ import base58
 
 from messages.tx import *
 from messages.crypto import *
+from messages.bridge import *
 
-schema = dict(tx_schema + crypto_schema)
+schema = dict(tx_schema + crypto_schema + bridge_schema)
 
 
 def compute_tx_hash(receiverId, nonce, actions, blockHash, accountId, pk):

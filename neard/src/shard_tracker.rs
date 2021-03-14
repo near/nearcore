@@ -3,7 +3,7 @@ use std::io::Cursor;
 use std::sync::{Arc, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use log::info;
+use tracing::info;
 
 use near_epoch_manager::EpochManager;
 use near_primitives::errors::EpochError;
@@ -264,10 +264,12 @@ mod tests {
             max_inflation_rate: Rational::from_integer(0),
             num_blocks_per_year: 1000000,
             epoch_length: 1,
-            protocol_reward_percentage: Rational::from_integer(0),
+            protocol_reward_rate: Rational::from_integer(0),
             protocol_treasury_account: "".to_string(),
             online_max_threshold: initial_epoch_config.online_max_threshold,
             online_min_threshold: initial_epoch_config.online_min_threshold,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: 1000000,
         };
         Arc::new(RwLock::new(
             EpochManager::new(
@@ -294,8 +296,8 @@ mod tests {
     ) {
         epoch_manager
             .record_block_info(
-                &cur_h,
                 BlockInfo::new(
+                    cur_h,
                     height,
                     0,
                     prev_h,
@@ -305,6 +307,10 @@ mod tests {
                     vec![],
                     DEFAULT_TOTAL_SUPPLY,
                     PROTOCOL_VERSION,
+                    #[cfg(feature = "protocol_feature_rectify_inflation")]
+                    {
+                        height * 10u64.pow(9)
+                    },
                 ),
                 [0; 32],
             )

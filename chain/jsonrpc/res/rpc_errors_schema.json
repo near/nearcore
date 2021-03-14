@@ -20,6 +20,16 @@
       "subtypes": [],
       "props": {}
     },
+    "CacheError": {
+      "name": "CacheError",
+      "subtypes": [
+        "ReadError",
+        "WriteError",
+        "DeserializationError",
+        "SerializationError"
+      ],
+      "props": {}
+    },
     "CallIndirectOOB": {
       "name": "CallIndirectOOB",
       "subtypes": [],
@@ -71,6 +81,11 @@
       "subtypes": [],
       "props": {}
     },
+    "DeserializationError": {
+      "name": "DeserializationError",
+      "subtypes": [],
+      "props": {}
+    },
     "EmptyMethodName": {
       "name": "EmptyMethodName",
       "subtypes": [],
@@ -84,7 +99,8 @@
         "MethodResolveError",
         "WasmTrap",
         "WasmUnknownError",
-        "HostError"
+        "HostError",
+        "EvmError"
       ],
       "props": {}
     },
@@ -343,6 +359,11 @@
         "method_name": ""
       }
     },
+    "ReadError": {
+      "name": "ReadError",
+      "subtypes": [],
+      "props": {}
+    },
     "ReturnedValueLengthExceeded": {
       "name": "ReturnedValueLengthExceeded",
       "subtypes": [],
@@ -355,6 +376,13 @@
       "name": "Serialization",
       "subtypes": [],
       "props": {}
+    },
+    "SerializationError": {
+      "name": "SerializationError",
+      "subtypes": [],
+      "props": {
+        "hash": ""
+      }
     },
     "StackHeightInstrumentation": {
       "name": "StackHeightInstrumentation",
@@ -414,6 +442,11 @@
         "msg": ""
       }
     },
+    "WriteError": {
+      "name": "WriteError",
+      "subtypes": [],
+      "props": {}
+    },
     "AccessKeyNotFound": {
       "name": "AccessKeyNotFound",
       "subtypes": [],
@@ -452,7 +485,8 @@
         "TriesToStake",
         "InsufficientStake",
         "FunctionCallError",
-        "NewReceiptValidationError"
+        "NewReceiptValidationError",
+        "OnlyImplicitAccountCreationAllowed"
       ],
       "props": {
         "index": ""
@@ -716,6 +750,13 @@
         "balance": "",
         "cost": "",
         "signer_id": ""
+      }
+    },
+    "OnlyImplicitAccountCreationAllowed": {
+      "name": "OnlyImplicitAccountCreationAllowed",
+      "subtypes": [],
+      "props": {
+        "account_id": ""
       }
     },
     "ReceiptValidationError": {

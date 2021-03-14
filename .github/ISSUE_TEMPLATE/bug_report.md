@@ -30,7 +30,7 @@ If applicable, add screenshots to help explain your problem.
 - nearcore commit/branch
 - rust version (if local)
 - docker (if using docker)
-- mainnet/testnet/betanet/devnet/local
+- mainnet/testnet/betanet/local
 
 **Additional context**
 Add any other context about the problem here.

@@ -3,24 +3,35 @@ use std::path::Path;
 use std::sync::Arc;
 
 use actix::{Actor, Addr, Arbiter};
-use log::{error, info};
-use tracing::trace;
+use actix_rt::ArbiterHandle;
+use tracing::{error, info, trace};
 
 use near_chain::ChainGenesis;
+#[cfg(feature = "adversarial")]
+use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
-use near_store::migrations::{
-    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, set_store_version,
-};
+#[cfg(feature = "rosetta_rpc")]
+use near_rosetta_rpc::start_rosetta_rpc;
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+use crate::migrations::migrate_12_to_13;
 pub use crate::runtime::NightshadeRuntime;
+use near_store::migrations::{
+    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
+    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_6_to_7,
+    migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
+};
+
+#[cfg(feature = "protocol_feature_rectify_inflation")]
+use near_store::migrations::migrate_18_to_rectify_inflation;
 
 pub mod config;
 pub mod genesis_validate;
+mod migrations;
 mod runtime;
 mod shard_tracker;
 
@@ -55,7 +66,7 @@ pub fn get_default_home() -> String {
 }
 
 /// Function checks current version of the database and applies migrations to the database.
-pub fn apply_store_migrations(path: &String) {
+pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
     let db_version = get_store_version(path);
     if db_version > near_primitives::version::DB_VERSION {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
@@ -89,16 +100,118 @@ pub fn apply_store_migrations(path: &String) {
         fill_col_transaction_refcount(&store);
         set_store_version(&store, 4);
     }
+    if db_version <= 4 {
+        info!(target: "near", "Migrate DB from version 4 to 5");
+        // version 4 => 5: add ColProcessedBlockHeights
+        // we don't need to backfill the old heights since at worst we will just process some heights
+        // again.
+        let store = create_store(&path);
+        set_store_version(&store, 5);
+    }
+    if db_version <= 5 {
+        info!(target: "near", "Migrate DB from version 5 to 6");
+        // version 5 => 6: add merge operator to ColState
+        // we don't have merge records before so old storage works
+        let store = create_store(&path);
+        set_store_version(&store, 6);
+    }
+    if db_version <= 6 {
+        info!(target: "near", "Migrate DB from version 6 to 7");
+        // version 6 => 7:
+        // - make ColState use 8 bytes for refcount (change to merge operator)
+        // - move ColTransactionRefCount into ColTransactions
+        // - make ColReceiptIdToShardId refcounted
+        migrate_6_to_7(path);
+    }
+    if db_version <= 7 {
+        info!(target: "near", "Migrate DB from version 7 to 8");
+        // version 7 => 8:
+        // delete values in column `StateColParts`
+        migrate_7_to_8(path);
+    }
+    if db_version <= 8 {
+        info!(target: "near", "Migrate DB from version 8 to 9");
+        // version 8 => 9:
+        // Repair `ColTransactions`, `ColReceiptIdToShardId`
+        migrate_8_to_9(path);
+    }
+    if db_version <= 9 {
+        info!(target: "near", "Migrate DB from version 9 to 10");
+        // version 9 => 10;
+        // populate partial encoded chunks for chunks that exist in storage
+        migrate_9_to_10(path, near_config.client_config.archive);
+    }
+    if db_version <= 10 {
+        info!(target: "near", "Migrate DB from version 10 to 11");
+        // version 10 => 11
+        // Add final head
+        migrate_10_to_11(path);
+    }
+    if db_version <= 11 {
+        info!(target: "near", "Migrate DB from version 11 to 12");
+        // version 11 => 12;
+        // populate ColReceipts with existing receipts
+        migrate_11_to_12(path);
+    }
+    if db_version <= 12 {
+        info!(target: "near", "Migrate DB from version 12 to 13");
+        // version 12 => 13;
+        // migrate ColTransactionResult to fix the inconsistencies there
+        migrate_12_to_13(path, near_config);
+    }
+    if db_version <= 13 {
+        info!(target: "near", "Migrate DB from version 13 to 14");
+        // version 13 => 14;
+        // store versioned enums for shard chunks
+        migrate_13_to_14(path);
+    }
+    if db_version <= 14 {
+        info!(target: "near", "Migrate DB from version 14 to 15");
+        // version 14 => 15;
+        // Change ColOutcomesByBlockHash to be ordered within each shard
+        migrate_14_to_15(path);
+    }
+    if db_version <= 15 {
+        info!(target: "near", "Migrate DB from version 15 to 16");
+        // version 15 => 16: add column for compiled contracts
+        let store = create_store(&path);
+        set_store_version(&store, 16);
+    }
+    if db_version <= 16 {
+        info!(target: "near", "Migrate DB from version 16 to 17");
+        // version 16 => 17: add column for storing epoch validator info
+        let store = create_store(&path);
+        set_store_version(&store, 17);
+    }
+    if db_version <= 17 {
+        info!(target: "near", "Migrate DB from version 17 to 18");
+        // version 17 => 18: add `hash` to `BlockInfo` and ColHeaderHashesByHeight
+        migrate_17_to_18(&path);
+    }
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    if db_version <= 18 {
+        // version 18 => rectify inflation: add `timestamp` to `BlockInfo`
+        migrate_18_to_rectify_inflation(&path);
+    }
+    #[cfg(feature = "nightly_protocol")]
+    {
+        let store = create_store(&path);
+        // set some dummy value to avoid conflict with other migrations from nightly features
+        set_store_version(&store, 10000);
+    }
 
-    let db_version = get_store_version(path);
-    debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
+    #[cfg(not(feature = "nightly_protocol"))]
+    {
+        let db_version = get_store_version(path);
+        debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
+    }
 }
 
-pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {
+pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<Store> {
     let path = get_store_path(home_dir);
     let store_exists = store_path_exists(&path);
     if store_exists {
-        apply_store_migrations(&path);
+        apply_store_migrations(&path, near_config);
     }
     let store = create_store(&path);
     if !store_exists {
@@ -110,14 +223,13 @@ pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {
 pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
-) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<Arbiter>) {
-    let store = init_and_migrate_store(home_dir);
-    near_actix_utils::init_stop_on_panic();
+) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>) {
+    let store = init_and_migrate_store(home_dir, &config);
 
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
         Arc::clone(&store),
-        Arc::clone(&config.genesis),
+        &config.genesis,
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),
     ));
@@ -127,14 +239,19 @@ pub fn start_with_config(
 
     let node_id = config.network_config.public_key.clone().into();
     let network_adapter = Arc::new(NetworkRecipient::new());
+    #[cfg(feature = "adversarial")]
+    let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
+
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
         runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
+        #[cfg(feature = "adversarial")]
+        adv.clone(),
     );
-    let (client_actor, client_arbiter) = start_client(
+    let (client_actor, client_arbiter_handle) = start_client(
         config.client_config,
         chain_genesis,
         runtime,
@@ -142,13 +259,24 @@ pub fn start_with_config(
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
+        #[cfg(feature = "adversarial")]
+        adv.clone(),
     );
     start_http(
         config.rpc_config,
-        Arc::clone(&config.genesis),
+        config.genesis.config.clone(),
         client_actor.clone(),
         view_client.clone(),
     );
+    #[cfg(feature = "rosetta_rpc")]
+    if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
+        start_rosetta_rpc(
+            rosetta_rpc_config,
+            Arc::new(config.genesis.clone()),
+            client_actor.clone(),
+            view_client.clone(),
+        );
+    }
 
     config.network_config.verify();
 
@@ -158,7 +286,7 @@ pub fn start_with_config(
     let view_client1 = view_client.clone().recipient();
     let network_config = config.network_config;
 
-    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter, move |_ctx| {
+    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
         PeerManagerActor::new(store, network_config, client_actor1, view_client1).unwrap()
     });
 
@@ -166,5 +294,5 @@ pub fn start_with_config(
 
     trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
 
-    (client_actor, view_client, vec![client_arbiter, arbiter])
+    (client_actor, view_client, vec![client_arbiter_handle, arbiter.handle()])
 }

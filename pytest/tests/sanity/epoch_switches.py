@@ -16,7 +16,8 @@ config = None
 nodes = start_cluster(
     2, 2, 1, config,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 40]],
-    {2: {
+    {0: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
+     1: {"view_client_throttle_period": {"secs": 0, "nanos": 0}}, 2: {
         "tracked_shards": [0]
     }})
 
@@ -97,7 +98,7 @@ while True:
             assert height_to_num_approvals[height] == 2
 
             has_prev = height - 1 in height_to_num_approvals
-            has_two_ago = height - 1 in height_to_num_approvals
+            has_two_ago = height - 2 in height_to_num_approvals
 
             if has_prev:
                 assert height_to_num_approvals[height - 1] == 4

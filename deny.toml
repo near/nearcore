@@ -7,15 +7,20 @@ targets = [
 [bans]
 multiple-versions = "deny"
 deny = [
-]
-skip = [
-    # actix 0.9.0 still uses it
-    { name = "tokio-util", version = "=0.2.0" },
-    # actix-server 1.0.2 still uses it
-    { name = "miow", version = "=0.2.1" },
-    # miow 0.6.21 still uses it
-    { name = "winapi", version = "=0.2.8" },
+    # See: https://github.com/rust-random/rand/issues/645
+    { name = "rand", version = "<0.6" },
 
+    # See: https://github.com/near/nearcore/pull/3595
+    { name = "ethabi", version = "<9.0.1" },
+    { name = "ethabi-contract", version = "<9.0.0" },
+    { name = "ethabi-derive", version = "<9.0.1" },
+    { name = "ethereum-types", version = "<0.8.0" },
+    { name = "keccak-hash", version = "<0.4.1" },
+    { name = "primitive-types", version = "<0.6.2" },
+    { name = "uint", version = "<0.8.2" },
+]
+
+skip = [
     # crypto-mac 0.7.0 still uses it: https://github.com/RustCrypto/traits/issues/43
     { name = "subtle", version = "=1.0.0" },
 
@@ -29,9 +34,104 @@ skip = [
     { name = "rand_chacha", version = "=0.1.1" },
     { name = "autocfg", version = "=0.1.7" },
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
-    { name = "base64", version = "=0.11.0"},
-    { name = "gimli", version = "=0.20"},
-    { name = "wasmparser", version = "=0.51.4"},
-    { name = "itertools", version = "=0.8.2" },
+    { name = "base64", version = "=0.11.0" },
+    { name = "wasmparser", version = "=0.51.4" },
     { name = "rand_core", version = "=0.4.2" },
+    # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
+    { name = "sha2", version = "=0.8.2" },
+    { name = "crypto-mac", version = "=0.7.0" },
+    { name = "block-padding", version = "=0.1.5" },
+    { name = "block-buffer", version = "=0.7.3" },
+    { name = "opaque-debug", version = "=0.2.3" },
+    { name = "generic-array", version = "=0.12.3" },
+
+    # `sha2` uses it
+    { name = "cfg-if", version = "=1.0.0" },
+
+    # evm support has some legacy. Updating it fails at this point.
+    # to fully update, need to fork half of parity libraries, as they stopped development.
+    # See: https://github.com/near/nearcore/issues/3506
+    { name = "digest", version = "=0.8.1" },
+    { name = "proc-macro2", version = "=0.4.30" },
+    { name = "quote", version = "=0.6.13" },
+    { name = "rustc-hex", version = "=1.0.0" },
+    { name = "syn", version = "=0.15.44" },
+    { name = "unicode-xid", version = "=0.1.0" },
+
+    # param estimator uses newer imports, but it's not part of neard
+    { name = "indicatif", version = "=0.15.0" },
+    { name = "rand_xorshift", version = "=0.2.0" },
+    { name = "wasmparser", version = "=0.59.0" },
+
+    # wasmtime and actix-http
+    { name = "gimli", version = "=0.23.0" },
+
+    # wasmer and wasmtime
+    { name = "target-lexicon", version = "=0.10.0" },
+
+    # chain and param estimator
+    { name = "num-rational", version = "=0.3.2" },
+
+    # tokia via actix and actix-server
+    { name = "miow", version = "=0.3.6" },
+
+    # crossbeam-epoch and wasmtime-runtime
+    { name = "memoffset", version = "=0.6.1" },
+
+    # tracing-subscriber via near-logger-utils and clap via bindgen
+    { name = "ansi_term", version = "=0.12.1" },
+
+    # wasmer 0.17.x
+    { name = "parking_lot", version = "=0.10.2" },
+    { name = "parking_lot_core", version = "=0.7.2" },
+    { name = "lock_api", version = "=0.3.4" },
+
+    # ethereum-types via old evm (openethereum)
+    { name = "ethereum-types", version = "=0.10.0" },
+
+    # wasmtime uses older dependencies
+    { name = "object", version = "0.21.1" },
+    { name = "itertools", version = "=0.8.2" },
+    { name = "dynasm", version = "=0.5.2" },
+    { name = "dynasmrt", version = "=0.5.2" },
+
+    # chrono uses old time crate
+    { name = "time", version = "=0.1.43" },
+
+    # clap v2 uses old versions
+    { name = "strsim", version = "0.8.0" },
+
+    # ed25519-dalek uses older versions of rand and rand_core
+    { name = "rand", version = "=0.7.3" },
+    { name = "rand_core", version = "=0.5.1" },
+    { name = "rand_chacha", version = "=0.2.2" },
+    { name = "getrandom", version = "=0.1.16" },
+
+    # criterion and criterion-plot use conflicting versions
+    { name = "itertools", version = "=0.9.0" },
+    { name = "semver-parser", version = "=0.7.0" },
+    { name = "semver", version = "=0.9.0" },
+
+    # wasmer 1.0 use some newer version of crates than wasmer 0.17 & wasmtime, old ones are skipped here
+    { name = "cranelift-bforest", version = "=0.67.0" },
+    { name = "cranelift-codegen", version = "=0.67.0" },
+    { name = "cranelift-codegen-meta", version = "=0.67.0" },
+    { name = "cranelift-codegen-shared", version = "=0.67.0" },
+    { name = "cranelift-entity", version = "=0.67.0" },
+    { name = "cranelift-frontend", version = "=0.67.0" },
+    { name = "gimli", version = "=0.21.0" },
+    { name = "libloading", version = "=0.5.2" },
+    { name = "regalloc", version = "=0.0.30" },
+    { name = "wasmparser", version = "=0.57.0" },
+    { name = "which", version = "=3.1.1" },
+    { name = "object", version = "=0.23.0" },
+   
+    # cached uses an older version
+    { name = "strsim", version = "=0.9.3" },
+    { name = "darling", version = "=0.10.2" },
+    { name = "darling_core", version = "=0.10.2" },
+    { name = "darling_macro", version = "=0.10.2" },
+
+    # hashbrown uses an older version
+    { name = "ahash", version = "=0.4.7" },
 ]

@@ -13,16 +13,21 @@ from transaction import sign_staking_tx
 from utils import TxContext
 
 TIMEOUT = 600
-TWENTY_FIVE = 25
+# the height we spin up the second node
+TARGET_HEIGHT = 35
 
 config = load_config()
 # give more stake to the bootnode so that it can produce the blocks alone
 near_root, node_dirs = init_cluster(
     4, 1, 4, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 7],
-     ["block_producer_kickout_threshold", 40]],
-    {4: {
-        "tracked_shards": [0, 1, 2, 3]
+    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 12],
+     ["block_producer_kickout_threshold", 20], ["chunk_producer_kickout_threshold", 20]],
+    {0: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
+     1: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
+     2: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
+     3: {"view_client_throttle_period": {"secs": 0, "nanos": 0}}, 4: {
+        "tracked_shards": [0, 1, 2, 3],
+        "view_client_throttle_period": {"secs": 0, "nanos": 0}
     }})
 
 started = time.time()
@@ -46,7 +51,7 @@ seen_boot_heights = set()
 sent_txs = False
 largest_height = 0
 
-# 1. Make the first node get to height 25. The second epoch will end around height 15-16,
+# 1. Make the first node get to height 35. The second epoch will end around height 24-25,
 #    which would already result in a stall if the first node can't sync the state from the
 #    observer for the shard it doesn't care about
 while True:
@@ -58,7 +63,7 @@ while True:
     if new_height > largest_height:
         largest_height = new_height
         print(new_height)
-    if new_height >= TWENTY_FIVE:
+    if new_height >= TARGET_HEIGHT:
         break
 
     if new_height > 1 and not sent_txs:
@@ -68,7 +73,7 @@ while True:
 
     time.sleep(0.1)
 
-# 2. Spin up the second node and make sure it gets to 25 as well, and doesn't diverge
+# 2. Spin up the second node and make sure it gets to 35 as well, and doesn't diverge
 node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
                      boot_node.addr())
 
@@ -81,6 +86,7 @@ while True:
 
     status = node2.get_status()
     node2_height = status['sync_info']['latest_block_height']
+    node2_syncing = status['sync_info']['syncing']
 
     status = boot_node.get_status()
     new_height = status['sync_info']['latest_block_height']
@@ -90,7 +96,7 @@ while True:
         largest_height = new_height
         print(new_height)
 
-    if node2_height > TWENTY_FIVE:
+    if node2_height > TARGET_HEIGHT and not node2_syncing:
         assert node2_height in seen_boot_heights, "%s not in %s" % (
             node2_height, seen_boot_heights)
         break
@@ -162,7 +168,7 @@ while True:
     if new_height > largest_height:
         largest_height = new_height
         print(new_height)
-    if new_height >= last_height + TWENTY_FIVE:
+    if new_height >= last_height + TARGET_HEIGHT:
         break
 
     if new_height > last_height + 1 and not sent_txs:

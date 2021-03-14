@@ -8,8 +8,8 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
-base64 = "0.11"
-serde_json = { git = "https://github.com/nearprotocol/json", rev = "1f5779f3b0bd3d2a4b0b975abc46f3d3fe873331", features = ["no_floats"] }
+base64 = "0.13"
+serde_json = "1"
 wee_alloc = { version = "0.4.5", default-features = false }
 
 [profile.release]
@@ -25,3 +25,7 @@ incremental = false
 
 [workspace]
 members = []
+
+[features]
+nightly_protocol_features = ["protocol_feature_alt_bn128"]
+protocol_feature_alt_bn128 = []

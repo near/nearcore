@@ -8,9 +8,9 @@ mod test {
     use std::time::Duration;
 
     use near_chain_configs::Genesis;
+    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
-    use node_runtime::config::RuntimeConfig;
     use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig};
     use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
@@ -53,6 +53,7 @@ mod test {
 
     fn test_kill_1(num_nodes: usize, num_trials: usize, two_shards: bool, test_prefix: &str) {
         warmup();
+
         // Start all nodes, crash node#2, proceed, restart node #2 but crash node #3
         let crash1 = 2;
         let crash2 = 3;
@@ -69,13 +70,13 @@ mod test {
                 if let NodeConfig::Thread(cfg) = node_cfg {
                     let mut new_cfg = cfg;
 
-                    let Genesis { config, records, .. } = &*new_cfg.genesis;
+                    let Genesis { config, records, .. } = &new_cfg.genesis;
                     let mut config = config.clone();
                     config.runtime_config = RuntimeConfig::free();
                     config.num_block_producer_seats = 17;
                     config.num_block_producer_seats_per_shard =
                         if two_shards { vec![8, 9] } else { vec![17] };
-                    new_cfg.genesis = Arc::new(Genesis::new(config, records.clone()));
+                    new_cfg.genesis = Genesis::new(config, records.clone());
                     NodeConfig::Process(new_cfg)
                 } else {
                     unreachable!()

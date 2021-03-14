@@ -1,11 +1,10 @@
-use crate::types::{AccountId, Balance, Gas, PublicKey};
 use crate::{External, ValuePtr};
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
-use sha3::{Keccak256, Keccak512};
 use std::collections::HashMap;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 /// Emulates the trie and the mock handling code.
 pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
@@ -50,6 +49,7 @@ impl MockedExternal {
 }
 
 use crate::dependencies::Result;
+use crate::types::PublicKey;
 
 impl External for MockedExternal {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
@@ -67,6 +67,11 @@ impl External for MockedExternal {
 
     fn storage_remove(&mut self, key: &[u8]) -> Result<()> {
         self.fake_trie.remove(key);
+        Ok(())
+    }
+
+    fn storage_remove_subtree(&mut self, prefix: &[u8]) -> Result<()> {
+        self.fake_trie.retain(|key, _| !key.starts_with(prefix));
         Ok(())
     }
 
@@ -219,33 +224,6 @@ impl External for MockedExternal {
                 beneficiary_id,
             }));
         Ok(())
-    }
-
-    fn sha256(&self, data: &[u8]) -> Result<Vec<u8>> {
-        use sha2::Digest;
-
-        let value_hash = sha2::Sha256::digest(data);
-        Ok(value_hash.as_ref().to_vec())
-    }
-
-    fn keccak256(&self, data: &[u8]) -> Result<Vec<u8>> {
-        use sha3::Digest;
-
-        let mut hasher = Keccak256::default();
-        hasher.input(&data);
-        let mut res = [0u8; 32];
-        res.copy_from_slice(hasher.result().as_slice());
-        Ok(res.to_vec())
-    }
-
-    fn keccak512(&self, data: &[u8]) -> Result<Vec<u8>> {
-        use sha3::Digest;
-
-        let mut hasher = Keccak512::default();
-        hasher.input(&data);
-        let mut res = [0u8; 64];
-        res.copy_from_slice(hasher.result().as_slice());
-        Ok(res.to_vec())
     }
 
     fn get_touched_nodes_count(&self) -> u64 {

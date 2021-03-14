@@ -12,9 +12,11 @@ use near_primitives::transaction::{
     DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
     TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash};
-use near_primitives::views::{AccessKeyView, AccountView, BlockView, ViewStateResult};
-use near_primitives::views::{ExecutionOutcomeView, FinalExecutionOutcomeView};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId};
+use near_primitives::views::{
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
+    ExecutionOutcomeView, FinalExecutionOutcomeView, ViewStateResult,
+};
 
 pub use crate::user::runtime_user::RuntimeUser;
 
@@ -30,7 +32,16 @@ pub trait User {
         Ok(self.view_account(account_id)?.amount)
     }
 
+    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String>;
+
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String>;
+
+    fn view_call(
+        &self,
+        account_id: &AccountId,
+        method_name: &str,
+        args: &[u8],
+    ) -> Result<CallResult, String>;
 
     fn add_transaction(&self, signed_transaction: SignedTransaction) -> Result<(), ServerError>;
 
@@ -51,6 +62,8 @@ pub trait User {
     fn get_best_block_hash(&self) -> Option<CryptoHash>;
 
     fn get_block(&self, height: BlockHeight) -> Option<BlockView>;
+
+    fn get_chunk(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView;
 

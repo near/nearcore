@@ -1,14 +1,15 @@
-use crate::stats::fit;
-use crate::testbed_runners::end_count;
-use crate::testbed_runners::start_count;
-use crate::testbed_runners::GasMetric;
-use near_runtime_fees::RuntimeFeesConfig;
+use crate::testbed_runners::{end_count, start_count, GasMetric};
+use glob::glob;
+use near_primitives::contract::ContractCode;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::fs;
+use std::path::PathBuf;
+use walrus::{Module, Result};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -36,8 +37,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-fn call() -> (Option<VMOutcome>, Option<VMError>) {
-    let code = include_bytes!("../test-contract/res/large_contract.wasm");
+fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let context = create_context(vec![]);
     let config = VMConfig::default();
@@ -45,31 +45,31 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
 
     let promise_results = vec![];
 
-    let mut hash = DefaultHasher::new();
-    code.hash(&mut hash);
-    let code_hash = hash.finish().to_le_bytes().to_vec();
+    let code = ContractCode::new(code.to_vec(), None);
     near_vm_runner::run(
-        code_hash,
-        code,
-        b"cpu_ram_soak_test",
+        &code,
+        "cpu_ram_soak_test",
         &mut fake_external,
         context,
         &config,
         &fees,
         &promise_results,
+        PROTOCOL_VERSION,
+        None,
+        &Default::default(),
     )
 }
 
 const NUM_ITERATIONS: u64 = 10;
 
 /// Cost of the most CPU demanding operation.
-pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
+pub fn cost_per_op(gas_metric: GasMetric, code: &[u8]) -> Ratio<u64> {
     // Call once for the warmup.
-    let (outcome, _) = call();
+    let (outcome, _) = call(code);
     let outcome = outcome.unwrap();
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
-        call();
+        call(code);
     }
     let measured = end_count(gas_metric, &start);
     // We are given by measurement burnt gas
@@ -100,27 +100,110 @@ pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
     )
 }
 
-const RATIO_PRECISION: u64 = 1_000;
+type CompileCost = (u64, Ratio<u64>);
 
-fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
-    let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
+fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<CompileCost> {
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
-        compile_module(vm_kind, &prepared_code);
+        let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
+        if compile_module(vm_kind, &prepared_code) {
+            return None;
+        }
     }
-    let end = end_count(gas_metric, &start) as f64;
-    (code.len() as f64, end / (NUM_ITERATIONS as f64))
+    let end = end_count(gas_metric, &start);
+    Some((code.len() as u64, Ratio::new(end, NUM_ITERATIONS)))
 }
 
-/// Cost of the most CPU demanding operation.
-pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<u64>, u64) {
-    // Call once for the warmup.
-    let (sx, sy) =
-        compile(include_bytes!("../test-contract/res/small_contract.wasm"), gas_metric, vm_kind);
-    let (mx, my) =
-        compile(include_bytes!("../test-contract/res/medium_contract.wasm"), gas_metric, vm_kind);
-    let (lx, ly) =
-        compile(include_bytes!("../test-contract/res/large_contract.wasm"), gas_metric, vm_kind);
-    let (m, b) = fit(&vec![sx, mx, lx], &vec![sy, my, ly]);
-    (Ratio::new((m * (RATIO_PRECISION as f64)) as u64, RATIO_PRECISION), b as u64)
+pub fn load_and_compile(
+    path: &PathBuf,
+    gas_metric: GasMetric,
+    vm_kind: VMKind,
+) -> Option<CompileCost> {
+    match fs::read(path) {
+        Ok(mut code) => match delete_all_data(&mut code) {
+            Ok(code) => compile(&code, gas_metric, vm_kind),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+const USING_LIGHTBEAM: bool = cfg!(feature = "lightbeam");
+
+/// Cost of the compile contract with vm_kind
+pub fn cost_to_compile(
+    gas_metric: GasMetric,
+    vm_kind: VMKind,
+    verbose: bool,
+) -> (Ratio<u64>, Ratio<u64>) {
+    let globbed_files = glob("./**/*.wasm").expect("Failed to read glob pattern for wasm files");
+    let paths = globbed_files
+        .filter_map(|x| match x {
+            Ok(p) => Some(p),
+            _ => None,
+        })
+        .collect::<Vec<PathBuf>>();
+    let ratio = Ratio::new(0 as u64, 1);
+    let base = Ratio::new(u64::MAX, 1);
+    if verbose {
+        println!(
+            "About to compile {}",
+            match vm_kind {
+                VMKind::Wasmer0 => "wasmer",
+                VMKind::Wasmtime => {
+                    if USING_LIGHTBEAM {
+                        "wasmtime-lightbeam"
+                    } else {
+                        "wasmtime"
+                    }
+                }
+                VMKind::Wasmer1 => "wasmer1",
+            }
+        );
+    };
+    let measurements = paths
+        .iter()
+        .filter(|path| fs::metadata(path).is_ok())
+        .map(|path| {
+            if verbose {
+                print!("Testing deploy {}: ", path.display());
+            };
+            if let Some((size, cost)) = load_and_compile(path, gas_metric, vm_kind) {
+                if verbose {
+                    println!("({}, {})", size, cost);
+                };
+                Some((size, cost))
+            } else {
+                if verbose {
+                    println!("FAILED")
+                };
+                None
+            }
+        })
+        .filter(|x| x.is_some())
+        .map(|x| x.unwrap())
+        .collect::<Vec<CompileCost>>();
+    let b = measurements.iter().fold(base, |base, (_, cost)| base.min(*cost));
+    let m = measurements.iter().fold(ratio, |r, (bytes, cost)| r.max((*cost - b) / bytes));
+    if verbose {
+        println!("raw data: ({},{})", m, b);
+    }
+    (m, b)
+}
+
+fn delete_all_data(wasm_bin: &mut Vec<u8>) -> Result<&Vec<u8>> {
+    let m = &mut Module::from_buffer(wasm_bin)?;
+    for id in get_ids(m.data.iter().map(|t| t.id())) {
+        m.data.delete(id);
+    }
+    *wasm_bin = m.emit_wasm();
+    Ok(wasm_bin)
+}
+
+fn get_ids<T>(all: impl Iterator<Item = T>) -> Vec<T> {
+    let mut ids = Vec::new();
+    for id in all {
+        ids.push(id);
+    }
+    ids
 }

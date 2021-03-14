@@ -1,6 +1,6 @@
 from transaction import sign_payment_tx
 import random, base58
-from retry import retry
+from retrying import retry
 from cluster import LocalNode, GCloudNode, CONFIG_ENV_VAR
 import sys
 from rc import run, gcloud
@@ -22,7 +22,7 @@ class TxContext:
         assert len(act_to_val) == self.num_nodes
         assert self.num_nodes >= 2
 
-    @retry(tries=10, backoff=1.2)
+    @retry(stop_max_attempt_number=10, wait_exponential_multiplier=1.2)
     def get_balance(self, whose):
         r = self.nodes[self.act_to_val[whose]].get_account("test%s" % whose)
         assert 'result' in r, r
@@ -271,8 +271,8 @@ def collect_gcloud_config(num_nodes):
     os.environ[CONFIG_ENV_VAR] = outfile
 
 
-def obj_to_string(obj, extra='    '):
-    if type(obj) == tuple:
+def obj_to_string(obj, extra='    ', full=False):
+    if type(obj) in [tuple, list]:
         return "tuple" + '\n' + '\n'.join(
             (extra + obj_to_string(x, extra + '    '))
             for x in obj
@@ -282,7 +282,11 @@ def obj_to_string(obj, extra='    '):
             extra + (str(item) + ' = ' +
                      obj_to_string(obj.__dict__[item], extra + '    '))
         for item in sorted(obj.__dict__))
-
+    elif isinstance(obj, bytes):
+        if not full:
+            if len(obj) > 10:
+                obj = obj[:7] + b"..."
+        return str(obj)
     else:
         return str(obj)
 

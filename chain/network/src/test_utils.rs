@@ -2,11 +2,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::time::Duration;
 
-use actix::{Actor, ActorContext, AsyncContext, Context, Handler, MailboxError, Message};
+use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::{future, FutureExt};
-use log::debug;
 use rand::{thread_rng, RngCore};
-use tokio::time::delay_for;
+use tracing::debug;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
@@ -67,6 +66,7 @@ impl NetworkConfig {
             ideal_connections_hi: 35,
             peer_recent_time_window: Duration::from_secs(600),
             safe_set_size: 20,
+            archival_peer_connections_lower_bound: 10,
             ban_window: Duration::from_secs(1),
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
@@ -78,6 +78,7 @@ impl NetworkConfig {
             push_info_period: Duration::from_millis(100),
             blacklist: HashMap::new(),
             outbound_disabled: false,
+            archive: false,
         }
     }
 }
@@ -106,7 +107,7 @@ impl PeerInfo {
 /// Useful in tests to prevent them from running forever.
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(delay_for(Duration::from_millis(max_wait_ms)).then(|_| {
+    actix::spawn(tokio::time::sleep(Duration::from_millis(max_wait_ms)).then(|_| {
         panic!("Timeout exceeded.");
         future::ready(())
     }));
@@ -122,9 +123,10 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 /// use near_network::test_utils::WaitOrTimeout;
 /// use std::time::{Instant, Duration};
 ///
-/// System::run(|| {
+/// near_actix_test_utils::run_actix_until_stop(async {
 ///     let start = Instant::now();
-///     WaitOrTimeout::new(Box::new(move |ctx| {
+///     WaitOrTimeout::new(
+///         Box::new(move |ctx| {
 ///             if start.elapsed() > Duration::from_millis(10) {
 ///                 System::current().stop()
 ///             }
@@ -132,7 +134,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 ///         1000,
 ///         60000,
 ///     ).start();
-/// }).unwrap();
+/// });
 /// ```
 pub struct WaitOrTimeout {
     f: Box<dyn FnMut(&mut Context<WaitOrTimeout>)>,
@@ -152,14 +154,21 @@ impl WaitOrTimeout {
 
     fn wait_or_timeout(&mut self, ctx: &mut Context<Self>) {
         (self.f)(ctx);
-        ctx.run_later(Duration::from_millis(self.check_interval_ms), move |act, ctx| {
-            act.ms_slept += act.check_interval_ms;
-            if act.ms_slept > act.max_wait_ms {
-                println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
-                panic!("Timed out waiting for the condition");
-            }
-            act.wait_or_timeout(ctx);
-        });
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            Duration::from_millis(self.check_interval_ms),
+            move |act, ctx| {
+                act.ms_slept += act.check_interval_ms;
+                if act.ms_slept > act.max_wait_ms {
+                    println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
+                    panic!("Timed out waiting for the condition");
+                }
+                act.wait_or_timeout(ctx);
+            },
+        );
     }
 }
 
@@ -185,7 +194,7 @@ pub fn random_epoch_id() -> EpochId {
 }
 
 pub fn expected_routing_tables(
-    current: HashMap<PeerId, HashSet<PeerId>>,
+    current: HashMap<PeerId, Vec<PeerId>>,
     expected: Vec<(PeerId, Vec<PeerId>)>,
 ) -> bool {
     if current.len() != expected.len() {

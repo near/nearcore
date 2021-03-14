@@ -7,20 +7,24 @@ use near_jsonrpc::ServerError;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
-    ExecutionStatusView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
+    ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    FinalExecutionOutcomeView, FinalExecutionStatus, ViewApplyState, ViewStateResult,
 };
-use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_store::{ShardTries, TrieUpdate};
+use neard::config::MIN_GAS_PRICE;
+#[cfg(feature = "protocol_feature_evm")]
+use neard::config::TESTNET_EVM_CHAIN_ID;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
-use near_primitives::test_utils::MockEpochInfoProvider;
-use neard::config::MIN_GAS_PRICE;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -28,6 +32,7 @@ pub struct MockClient {
     pub tries: ShardTries,
     pub state_root: MerkleHash,
     pub epoch_length: BlockHeightDelta,
+    pub runtime_config: RuntimeConfig,
 }
 
 impl MockClient {
@@ -47,10 +52,12 @@ pub struct RuntimeUser {
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
     pub transactions: RefCell<HashSet<SignedTransaction>>,
     pub epoch_info_provider: MockEpochInfoProvider,
+    pub runtime_config: Arc<RuntimeConfig>,
 }
 
 impl RuntimeUser {
     pub fn new(account_id: &str, signer: Arc<dyn Signer>, client: Arc<RwLock<MockClient>>) -> Self {
+        let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
         RuntimeUser {
             signer,
             trie_viewer: TrieViewer::new(),
@@ -60,6 +67,7 @@ impl RuntimeUser {
             receipts: Default::default(),
             transactions: RefCell::new(Default::default()),
             epoch_info_provider: MockEpochInfoProvider::default(),
+            runtime_config,
         }
     }
 
@@ -119,13 +127,21 @@ impl RuntimeUser {
 
     fn apply_state(&self) -> ApplyState {
         ApplyState {
-            block_index: 0,
-            last_block_hash: Default::default(),
+            block_index: 1,
+            prev_block_hash: Default::default(),
+            block_hash: Default::default(),
             block_timestamp: 0,
             epoch_height: 0,
             gas_price: MIN_GAS_PRICE,
             gas_limit: None,
+            random_seed: Default::default(),
             epoch_id: Default::default(),
+            current_protocol_version: PROTOCOL_VERSION,
+            config: self.runtime_config.clone(),
+            cache: None,
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
+            profile: Default::default(),
         }
     }
 
@@ -197,11 +213,56 @@ impl User for RuntimeUser {
             .map_err(|err| err.to_string())
     }
 
+    fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
+        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        self.trie_viewer
+            .view_contract_code(&state_update, account_id)
+            .map(|contract_code| contract_code.into())
+            .map_err(|err| err.to_string())
+    }
+
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_state(&state_update, account_id, prefix)
             .map_err(|err| err.to_string())
+    }
+
+    fn view_call(
+        &self,
+        account_id: &AccountId,
+        method_name: &str,
+        args: &[u8],
+    ) -> Result<CallResult, String> {
+        let apply_state = self.apply_state();
+        let client = self.client.read().expect(POISONED_LOCK_ERR);
+        let state_update = client.get_state_update();
+        let mut result = CallResult::default();
+        let view_state = ViewApplyState {
+            block_height: apply_state.block_index,
+            prev_block_hash: apply_state.prev_block_hash,
+            block_hash: apply_state.block_hash,
+            epoch_id: apply_state.epoch_id,
+            epoch_height: apply_state.epoch_height,
+            block_timestamp: apply_state.block_timestamp,
+            current_protocol_version: PROTOCOL_VERSION,
+            cache: apply_state.cache,
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
+        };
+        result.result = self
+            .trie_viewer
+            .call_function(
+                state_update,
+                view_state,
+                account_id,
+                method_name,
+                args,
+                &mut result.logs,
+                &self.epoch_info_provider,
+            )
+            .map_err(|err| err.to_string())?;
+        Ok(result)
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
@@ -233,6 +294,10 @@ impl User for RuntimeUser {
 
     fn get_block(&self, _height: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
+    }
+
+    fn get_chunk(&self, _height: u64, _shard_id: u64) -> Option<ChunkView> {
+        unimplemented!("get_chunk should not be implemented for RuntimeUser");
     }
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {

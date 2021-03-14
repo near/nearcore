@@ -1,0 +1,135 @@
+steps:
+  - label: "cargo test"
+    command: |
+      source ~/.cargo/env
+      RUSTFLAGS='-D warnings' cargo test --locked --workspace
+
+    timeout: 60
+    agents:
+    - "distro=amazonlinux"
+    branches: "!master"
+
+  - label: "cargo test nightly"
+    command: |
+      source ~/.cargo/env
+      RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,protocol_feature_evm
+
+    timeout: 60
+    agents:
+    - "distro=amazonlinux"
+    branches: "!master"
+
+  - label: "sanity checks"
+    command: |
+      source ~/.cargo/env
+      set -ex
+      rustc --version && cargo --version
+      if [ -e deny.toml ]; then
+        cargo-deny --all-features check bans
+      fi
+      RUSTFLAGS='-D warnings' cargo check --workspace --all-targets --all-features
+      python3 scripts/state/update_res.py check
+      python3 scripts/check_nightly.py
+    timeout: 30
+    agents:
+    - "distro=amazonlinux"
+    branches: "!master"
+
+  - label: "nearlib test"
+    command: |
+      source ~/.cargo/env
+      source ~/.nvm/nvm.sh
+      source ~/.yarn/yarn.sh
+      rustup default nightly-2020-05-15
+      rustup target add wasm32-unknown-unknown
+      scripts/test_nearlib.sh
+    timeout: 20
+    agents:
+    - "distro=amazonlinux"
+    branches: "!master"
+
+  - label: "backward compatible"
+    command: |
+      source ~/.cargo/env
+      cd pytest
+      pip3 install --user -r requirements.txt
+      pwd
+      ls ..
+      python3 tests/sanity/backward_compatible.py
+      ls ../target/debug
+    branches: "!master !beta !stable"
+    timeout: 30
+    agents:
+    - "distro=amazonlinux"
+
+  - label: "upgradable"
+    command: |
+      source ~/.cargo/env
+      cd pytest
+      pip3 install --user -r requirements.txt
+      python3 tests/sanity/upgradable.py
+    branches: "!master"
+    timeout: 30
+    agents:
+    - "distro=amazonlinux"
+
+  - label: "db migration"
+    command: |
+      source ~/.cargo/env
+      cd pytest
+      pip3 install --user -r requirements.txt
+      python3 tests/sanity/db_migration.py
+    branches: "!master !beta !stable"
+    timeout: 30
+    agents:
+    - "distro=amazonlinux"
+
+  - label: "runtime params estimate"
+    command: |
+      source ~/.cargo/env
+      cd runtime/runtime-params-estimator/test-contract
+      rustup target add wasm32-unknown-unknown
+      ./build.sh
+      cd ..
+      RUSTFLAGS='-D warnings' cargo run --release --package neard --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
+      RUSTFLAGS='-D warnings' cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
+      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric time
+
+    branches: "!master !beta !stable"
+    timeout: 60
+    agents:
+    - "distro=amazonlinux"
+
+  #- label: "near-sdk-rs tests"
+  #  trigger: "near-sdk-rs"
+  #  branches: "!master"
+
+  # Disable rainbow bridge tests as they are temporary broken
+  # - label: "rainbow-bridge test"
+  #   command: |
+  #    source ~/.cargo/env
+  #    source ~/.nvm/nvm.sh
+
+  #    git clone https://github.com/near/rainbow-bridge
+  #    cd rainbow-bridge
+  #    source ci/e2e_ci_prepare_env.sh
+  #    source ci/e2e_ci_prepare_log.sh
+
+  #    LOCAL_CORE_SRC=.. ci/e2e.sh
+
+  #  timeout: 60
+  #  agents:
+  #  - "queue=default"
+  #  branches: "!master"
+  #  artifact_paths:
+  #  - "rainbow-bridge/logs/**/*.log"
+
+  - label: "cargo release check"
+    command: |
+      source ~/.cargo/env
+      rm Cargo.lock
+      RUSTFLAGS='-D warnings' cargo build
+
+    timeout: 30
+    agents:
+    - "distro=amazonlinux"

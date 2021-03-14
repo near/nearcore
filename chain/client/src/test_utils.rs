@@ -1,7 +1,9 @@
+use log::info;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
@@ -10,7 +12,9 @@ use futures::{future, FutureExt};
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
-use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
+use near_chain::{
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
+};
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 #[cfg(feature = "metric_recorder")]
@@ -18,7 +22,7 @@ use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfo,
+    PeerChainInfoV2,
 };
 use near_network::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
@@ -37,9 +41,16 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
+#[cfg(feature = "adversarial")]
+use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_network::test_utils::MockNetworkAdapter;
+use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::receipt::Receipt;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use num_rational::Rational;
+use std::mem::swap;
+use std::time::Instant;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -55,32 +66,33 @@ pub fn setup(
     max_block_prod_time: u64,
     enable_doomslug: bool,
     archive: bool,
+    epoch_sync_enabled: bool,
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
         epoch_length,
+        archive,
     ));
-    let chain_genesis = ChainGenesis::new(
-        genesis_time,
-        0,
-        1_000_000,
-        100,
-        1_000_000_000,
-        3_000_000_000_000_000_000_000_000_000_000_000,
-        Rational::from_integer(0),
-        Rational::from_integer(0),
+    let chain_genesis = ChainGenesis {
+        time: genesis_time,
+        height: 0,
+        gas_limit: 1_000_000,
+        min_gas_price: 100,
+        max_gas_price: 1_000_000_000,
+        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+        gas_price_adjustment_rate: Rational::from_integer(0),
         transaction_validity_period,
         epoch_length,
-        PROTOCOL_VERSION,
-    );
+        protocol_version: PROTOCOL_VERSION,
+    };
     let doomslug_threshold_mode = if enable_doomslug {
         DoomslugThresholdMode::TwoThirds
     } else {
@@ -98,13 +110,20 @@ pub fn setup(
         max_block_prod_time,
         num_validator_seats,
         archive,
+        epoch_sync_enabled,
     );
+
+    #[cfg(feature = "adversarial")]
+    let adv = Arc::new(RwLock::new(AdversarialControls::default()));
+
     let view_client_addr = start_view_client(
         Some(signer.validator_id().clone()),
         chain_genesis.clone(),
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
+        #[cfg(feature = "adversarial")]
+        adv.clone(),
     );
 
     let client = ClientActor::new(
@@ -116,6 +135,8 @@ pub fn setup(
         Some(signer),
         telemetry,
         enable_doomslug,
+        #[cfg(feature = "adversarial")]
+        adv,
     )
     .unwrap();
     (genesis_block, client, view_client_addr)
@@ -135,7 +156,7 @@ pub fn setup_mock(
         ) -> NetworkResponses,
     >,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    setup_mock_with_validity_period(
+    setup_mock_with_validity_period_and_no_epoch_sync(
         validators,
         account_id,
         skip_sync_wait,
@@ -145,7 +166,7 @@ pub fn setup_mock(
     )
 }
 
-pub fn setup_mock_with_validity_period(
+pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     validators: Vec<&'static str>,
     account_id: &'static str,
     skip_sync_wait: bool,
@@ -171,6 +192,7 @@ pub fn setup_mock_with_validity_period(
         200,
         enable_doomslug,
         false,
+        false,
         network_adapter.clone(),
         transaction_validity_period,
         Utc::now(),
@@ -192,6 +214,125 @@ pub fn setup_mock_with_validity_period(
 
 fn sample_binary(n: u64, k: u64) -> bool {
     thread_rng().gen_range(0, k) <= n
+}
+
+pub struct BlockStats {
+    hash2depth: HashMap<CryptoHash, u64>,
+    num_blocks: u64,
+    max_chain_length: u64,
+    last_check: Instant,
+    max_divergence: u64,
+    last_hash: Option<CryptoHash>,
+    parent: HashMap<CryptoHash, CryptoHash>,
+}
+
+impl BlockStats {
+    fn new() -> BlockStats {
+        BlockStats {
+            hash2depth: HashMap::new(),
+            num_blocks: 0,
+            max_chain_length: 0,
+            last_check: Instant::now(),
+            max_divergence: 0,
+            last_hash: None,
+            parent: HashMap::new(),
+        }
+    }
+
+    fn calculate_distance(&mut self, mut lhs: CryptoHash, mut rhs: CryptoHash) -> u64 {
+        let mut dlhs = *self.hash2depth.get(&lhs).unwrap();
+        let mut drhs = *self.hash2depth.get(&rhs).unwrap();
+
+        let mut result: u64 = 0;
+        while dlhs > drhs {
+            lhs = *self.parent.get(&lhs).unwrap();
+            dlhs -= 1;
+            result += 1;
+        }
+        while dlhs < drhs {
+            rhs = *self.parent.get(&rhs).unwrap();
+            drhs -= 1;
+            result += 1;
+        }
+        while lhs != rhs {
+            lhs = *self.parent.get(&lhs).unwrap();
+            rhs = *self.parent.get(&rhs).unwrap();
+            result += 2;
+        }
+        result
+    }
+
+    fn add_block(&mut self, block: &Block) {
+        if self.hash2depth.contains_key(block.hash()) {
+            return;
+        }
+        let prev_height = self.hash2depth.get(block.header().prev_hash()).map(|v| *v).unwrap_or(0);
+        self.hash2depth.insert(*block.hash(), prev_height + 1);
+        self.num_blocks += 1;
+        self.max_chain_length = max(self.max_chain_length, prev_height + 1);
+        self.parent.insert(*block.hash(), *block.header().prev_hash());
+
+        if let Some(last_hash2) = self.last_hash {
+            self.max_divergence =
+                max(self.max_divergence, self.calculate_distance(last_hash2, block.hash().clone()));
+        }
+
+        self.last_hash = Some(block.hash().clone());
+    }
+
+    pub fn check_stats(&mut self, force: bool) {
+        let now = Instant::now();
+        let diff = now.duration_since(self.last_check);
+        if !force && diff.lt(&Duration::from_secs(60)) {
+            return;
+        }
+        self.last_check = now;
+        let cur_ratio = (self.num_blocks as f64) / (max(1, self.max_chain_length) as f64);
+        info!(
+            "Block stats: ratio: {:.2}, num_blocks: {} max_chain_length: {} max_divergence: {}",
+            cur_ratio, self.num_blocks, self.max_chain_length, self.max_divergence
+        );
+    }
+
+    pub fn check_block_ratio(&mut self, min_ratio: Option<f64>, max_ratio: Option<f64>) {
+        let cur_ratio = (self.num_blocks as f64) / (max(1, self.max_chain_length) as f64);
+        if let Some(min_ratio2) = min_ratio {
+            if cur_ratio < min_ratio2 {
+                panic!(
+                    "ratio of blocks to longest chain is too low got: {:.2} expected: {:.2}",
+                    cur_ratio, min_ratio2
+                );
+            }
+        }
+        if let Some(max_ratio2) = max_ratio {
+            if cur_ratio > max_ratio2 {
+                panic!(
+                    "ratio of blocks to longest chain is too high got: {:.2} expected: {:.2}",
+                    cur_ratio, max_ratio2
+                );
+            }
+        }
+    }
+}
+
+fn send_chunks<T, I, F>(
+    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    recipients: I,
+    target: T,
+    drop_chunks: bool,
+    create_msg: F,
+) where
+    T: Eq,
+    I: Iterator<Item = (usize, T)>,
+    F: Fn() -> NetworkClientMessages,
+{
+    for (i, name) in recipients {
+        if name == target {
+            if !drop_chunks || !sample_binary(1, 10) {
+                connectors.read().unwrap()[i].0.do_send(create_msg());
+            }
+        }
+    }
 }
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
@@ -237,8 +378,10 @@ pub fn setup_mock_all_validators(
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
     archive: Vec<bool>,
+    epoch_sync_enabled: Vec<bool>,
+    check_block_stats: bool,
     network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
-) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
+) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs;
 
@@ -261,8 +404,10 @@ pub fn setup_mock_all_validators(
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let hash_to_height = Arc::new(RwLock::new(HashMap::new()));
+    let block_stats = Arc::new(RwLock::new(BlockStats::new()));
 
     for (index, account_id) in validators.into_iter().flatten().enumerate() {
+        let block_stats1 = block_stats.clone();
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
         let validators_clone1 = validators_clone.clone();
@@ -281,6 +426,7 @@ pub fn setup_mock_all_validators(
         let largest_skipped_height1 = largest_skipped_height.clone();
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
+        let epoch_sync_enabled1 = epoch_sync_enabled.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
@@ -313,13 +459,14 @@ pub fn setup_mock_all_validators(
                             .enumerate()
                             .map(|(i, peer_info)| FullPeerInfo {
                                 peer_info: peer_info.clone(),
-                                chain_info: PeerChainInfo {
+                                chain_info: PeerChainInfoV2 {
                                     genesis_id: GenesisId {
                                         chain_id: "unittest".to_string(),
                                         hash: Default::default(),
                                     },
                                     height: last_height2[i],
                                     tracked_shards: vec![],
+                                    archival: true,
                                 },
                                 edge_info: EdgeInfo::default(),
                             })
@@ -335,12 +482,19 @@ pub fn setup_mock_all_validators(
                             known_producers: vec![],
                             #[cfg(feature = "metric_recorder")]
                             metric_recorder: MetricRecorder::default(),
+                            peer_counter: 0,
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }
 
                     match msg {
                         NetworkRequests::Block { block } => {
+                            if check_block_stats {
+                                let block_stats2 = &mut *block_stats1.write().unwrap();
+                                block_stats2.add_block(block);
+                                block_stats2.check_stats(false);
+                            }
+
                             for (client, _) in connectors1.read().unwrap().iter() {
                                 client.do_send(NetworkClientMessages::Block(
                                     block.clone(),
@@ -360,51 +514,62 @@ pub fn setup_mock_all_validators(
                                 .unwrap()
                                 .insert(*block.header().hash(), block.header().height());
                         }
-                        NetworkRequests::PartialEncodedChunkRequest {
-                            account_id: their_account_id,
-                            request,
-                        } => {
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if name == their_account_id {
-                                    if !drop_chunks || !sample_binary(1, 10) {
-                                        connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::PartialEncodedChunkRequest(
-                                                request.clone(),
-                                                my_address,
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
+                        NetworkRequests::PartialEncodedChunkRequest { target, request } => {
+                            let create_msg = || {
+                                NetworkClientMessages::PartialEncodedChunkRequest(
+                                    request.clone(),
+                                    my_address,
+                                )
+                            };
+                            send_chunks(
+                                Arc::clone(&connectors1),
+                                validators_clone2.iter().flatten().map(|s| Some(*s)).enumerate(),
+                                target.account_id.as_ref().map(|s| s.as_str()),
+                                drop_chunks,
+                                create_msg,
+                            );
                         }
                         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
-                            for (i, address) in addresses.iter().enumerate() {
-                                if route_back == address {
-                                    if !drop_chunks || !sample_binary(1, 10) {
-                                        connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::PartialEncodedChunkResponse(
-                                                response.clone(),
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
+                            let create_msg = || {
+                                NetworkClientMessages::PartialEncodedChunkResponse(response.clone())
+                            };
+                            send_chunks(
+                                Arc::clone(&connectors1),
+                                addresses.iter().enumerate(),
+                                route_back,
+                                drop_chunks,
+                                create_msg,
+                            );
                         }
                         NetworkRequests::PartialEncodedChunkMessage {
                             account_id,
                             partial_encoded_chunk,
                         } => {
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if name == account_id {
-                                    if !drop_chunks || !sample_binary(1, 10) {
-                                        connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::PartialEncodedChunk(
-                                                partial_encoded_chunk.clone(),
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
+                            let create_msg = || {
+                                NetworkClientMessages::PartialEncodedChunk(
+                                    partial_encoded_chunk.clone().into(),
+                                )
+                            };
+                            send_chunks(
+                                Arc::clone(&connectors1),
+                                validators_clone2.iter().flatten().copied().enumerate(),
+                                account_id.as_str(),
+                                drop_chunks,
+                                create_msg,
+                            );
+                        }
+                        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+                        NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+                            let create_msg = || {
+                                NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
+                            };
+                            send_chunks(
+                                Arc::clone(&connectors1),
+                                validators_clone2.iter().flatten().copied().enumerate(),
+                                account_id.as_str(),
+                                drop_chunks,
+                                create_msg,
+                            );
                         }
                         NetworkRequests::BlockRequest { hash, peer_id } => {
                             for (i, peer_info) in key_pairs.iter().enumerate() {
@@ -423,6 +588,66 @@ pub fn setup_mock_all_validators(
                                                             .0
                                                             .do_send(NetworkClientMessages::Block(
                                                                 *block, peer_id, true,
+                                                            ));
+                                                    }
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::ready(())
+                                            }),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::EpochSyncRequest { epoch_id, peer_id } => {
+                            for (i, peer_info) in key_pairs.iter().enumerate() {
+                                let peer_id = peer_id.clone();
+                                if peer_info.id == peer_id {
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.read().unwrap()[i]
+                                            .1
+                                            .send(NetworkViewClientMessages::EpochSyncRequest{
+                                                epoch_id: epoch_id.clone(),
+                                            })
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkViewClientResponses::EpochSyncResponse(response) => {
+                                                        connectors2.read().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(NetworkClientMessages::EpochSyncResponse(
+                                                                peer_id, response
+                                                            ));
+                                                    }
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::ready(())
+                                            }),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::EpochSyncFinalizationRequest { epoch_id, peer_id } => {
+                            for (i, peer_info) in key_pairs.iter().enumerate() {
+                                let peer_id = peer_id.clone();
+                                if peer_info.id == peer_id {
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.read().unwrap()[i]
+                                            .1
+                                            .send(NetworkViewClientMessages::EpochSyncFinalizationRequest{
+                                                epoch_id: epoch_id.clone(),
+                                            })
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkViewClientResponses::EpochSyncFinalizationResponse(response) => {
+                                                        connectors2.read().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(NetworkClientMessages::EpochSyncFinalizationResponse(
+                                                                peer_id, response
                                                             ));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -672,6 +897,7 @@ pub fn setup_mock_all_validators(
                 block_prod_time * 3,
                 enable_doomslug,
                 archive1[index],
+                epoch_sync_enabled1[index],
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
@@ -690,7 +916,7 @@ pub fn setup_mock_all_validators(
         .insert(*genesis_block.read().unwrap().as_ref().unwrap().header().clone().hash(), 0);
     *locked_connectors = ret.clone();
     let value = genesis_block.read().unwrap();
-    (value.clone().unwrap(), ret)
+    (value.clone().unwrap(), ret, block_stats)
 }
 
 /// Sets up ClientActor and ViewClientActor without network.
@@ -700,7 +926,7 @@ pub fn setup_no_network(
     skip_sync_wait: bool,
     enable_doomslug: bool,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    setup_no_network_with_validity_period(
+    setup_no_network_with_validity_period_and_no_epoch_sync(
         validators,
         account_id,
         skip_sync_wait,
@@ -709,14 +935,14 @@ pub fn setup_no_network(
     )
 }
 
-pub fn setup_no_network_with_validity_period(
+pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
     validators: Vec<&'static str>,
     account_id: &'static str,
     skip_sync_wait: bool,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    setup_mock_with_validity_period(
+    setup_mock_with_validity_period_and_no_epoch_sync(
         validators,
         account_id,
         skip_sync_wait,
@@ -738,7 +964,7 @@ pub fn setup_client_with_runtime(
         Arc::new(InMemoryValidatorSigner::from_seed(x, KeyType::ED25519, x))
             as Arc<dyn ValidatorSigner>
     });
-    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false);
+    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -890,13 +1116,15 @@ impl TestEnv {
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
         let head = self.clients[0].chain.head().unwrap();
         let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_chunk_header = &last_block.chunks()[0];
         let response = self.clients[0]
             .runtime_adapter
             .query(
                 0,
-                &last_block.chunks()[0].inner.prev_state_root,
+                &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
+                last_block.header().prev_hash(),
                 last_block.header().hash(),
                 last_block.header().epoch_id(),
                 &QueryRequest::ViewAccount { account_id },
@@ -925,4 +1153,124 @@ impl TestEnv {
             self.chain_genesis.clone(),
         )
     }
+}
+
+pub fn create_chunk_on_height(
+    client: &mut Client,
+    next_height: BlockHeight,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+    let last_block_hash = client.chain.head().unwrap().last_block_hash;
+    let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
+    client
+        .produce_chunk(
+            last_block_hash,
+            last_block.header().epoch_id(),
+            last_block.chunks()[0].clone(),
+            next_height,
+            0,
+        )
+        .unwrap()
+        .unwrap()
+}
+
+pub fn create_chunk_with_transactions(
+    client: &mut Client,
+    transactions: Vec<SignedTransaction>,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+    create_chunk(client, Some(transactions), None)
+}
+
+pub fn create_chunk(
+    client: &mut Client,
+    replace_transactions: Option<Vec<SignedTransaction>>,
+    replace_tx_root: Option<CryptoHash>,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+    let last_block =
+        client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
+    let next_height = last_block.header().height() + 1;
+    let (mut chunk, mut merkle_paths, receipts) = client
+        .produce_chunk(
+            *last_block.hash(),
+            last_block.header().epoch_id(),
+            last_block.chunks()[0].clone(),
+            next_height,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+    let should_replace = replace_transactions.is_some() || replace_tx_root.is_some();
+    let transactions = replace_transactions.unwrap_or_else(Vec::new);
+    let tx_root = match replace_tx_root {
+        Some(root) => root,
+        None => merklize(&transactions).0,
+    };
+    // reconstruct the chunk with changes (if any)
+    if should_replace {
+        // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
+        let total_parts = client.chain.runtime_adapter.num_total_parts();
+        let data_parts = client.chain.runtime_adapter.num_data_parts();
+        let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
+        let parity_parts = total_parts - data_parts;
+        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
+
+        let signer = client.validator_signer.as_ref().unwrap().clone();
+        let header = chunk.cloned_header();
+        let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
+            header.prev_block_hash(),
+            header.prev_state_root(),
+            header.outcome_root(),
+            header.height_created(),
+            header.shard_id(),
+            &mut rs,
+            header.gas_used(),
+            header.gas_limit(),
+            header.balance_burnt(),
+            tx_root,
+            header.validator_proposals().iter().cloned().collect(),
+            transactions,
+            decoded_chunk.receipts(),
+            header.outgoing_receipts_root(),
+            &*signer,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
+        swap(&mut chunk, &mut encoded_chunk);
+        swap(&mut merkle_paths, &mut new_merkle_paths);
+    }
+    match &mut chunk {
+        EncodedShardChunk::V1(chunk) => {
+            chunk.header.height_included = next_height;
+        }
+        EncodedShardChunk::V2(chunk) => {
+            *chunk.header.height_included_mut() = next_height;
+        }
+    }
+    let mut block_merkle_tree =
+        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
+    block_merkle_tree.insert(*last_block.hash());
+    let block = Block::produce(
+        PROTOCOL_VERSION,
+        &last_block.header(),
+        next_height,
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        {
+            last_block.header().block_ordinal() + 1
+        },
+        vec![chunk.cloned_header()],
+        last_block.header().epoch_id().clone(),
+        last_block.header().next_epoch_id().clone(),
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        None,
+        vec![],
+        Rational::from_integer(0),
+        0,
+        100,
+        None,
+        vec![],
+        vec![],
+        &*client.validator_signer.as_ref().unwrap().clone(),
+        *last_block.header().next_bp_hash(),
+        block_merkle_tree.root(),
+    );
+    (chunk, merkle_paths, receipts, block)
 }

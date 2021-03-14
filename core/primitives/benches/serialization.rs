@@ -35,10 +35,10 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let genesis_chunks = genesis_chunks(vec![StateRoot::default()], 1, 1_000, 0);
+    let genesis_chunks = genesis_chunks(vec![StateRoot::default()], 1, 1_000, 0, PROTOCOL_VERSION);
     let genesis = Block::genesis(
         PROTOCOL_VERSION,
-        genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+        genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
         Utc::now(),
         0,
         1_000,
@@ -50,9 +50,13 @@ fn create_block() -> Block {
         PROTOCOL_VERSION,
         genesis.header(),
         10,
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        (genesis.header().block_ordinal() + 1),
         vec![genesis.chunks()[0].clone()],
         EpochId::default(),
         EpochId::default(),
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        None,
         vec![],
         Rational::from_integer(0),
         0,

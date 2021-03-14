@@ -5,12 +5,13 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
-use crate::{ShardTries, Store, Trie};
+use crate::{ShardTries, Store};
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::ShardId;
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Arc<Store> {
-    let db = Arc::new(TestDB::new());
+    let db = Arc::pin(TestDB::new());
     Arc::new(Store::new(db))
 }
 
@@ -21,12 +22,13 @@ pub fn create_tries() -> ShardTries {
 }
 
 pub fn test_populate_trie(
-    trie: Arc<Trie>,
+    tries: &ShardTries,
     root: &CryptoHash,
+    shard_id: ShardId,
     changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> CryptoHash {
+    let trie = tries.get_trie_for_shard(shard_id);
     assert_eq!(trie.storage.as_caching_storage().unwrap().shard_id, 0);
-    let tries = Arc::new(ShardTries { tries: Arc::new(vec![trie.clone()]) });
     let trie_changes = trie.update(root, changes.iter().cloned()).unwrap();
     let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
     store_update.commit().unwrap();

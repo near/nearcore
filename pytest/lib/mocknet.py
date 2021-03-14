@@ -1,7 +1,9 @@
 import base58
-from cluster import GCloudNode, Key
+from cluster import GCloudNode
+from key import Key
 from metrics import Metrics
 from transaction import sign_payment_tx_and_get_hash, sign_staking_tx_and_get_hash
+import data
 import json
 import os
 import statistics
@@ -15,6 +17,7 @@ NODE_USERNAME = 'ubuntu'
 NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 DEFAULT_KEY_TARGET = '/tmp/mocknet'
+TX_OUT_FILE = '/home/ubuntu/tx_events'
 
 TMUX_STOP_SCRIPT = '''
 while tmux has-session -t near; do
@@ -45,15 +48,16 @@ cd {PYTHON_DIR}
 '''
 
 
-def get_node(i):
-    n = GCloudNode(f'{NODE_BASE_NAME}{i}')
+# set prefix = 'sharded-' to access sharded mocknet nodes
+def get_node(i, prefix=''):
+    n = GCloudNode(f'{prefix}{NODE_BASE_NAME}{i}')
     n.machine.username = NODE_USERNAME
     n.machine.ssh_key_path = NODE_SSH_KEY_PATH
     return n
 
 
-def get_nodes():
-    return pmap(get_node, range(NUM_NODES))
+def get_nodes(prefix=''):
+    return pmap(lambda i: get_node(i, prefix=prefix), range(NUM_NODES))
 
 
 def create_target_dir(machine):
@@ -95,24 +99,35 @@ def setup_python_environments(nodes, wasm_contract):
     pmap(lambda n: setup_python_environment(n, wasm_contract), nodes)
 
 
-def start_load_test_helper_script(index, pk, sk):
+def start_load_test_helper_script(script, index, pk, sk):
     return f'''
         cd {PYTHON_DIR}
-        nohup ./venv/bin/python load_testing_helper.py {index} "{pk}" "{sk}" > load_test.out 2> load_test.err < /dev/null &
+        nohup ./venv/bin/python {script} {index} "{pk}" "{sk}" > load_test.out 2> load_test.err < /dev/null &
     '''
 
 
-def start_load_test_helper(node, pk, sk):
+def start_load_test_helper(node, script, pk, sk):
     m = node.machine
     print(f'INFO: Starting load_test_helper on {m.name}')
     index = int(m.name.split('node')[-1])
-    m.run('bash', input=start_load_test_helper_script(index, pk, sk))
+    m.run('bash', input=start_load_test_helper_script(script, index, pk, sk))
 
 
-def start_load_test_helpers(nodes):
+def start_load_test_helpers(nodes, script):
     account = get_validator_account(get_node(0))
-    pmap(lambda node: start_load_test_helper(node, account.pk, account.sk),
-         nodes)
+    pmap(
+        lambda node: start_load_test_helper(node, script, account.pk, account.sk
+                                           ), nodes)
+
+
+def get_log(node):
+    m = node.machine
+    target_file = f'./logs/{m.name}.log'
+    m.download(f'/home/ubuntu/near.log', target_file)
+
+
+def get_logs(nodes):
+    pmap(get_log, nodes)
 
 
 def get_epoch_length_in_blocks(node):
@@ -131,6 +146,65 @@ def get_metrics(node):
     return Metrics.from_url(metrics_url)
 
 
+def get_timestamp(block):
+    return block['header']['timestamp'] / 1e9
+
+
+# Measure bps and tps by directly checking block timestamps and number of transactions
+# in each block.
+def chain_measure_bps_and_tps(archival_node,
+                              start_time,
+                              end_time,
+                              duration=None):
+    latest_block_hash = archival_node.get_status(
+    )['sync_info']['latest_block_hash']
+    curr_block = archival_node.get_block(latest_block_hash)['result']
+    curr_time = get_timestamp(curr_block)
+
+    if end_time is None:
+        end_time = curr_time
+    if start_time is None:
+        start_time = end_time - duration
+
+    # one entry per block, equal to the timestamp of that block
+    block_times = []
+    # one entry per block (because there is only one shard), equal to the number of transactions
+    tx_count = []
+    while curr_time > start_time:
+        if curr_time < end_time:
+            block_times.append(curr_time)
+            chunk_hash = curr_block['chunks'][0]['chunk_hash']
+            chunk = archival_node.get_chunk(chunk_hash)['result']
+            tx_count.append(len(chunk['transactions']))
+        prev_hash = curr_block['header']['prev_hash']
+        curr_block = archival_node.get_block(prev_hash)['result']
+        curr_time = get_timestamp(curr_block)
+    block_times.reverse()
+    tx_count.reverse()
+    tx_cumulative = data.compute_cumulative(tx_count)
+    bps = data.compute_rate(block_times)
+    tps_fit = data.linear_regression(block_times, tx_cumulative)
+    return {'bps': bps, 'tps': tps_fit['slope']}
+
+
+def get_tx_events_single_node(node):
+    try:
+        m = node.machine
+        target_file = f'./logs/{m.name}_txs'
+        m.download(TX_OUT_FILE, target_file)
+        with open(target_file) as f:
+            return [float(line.strip()) for line in f.readlines()]
+    except:
+        return []
+
+
+def get_tx_events(nodes):
+    run('mkdir ./logs/')
+    run('rm -rf ./logs/*_txs')
+    all_events = pmap(get_tx_events_single_node, nodes)
+    return sorted(data.flatten(all_events))
+
+
 # Sends the transaction to the network via `node` and checks for success.
 # Some retrying is done when the node returns a Timeout error.
 def send_transaction(node, tx, tx_hash, account_id, timeout=120):
@@ -139,7 +213,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=120):
     missing_count = 0
     while 'error' in response.keys():
         error_data = response['error']['data']
-        if error_data == 'Timeout':
+        if 'timeout' in error_data.lower():
             print(
                 f'WARN: transaction {tx_hash} returned Timout, checking status again.'
             )
@@ -258,3 +332,23 @@ def start_node(node):
     if pid == '':
         start_process = m.run('sudo -u ubuntu -i', input=TMUX_START_SCRIPT)
         assert start_process.returncode == 0, m.name + '\n' + start_process.stderr
+
+
+def reset_data(node, retries=0):
+    try:
+        m = node.machine
+        stop_node(node)
+        print(f'INFO: Clearing data directory of node {m.name}')
+        start_process = m.run('bash',
+                              input='/home/ubuntu/near unsafe_reset_data')
+        assert start_process.returncode == 0, m.name + '\n' + start_process.stderr
+    except:
+        if retries < 3:
+            print(
+                f'WARN: And error occured while clearing data directory, retrying'
+            )
+            reset_data(node, retries=retries + 1)
+        else:
+            raise Exception(
+                f'ERROR: Could not clear data directory for {node.machine.name}'
+            )

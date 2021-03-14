@@ -7,7 +7,7 @@ use near_primitives::merkle::PartialMerkleTree;
 fn chain_sync_headers() {
     init_test_logger();
     let (mut chain, _, bls_signer) = setup();
-    assert_eq!(chain.sync_head().unwrap().height, 0);
+    assert_eq!(chain.header_head().unwrap().height, 0);
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap().clone()];
     let mut block_merkle_tree = PartialMerkleTree::default();
     for i in 0..4 {
@@ -22,5 +22,5 @@ fn chain_sync_headers() {
             panic!("Unexpected")
         })
         .unwrap();
-    assert_eq!(chain.sync_head().unwrap().height, 4);
+    assert_eq!(chain.header_head().unwrap().height, 4);
 }

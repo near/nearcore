@@ -1,6 +1,6 @@
+use near_primitives_core::{config::ExtCosts, types::Gas};
 use near_vm_errors::VMLogicError;
-use near_vm_logic::types::Gas;
-use near_vm_logic::{ExtCosts, VMLogic, EXT_COSTS_COUNTER};
+use near_vm_logic::{gas_counter::with_ext_cost_counter, VMLogic};
 use std::collections::HashMap;
 
 #[allow(dead_code)]
@@ -86,20 +86,18 @@ macro_rules! map(
 
 #[allow(dead_code)]
 pub fn print_costs() {
-    EXT_COSTS_COUNTER.with(|f| {
-        println!("{:#?}", f.borrow().iter().collect::<std::collections::BTreeMap<_, _>>())
+    with_ext_cost_counter(|cc| {
+        println!("{:#?}", cc.iter().collect::<std::collections::BTreeMap<_, _>>())
     });
     reset_costs_counter();
 }
 
 pub fn reset_costs_counter() {
-    EXT_COSTS_COUNTER.with(|f| f.borrow_mut().clear());
+    with_ext_cost_counter(|cc| cc.clear())
 }
 
 #[allow(dead_code)]
 pub fn assert_costs(expected: HashMap<ExtCosts, u64>) {
-    EXT_COSTS_COUNTER.with(|f| {
-        assert_eq!(f.borrow().clone(), expected);
-    });
+    with_ext_cost_counter(|cc| assert_eq!(*cc, expected));
     reset_costs_counter();
 }

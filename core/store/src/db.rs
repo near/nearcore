@@ -1,17 +1,25 @@
+#[cfg(not(feature = "single_thread_rocksdb"))]
 use std::cmp;
 use std::collections::HashMap;
 use std::io;
+use std::marker::PhantomPinned;
 use std::sync::RwLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-
+#[cfg(feature = "single_thread_rocksdb")]
+use rocksdb::Env;
 use rocksdb::{
-    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
-    ReadOptions, WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode,
+    Options, ReadOptions, WriteBatch, DB,
 };
-use strum_macros::EnumIter;
+use strum::EnumIter;
 
 use near_primitives::version::DbVersion;
+
+use crate::db::refcount::merge_refcounted_records;
+
+pub(crate) mod refcount;
+pub(crate) mod v6_to_v7;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
@@ -95,13 +103,24 @@ pub enum DBCol {
     ColBlockOrdinal = 40,
     /// GC Count for each column
     ColGCCount = 41,
-    /// GC helper column to get all Outcome ids by Block Hash
-    ColOutcomesByBlockHash = 42,
-    ColTransactionRefCount = 43,
+    /// All Outcome ids by block hash and shard id. For each shard it is ordered by execution order.
+    ColOutcomeIds = 42,
+    /// Deprecated
+    _ColTransactionRefCount = 43,
+    /// Heights of blocks that have been processed
+    ColProcessedBlockHeights = 44,
+    /// Receipts
+    ColReceipts = 45,
+    /// Precompiled machine code of the contract
+    ColCachedContractCode = 46,
+    /// Epoch validator information used for rpc purposes
+    ColEpochValidatorInfo = 47,
+    /// Header Hashes indexed by Height
+    ColHeaderHashesByHeight = 48,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 44;
+pub const NUM_COLS: usize = 49;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -148,10 +167,21 @@ impl std::fmt::Display for DBCol {
             Self::ColChunkHashesByHeight => "chunk hashes indexed by height_created",
             Self::ColBlockOrdinal => "block ordinal",
             Self::ColGCCount => "gc count",
-            Self::ColOutcomesByBlockHash => "outcomes by block hash",
-            Self::ColTransactionRefCount => "refcount per transaction",
+            Self::ColOutcomeIds => "outcome ids",
+            Self::_ColTransactionRefCount => "refcount per transaction (deprecated)",
+            Self::ColProcessedBlockHeights => "processed block heights",
+            Self::ColReceipts => "receipts",
+            Self::ColCachedContractCode => "cached code",
+            Self::ColEpochValidatorInfo => "epoch validator info",
+            Self::ColHeaderHashesByHeight => "header hashes indexed by their height",
         };
         write!(formatter, "{}", desc)
+    }
+}
+
+impl DBCol {
+    pub fn is_rc(&self) -> bool {
+        IS_COL_RC[*self as usize]
     }
 }
 
@@ -161,6 +191,7 @@ lazy_static! {
         let mut col_gc = vec![true; NUM_COLS];
         col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
         col_gc[DBCol::ColBlockMisc as usize] = false;
+        // TODO #3488 remove
         col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
         col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
         col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
@@ -173,7 +204,9 @@ lazy_static! {
         col_gc[DBCol::ColComponentEdges as usize] = false;
         col_gc[DBCol::ColBlockOrdinal as usize] = false;
         col_gc[DBCol::ColEpochInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+        col_gc[DBCol::ColEpochValidatorInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
         col_gc[DBCol::ColEpochStart as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+        col_gc[DBCol::ColCachedContractCode as usize] = false;
         col_gc
     };
 }
@@ -191,14 +224,29 @@ lazy_static! {
     };
 }
 
+// List of reference counted columns
+lazy_static! {
+    pub static ref IS_COL_RC: Vec<bool> = {
+        let mut col_rc = vec![false; NUM_COLS];
+        col_rc[DBCol::ColState as usize] = true;
+        col_rc[DBCol::ColTransactions as usize] = true;
+        col_rc[DBCol::ColReceipts as usize] = true;
+        col_rc[DBCol::ColReceiptIdToShardId as usize] = true;
+        col_rc
+    };
+}
+
 pub const HEAD_KEY: &[u8; 4] = b"HEAD";
 pub const TAIL_KEY: &[u8; 4] = b"TAIL";
 pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";
-pub const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
+pub const FORK_TAIL_KEY: &[u8; 9] = b"FORK_TAIL";
 pub const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
+pub const FINAL_HEAD_KEY: &[u8; 10] = b"FINAL_HEAD";
 pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const VERSION_KEY: &[u8; 7] = b"VERSION";
+pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
+pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,
@@ -206,7 +254,9 @@ pub struct DBTransaction {
 
 pub enum DBOp {
     Insert { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
     Delete { col: DBCol, key: Vec<u8> },
+    DeleteAll { col: DBCol },
 }
 
 impl DBTransaction {
@@ -218,14 +268,32 @@ impl DBTransaction {
         });
     }
 
+    pub fn update_refcount<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+        &mut self,
+        col: DBCol,
+        key: K,
+        value: V,
+    ) {
+        self.ops.push(DBOp::UpdateRefcount {
+            col,
+            key: key.as_ref().to_owned(),
+            value: value.as_ref().to_owned(),
+        });
+    }
+
     pub fn delete<K: AsRef<[u8]>>(&mut self, col: DBCol, key: K) {
         self.ops.push(DBOp::Delete { col, key: key.as_ref().to_owned() });
+    }
+
+    pub fn delete_all(&mut self, col: DBCol) {
+        self.ops.push(DBOp::DeleteAll { col });
     }
 }
 
 pub struct RocksDB {
     db: DB,
     cfs: Vec<*const ColumnFamily>,
+    _pin: PhantomPinned,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -243,18 +311,38 @@ pub trait Database: Sync + Send {
     }
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    fn iter_without_rc_logic<'a>(
+        &'a self,
+        column: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn iter_prefix<'a>(
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
+    fn as_rocksdb(&self) -> Option<&RocksDB> {
+        None
+    }
 }
 
 impl Database for RocksDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         let read_options = rocksdb_read_options();
-        unsafe { Ok(self.db.get_cf_opt(&*self.cfs[col as usize], key, &read_options)?) }
+        let result = self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
+        Ok(RocksDB::get_with_rc_logic(col, result))
+    }
+
+    fn iter_without_rc_logic<'a>(
+        &'a self,
+        col: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        let read_options = rocksdb_read_options();
+        unsafe {
+            let cf_handle = &*self.cfs[col as usize];
+            let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
+            Box::new(iterator)
+        }
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
@@ -262,7 +350,7 @@ impl Database for RocksDB {
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
             let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-            Box::new(iterator)
+            RocksDB::iter_with_rc_logic(col, iterator)
         }
     }
 
@@ -287,7 +375,7 @@ impl Database for RocksDB {
                     IteratorMode::From(key_prefix, Direction::Forward),
                 )
                 .take_while(move |(key, _value)| key.starts_with(key_prefix));
-            Box::new(iterator)
+            RocksDB::iter_with_rc_logic(col, iterator)
         }
     }
 
@@ -298,21 +386,49 @@ impl Database for RocksDB {
                 DBOp::Insert { col, key, value } => unsafe {
                     batch.put_cf(&*self.cfs[col as usize], key, value);
                 },
+                DBOp::UpdateRefcount { col, key, value } => unsafe {
+                    assert!(col.is_rc());
+                    batch.merge_cf(&*self.cfs[col as usize], key, value);
+                },
                 DBOp::Delete { col, key } => unsafe {
                     batch.delete_cf(&*self.cfs[col as usize], key);
                 },
+                DBOp::DeleteAll { col } => {
+                    let cf_handle = unsafe { &*self.cfs[col as usize] };
+                    let opt_first = self.db.iterator_cf(cf_handle, IteratorMode::Start).next();
+                    let opt_last = self.db.iterator_cf(cf_handle, IteratorMode::End).next();
+                    assert_eq!(opt_first.is_some(), opt_last.is_some());
+                    if let (Some((min_key, _)), Some((max_key, _))) = (opt_first, opt_last) {
+                        batch.delete_range_cf(cf_handle, &min_key, &max_key);
+                        // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
+                        batch.delete_cf(cf_handle, max_key)
+                    }
+                }
             }
         }
         Ok(self.db.write(batch)?)
+    }
+
+    fn as_rocksdb(&self) -> Option<&RocksDB> {
+        Some(self)
     }
 }
 
 impl Database for TestDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
-        Ok(self.db.read().unwrap()[col as usize].get(key).cloned())
+        let result = self.db.read().unwrap()[col as usize].get(key).cloned();
+        Ok(RocksDB::get_with_rc_logic(col, result))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        let iterator = self.iter_without_rc_logic(col);
+        RocksDB::iter_with_rc_logic(col, iterator)
+    }
+
+    fn iter_without_rc_logic<'a>(
+        &'a self,
+        col: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         let iterator = self.db.read().unwrap()[col as usize]
             .clone()
             .into_iter()
@@ -325,15 +441,32 @@ impl Database for TestDB {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        Box::new(self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)))
+        RocksDB::iter_with_rc_logic(
+            col,
+            self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)),
+        )
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
         let mut db = self.db.write().unwrap();
         for op in transaction.ops {
             match op {
-                DBOp::Insert { col, key, value } => db[col as usize].insert(key, value),
-                DBOp::Delete { col, key } => db[col as usize].remove(&key),
+                DBOp::Insert { col, key, value } => {
+                    db[col as usize].insert(key, value);
+                }
+                DBOp::UpdateRefcount { col, key, value } => {
+                    let mut val = db[col as usize].get(&key).cloned().unwrap_or_default();
+                    merge_refcounted_records(&mut val, &value);
+                    if val.len() != 0 {
+                        db[col as usize].insert(key, val);
+                    } else {
+                        db[col as usize].remove(&key);
+                    }
+                }
+                DBOp::Delete { col, key } => {
+                    db[col as usize].remove(&key);
+                }
+                DBOp::DeleteAll { col } => db[col as usize].clear(),
             };
         }
         Ok(())
@@ -358,8 +491,21 @@ fn rocksdb_options() -> Options {
     opts.set_bytes_per_sync(1048576);
     opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
-    opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
-    opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
+    #[cfg(not(feature = "single_thread_rocksdb"))]
+    {
+        opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
+    }
+    #[cfg(feature = "single_thread_rocksdb")]
+    {
+        opts.set_disable_auto_compactions(true);
+        opts.set_max_background_jobs(0);
+        opts.set_stats_dump_period_sec(0);
+        opts.set_stats_persist_period_sec(0);
+        opts.set_level_zero_slowdown_writes_trigger(-1);
+        opts.set_level_zero_file_num_compaction_trigger(-1);
+        opts.set_level_zero_stop_writes_trigger(100000000);
+    }
 
     return opts;
 }
@@ -367,21 +513,26 @@ fn rocksdb_options() -> Options {
 fn rocksdb_block_based_options() -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_size(1024 * 16);
-    let cache_size = 1024 * 1024 * 512 / 3;
-    block_opts.set_lru_cache(cache_size);
+    // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
+    let cache_size = 1024 * 1024 * 32;
+    block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_bloom_filter(10, true);
     block_opts
 }
 
-fn rocksdb_column_options() -> Options {
+fn rocksdb_column_options(col: DBCol) -> Options {
     let mut opts = Options::default();
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options());
     opts.optimize_level_style_compaction(1024 * 1024 * 128);
     opts.set_target_file_size_base(1024 * 1024 * 64);
     opts.set_compression_per_level(&[]);
+    if col.is_rc() {
+        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, None);
+        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
+    }
     opts
 }
 
@@ -404,19 +555,40 @@ impl RocksDB {
         let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs })
+        Ok(Self { db, cfs, _pin: PhantomPinned })
     }
 
     pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+        use strum::IntoEnumIterator;
         let options = rocksdb_options();
-        let cf_names: Vec<_> = (0..NUM_COLS).map(|col| format!("col{}", col)).collect();
-        let cf_descriptors = cf_names
-            .iter()
-            .map(|cf_name| ColumnFamilyDescriptor::new(cf_name, rocksdb_column_options()));
+        let cf_names: Vec<_> = DBCol::iter().map(|col| format!("col{}", col as usize)).collect();
+        let cf_descriptors = DBCol::iter().map(|col| {
+            ColumnFamilyDescriptor::new(format!("col{}", col as usize), rocksdb_column_options(col))
+        });
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
+        #[cfg(feature = "single_thread_rocksdb")]
+        {
+            // These have to be set after open db
+            let mut env = Env::default().unwrap();
+            env.set_bottom_priority_background_threads(0);
+            env.set_high_priority_background_threads(0);
+            env.set_low_priority_background_threads(0);
+            env.set_background_threads(0);
+            println!("Disabled all background threads in rocksdb");
+        }
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs })
+        Ok(Self { db, cfs, _pin: PhantomPinned })
+    }
+}
+
+#[cfg(feature = "single_thread_rocksdb")]
+impl Drop for RocksDB {
+    fn drop(&mut self) {
+        // RocksDB with only one thread stuck on wait some condition var
+        // Turn on additional threads to proceed
+        let mut env = Env::default().unwrap();
+        env.set_background_threads(4);
     }
 }
 
@@ -424,5 +596,109 @@ impl TestDB {
     pub fn new() -> Self {
         let db: Vec<_> = (0..NUM_COLS).map(|_| HashMap::new()).collect();
         Self { db: RwLock::new(db) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::DBCol::ColState;
+    use crate::db::{rocksdb_read_options, DBError, Database, RocksDB};
+    use crate::{create_store, DBCol};
+
+    impl RocksDB {
+        #[cfg(not(feature = "single_thread_rocksdb"))]
+        fn compact(&self, col: DBCol) {
+            self.db.compact_range_cf::<&[u8], &[u8]>(
+                unsafe { &*self.cfs[col as usize] },
+                None,
+                None,
+            );
+        }
+
+        fn get_no_empty_filtering(
+            &self,
+            col: DBCol,
+            key: &[u8],
+        ) -> Result<Option<Vec<u8>>, DBError> {
+            let read_options = rocksdb_read_options();
+            let result =
+                self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
+            Ok(result)
+        }
+    }
+
+    #[test]
+    fn test_clear_column() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
+        let store = create_store(tmp_dir.path().to_str().unwrap());
+        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        {
+            let mut store_update = store.store_update();
+            store_update.update_refcount(ColState, &[1], &[1], 1);
+            store_update.update_refcount(ColState, &[2], &[2], 1);
+            store_update.update_refcount(ColState, &[3], &[3], 1);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1]));
+        {
+            let mut store_update = store.store_update();
+            store_update.delete_all(ColState);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+    }
+
+    #[test]
+    fn rocksdb_merge_sanity() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
+        let store = create_store(tmp_dir.path().to_str().unwrap());
+        let ptr = (&*store.storage) as *const (dyn Database + 'static);
+        let rocksdb = unsafe { &*(ptr as *const RocksDB) };
+        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        {
+            let mut store_update = store.store_update();
+            store_update.update_refcount(ColState, &[1], &[1], 1);
+            store_update.commit().unwrap();
+        }
+        {
+            let mut store_update = store.store_update();
+            store_update.update_refcount(ColState, &[1], &[1], 1);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(
+            rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(),
+            Some(vec![1, 2, 0, 0, 0, 0, 0, 0, 0])
+        );
+        {
+            let mut store_update = store.store_update();
+            store_update.update_refcount(ColState, &[1], &[1], -1);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(
+            rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(),
+            Some(vec![1, 1, 0, 0, 0, 0, 0, 0, 0])
+        );
+        {
+            let mut store_update = store.store_update();
+            store_update.update_refcount(ColState, &[1], &[1], -1);
+            store_update.commit().unwrap();
+        }
+        // Refcount goes to 0 -> get() returns None
+        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        // Internally there is an empty value
+        assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), Some(vec![]));
+
+        #[cfg(not(feature = "single_thread_rocksdb"))]
+        {
+            // single_thread_rocksdb makes compact hang forever
+            rocksdb.compact(ColState);
+            rocksdb.compact(ColState);
+
+            // After compaction the empty value disappears
+            assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), None);
+            assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        }
     }
 }

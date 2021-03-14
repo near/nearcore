@@ -5,23 +5,25 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-ansi_term = "0.11"
-actix = "0.9"
+ansi_term = "0.12"
+actix = "0.11.0-beta.2"
+actix-rt = "2"
 futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
-rocksdb = "0.14"
 log = "0.4"
 rand = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Temporary workaround, fix with rust toolchain update.
 sysinfo = { git = "https://github.com/near/sysinfo", rev = "3cb97ee79a02754407d2f0f63628f247d7c65e7b" }
-strum = { version = "0.18", features = ["derive"] }
-cached = "0.12"
+strum = { version = "0.20", features = ["derive"] }
+cached = "0.23"
 lazy_static = "1.4"
-borsh = "0.7.0"
+borsh = "0.8.1"
 reed-solomon-erasure = "4"
-num-rational = "0.2.4"
+num-rational = "0.3"
+linked-hash-map = "0.5.3"
+thiserror = "1.0"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
@@ -29,19 +31,32 @@ near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain = { path = "../chain" }
+near-client-primitives = { path = "../client-primitives" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }
 near-chunks = { path = "../chunks" }
 near-telemetry = { path = "../telemetry" }
+near-performance-metrics = { path = "../../utils/near-performance-metrics" }
+near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
+
+delay-detector = { path = "../../tools/delay_detector", optional = true }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
+near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 testlib = { path = "../../test-utils/testlib" }
 neard = { path = "../../neard" }
+lazy-static-include = "3"
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
 adversarial = ["near-network/adversarial", "near-chain/adversarial"]
-metric_recorder = []
+metric_recorder = ["near-client-primitives/metric_recorder"]
+delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "delay-detector"]
+protocol_feature_forward_chunk_parts = ["near-primitives/protocol_feature_forward_chunk_parts", "near-network/protocol_feature_forward_chunk_parts", "near-chunks/protocol_feature_forward_chunk_parts"]
+protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3"]
+protocol_feature_access_key_nonce_range = ["near-chain/protocol_feature_access_key_nonce_range"]
+nightly_protocol = []
+nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_block_header_v3", "protocol_feature_access_key_nonce_range"]

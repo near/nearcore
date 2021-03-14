@@ -1,6 +1,6 @@
 [package]
 name = "node-runtime"
-version = "1.0.0"
+version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -9,36 +9,49 @@ byteorder = "1.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
-rocksdb = "0.14"
 rand = "0.7"
-sha2 = "0.8"
-sha3 = "0.8"
 lazy_static = "1.4"
-num-rational = "0.2.4"
-num-bigint = "0.2.6"
+num-rational = "0.3"
+num-bigint = "0.3"
 num-traits = "0.2.11"
+hex = "0.4.2"
+ethereum-types = "0.11.0"
+thiserror = "1.0"
 
-borsh = "0.7.0"
-cached = "0.12.0"
+borsh = "0.8.1"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
-near-runtime-configs = { path = "../../core/runtime-configs" }
-near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
+near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
+near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
+protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-runner/protocol_feature_evm"]
+protocol_feature_access_key_nonce_range = ["near-primitives/protocol_feature_access_key_nonce_range"]
+wasmer1_vm = ["near-vm-runner/wasmer1_vm"]
+wasmer0_vm = ["near-vm-runner/wasmer0_vm"]
+wasmtime_vm = ["near-vm-runner/wasmtime_vm"]
+wasmer1_default = ["wasmer1_vm", "near-vm-logic/wasmer1_default"]
+wasmer0_default = ["wasmer0_vm", "near-vm-logic/wasmer0_default"]
+wasmtime_default = ["wasmtime_vm", "near-vm-logic/wasmtime_default"]
 
-# Use this feature to enable counting of fees and costs applied.
-costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
+no_cpu_compatibility_checks = [ "near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = ["near-vm-runner/no_cache", "near-store/no_cache"]
+
+protocol_feature_alt_bn128 = [
+    "near-primitives/protocol_feature_alt_bn128",
+    "near-vm-logic/protocol_feature_alt_bn128",
+    "near-vm-runner/protocol_feature_alt_bn128",
+    "near-vm-errors/protocol_feature_alt_bn128",
+]
 
 [dev-dependencies]
 tempfile = "3"
@@ -47,5 +60,10 @@ base64 = "0.11"
 indicatif = {version = "0.13", features = ["with_rayon"]}
 rayon = "^1.1"
 assert_matches = "1.3"
+lazy-static-include = "3"
 
 testlib = { path = "../../test-utils/testlib" }
+near-chain-configs = { path = "../../core/chain-configs" }
+
+[package.metadata.workspaces]
+independent = true

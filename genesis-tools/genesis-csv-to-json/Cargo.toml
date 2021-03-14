@@ -16,8 +16,10 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
 near-network = { path = "../../chain/network" }
+near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 
 [dev-dependencies]
 tempfile = "3"
 serde_json = "^1.0.41"
 serde = "^1.0.102"
+lazy-static-include = "3"

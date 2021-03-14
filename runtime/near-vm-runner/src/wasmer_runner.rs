@@ -1,11 +1,14 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::{
+    config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
+};
 use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
+use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::Module;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
@@ -152,15 +155,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             }
             RuntimeError::User(data) => {
                 if let Some(err) = data.downcast_ref::<VMLogicError>() {
-                    match err {
-                        VMLogicError::HostError(h) => {
-                            VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
-                        }
-                        VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
-                        VMLogicError::InconsistentStateError(e) => {
-                            VMError::InconsistentStateError(e.clone())
-                        }
-                    }
+                    err.into()
                 } else {
                     panic!(
                         "Bad error case! Output is non-deterministic {:?} {:?}",
@@ -174,20 +169,29 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
 }
 
 pub fn run_wasmer<'a>(
-    code_hash: Vec<u8>,
+    code_hash: &[u8],
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
+    profile: ProfileData,
+    current_protocol_version: ProtocolVersion,
+    cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    let _span = tracing::debug_span!("run_wasmer").entered();
+
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
         panic!(
             "Execution of smart contracts is only supported for x86 and x86_64 CPU architectures."
         );
+    }
+    #[cfg(not(feature = "no_cpu_compatibility_checks"))]
+    if !is_x86_feature_detected!("avx") {
+        panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
     }
     if method_name.is_empty() {
         return (
@@ -198,7 +202,13 @@ pub fn run_wasmer<'a>(
         );
     }
 
-    let module = match cache::compile_module(code_hash, code, wasm_config) {
+    // TODO: consider using get_module() here, once we'll go via deployment path.
+    let module = match cache::wasmer0_cache::compile_module_cached_wasmer0(
+        &code_hash,
+        code,
+        wasm_config,
+        cache,
+    ) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
@@ -210,8 +220,16 @@ pub fn run_wasmer<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
-    let mut logic =
-        VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory);
+    let mut logic = VMLogic::new_with_protocol_version(
+        ext,
+        context,
+        wasm_config,
+        fees_config,
+        promise_results,
+        &mut memory,
+        profile,
+        current_protocol_version,
+    );
 
     if logic.add_contract_compile_fee(code.len() as u64).is_err() {
         return (
@@ -222,19 +240,69 @@ pub fn run_wasmer<'a>(
         );
     }
 
-    let import_object = imports::build_wasmer(memory_copy, &mut logic);
+    let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
 
-    let method_name = match std::str::from_utf8(method_name) {
-        Ok(x) => x,
-        Err(_) => {
-            return (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodUTF8Error,
-                ))),
-            )
-        }
+    if let Err(e) = check_method(&module, method_name) {
+        return (None, Some(e));
+    }
+
+    let instantiate = {
+        let _span = tracing::debug_span!("run_wasmer/instantiate").entered();
+        module.instantiate(&import_object)
     };
+    match instantiate {
+        Ok(instance) => {
+            let _span = tracing::debug_span!("run_wasmer/call").entered();
+
+            match instance.call(&method_name, &[]) {
+                Ok(_) => (Some(logic.outcome()), None),
+                Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+            }
+        }
+        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+    }
+}
+
+pub(crate) fn run_wasmer0_module<'a>(
+    module: Module,
+    method_name: &str,
+    ext: &mut dyn External,
+    context: VMContext,
+    wasm_config: &'a VMConfig,
+    fees_config: &'a RuntimeFeesConfig,
+    promise_results: &'a [PromiseResult],
+    profile: ProfileData,
+    current_protocol_version: ProtocolVersion,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    if method_name.is_empty() {
+        return (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ))),
+        );
+    }
+    let mut memory = WasmerMemory::new(
+        wasm_config.limit_config.initial_memory_pages,
+        wasm_config.limit_config.max_memory_pages,
+    )
+    .expect("Cannot create memory for a contract call");
+    // Note that we don't clone the actual backing memory, just increase the RC.
+    let memory_copy = memory.clone();
+
+    let mut logic = VMLogic::new_with_protocol_version(
+        ext,
+        context,
+        wasm_config,
+        fees_config,
+        promise_results,
+        &mut memory,
+        profile,
+        current_protocol_version,
+    );
+
+    let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
+
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));
     }
@@ -248,6 +316,11 @@ pub fn run_wasmer<'a>(
     }
 }
 
-pub fn compile_module(code: &[u8]) {
-    wasmer_runtime::compile(code).unwrap();
+pub fn compile_wasmer0_module(code: &[u8]) -> bool {
+    wasmer_runtime::compile(code).is_ok()
+}
+
+pub(crate) fn wasmer0_vm_hash() -> u64 {
+    // TODO: take into account compiler and engine used to compile the contract.
+    42
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use actix::{Addr, Arbiter};
+use actix::Addr;
+use actix_rt::ArbiterHandle;
 use tempfile::{tempdir, TempDir};
 
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -14,34 +15,35 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards,
 use near_store::test_utils::create_test_store;
 use neard::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 
-pub mod actix_utils;
 pub mod fees_utils;
 pub mod node;
 pub mod runtime_utils;
+#[cfg(feature = "protocol_feature_evm")]
+pub mod standard_evm_cases;
 pub mod standard_test_cases;
 pub mod test_helpers;
 pub mod user;
 
 /// Compute genesis hash from genesis.
-pub fn genesis_hash(genesis: Arc<Genesis>) -> CryptoHash {
+pub fn genesis_hash(genesis: &Genesis) -> CryptoHash {
     *genesis_header(genesis).hash()
 }
 
 /// Utility to generate genesis header from config for testing purposes.
-pub fn genesis_header(genesis: Arc<Genesis>) -> BlockHeader {
+pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let dir = tempdir().unwrap();
     let store = create_test_store();
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::from(genesis);
     let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![]));
     let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.genesis().clone()
 }
 
 /// Utility to generate genesis header from config for testing purposes.
-pub fn genesis_block(genesis: Arc<Genesis>) -> Block {
+pub fn genesis_block(genesis: &Genesis) -> Block {
     let dir = tempdir().unwrap();
     let store = create_test_store();
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::from(genesis);
     let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![]));
     let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap().clone()
@@ -54,7 +56,7 @@ pub fn start_nodes(
     num_lightclient: usize,
     epoch_length: BlockHeightDelta,
     genesis_height: BlockHeight,
-) -> (Arc<Genesis>, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<Arbiter>)>) {
+) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>)>) {
     init_integration_logger();
 
     let num_nodes = dirs.len();
@@ -67,7 +69,6 @@ pub fn start_nodes(
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.genesis_height = genesis_height;
-    let genesis = Arc::new(genesis);
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut near_configs = vec![];
@@ -77,7 +78,7 @@ pub fn start_nodes(
         let mut near_config = load_test_config(
             if i < num_validator_seats as usize { &validators[i] } else { "" },
             if i == 0 { first_node } else { open_port() },
-            Arc::clone(&genesis),
+            genesis.clone(),
         );
         rpc_addrs.push(near_config.rpc_config.addr.clone());
         near_config.client_config.min_num_peers = num_nodes - 1;
@@ -95,6 +96,7 @@ pub fn start_nodes(
             );
             near_config.client_config.tracked_shards.extend(&(from..to).collect::<Vec<_>>());
         }
+        near_config.client_config.epoch_sync_enabled = false;
         near_configs.push(near_config);
     }
 

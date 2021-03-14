@@ -12,6 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
+use strum::AsStaticStr;
 use tokio::net::TcpStream;
 use tracing::{error, warn};
 
@@ -23,20 +24,32 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
+    PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::syncing::ShardStateSyncResponse;
+use near_primitives::syncing::{
+    EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
+    ShardStateSyncResponseV1,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::version::FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION;
+use near_primitives::version::{
+    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
+};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
 use crate::peer::Peer;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::MetricRecorder;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
+use std::fmt::{Debug, Error, Formatter};
+use std::io;
 
+#[cfg(feature = "protocol_feature_forward_chunk_parts")]
+use near_primitives::merkle::combine_hash;
+
+const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.
@@ -107,7 +120,7 @@ impl FromStr for PeerInfo {
                 format!("Invalid PeerInfo format: {:?}", chunks),
             )));
         }
-        Ok(PeerInfo { id: PeerId(chunks[0].try_into()?), addr, account_id })
+        Ok(PeerInfo { id: PeerId(chunks[0].parse()?), addr, account_id })
     }
 }
 
@@ -120,14 +133,39 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 /// Peer chain information.
+/// TODO: Remove in next version
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockHeight,
-    /// Shards that the peer is tracking
+    /// Shards that the peer is tracking.
     pub tracked_shards: Vec<ShardId>,
+}
+
+/// Peer chain information.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
+pub struct PeerChainInfoV2 {
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Last known chain height of the peer.
+    pub height: BlockHeight,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
+}
+
+impl From<PeerChainInfo> for PeerChainInfoV2 {
+    fn from(peer_chain_info: PeerChainInfo) -> Self {
+        Self {
+            genesis_id: peer_chain_info.genesis_id,
+            height: peer_chain_info.height,
+            tracked_shards: peer_chain_info.tracked_shards,
+            archival: false,
+        }
+    }
 }
 
 /// Peer type.
@@ -151,9 +189,25 @@ pub enum PeerStatus {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+pub enum HandshakeFailureReason {
+    ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
+    GenesisMismatch(GenesisId),
+    InvalidTarget,
+}
+
+impl fmt::Display for HandshakeFailureReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "HandshakeFailureReason")
+    }
+}
+
+impl std::error::Error for HandshakeFailureReason {}
+
+#[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
-    /// Protocol version.
     pub version: u32,
+    /// Oldest supported protocol version.
+    pub oldest_supported_version: u32,
     /// Sender's peer id.
     pub peer_id: PeerId,
     /// Receiver's peer id.
@@ -161,27 +215,199 @@ pub struct Handshake {
     /// Sender's listening addr.
     pub listen_port: Option<u16>,
     /// Peer's chain information.
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
+    /// Info for new edge.
+    pub edge_info: EdgeInfo,
+}
+
+/// Struct describing the layout for Handshake.
+/// It is used to automatically derive BorshDeserialize.
+/// Struct describing the layout for Handshake.
+/// It is used to automatically derive BorshDeserialize.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+pub struct HandshakeAutoDes {
+    /// Protocol version.
+    pub version: u32,
+    /// Oldest supported protocol version.
+    pub oldest_supported_version: u32,
+    /// Sender's peer id.
+    pub peer_id: PeerId,
+    /// Receiver's peer id.
+    pub target_peer_id: PeerId,
+    /// Sender's listening addr.
+    pub listen_port: Option<u16>,
+    /// Peer's chain information.
+    pub chain_info: PeerChainInfoV2,
     /// Info for new edge.
     pub edge_info: EdgeInfo,
 }
 
 impl Handshake {
     pub fn new(
+        version: ProtocolVersion,
+        peer_id: PeerId,
+        target_peer_id: PeerId,
+        listen_port: Option<u16>,
+        chain_info: PeerChainInfoV2,
+        edge_info: EdgeInfo,
+    ) -> Self {
+        Handshake {
+            version,
+            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+            peer_id,
+            target_peer_id,
+            listen_port,
+            chain_info,
+            edge_info,
+        }
+    }
+}
+
+// Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
+// If the version is supported then fallback to standard deserializer.
+impl BorshDeserialize for Handshake {
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        // Detect the current and oldest supported version from the header
+        if buf.len() < 4 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                ERROR_UNEXPECTED_LENGTH_OF_INPUT,
+            ));
+        }
+
+        let version = u32::from_le_bytes(buf[..4].try_into().unwrap());
+
+        if OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
+            // If we support this version, then try to deserialize with custom deserializer
+            HandshakeAutoDes::deserialize(buf).map(Into::into)
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                HandshakeFailureReason::ProtocolVersionMismatch {
+                    version,
+                    oldest_supported_version: version,
+                },
+            ))
+        }
+    }
+}
+
+impl From<HandshakeAutoDes> for Handshake {
+    fn from(handshake: HandshakeAutoDes) -> Self {
+        Self {
+            version: handshake.version,
+            oldest_supported_version: handshake.oldest_supported_version,
+            peer_id: handshake.peer_id,
+            target_peer_id: handshake.target_peer_id,
+            listen_port: handshake.listen_port,
+            chain_info: handshake.chain_info,
+            edge_info: handshake.edge_info,
+        }
+    }
+}
+
+// TODO: Remove Handshake V2 in next iteration
+#[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
+pub struct HandshakeV2 {
+    pub version: u32,
+    pub oldest_supported_version: u32,
+    pub peer_id: PeerId,
+    pub target_peer_id: PeerId,
+    pub listen_port: Option<u16>,
+    pub chain_info: PeerChainInfo,
+    pub edge_info: EdgeInfo,
+}
+
+impl HandshakeV2 {
+    pub fn new(
+        version: ProtocolVersion,
         peer_id: PeerId,
         target_peer_id: PeerId,
         listen_port: Option<u16>,
         chain_info: PeerChainInfo,
         edge_info: EdgeInfo,
     ) -> Self {
-        Handshake {
-            // TODO: figure out how we are going to indicate backward compatible versions of protocol.
-            version: FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+        Self {
+            version,
+            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
             peer_id,
             target_peer_id,
             listen_port,
             chain_info,
             edge_info,
+        }
+    }
+}
+
+/// Struct describing the layout for HandshakeV2.
+/// It is used to automatically derive BorshDeserialize.
+#[derive(BorshDeserialize)]
+pub struct HandshakeV2AutoDes {
+    pub version: u32,
+    pub oldest_supported_version: u32,
+    pub peer_id: PeerId,
+    pub target_peer_id: PeerId,
+    pub listen_port: Option<u16>,
+    pub chain_info: PeerChainInfo,
+    pub edge_info: EdgeInfo,
+}
+
+// Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
+// If the version is supported then fallback to standard deserializer.
+impl BorshDeserialize for HandshakeV2 {
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        // Detect the current and oldest supported version from the header
+        if buf.len() < 8 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                ERROR_UNEXPECTED_LENGTH_OF_INPUT,
+            ));
+        }
+
+        let version = u32::from_le_bytes(buf[..4].try_into().unwrap());
+        let oldest_supported_version = u32::from_le_bytes(buf[4..8].try_into().unwrap());
+
+        if OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
+            // If we support this version, then try to deserialize with custom deserializer
+            match version {
+                _ => HandshakeV2AutoDes::deserialize(buf).map(Into::into),
+            }
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                HandshakeFailureReason::ProtocolVersionMismatch {
+                    version,
+                    oldest_supported_version,
+                },
+            ))
+        }
+    }
+}
+
+impl From<HandshakeV2AutoDes> for HandshakeV2 {
+    fn from(handshake: HandshakeV2AutoDes) -> Self {
+        Self {
+            version: handshake.version,
+            oldest_supported_version: handshake.oldest_supported_version,
+            peer_id: handshake.peer_id,
+            target_peer_id: handshake.target_peer_id,
+            listen_port: handshake.listen_port,
+            chain_info: handshake.chain_info,
+            edge_info: handshake.edge_info,
+        }
+    }
+}
+
+impl From<HandshakeV2> for Handshake {
+    fn from(handshake: HandshakeV2) -> Self {
+        Self {
+            version: handshake.version,
+            oldest_supported_version: handshake.oldest_supported_version,
+            peer_id: handshake.peer_id,
+            target_peer_id: handshake.target_peer_id,
+            listen_port: handshake.listen_port,
+            chain_info: handshake.chain_info.into(),
+            edge_info: handshake.edge_info,
         }
     }
 }
@@ -192,13 +418,6 @@ pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
     pub signature: Signature,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
-pub enum HandshakeFailureReason {
-    ProtocolVersionMismatch(u32),
-    GenesisMismatch(GenesisId),
-    InvalidTarget,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
@@ -217,11 +436,9 @@ pub struct Pong {
 #[derive(
     BorshSerialize,
     BorshDeserialize,
-    Serialize,
     PartialEq,
     Eq,
     Clone,
-    Debug,
     strum::AsStaticStr,
     strum::EnumVariantNames,
 )]
@@ -234,7 +451,7 @@ pub enum RoutedMessageBody {
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
         query_id: String,
-        block_id_or_finality: BlockIdOrFinality,
+        block_reference: BlockReference,
         request: QueryRequest,
     },
     QueryResponse {
@@ -245,19 +462,121 @@ pub enum RoutedMessageBody {
     ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
-    StateResponse(StateResponseInfo),
+    StateResponse(StateResponseInfoV1),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
-    PartialEncodedChunk(PartialEncodedChunk),
+    PartialEncodedChunk(PartialEncodedChunkV1),
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
+    VersionedPartialEncodedChunk(PartialEncodedChunk),
+    VersionedStateResponse(StateResponseInfo),
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+}
+
+impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
+    fn from(pec: PartialEncodedChunkWithArcReceipts) -> Self {
+        if let ShardChunkHeader::V1(legacy_header) = pec.header {
+            Self::PartialEncodedChunk(PartialEncodedChunkV1 {
+                header: legacy_header,
+                parts: pec.parts,
+                receipts: pec.receipts.into_iter().map(|r| ReceiptProof::clone(&r)).collect(),
+            })
+        } else {
+            Self::VersionedPartialEncodedChunk(pec.into())
+        }
+    }
+}
+
+impl Debug for RoutedMessageBody {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        match self {
+            RoutedMessageBody::BlockApproval(approval) => write!(
+                f,
+                "Approval({}, {}, {:?})",
+                approval.target_height, approval.account_id, approval.inner
+            ),
+            RoutedMessageBody::ForwardTx(tx) => write!(f, "tx {}", tx.get_hash()),
+            RoutedMessageBody::TxStatusRequest(account_id, hash) => {
+                write!(f, "TxStatusRequest({}, {})", account_id, hash)
+            }
+            RoutedMessageBody::TxStatusResponse(response) => {
+                write!(f, "TxStatusResponse({})", response.transaction.hash)
+            }
+            RoutedMessageBody::QueryRequest { .. } => write!(f, "QueryRequest"),
+            RoutedMessageBody::QueryResponse { .. } => write!(f, "QueryResponse"),
+            RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
+            RoutedMessageBody::ReceiptOutComeResponse(response) => {
+                write!(f, "ReceiptResponse({})", response.outcome_with_id.id)
+            }
+            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
+                write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
+            }
+            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
+                write!(f, "StateRequestPart({}, {}, {})", shard_id, sync_hash, part_id)
+            }
+            RoutedMessageBody::StateResponse(response) => {
+                write!(f, "StateResponse({}, {})", response.shard_id, response.sync_hash)
+            }
+            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                write!(f, "PartialChunkRequest({:?}, {:?})", request.chunk_hash, request.part_ords)
+            }
+            RoutedMessageBody::PartialEncodedChunkResponse(response) => write!(
+                f,
+                "PartialChunkResponse({:?}, {:?})",
+                response.chunk_hash,
+                response.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
+            ),
+            RoutedMessageBody::PartialEncodedChunk(chunk) => {
+                write!(f, "PartialChunk({:?})", chunk.header.hash)
+            }
+            RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
+                write!(f, "VersionedPartialChunk(?)")
+            }
+            RoutedMessageBody::VersionedStateResponse(response) => write!(
+                f,
+                "VersionedStateResponse({}, {})",
+                response.shard_id(),
+                response.sync_hash()
+            ),
+            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+            RoutedMessageBody::PartialEncodedChunkForward(forward) => write!(
+                f,
+                "PartialChunkForward({:?}, {:?})",
+                forward.chunk_hash,
+                forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+            ),
+            RoutedMessageBody::Ping(_) => write!(f, "Ping"),
+            RoutedMessageBody::Pong(_) => write!(f, "Pong"),
+        }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
+// Defines the destination for a network request.
+// The request should be sent either to the `account_id` as a routed message, or directly to
+// any peer that tracks the shard.
+// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
+// case fall back to sending to the account.
+// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
+pub struct AccountIdOrPeerTrackingShard {
+    pub shard_id: ShardId,
+    pub only_archival: bool,
+    pub account_id: Option<AccountId>,
+    pub prefer_peer: bool,
+}
+
+impl AccountIdOrPeerTrackingShard {
+    pub fn from_account(shard_id: ShardId, account_id: AccountId) -> Self {
+        Self { shard_id, only_archival: false, account_id: Some(account_id), prefer_peer: false }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
@@ -294,17 +613,17 @@ impl RawRoutedMessage {
         routed_message_ttl: u8,
     ) -> RoutedMessage {
         let target = self.target.peer_id_or_hash().unwrap();
-        let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
+        let hash = RoutedMessage::build_hash(&target, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
         RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutedMessageNoSignature {
-    target: PeerIdOrHash,
-    author: PeerId,
-    body: RoutedMessageBody,
+#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
+pub struct RoutedMessageNoSignature<'a> {
+    target: &'a PeerIdOrHash,
+    author: &'a PeerId,
+    body: &'a RoutedMessageBody,
 }
 
 /// RoutedMessage represent a package that will travel the network towards a specific peer id.
@@ -314,7 +633,7 @@ pub struct RoutedMessageNoSignature {
 /// sender of the package should be banned instead.
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
@@ -332,7 +651,11 @@ pub struct RoutedMessage {
 }
 
 impl RoutedMessage {
-    pub fn build_hash(target: PeerIdOrHash, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
+    pub fn build_hash(
+        target: &PeerIdOrHash,
+        source: &PeerId,
+        body: &RoutedMessageBody,
+    ) -> CryptoHash {
         hash(
             &RoutedMessageNoSignature { target, author: source, body }
                 .try_to_vec()
@@ -341,7 +664,7 @@ impl RoutedMessage {
     }
 
     pub fn hash(&self) -> CryptoHash {
-        RoutedMessage::build_hash(self.target.clone(), self.author.clone(), self.body.clone())
+        RoutedMessage::build_hash(&self.target, &self.author, &self.body)
     }
 
     pub fn verify(&self) -> bool {
@@ -406,7 +729,6 @@ impl SyncData {
 #[derive(
     BorshSerialize,
     BorshDeserialize,
-    Serialize,
     PartialEq,
     Eq,
     Clone,
@@ -440,8 +762,13 @@ pub enum PeerMessage {
 
     /// Gracefully disconnect from other peer.
     Disconnect,
-
     Challenge(Challenge),
+    HandshakeV2(HandshakeV2),
+
+    EpochSyncRequest(EpochId),
+    EpochSyncResponse(EpochSyncResponse),
+    EpochSyncFinalizationRequest(EpochId),
+    EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
 }
 
 impl fmt::Display for PeerMessage {
@@ -465,14 +792,20 @@ impl PeerMessage {
             PeerMessage::Block(_)
             | PeerMessage::BlockHeaders(_)
             | PeerMessage::Transaction(_)
-            | PeerMessage::Challenge(_) => true,
+            | PeerMessage::Challenge(_)
+            | PeerMessage::EpochSyncResponse(_)
+            | PeerMessage::EpochSyncFinalizationResponse(_) => true,
             PeerMessage::Routed(r) => match r.body {
                 RoutedMessageBody::BlockApproval(_)
                 | RoutedMessageBody::ForwardTx(_)
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
                 | RoutedMessageBody::PartialEncodedChunkResponse(_)
-                | RoutedMessageBody::StateResponse(_) => true,
+                | RoutedMessageBody::StateResponse(_)
+                | RoutedMessageBody::VersionedPartialEncodedChunk(_)
+                | RoutedMessageBody::VersionedStateResponse(_) => true,
+                #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+                RoutedMessageBody::PartialEncodedChunkForward(_) => true,
                 _ => false,
             },
             _ => false,
@@ -494,6 +827,8 @@ impl PeerMessage {
             },
             PeerMessage::BlockHeadersRequest(_) => true,
             PeerMessage::BlockRequest(_) => true,
+            PeerMessage::EpochSyncRequest(_) => true,
+            PeerMessage::EpochSyncFinalizationRequest(_) => true,
             _ => false,
         }
     }
@@ -529,6 +864,9 @@ pub struct NetworkConfig {
     /// Number of peers to keep while removing a connection.
     /// Used to avoid disconnecting from peers we have been connected since long time.
     pub safe_set_size: u32,
+    /// Lower bound of the number of connections to archival peers to keep
+    /// if we are an archival node.
+    pub archival_peer_connections_lower_bound: u32,
     /// Duration of the ban for misbehaving peers.
     pub ban_window: Duration,
     /// Remove expired peers.
@@ -559,6 +897,8 @@ pub struct NetworkConfig {
     /// are satisfied.
     /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
     pub outbound_disabled: bool,
+    /// Not clear old data, set `true` for archive nodes.
+    pub archive: bool,
 }
 
 impl NetworkConfig {
@@ -715,7 +1055,7 @@ pub struct Consolidate {
     pub actor: Addr<Peer>,
     pub peer_info: PeerInfo,
     pub peer_type: PeerType,
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     // Edge information from this node.
     // If this is None it implies we are outbound connection, so we need to create our
     // EdgeInfo part and send it to the other peer.
@@ -741,6 +1081,7 @@ pub enum ConsolidateResponse {
 pub struct Unregister {
     pub peer_id: PeerId,
     pub peer_type: PeerType,
+    pub remove_from_peer_store: bool,
 }
 
 pub struct PeerList {
@@ -748,6 +1089,7 @@ pub struct PeerList {
 }
 
 /// Message from peer to peer manager
+#[derive(strum::AsRefStr)]
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
@@ -805,6 +1147,9 @@ pub enum ReasonForBan {
     InvalidPeerId = 8,
     InvalidHash = 9,
     InvalidEdge = 10,
+    EpochSyncNoResponse = 11,
+    EpochSyncInvalidResponse = 12,
+    EpochSyncInvalidFinalizationResponse = 13,
 }
 
 /// Banning signal sent from Peer instance to PeerManager
@@ -817,7 +1162,7 @@ pub struct Ban {
 }
 
 // TODO(#1313): Use Box
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, strum::AsRefStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
@@ -856,6 +1201,14 @@ pub enum NetworkRequests {
         route_back: CryptoHash,
         response: StateResponseInfo,
     },
+    EpochSyncRequest {
+        peer_id: PeerId,
+        epoch_id: EpochId,
+    },
+    EpochSyncFinalizationRequest {
+        peer_id: PeerId,
+        epoch_id: EpochId,
+    },
     /// Ban given peer.
     BanPeer {
         peer_id: PeerId,
@@ -866,7 +1219,7 @@ pub enum NetworkRequests {
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {
-        account_id: AccountId,
+        target: AccountIdOrPeerTrackingShard,
         request: PartialEncodedChunkRequestMsg,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
@@ -877,7 +1230,13 @@ pub enum NetworkRequests {
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkMessage {
         account_id: AccountId,
-        partial_encoded_chunk: PartialEncodedChunk,
+        partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
+    },
+    /// Forwarding a chunk part to a validator tracking the shard
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+    PartialEncodedChunkForward {
+        account_id: AccountId,
+        forward: PartialEncodedChunkForwardMsg,
     },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
@@ -888,7 +1247,7 @@ pub enum NetworkRequests {
     Query {
         query_id: String,
         account_id: AccountId,
-        block_id_or_finality: BlockIdOrFinality,
+        block_reference: BlockReference,
         request: QueryRequest,
     },
     /// Request for receipt execution outcome
@@ -916,18 +1275,24 @@ pub enum NetworkRequests {
 }
 
 /// Messages from PeerManager to Peer
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
 }
 
+pub struct EdgeList(pub Vec<Edge>);
+
+impl Message for EdgeList {
+    type Result = bool;
+}
+
 /// Combines peer address info, chain and edge information.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     pub edge_info: EdgeInfo,
 }
 
@@ -950,6 +1315,7 @@ pub struct NetworkInfo {
     pub known_producers: Vec<KnownProducer>,
     #[cfg(feature = "metric_recorder")]
     pub metric_recorder: MetricRecorder,
+    pub peer_counter: usize,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkInfo
@@ -991,10 +1357,46 @@ impl Message for NetworkRequests {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StateResponseInfo {
+pub struct StateResponseInfoV1 {
+    pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
+    pub state_response: ShardStateSyncResponseV1,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct StateResponseInfoV2 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponse,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+pub enum StateResponseInfo {
+    V1(StateResponseInfoV1),
+    V2(StateResponseInfoV2),
+}
+
+impl StateResponseInfo {
+    pub fn shard_id(&self) -> ShardId {
+        match self {
+            Self::V1(info) => info.shard_id,
+            Self::V2(info) => info.shard_id,
+        }
+    }
+
+    pub fn sync_hash(&self) -> CryptoHash {
+        match self {
+            Self::V1(info) => info.sync_hash,
+            Self::V2(info) => info.sync_hash,
+        }
+    }
+
+    pub fn take_state_response(self) -> ShardStateSyncResponse {
+        match self {
+            Self::V1(info) => ShardStateSyncResponse::V1(info.state_response),
+            Self::V2(info) => info.state_response,
+        }
+    }
 }
 
 #[cfg(feature = "adversarial")]
@@ -1009,7 +1411,7 @@ pub enum NetworkAdversarialMessage {
     AdvSetSyncInfo(u64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, strum::AsRefStr, AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
@@ -1032,6 +1434,10 @@ pub enum NetworkClientMessages {
     BlockApproval(Approval, PeerId),
     /// State response.
     StateResponse(StateResponseInfo),
+    /// Epoch Sync response for light client block request
+    EpochSyncResponse(PeerId, EpochSyncResponse),
+    /// Epoch Sync response for finalization request
+    EpochSyncFinalizationResponse(PeerId, EpochSyncFinalizationResponse),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
@@ -1039,6 +1445,9 @@ pub enum NetworkClientMessages {
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
+    /// Forwarding parts to those tracking the shard (so they don't need to send requests)
+    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 
     /// A challenge to invalidate the block.
     Challenge(Challenge),
@@ -1085,6 +1494,7 @@ impl Message for NetworkClientMessages {
     type Result = NetworkClientResponses;
 }
 
+#[derive(AsStaticStr)]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),
@@ -1093,10 +1503,6 @@ pub enum NetworkViewClientMessages {
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
     TxStatusResponse(Box<FinalExecutionOutcomeView>),
-    /// General query
-    Query { query_id: String, block_id_or_finality: BlockIdOrFinality, request: QueryRequest },
-    /// Query response
-    QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome
     ReceiptOutcomeRequest(CryptoHash),
     /// Receipt outcome response
@@ -1109,6 +1515,10 @@ pub enum NetworkViewClientMessages {
     StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
     /// State request part.
     StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
+    /// A request for a light client info during Epoch Sync
+    EpochSyncRequest { epoch_id: EpochId },
+    /// A request for headers and proofs during Epoch Sync
+    EpochSyncFinalizationRequest { epoch_id: EpochId },
     /// Get Chain information from Client.
     GetChainInfo,
     /// Account announcements that needs to be validated before being processed.
@@ -1117,6 +1527,7 @@ pub enum NetworkViewClientMessages {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
+#[derive(Debug)]
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(Box<FinalExecutionOutcomeView>),
@@ -1129,11 +1540,20 @@ pub enum NetworkViewClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Chain information.
-    ChainInfo { genesis_id: GenesisId, height: BlockHeight, tracked_shards: Vec<ShardId> },
+    ChainInfo {
+        genesis_id: GenesisId,
+        height: BlockHeight,
+        tracked_shards: Vec<ShardId>,
+        archival: bool,
+    },
     /// Response to state request.
     StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
+    /// A response to a request for a light client block during Epoch Sync
+    EpochSyncResponse(EpochSyncResponse),
+    /// A response to a request for headers and proofs during Epoch Sync
+    EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed
@@ -1163,7 +1583,7 @@ pub struct QueryPeerStats {}
 #[derive(Debug)]
 pub struct PeerStatsResult {
     /// Chain info.
-    pub chain_info: PeerChainInfo,
+    pub chain_info: PeerChainInfoV2,
     /// Number of bytes we've received from the peer.
     pub received_bytes_per_sec: u64,
     /// Number of bytes we've sent to the peer.
@@ -1202,6 +1622,46 @@ pub struct PartialEncodedChunkResponseMsg {
     pub chunk_hash: ChunkHash,
     pub parts: Vec<PartialEncodedChunkPart>,
     pub receipts: Vec<ReceiptProof>,
+}
+
+/// Message for chunk part owners to forward their parts to validators tracking that shard.
+/// This reduces the number of requests a node tracking a shard needs to send to obtain enough
+/// parts to reconstruct the message (in the best case no such requests are needed).
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+#[cfg(feature = "protocol_feature_forward_chunk_parts")]
+pub struct PartialEncodedChunkForwardMsg {
+    pub chunk_hash: ChunkHash,
+    pub inner_header_hash: CryptoHash,
+    pub merkle_root: CryptoHash,
+    pub signature: Signature,
+    pub prev_block_hash: CryptoHash,
+    pub height_created: BlockHeight,
+    pub shard_id: ShardId,
+    pub parts: Vec<PartialEncodedChunkPart>,
+}
+
+#[cfg(feature = "protocol_feature_forward_chunk_parts")]
+impl PartialEncodedChunkForwardMsg {
+    pub fn from_header_and_parts(
+        header: &ShardChunkHeader,
+        parts: Vec<PartialEncodedChunkPart>,
+    ) -> Self {
+        Self {
+            chunk_hash: header.chunk_hash(),
+            inner_header_hash: header.inner_header_hash(),
+            merkle_root: header.encoded_merkle_root(),
+            signature: header.signature().clone(),
+            prev_block_hash: header.prev_block_hash(),
+            height_created: header.height_created(),
+            shard_id: header.shard_id(),
+            parts,
+        }
+    }
+
+    pub fn is_valid_hash(&self) -> bool {
+        let correct_hash = combine_hash(self.inner_header_hash, self.merkle_root);
+        ChunkHash(correct_hash) == self.chunk_hash
+    }
 }
 
 /// Adapter to break dependency of sub-components on the network requests.
@@ -1297,7 +1757,7 @@ mod tests {
     #[test]
     fn test_struct_size() {
         assert_size!(PeerInfo);
-        assert_size!(PeerChainInfo);
+        assert_size!(PeerChainInfoV2);
         assert_size!(Handshake);
         assert_size!(AnnounceAccountRoute);
         assert_size!(AnnounceAccount);
@@ -1321,7 +1781,7 @@ mod tests {
         assert_size!(Ban);
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);
-        assert_size!(StateResponseInfo);
+        assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);
         assert_size!(PartialEncodedChunkRequestMsg);
     }

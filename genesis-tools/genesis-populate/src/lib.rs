@@ -62,7 +62,7 @@ impl GenesisBuilder {
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
             store.clone(),
-            Arc::clone(&genesis),
+            &genesis,
             // Since we are not using runtime as an actor
             // there is no reason to track accounts or shards.
             vec![],
@@ -107,8 +107,7 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let (_store, store_update, roots) = self.runtime.genesis_state();
-        store_update.commit()?;
+        let (_store, roots) = self.runtime.genesis_state();
         self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
         self.state_updates = self
             .roots
@@ -164,7 +163,11 @@ impl GenesisBuilder {
             self.state_updates.remove(&shard_idx).expect("State updates are always available");
 
         // Compute storage usage and update accounts.
-        for (account_id, storage_usage) in self.runtime.runtime.compute_storage_usage(&records) {
+        for (account_id, storage_usage) in self
+            .runtime
+            .runtime
+            .compute_storage_usage(&records, &self.genesis.config.runtime_config)
+        {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
             account.storage_usage = storage_usage;
@@ -187,10 +190,11 @@ impl GenesisBuilder {
             self.runtime.num_shards(),
             self.genesis.config.gas_limit,
             self.genesis.config.genesis_height,
+            self.genesis.config.protocol_version,
         );
         let genesis = Block::genesis(
             self.genesis.config.protocol_version,
-            genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+            genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             self.genesis.config.genesis_time,
             self.genesis.config.genesis_height,
             self.genesis.config.min_gas_price,
@@ -201,7 +205,11 @@ impl GenesisBuilder {
         let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);
         let mut store_update = store.store_update();
 
-        self.runtime.add_validator_proposals(BlockHeaderInfo::new(&genesis.header(), 0)).unwrap();
+        store_update.merge(
+            self.runtime
+                .add_validator_proposals(BlockHeaderInfo::new(&genesis.header(), 0))
+                .unwrap(),
+        );
         store_update
             .save_block_header(genesis.header().clone())
             .expect("save genesis block header shouldn't fail");
@@ -210,7 +218,7 @@ impl GenesisBuilder {
         for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             store_update.save_chunk_extra(
                 &genesis.hash(),
-                chunk_header.inner.shard_id,
+                chunk_header.shard_id(),
                 ChunkExtra::new(
                     state_root,
                     CryptoHash::default(),
@@ -224,7 +232,7 @@ impl GenesisBuilder {
 
         let head = Tip::from_header(&genesis.header());
         store_update.save_head(&head).unwrap();
-        store_update.save_sync_head(&head);
+        store_update.save_final_head(&head).unwrap();
         store_update.commit().unwrap();
 
         Ok(())
@@ -261,7 +269,7 @@ impl GenesisBuilder {
         );
         records.push(access_key_record);
         if let Some(wasm_binary) = self.additional_accounts_code.as_ref() {
-            let code = ContractCode::new(wasm_binary.clone());
+            let code = ContractCode::new(wasm_binary.clone(), None);
             set_code(&mut state_update, account_id.clone(), &code);
             let contract_record = StateRecord::Contract { account_id, code: wasm_binary.clone() };
             records.push(contract_record);

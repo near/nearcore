@@ -7,7 +7,7 @@ use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
 use log::info;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_metrics::set_gauge;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
@@ -22,8 +22,13 @@ use near_primitives::version::Version;
 use near_telemetry::{telemetry, TelemetryActor};
 
 use crate::metrics;
-use crate::types::ShardSyncStatus;
 use crate::SyncStatus;
+use near_client_primitives::types::ShardSyncStatus;
+
+pub struct ValidatorInfoHelper {
+    pub is_validator: bool,
+    pub num_validators: usize,
+}
 
 /// A helper that prints information about current chain and reports to telemetry.
 pub struct InfoHelper {
@@ -39,12 +44,12 @@ pub struct InfoHelper {
     num_blocks_processed: u64,
     /// Total gas used during period.
     gas_used: u64,
-    /// Total gas limit during period.
-    gas_limit: u64,
     /// Sign telemetry with block producer key if available.
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Telemetry actor.
     telemetry_actor: Addr<TelemetryActor>,
+    /// Log coloring enabled
+    log_summary_style: LogSummaryStyle,
 }
 
 impl InfoHelper {
@@ -61,16 +66,15 @@ impl InfoHelper {
             started: Instant::now(),
             num_blocks_processed: 0,
             gas_used: 0,
-            gas_limit: 0,
             telemetry_actor,
             validator_signer,
+            log_summary_style: client_config.log_summary_style,
         }
     }
 
-    pub fn block_processed(&mut self, gas_used: Gas, gas_limit: Gas) {
+    pub fn block_processed(&mut self, gas_used: Gas) {
         self.num_blocks_processed += 1;
         self.gas_used += gas_used;
-        self.gas_limit += gas_limit;
     }
 
     pub fn info(
@@ -80,9 +84,7 @@ impl InfoHelper {
         sync_status: &SyncStatus,
         node_id: &PeerId,
         network_info: &NetworkInfo,
-        is_validator: bool,
-        is_fisherman: bool,
-        num_validators: usize,
+        validator_info: Option<ValidatorInfoHelper>,
     ) {
         let (cpu_usage, memory_usage) = if let Some(pid) = self.pid {
             if self.sys.refresh_process(pid) {
@@ -104,15 +106,51 @@ impl InfoHelper {
             * 1000.0;
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
-        info!(target: "stats", "{} {} {} {} {} {}",
-              Yellow.bold().paint(display_sync_status(&sync_status, &head, genesis_height)),
-              White.bold().paint(format!("{}/{}", if is_validator { "V" } else if is_fisherman { "F" } else { "-" }, num_validators)),
-              Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.highest_height_peers.len(), network_info.peer_max_count)),
-              Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(network_info.received_bytes_per_sec), pretty_bytes_per_sec(network_info.sent_bytes_per_sec))),
-              Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
-              Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024)))
+
+        let validator_info_log = if let Some(ref validator_info) = validator_info {
+            format!(
+                "{}/{}",
+                if validator_info.is_validator { "V" } else { "-" },
+                validator_info.num_validators
+            )
+        } else {
+            String::new()
+        };
+
+        let sync_status_log = display_sync_status(&sync_status, &head, genesis_height);
+        let network_info_log = format!(
+            "{:2}/{:?}/{:2} peers ⬇ {} ⬆ {}",
+            network_info.num_active_peers,
+            network_info.highest_height_peers.len(),
+            network_info.peer_max_count,
+            pretty_bytes_per_sec(network_info.received_bytes_per_sec),
+            pretty_bytes_per_sec(network_info.sent_bytes_per_sec)
         );
 
+        let blocks_info_log = format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used));
+        let machine_info_log =
+            format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024));
+
+        match self.log_summary_style {
+            LogSummaryStyle::Colored => info!(
+                target: "stats", "{} {} {} {} {}",
+                Yellow.bold().paint(sync_status_log),
+                White.bold().paint(validator_info_log),
+                Cyan.bold().paint(network_info_log),
+                Green.bold().paint(blocks_info_log),
+                Blue.bold().paint(machine_info_log),
+            ),
+            LogSummaryStyle::Plain => info!(
+                target: "stats", "{} {} {} {} {}",
+                sync_status_log,
+                validator_info_log,
+                network_info_log,
+                blocks_info_log,
+                machine_info_log,
+            ),
+        };
+
+        let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
         set_gauge(&metrics::IS_VALIDATOR, is_validator as i64);
         set_gauge(&metrics::RECEIVED_BYTES_PER_SECOND, network_info.received_bytes_per_sec as i64);
         set_gauge(&metrics::SENT_BYTES_PER_SECOND, network_info.sent_bytes_per_sec as i64);
@@ -123,7 +161,6 @@ impl InfoHelper {
         self.started = Instant::now();
         self.num_blocks_processed = 0;
         self.gas_used = 0;
-        self.gas_limit = 0;
 
         let info = TelemetryInfo {
             agent: TelemetryAgentInfo {
@@ -169,22 +206,36 @@ fn display_sync_status(
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
         SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
+        SyncStatus::EpochSync { epoch_ord } => {
+            format!("[EPOCH: {:>5}] Getting to a recent epoch", epoch_ord)
+        }
         SyncStatus::HeaderSync { current_height, highest_height } => {
             let percent = if *highest_height <= genesis_height {
-                0
+                0.0
             } else {
-                (min(current_height, highest_height) - genesis_height) * 100
-                    / (highest_height - genesis_height)
+                (((min(current_height, highest_height) - genesis_height) * 100) as f64)
+                    / ((highest_height - genesis_height) as f64)
             };
-            format!("#{:>8} Downloading headers {}%", head.height, percent)
+            format!(
+                "#{:>8} Downloading headers {:.2}% ({})",
+                head.height,
+                percent,
+                highest_height - current_height
+            )
         }
         SyncStatus::BodySync { current_height, highest_height } => {
             let percent = if *highest_height <= genesis_height {
-                0
+                0.0
             } else {
-                (current_height - genesis_height) * 100 / (highest_height - genesis_height)
+                ((current_height - genesis_height) * 100) as f64
+                    / ((highest_height - genesis_height) as f64)
             };
-            format!("#{:>8} Downloading blocks {}%", head.height, percent)
+            format!(
+                "#{:>8} Downloading blocks {:.2}% ({})",
+                head.height,
+                percent,
+                highest_height - current_height
+            )
         }
         SyncStatus::StateSync(_sync_hash, shard_statuses) => {
             let mut res = String::from("State ");

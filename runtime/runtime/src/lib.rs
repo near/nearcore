@@ -1,35 +1,45 @@
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
 use log::debug;
 
+pub use near_crypto;
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
-use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{
-    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
+pub use near_primitives;
+use near_primitives::runtime::get_insufficient_storage_stake;
+use near_primitives::{
+    account::{AccessKey, Account},
+    contract::ContractCode,
+    errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
+    hash::CryptoHash,
+    receipt::{
+        ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
+    },
+    state_record::StateRecord,
+    transaction::{
+        Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
+        SignedTransaction,
+    },
+    trie_key::TrieKey,
+    types::{
+        AccountId, Balance, EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey,
+        ShardId, StateChangeCause, StateRoot, ValidatorStake,
+    },
+    utils::{
+        create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
+        system_account,
+    },
 };
-use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    Nonce, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot, ValidatorStake,
-};
-use near_primitives::utils::{create_nonce_with_nonce, system_account};
+pub use near_store;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_access_key, set_account, set_code, set_postponed_receipt, set_received_data, ShardTries,
-    StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
+    set_access_key, set_account, set_code, set_postponed_receipt, set_received_data,
+    PartialStorage, ShardTries, StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
-#[cfg(feature = "costs_counting")]
-pub use near_vm_runner::EXT_COSTS_COUNTER;
+pub use near_vm_runner::with_ext_cost_counter;
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
@@ -39,6 +49,10 @@ use crate::config::{
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use std::borrow::Borrow;
+use std::rc::Rc;
 
 mod actions;
 pub mod adapter;
@@ -51,26 +65,7 @@ pub mod state_viewer;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
-
-#[derive(Debug)]
-pub struct ApplyState {
-    /// Currently building block height.
-    // TODO #1903 pub block_height: BlockHeight,
-    pub block_index: BlockHeight,
-    /// Prev block hash
-    pub last_block_hash: CryptoHash,
-    /// Current epoch id
-    pub epoch_id: EpochId,
-    /// Current epoch height
-    pub epoch_height: EpochHeight,
-    /// Price for the gas.
-    pub gas_price: Balance,
-    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
-    pub block_timestamp: u64,
-    /// Gas limit for a given chunk.
-    /// If None is given, assumes there is no gas limit.
-    pub gas_limit: Option<Gas>,
-}
+pub use near_primitives::runtime::apply_state::ApplyState;
 
 /// Contains information to update validators accounts at the first block of a new epoch.
 #[derive(Debug)]
@@ -117,15 +112,7 @@ pub struct ApplyResult {
     pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ApplyStats,
-}
-
-/// Stores indices for a persistent queue for delayed receipts that didn't fit into a block.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq)]
-pub struct DelayedReceiptIndices {
-    // First inclusive index in the queue.
-    first_index: u64,
-    // Exclusive end index of the queue
-    next_available_index: u64,
+    pub proof: Option<PartialStorage>,
 }
 
 #[derive(Debug)]
@@ -185,13 +172,11 @@ impl Default for ActionResult {
     }
 }
 
-pub struct Runtime {
-    pub config: RuntimeConfig,
-}
+pub struct Runtime {}
 
 impl Runtime {
-    pub fn new(config: RuntimeConfig) -> Self {
-        Runtime { config }
+    pub fn new() -> Self {
+        Self {}
     }
 
     fn print_log(log: &[LogEntry]) {
@@ -226,10 +211,13 @@ impl Runtime {
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
         near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
         match verify_and_charge_transaction(
-            &self.config,
+            &apply_state.config,
             state_update,
             apply_state.gas_price,
             signed_transaction,
+            true,
+            Some(apply_state.block_index),
+            apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
@@ -237,10 +225,16 @@ impl Runtime {
                     tx_hash: signed_transaction.get_hash(),
                 });
                 let transaction = &signed_transaction.transaction;
+                let receipt_id = create_receipt_id_from_transaction(
+                    apply_state.current_protocol_version,
+                    &signed_transaction,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                );
                 let receipt = Receipt {
                     predecessor_id: transaction.signer_id.clone(),
                     receiver_id: transaction.receiver_id.clone(),
-                    receipt_id: create_nonce_with_nonce(&signed_transaction.get_hash(), 0),
+                    receipt_id,
                     receipt: ReceiptEnum::Action(ActionReceipt {
                         signer_id: transaction.signer_id.clone(),
                         signer_public_key: transaction.public_key.clone(),
@@ -283,17 +277,33 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         promise_results: &[PromiseResult],
-        action_hash: CryptoHash,
-        is_last_action: bool,
+        action_hash: &CryptoHash,
+        action_index: usize,
+        actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
+        // println!("enter apply_action");
         let mut result = ActionResult::default();
-        let exec_fees = exec_fee(&self.config.transaction_costs, action);
+        let exec_fees = exec_fee(
+            &apply_state.config.transaction_costs,
+            action,
+            &receipt.receiver_id,
+            apply_state.current_protocol_version,
+        );
         result.gas_burnt += exec_fees;
         result.gas_used += exec_fees;
         let account_id = &receipt.receiver_id;
+        let is_the_only_action = actions.len() == 1;
+        let is_refund = receipt.predecessor_id == system_account();
         // Account validation
-        if let Err(e) = check_account_existence(action, account, account_id) {
+        if let Err(e) = check_account_existence(
+            action,
+            account,
+            account_id,
+            apply_state.current_protocol_version,
+            is_the_only_action,
+            is_refund,
+        ) {
             result.result = Err(e);
             return Ok(result);
         }
@@ -306,8 +316,8 @@ impl Runtime {
             Action::CreateAccount(_) => {
                 near_metrics::inc_counter(&metrics::ACTION_CREATE_ACCOUNT_TOTAL);
                 action_create_account(
-                    &self.config.transaction_costs,
-                    &self.config.account_creation_config,
+                    &apply_state.config.transaction_costs,
+                    &apply_state.config.account_creation_config,
                     account,
                     actor_id,
                     &receipt.receiver_id,
@@ -336,25 +346,40 @@ impl Runtime {
                     &mut result,
                     account_id,
                     function_call,
-                    &action_hash,
-                    &self.config,
-                    is_last_action,
+                    action_hash,
+                    &apply_state.config,
+                    action_index + 1 == actions.len(),
                     epoch_info_provider,
                 )?;
             }
             Action::Transfer(transfer) => {
                 near_metrics::inc_counter(&metrics::ACTION_TRANSFER_TOTAL);
-                action_transfer(account.as_mut().expect(EXPECT_ACCOUNT_EXISTS), transfer)?;
-                // Check if this is a gas refund, then try to refund the access key allowance.
-                if receipt.predecessor_id == system_account()
-                    && action_receipt.signer_id == receipt.receiver_id
-                {
-                    try_refund_allowance(
+                if let Some(account) = account.as_mut() {
+                    action_transfer(account, transfer)?;
+                    // Check if this is a gas refund, then try to refund the access key allowance.
+                    if is_refund && action_receipt.signer_id == receipt.receiver_id {
+                        try_refund_allowance(
+                            state_update,
+                            &receipt.receiver_id,
+                            &action_receipt.signer_public_key,
+                            transfer,
+                        )?;
+                    }
+                } else {
+                    // Implicit account creation
+                    debug_assert!(
+                        apply_state.current_protocol_version
+                            >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    );
+                    debug_assert!(!is_refund);
+                    action_implicit_account_creation_transfer(
                         state_update,
+                        &apply_state.config.transaction_costs,
+                        account,
+                        actor_id,
                         &receipt.receiver_id,
-                        &action_receipt.signer_public_key,
                         transfer,
-                    )?;
+                    );
                 }
             }
             Action::Stake(stake) => {
@@ -364,14 +389,14 @@ impl Runtime {
                     &mut result,
                     account_id,
                     stake,
-                    &apply_state.last_block_hash,
+                    &apply_state.prev_block_hash,
                     epoch_info_provider,
                 )?;
             }
             Action::AddKey(add_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_ADD_KEY_TOTAL);
                 action_add_key(
-                    &self.config.transaction_costs,
+                    apply_state,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -382,12 +407,13 @@ impl Runtime {
             Action::DeleteKey(delete_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_DELETE_KEY_TOTAL);
                 action_delete_key(
-                    &self.config.transaction_costs,
+                    &apply_state.config.transaction_costs,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
                     account_id,
                     delete_key,
+                    apply_state.current_protocol_version,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
@@ -453,12 +479,19 @@ impl Runtime {
         let mut account = get_account(state_update, account_id)?;
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
-        let exec_fee = self.config.transaction_costs.action_receipt_creation_config.exec_fee();
+        let exec_fee =
+            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee();
         result.gas_used = exec_fee;
         result.gas_burnt = exec_fee;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
-            let is_last_action = action_index + 1 == action_receipt.actions.len();
+            let action_hash = create_action_hash(
+                apply_state.current_protocol_version,
+                &receipt,
+                &apply_state.prev_block_hash,
+                &apply_state.block_hash,
+                action_index,
+            );
             let mut new_result = self.apply_action(
                 action,
                 state_update,
@@ -468,16 +501,14 @@ impl Runtime {
                 receipt,
                 action_receipt,
                 &promise_results,
-                create_nonce_with_nonce(
-                    &receipt.receipt_id,
-                    u64::max_value() - action_index as u64,
-                ),
-                is_last_action,
+                &action_hash,
+                action_index,
+                &action_receipt.actions,
                 epoch_info_provider,
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
-                    validate_receipt(&self.config.wasm_config.limit_config, receipt)
+                    validate_receipt(&apply_state.config.wasm_config.limit_config, receipt)
                 }) {
                     new_result.result = Err(ActionErrorKind::NewReceiptValidationError(e).into());
                 }
@@ -493,7 +524,9 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if let Some(amount) = get_insufficient_storage_stake(account, &self.config)? {
+                if let Some(amount) = get_insufficient_storage_stake(account, &apply_state.config)
+                    .map_err(|err| StorageError::StorageInconsistentState(err))?
+                {
                     result.merge(ActionResult {
                         result: Err(ActionError {
                             index: None,
@@ -529,6 +562,8 @@ impl Runtime {
                 receipt,
                 action_receipt,
                 &mut result,
+                apply_state.current_protocol_version,
+                &apply_state.config.transaction_costs,
             )?
         };
         stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
@@ -557,8 +592,8 @@ impl Runtime {
 
         // Adding burnt gas reward for function calls if the account exists.
         let receiver_gas_reward = result.gas_burnt_for_function_call
-            * *self.config.transaction_costs.burnt_gas_reward.numer() as u64
-            / *self.config.transaction_costs.burnt_gas_reward.denom() as u64;
+            * *apply_state.config.transaction_costs.burnt_gas_reward.numer() as u64
+            / *apply_state.config.transaction_costs.burnt_gas_reward.denom() as u64;
         // The balance that the current account should receive as a reward for function call
         // execution.
         let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
@@ -626,8 +661,14 @@ impl Runtime {
             .into_iter()
             .enumerate()
             .filter_map(|(receipt_index, mut new_receipt)| {
-                let receipt_id =
-                    create_nonce_with_nonce(&receipt.receipt_id, receipt_index as Nonce);
+                let receipt_id = create_receipt_id_from_receipt(
+                    apply_state.current_protocol_version,
+                    &receipt,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                    receipt_index,
+                );
+
                 new_receipt.receipt_id = receipt_id;
                 let is_action = match &new_receipt.receipt {
                     ReceiptEnum::Action(_) => true,
@@ -643,9 +684,15 @@ impl Runtime {
             .collect();
 
         let status = match result.result {
-            Ok(ReturnData::ReceiptIndex(receipt_index)) => ExecutionStatus::SuccessReceiptId(
-                create_nonce_with_nonce(&receipt.receipt_id, receipt_index as Nonce),
-            ),
+            Ok(ReturnData::ReceiptIndex(receipt_index)) => {
+                ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt(
+                    apply_state.current_protocol_version,
+                    &receipt,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                    receipt_index as usize,
+                ))
+            }
             Ok(ReturnData::Value(data)) => ExecutionStatus::SuccessValue(data),
             Ok(ReturnData::None) => ExecutionStatus::SuccessValue(vec![]),
             Err(e) => ExecutionStatus::Failure(TxExecutionError::ActionError(e)),
@@ -672,12 +719,19 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
+        current_protocol_version: ProtocolVersion,
+        transaction_costs: &RuntimeFeesConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
         let exec_gas = safe_add_gas(
-            total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)?,
-            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            total_exec_fees(
+                &transaction_costs,
+                &action_receipt.actions,
+                &receipt.receiver_id,
+                current_protocol_version,
+            )?,
+            transaction_costs.action_receipt_creation_config.exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
@@ -1012,7 +1066,7 @@ impl Runtime {
     /// receivers) and incoming action receipts.
     pub fn apply(
         &self,
-        trie: Arc<Trie>,
+        trie: Trie,
         root: CryptoHash,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
@@ -1020,8 +1074,9 @@ impl Runtime {
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ApplyResult, RuntimeError> {
+        let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut state_update = TrieUpdate::new(trie, root);
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
 
         let mut stats = ApplyStats::default();
 
@@ -1113,12 +1168,14 @@ impl Runtime {
             })?;
 
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
-            validate_receipt(&self.config.wasm_config.limit_config, &receipt).map_err(|e| {
-                StorageError::StorageInconsistentState(format!(
-                    "Delayed receipt #{} in the state is invalid: {}",
-                    delayed_receipts_indices.first_index, e
-                ))
-            })?;
+            validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt).map_err(
+                |e| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Delayed receipt #{} in the state is invalid: {}",
+                        delayed_receipts_indices.first_index, e
+                    ))
+                },
+            )?;
 
             state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
@@ -1130,7 +1187,7 @@ impl Runtime {
         for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
-            validate_receipt(&self.config.wasm_config.limit_config, &receipt)
+            validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt)
                 .map_err(RuntimeError::ReceiptValidationError)?;
             if total_gas_burnt < gas_limit {
                 process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
@@ -1144,7 +1201,7 @@ impl Runtime {
         }
 
         check_balance(
-            &self.config.transaction_costs,
+            &apply_state.config.transaction_costs,
             &initial_state,
             &state_update,
             validator_accounts_update,
@@ -1152,6 +1209,7 @@ impl Runtime {
             transactions,
             &outgoing_receipts,
             &stats,
+            apply_state.current_protocol_version,
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
@@ -1170,6 +1228,7 @@ impl Runtime {
         }
 
         let state_root = trie_changes.new_root;
+        let proof = trie.recorded_storage();
         Ok(ApplyResult {
             state_root,
             trie_changes,
@@ -1178,6 +1237,7 @@ impl Runtime {
             outcomes,
             state_changes,
             stats,
+            proof,
         })
     }
 
@@ -1204,11 +1264,15 @@ impl Runtime {
 
     /// It's okay to use unsafe math here, because this method should only be called on the trusted
     /// state records (e.g. at launch from genesis)
-    pub fn compute_storage_usage(&self, records: &[StateRecord]) -> HashMap<AccountId, u64> {
+    pub fn compute_storage_usage<Record: Borrow<StateRecord>>(
+        &self,
+        records: &[Record],
+        config: &RuntimeConfig,
+    ) -> HashMap<AccountId, u64> {
         let mut result = HashMap::new();
-        let config = &self.config.transaction_costs.storage_usage_config;
+        let config = &config.transaction_costs.storage_usage_config;
         for record in records {
-            let account_and_storage = match record {
+            let account_and_storage = match record.borrow() {
                 StateRecord::Account { account_id, .. } => {
                     Some((account_id.clone(), config.num_bytes_account))
                 }
@@ -1240,18 +1304,19 @@ impl Runtime {
     }
 
     /// Balances are account, publickey, initial_balance, initial_tx_stake
-    pub fn apply_genesis_state(
+    pub fn apply_genesis_state<Record: Borrow<StateRecord>>(
         &self,
         tries: ShardTries,
         shard_id: ShardId,
         validators: &[(AccountId, PublicKey, Balance)],
-        records: &[StateRecord],
+        records: &[Record],
+        config: &RuntimeConfig,
     ) -> (StoreUpdate, StateRoot) {
         let mut state_update = tries.new_trie_update(shard_id, MerkleHash::default());
         let mut postponed_receipts: Vec<Receipt> = vec![];
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         for record in records {
-            match record.clone() {
+            match record.borrow().clone() {
                 StateRecord::Account { account_id, account } => {
                     set_account(&mut state_update, account_id, &account);
                 }
@@ -1260,7 +1325,8 @@ impl Runtime {
                 }
                 StateRecord::Contract { account_id, code } => {
                     let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
-                    let code = ContractCode::new(code);
+                    // Recompute contract code hash.
+                    let code = ContractCode::new(code, None);
                     set_code(&mut state_update, account_id, &code);
                     assert_eq!(code.get_hash(), acc.code_hash);
                 }
@@ -1289,7 +1355,7 @@ impl Runtime {
                 }
             }
         }
-        for (account_id, storage_usage) in self.compute_storage_usage(records) {
+        for (account_id, storage_usage) in self.compute_storage_usage(records, &config) {
             let mut account = get_account(&state_update, &account_id)
                 .expect("Genesis storage error")
                 .expect("Account must exist");
@@ -1347,10 +1413,9 @@ impl Runtime {
             set_account(&mut state_update, account_id.clone(), &account);
         }
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().expect("Genesis state update failed").0;
+        let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
 
-        let (store_update, state_root) =
-            tries.apply_all(&trie_changes, shard_id).expect("Genesis state update failed");
+        let (store_update, state_root) = tries.apply_genesis(trie_changes, shard_id);
         (store_update, state_root)
     }
 }
@@ -1362,10 +1427,16 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
+    use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
-    use near_primitives::transaction::{FunctionCallAction, TransferAction};
+    use near_primitives::transaction::{
+        AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
+    };
     use near_primitives::types::MerkleHash;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
+    use near_store::StoreCompiledContractCache;
+    use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     const GAS_PRICE: Balance = 5000;
@@ -1414,14 +1485,15 @@ mod tests {
     {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let runtime = Runtime::new(RuntimeConfig::default());
-
+        let runtime = Runtime::new();
         let account_id = alice_account();
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
         let mut initial_state = tries.new_trie_update(0, root);
         let mut initial_account = account_new(initial_balance, hash(&[]));
+        // For the account and a full access key
+        initial_account.storage_usage = 182;
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         set_access_key(
@@ -1436,13 +1508,21 @@ mod tests {
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            block_index: 0,
-            last_block_hash: Default::default(),
+            block_index: 1,
+            prev_block_hash: Default::default(),
+            block_hash: Default::default(),
             epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: GAS_PRICE,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),
+            random_seed: Default::default(),
+            current_protocol_version: PROTOCOL_VERSION,
+            config: Arc::new(RuntimeConfig::default()),
+            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
+            profile: ProfileData::new_enabled(),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
@@ -1543,9 +1623,12 @@ mod tests {
         let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
-        let receipt_gas_cost =
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
-                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+        let receipt_gas_cost = apply_state
+            .config
+            .transaction_costs
+            .action_receipt_creation_config
+            .exec_fee()
+            + apply_state.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
         apply_state.gas_limit = Some(receipt_gas_cost * 3);
 
         let n = 40;
@@ -1589,9 +1672,12 @@ mod tests {
         let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
-        let receipt_gas_cost =
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
-                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+        let receipt_gas_cost = apply_state
+            .config
+            .transaction_costs
+            .action_receipt_creation_config
+            .exec_fee()
+            + apply_state.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
 
         let n = 120;
         let receipts = generate_receipts(small_transfer, n);
@@ -1641,21 +1727,25 @@ mod tests {
     }
 
     fn generate_receipts(small_transfer: u128, n: u64) -> Vec<Receipt> {
+        let mut receipt_id = CryptoHash::default();
         (0..n)
-            .map(|i| Receipt {
-                predecessor_id: bob_account(),
-                receiver_id: alice_account(),
-                receipt_id: create_nonce_with_nonce(&CryptoHash::default(), i),
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: bob_account(),
-                    signer_public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_price: GAS_PRICE,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction {
-                        deposit: small_transfer + Balance::from(i),
-                    })],
-                }),
+            .map(|i| {
+                receipt_id = hash(receipt_id.as_ref());
+                Receipt {
+                    predecessor_id: bob_account(),
+                    receiver_id: alice_account(),
+                    receipt_id,
+                    receipt: ReceiptEnum::Action(ActionReceipt {
+                        signer_id: bob_account(),
+                        signer_public_key: PublicKey::empty(KeyType::ED25519),
+                        gas_price: GAS_PRICE,
+                        output_data_receivers: vec![],
+                        input_data_ids: vec![],
+                        actions: vec![Action::Transfer(TransferAction {
+                            deposit: small_transfer + Balance::from(i),
+                        })],
+                    }),
+                }
             })
             .collect()
     }
@@ -1665,13 +1755,14 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
-        let (mut runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
         let receipt_exec_gas_fee = 1000;
-        runtime.config = RuntimeConfig::free();
-        runtime.config.transaction_costs.action_receipt_creation_config.execution =
+        let mut free_config = RuntimeConfig::free();
+        free_config.transaction_costs.action_receipt_creation_config.execution =
             receipt_exec_gas_fee;
+        apply_state.config = Arc::new(free_config);
         // This allows us to execute 3 receipts per apply.
         apply_state.gas_limit = Some(receipt_exec_gas_fee * 3);
 
@@ -1717,9 +1808,24 @@ mod tests {
                 local_transactions[1].get_hash(), // tx 1
                 local_transactions[2].get_hash(), // tx 2
                 local_transactions[3].get_hash(), // tx 3 - the TX is processed, but the receipt is delayed
-                create_nonce_with_nonce(&local_transactions[0].get_hash(), 0), // receipt for tx 0
-                create_nonce_with_nonce(&local_transactions[1].get_hash(), 0), // receipt for tx 1
-                create_nonce_with_nonce(&local_transactions[2].get_hash(), 0), // receipt for tx 2
+                create_receipt_id_from_transaction(
+                    PROTOCOL_VERSION,
+                    &local_transactions[0],
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash
+                ), // receipt for tx 0
+                create_receipt_id_from_transaction(
+                    PROTOCOL_VERSION,
+                    &local_transactions[1],
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash
+                ), // receipt for tx 1
+                create_receipt_id_from_transaction(
+                    PROTOCOL_VERSION,
+                    &local_transactions[2],
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash
+                ), // receipt for tx 2
             ],
             "STEP #1 failed",
         );
@@ -1746,8 +1852,18 @@ mod tests {
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
             vec![
                 local_transactions[4].get_hash(), // tx 4
-                create_nonce_with_nonce(&local_transactions[4].get_hash(), 0), // receipt for tx 4
-                create_nonce_with_nonce(&local_transactions[3].get_hash(), 0), // receipt for tx 3
+                create_receipt_id_from_transaction(
+                    PROTOCOL_VERSION,
+                    &local_transactions[4],
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                ), // receipt for tx 4
+                create_receipt_id_from_transaction(
+                    PROTOCOL_VERSION,
+                    &local_transactions[3],
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                ), // receipt for tx 3
                 receipts[0].receipt_id,           // receipt #0
             ],
             "STEP #2 failed",
@@ -1778,9 +1894,24 @@ mod tests {
                 local_transactions[6].get_hash(), // tx 6
                 local_transactions[7].get_hash(), // tx 7
                 local_transactions[8].get_hash(), // tx 8
-                create_nonce_with_nonce(&local_transactions[5].get_hash(), 0), // receipt for tx 5
-                create_nonce_with_nonce(&local_transactions[6].get_hash(), 0), // receipt for tx 6
-                create_nonce_with_nonce(&local_transactions[7].get_hash(), 0), // receipt for tx 7
+                create_receipt_id_from_transaction(
+                    PROTOCOL_VERSION,
+                    &local_transactions[5],
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                ), // receipt for tx 5
+                create_receipt_id_from_transaction(
+                    PROTOCOL_VERSION,
+                    &local_transactions[6],
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                ), // receipt for tx 6
+                create_receipt_id_from_transaction(
+                    PROTOCOL_VERSION,
+                    &local_transactions[7],
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                ), // receipt for tx 7
             ],
             "STEP #3 failed",
         );
@@ -1806,9 +1937,14 @@ mod tests {
         assert_eq!(
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
             vec![
-                receipts[1].receipt_id,                                        // receipt #1
-                receipts[2].receipt_id,                                        // receipt #2
-                create_nonce_with_nonce(&local_transactions[8].get_hash(), 0), // receipt for tx 8
+                receipts[1].receipt_id, // receipt #1
+                receipts[2].receipt_id, // receipt #2
+                create_receipt_id_from_transaction(
+                    PROTOCOL_VERSION,
+                    &local_transactions[8],
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                ), // receipt for tx 8
             ],
             "STEP #4 failed",
         );
@@ -1966,14 +2102,20 @@ mod tests {
         })];
 
         let expected_gas_burnt = safe_add_gas(
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-            total_exec_fees(&runtime.config.transaction_costs, &actions).unwrap(),
+            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            total_exec_fees(
+                &apply_state.config.transaction_costs,
+                &actions,
+                &alice_account(),
+                PROTOCOL_VERSION,
+            )
+            .unwrap(),
         )
         .unwrap();
         let receipts = vec![Receipt {
             predecessor_id: bob_account(),
             receiver_id: alice_account(),
-            receipt_id: create_nonce_with_nonce(&CryptoHash::default(), 0),
+            receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: bob_account(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
@@ -2029,14 +2171,20 @@ mod tests {
         })];
 
         let expected_gas_burnt = safe_add_gas(
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-            total_exec_fees(&runtime.config.transaction_costs, &actions).unwrap(),
+            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            total_exec_fees(
+                &apply_state.config.transaction_costs,
+                &actions,
+                &alice_account(),
+                PROTOCOL_VERSION,
+            )
+            .unwrap(),
         )
         .unwrap();
         let receipts = vec![Receipt {
             predecessor_id: bob_account(),
             receiver_id: alice_account(),
-            receipt_id: create_nonce_with_nonce(&CryptoHash::default(), 0),
+            receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: bob_account(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
@@ -2065,5 +2213,108 @@ mod tests {
         assert_eq!(result.stats.gas_deficit_amount, expected_deficit);
         // Burnt all the fees + all prepaid gas.
         assert_eq!(result.stats.tx_burnt_amount, total_receipt_cost);
+    }
+
+    #[test]
+    fn test_delete_key_add_key() {
+        let initial_locked = to_yocto(500_000);
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+            setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
+
+        let state_update = tries.new_trie_update(0, root);
+        let initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+
+        let actions = vec![
+            Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() }),
+            Action::AddKey(AddKeyAction {
+                public_key: signer.public_key(),
+                access_key: AccessKey::full_access(),
+            }),
+        ];
+
+        let receipts = vec![Receipt {
+            predecessor_id: alice_account(),
+            receiver_id: alice_account(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: alice_account(),
+                signer_public_key: signer.public_key(),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        }];
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(0),
+                root,
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+            )
+            .unwrap();
+        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
+
+        let state_update = tries.new_trie_update(0, root);
+        let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+
+        assert_eq!(initial_account_state.storage_usage, final_account_state.storage_usage);
+    }
+
+    #[test]
+    fn test_delete_key_underflow() {
+        let initial_locked = to_yocto(500_000);
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+            setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
+
+        let mut state_update = tries.new_trie_update(0, root);
+        let mut initial_account_state =
+            get_account(&state_update, &alice_account()).unwrap().unwrap();
+        initial_account_state.storage_usage = 10;
+        set_account(&mut state_update, alice_account(), &initial_account_state);
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().0;
+        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
+
+        let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() })];
+
+        let receipts = vec![Receipt {
+            predecessor_id: alice_account(),
+            receiver_id: alice_account(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: alice_account(),
+                signer_public_key: signer.public_key(),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        }];
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(0),
+                root,
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+            )
+            .unwrap();
+        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
+
+        let state_update = tries.new_trie_update(0, root);
+        let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+
+        assert_eq!(final_account_state.storage_usage, 0);
     }
 }

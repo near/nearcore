@@ -3,7 +3,9 @@ extern crate lazy_static;
 
 use std::fs::File;
 use std::io::{Read, Write};
+use std::ops::Deref;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::{fmt, io};
 
@@ -13,8 +15,8 @@ use cached::{Cached, SizedCache};
 
 pub use db::DBCol::{self, *};
 pub use db::{
-    CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY,
-    NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC, TAIL_KEY,
 };
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -24,26 +26,31 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
-use crate::db::{DBOp, DBTransaction, Database, RocksDB};
+pub use crate::db::refcount::decode_value_with_rc;
+use crate::db::refcount::encode_value_with_rc;
+use crate::db::{
+    DBOp, DBTransaction, Database, RocksDB, GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
+};
 pub use crate::trie::{
     iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
     update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, ShardTries, Trie, TrieChanges,
     WrappedTrieChanges,
 };
 
-mod db;
+pub mod db;
 pub mod migrations;
 pub mod test_utils;
 mod trie;
 
+#[derive(Clone)]
 pub struct Store {
-    storage: Arc<dyn Database>,
+    storage: Pin<Arc<dyn Database>>,
 }
 
 impl Store {
-    pub fn new(storage: Arc<dyn Database>) -> Store {
+    pub fn new(storage: Pin<Arc<dyn Database>>) -> Store {
         Store { storage }
     }
 
@@ -81,6 +88,13 @@ impl Store {
         self.storage.iter(column)
     }
 
+    pub fn iter_without_rc_logic<'a>(
+        &'a self,
+        column: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        self.storage.iter_without_rc_logic(column)
+    }
+
     pub fn iter_prefix<'a>(
         &'a self,
         column: DBCol,
@@ -103,7 +117,7 @@ impl Store {
 
     pub fn save_to_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
-        for (key, value) in self.storage.iter(column) {
+        for (key, value) in self.storage.iter_without_rc_logic(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
             file.write_all(&key)?;
             file.write_u32::<LittleEndian>(value.len() as u32)?;
@@ -130,18 +144,22 @@ impl Store {
         }
         self.storage.write(transaction).map_err(|e| e.into())
     }
+
+    pub fn get_rocksdb(&self) -> Option<&RocksDB> {
+        self.storage.as_rocksdb()
+    }
 }
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
-    storage: Arc<dyn Database>,
+    storage: Pin<Arc<dyn Database>>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
     tries: Option<ShardTries>,
 }
 
 impl StoreUpdate {
-    pub fn new(storage: Arc<dyn Database>) -> Self {
+    pub fn new(storage: Pin<Arc<dyn Database>>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, tries: None }
     }
@@ -150,6 +168,12 @@ impl StoreUpdate {
         let storage = tries.get_store().storage.clone();
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, tries: Some(tries) }
+    }
+
+    pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
+        debug_assert!(column.is_rc());
+        let value = encode_value_with_rc(value, rc_delta);
+        self.transaction.update_refcount(column, key, value)
     }
 
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
@@ -162,6 +186,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> Result<(), io::Error> {
+        debug_assert!(!column.is_rc());
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -171,6 +196,10 @@ impl StoreUpdate {
         self.transaction.delete(column, key);
     }
 
+    pub fn delete_all(&mut self, column: DBCol) {
+        self.transaction.delete_all(column);
+    }
+
     /// Merge another store update into this one.
     pub fn merge(&mut self, other: StoreUpdate) {
         if let Some(tries) = other.tries {
@@ -178,8 +207,8 @@ impl StoreUpdate {
                 self.tries = Some(tries);
             } else {
                 debug_assert_eq!(
-                    self.tries.as_ref().unwrap().tries.as_ref() as *const _,
-                    tries.tries.as_ref() as *const _
+                    self.tries.as_ref().unwrap().caches.as_ref() as *const _,
+                    tries.caches.as_ref() as *const _
                 );
             }
         }
@@ -193,30 +222,38 @@ impl StoreUpdate {
             match op {
                 DBOp::Insert { col, key, value } => self.transaction.put(col, &key, &value),
                 DBOp::Delete { col, key } => self.transaction.delete(col, &key),
+                DBOp::UpdateRefcount { col, key, value } => {
+                    self.transaction.update_refcount(col, &key, &value)
+                }
+                DBOp::DeleteAll { col } => self.transaction.delete_all(col),
             }
         }
     }
 
     pub fn commit(self) -> Result<(), io::Error> {
         debug_assert!(
-            self.transaction.ops.len()
-                == self
+            {
+                let non_refcount_keys = self
                     .transaction
                     .ops
                     .iter()
-                    .map(|op| match op {
-                        DBOp::Insert { col, key, .. } => (*col as u8, key),
-                        DBOp::Delete { col, key } => (*col as u8, key),
+                    .filter_map(|op| match op {
+                        DBOp::Insert { col, key, .. } => Some((*col as u8, key)),
+                        DBOp::Delete { col, key } => Some((*col as u8, key)),
+                        DBOp::UpdateRefcount { .. } => None,
+                        DBOp::DeleteAll { .. } => None,
                     })
-                    .collect::<std::collections::HashSet<_>>()
-                    .len(),
+                    .collect::<Vec<_>>();
+                non_refcount_keys.len()
+                    == non_refcount_keys.iter().collect::<std::collections::HashSet<_>>().len()
+            },
             "Transaction overwrites itself: {:?}",
             self
         );
         if let Some(tries) = self.tries {
             assert_eq!(
-                tries.get_store().storage.as_ref() as *const _,
-                self.storage.as_ref() as *const _
+                tries.get_store().storage.deref() as *const _,
+                self.storage.deref() as *const _
             );
             tries.update_cache(&self.transaction)?;
         }
@@ -230,7 +267,11 @@ impl fmt::Debug for StoreUpdate {
         for op in self.transaction.ops.iter() {
             match op {
                 DBOp::Insert { col, key, .. } => writeln!(f, "  + {:?} {}", col, to_base(key))?,
+                DBOp::UpdateRefcount { col, key, .. } => {
+                    writeln!(f, "  +- {:?} {}", col, to_base(key))?
+                }
                 DBOp::Delete { col, key } => writeln!(f, "  - {:?} {}", col, to_base(key))?,
+                DBOp::DeleteAll { col } => writeln!(f, "  delete all {:?}", col)?,
             }
         }
         writeln!(f, "}}")
@@ -255,7 +296,7 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
 }
 
 pub fn create_store(path: &str) -> Arc<Store> {
-    let db = Arc::new(RocksDB::new(path).expect("Failed to open the database"));
+    let db = Arc::pin(RocksDB::new(path).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
 
@@ -384,10 +425,11 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &Con
 pub fn get_code(
     state_update: &TrieUpdate,
     account_id: &AccountId,
+    code_hash: Option<CryptoHash>,
 ) -> Result<Option<ContractCode>, StorageError> {
     state_update
         .get(&TrieKey::ContractCode { account_id: account_id.clone() })
-        .map(|opt| opt.map(|code| ContractCode::new(code.to_vec())))
+        .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.
@@ -432,4 +474,53 @@ pub fn remove_account(
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }
     Ok(())
+}
+
+pub fn get_genesis_state_roots(store: &Store) -> Result<Option<Vec<StateRoot>>, std::io::Error> {
+    store.get_ser::<Vec<StateRoot>>(DBCol::ColBlockMisc, GENESIS_STATE_ROOTS_KEY)
+}
+
+pub fn get_genesis_hash(store: &Store) -> Result<Option<CryptoHash>, std::io::Error> {
+    store.get_ser::<CryptoHash>(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY)
+}
+
+pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHash) {
+    store_update
+        .set_ser::<CryptoHash>(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY, genesis_hash)
+        .expect("Borsh cannot fail");
+}
+
+pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &Vec<StateRoot>) {
+    store_update
+        .set_ser::<Vec<StateRoot>>(DBCol::ColBlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .expect("Borsh cannot fail");
+}
+
+pub struct StoreCompiledContractCache {
+    pub store: Arc<Store>,
+}
+
+/// Cache for compiled contracts code using Store for keeping data.
+/// We store contracts in VM-specific format in DBCol::ColCachedContractCode.
+/// Key must take into account VM being used and its configuration, so that
+/// we don't cache non-gas metered binaries, for example.
+impl CompiledContractCache for StoreCompiledContractCache {
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error> {
+        let mut store_update = self.store.store_update();
+        store_update.set(DBCol::ColCachedContractCode, key, value);
+        store_update.commit()
+    }
+
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
+        self.store.get(DBCol::ColCachedContractCode, key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_no_cache_disabled() {
+        #[cfg(feature = "no_cache")]
+        panic!("no cache is enabled");
+    }
 }

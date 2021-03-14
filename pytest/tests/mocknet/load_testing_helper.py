@@ -6,19 +6,16 @@ import base58
 import base64
 import requests
 import json
-from rc import pmap
+from rc import pmap, run
 import sys
 import random
 import string
 import time
 
 sys.path.append('lib')
-from cluster import Key
-from mocknet import NUM_NODES
-from transaction import (
-    sign_payment_tx, sign_deploy_contract_tx, sign_function_call_tx,
-    sign_create_account_with_full_access_key_and_balance_tx, sign_staking_tx)
-import utils
+from key import Key
+from mocknet import NUM_NODES, TX_OUT_FILE
+from account import Account
 
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
@@ -60,89 +57,46 @@ def get_nonce_for_pk(account_id, pk, finality='optimistic'):
             return k['access_key']['nonce']
 
 
-def send_tx(signed_tx):
-    json_rpc('broadcast_tx_async', [base64.b64encode(signed_tx).decode('utf8')])
-
-
 def get_latest_block_hash():
     last_block_hash = get_status()['sync_info']['latest_block_hash']
     return base58.b58decode(last_block_hash.encode('utf8'))
 
 
-def send_transfer(source_account, dest_index):
-    alice = source_account
-    bob = load_testing_account_id(dest_index)
-    alice_nonce = get_nonce_for_pk(alice.account_id, alice.pk)
-    last_block_hash = get_latest_block_hash()
-    tranfer_amount = 100
-    tx = sign_payment_tx(alice, bob, tranfer_amount, alice_nonce + 1,
-                         last_block_hash)
-    send_tx(tx)
+def send_transfer(account, i, i0):
+    next_id = i + 1
+    if next_id >= i0 + NUM_ACCOUNTS:
+        next_id = i0
+    dest_account_id = load_testing_account_id(next_id)
+    account.send_transfer_tx(dest_account_id)
 
 
-def deploy_contract(source_account):
-    last_block_hash = get_latest_block_hash()
-    nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
-    wasm_binary = utils.load_binary_file(WASM_FILENAME)
-    tx = sign_deploy_contract_tx(source_account, wasm_binary, nonce + 1,
-                                 last_block_hash)
-    send_tx(tx)
-
-
-def call_contract(source_account):
-    last_block_hash = get_latest_block_hash()
-    nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
-    tx = sign_function_call_tx(source_account, source_account.account_id,
-                               'do_work', [], 300000000000000, 0, nonce + 1,
-                               last_block_hash)
-    send_tx(tx)
-
-
-def create_account(source_account):
-    last_block_hash = get_latest_block_hash()
-    nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
-    new_account_id = ''.join(
-        random.choice(string.ascii_lowercase) for _ in range(0, 10))
-    new_key = Key(new_account_id, source_account.pk, source_account.sk)
-    tx = sign_create_account_with_full_access_key_and_balance_tx(
-        source_account, new_account_id, new_key, 100, nonce + 1,
-        last_block_hash)
-    send_tx(tx)
-
-
-def stake(source_account):
-    last_block_hash = get_latest_block_hash()
-    nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
-    tx = sign_staking_tx(source_account, source_account, 1, nonce + 1,
-                         last_block_hash)
-    send_tx(tx)
-
-
-def random_transaction(account_and_index):
+def random_transaction(account_and_index, i0):
     choice = random.randint(0, 3)
     if choice == 0:
-        send_transfer(account_and_index[0], account_and_index[1] + 1)
+        send_transfer(account_and_index[0], account_and_index[1], i0)
     elif choice == 1:
-        call_contract(account_and_index[0])
+        account_and_index[0].send_call_contract_tx('do_work', [])
     elif choice == 2:
-        create_account(account_and_index[0])
+        new_account_id = ''.join(
+            random.choice(string.ascii_lowercase) for _ in range(0, 10))
+        account_and_index[0].send_create_account_tx(new_account_id)
     elif choice == 3:
-        stake(account_and_index[0])
+        account_and_index[0].send_stake_tx(1)
 
 
-def send_transfers():
+def send_transfers(i0):
     pmap(
-        lambda account_and_index: send_transfer(account_and_index[0], (
-            account_and_index[1] + 1) % NUM_ACCOUNTS), test_accounts)
+        lambda account_and_index: send_transfer(account_and_index[
+            0], account_and_index[1], i0), test_accounts)
 
 
-def send_random_transactions():
-    pmap(random_transaction, test_accounts)
+def send_random_transactions(i0):
+    pmap(lambda x: random_transaction(x, i0), test_accounts)
 
 
-def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps):
+def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps, i0):
     start_time = time.time()
-    send_txns()
+    send_txns(i0)
     duration = time.time() - start_time
     total_tx_sent += NUM_ACCOUNTS
     elapsed_time += duration
@@ -156,17 +110,41 @@ def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps):
     return (total_tx_sent, elapsed_time)
 
 
-if __name__ == '__main__':
+def write_tx_events(accounts_and_indices):
+    # record events for accurate input tps measurements
+    all_tx_events = []
+    for (account, _) in accounts_and_indices:
+        all_tx_events += account.tx_timestamps
+    all_tx_events.sort()
+    with open(TX_OUT_FILE, 'w') as output:
+        for t in all_tx_events:
+            output.write(f'{t}\n')
+
+
+def get_test_accounts_from_args():
     node_index = int(sys.argv[1])
     pk = sys.argv[2]
     sk = sys.argv[3]
 
-    test_accounts = [
+    test_account_keys = [
         (Key(load_testing_account_id(i), pk, sk), i)
         for i in range(node_index * NUM_ACCOUNTS, (node_index + 1) *
                        NUM_ACCOUNTS)
     ]
 
+    base_block_hash = get_latest_block_hash()
+    rpc_info = (LOCAL_ADDR, RPC_PORT)
+
+    return [(Account(key, get_nonce_for_pk(key.account_id, key.pk),
+                     base_block_hash, rpc_info), i)
+            for (key, i) in test_account_keys]
+
+
+if __name__ == '__main__':
+    test_accounts = get_test_accounts_from_args()
+    run(f'rm -rf {TX_OUT_FILE}')
+
+    i0 = test_accounts[0][1]
     start_time = time.time()
 
     # begin with only transfers for TPS measurement
@@ -175,19 +153,27 @@ if __name__ == '__main__':
     while time.time() - start_time < TRANSFER_ONLY_TIMEOUT:
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_transfers, total_tx_sent,
-                                       elapsed_time, MAX_TPS_PER_NODE)
+                                       elapsed_time, MAX_TPS_PER_NODE, i0)
+
+    write_tx_events(test_accounts)
 
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
     # call the contract before it is deployed).
     delay = CONTRACT_DEPLOY_TIME / NUM_ACCOUNTS
-    for x in test_accounts:
-        deploy_contract(x[0])
+    for (account, _) in test_accounts:
+        account.send_deploy_contract_tx(WASM_FILENAME)
         time.sleep(delay)
 
+    # reset input transactions
+    run(f'rm -rf {TX_OUT_FILE}')
+    for (account, _) in test_accounts:
+        account.tx_timestamps = []
     # send all sorts of transactions
     start_time = time.time()
     while time.time() - start_time < ALL_TX_TIMEOUT:
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
-                                       elapsed_time, MAX_TPS_PER_NODE)
+                                       elapsed_time, MAX_TPS_PER_NODE, i0)
+
+    write_tx_events(test_accounts)

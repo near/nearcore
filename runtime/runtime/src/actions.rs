@@ -1,77 +1,146 @@
-use std::sync::Arc;
+use borsh::{BorshDeserialize, BorshSerialize};
 
-use borsh::BorshSerialize;
-use log::debug;
-
-use near_primitives::account::{AccessKeyPermission, Account};
+use near_crypto::PublicKey;
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
+use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
+use near_primitives::runtime::config::AccountCreationConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, EpochInfoProvider, ValidatorStake};
-use near_primitives::utils::{
-    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
+use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
+use near_primitives::utils::create_random_seed;
+use near_primitives::version::{
+    ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
 };
-use near_runtime_fees::RuntimeFeesConfig;
+use near_runtime_utils::{
+    is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
+    is_valid_top_level_account_id,
+};
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
 };
+use near_vm_errors::{
+    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
+};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::VMContext;
+use near_vm_logic::{VMContext, VMOutcome};
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
-use near_crypto::PublicKey;
-use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
-use near_runtime_configs::AccountCreationConfig;
-use near_vm_errors::{CompilationError, FunctionCallError};
-use near_vm_runner::VMError;
 
-/// Checks if given account has enough balance for state stake, and returns:
-///  - None if account has enough balance,
-///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
-///  - Err(StorageError::StorageInconsistentState) if account has invalid storage usage or amount/locked.
-///
-/// Read details of state staking https://nomicon.io/Economics/README.html#state-stake
-pub(crate) fn get_insufficient_storage_stake(
-    account: &Account,
-    runtime_config: &RuntimeConfig,
-) -> Result<Option<Balance>, StorageError> {
-    let required_amount = Balance::from(account.storage_usage)
-        .checked_mul(runtime_config.storage_amount_per_byte)
-        .ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Account's storage_usage {} overflows multiplication",
-                account.storage_usage
-            ))
-        })?;
-    let available_amount = account.amount.checked_add(account.locked).ok_or_else(|| {
-        StorageError::StorageInconsistentState(format!(
-            "Account's amount {} and locked {} overflow addition",
-            account.amount, account.locked
-        ))
-    })?;
-    if available_amount >= required_amount {
-        Ok(None)
+/// Runs given function call with given context / apply state.
+/// Precompiles:
+///  - 0x1: EVM interpreter;
+pub(crate) fn execute_function_call(
+    apply_state: &ApplyState,
+    runtime_ext: &mut RuntimeExt,
+    account: &mut Account,
+    predecessor_id: &AccountId,
+    action_receipt: &ActionReceipt,
+    promise_results: &[PromiseResult],
+    function_call: &FunctionCallAction,
+    action_hash: &CryptoHash,
+    config: &RuntimeConfig,
+    is_last_action: bool,
+    is_view: bool,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    let account_id = runtime_ext.account_id();
+    if checked_feature!("protocol_feature_evm", EVM, runtime_ext.protocol_version())
+        && is_account_evm(&account_id)
+    {
+        #[cfg(not(feature = "protocol_feature_evm"))]
+        unreachable!();
+        #[cfg(feature = "protocol_feature_evm")]
+        near_evm_runner::run_evm(
+            runtime_ext,
+            apply_state.evm_chain_id,
+            &config.wasm_config,
+            &config.transaction_costs,
+            &account_id,
+            &action_receipt.signer_id,
+            predecessor_id,
+            account.amount,
+            function_call.deposit,
+            account.storage_usage,
+            function_call.method_name.clone(),
+            function_call.args.clone(),
+            function_call.gas,
+            is_view,
+        )
     } else {
-        Ok(Some(required_amount - available_amount))
-    }
-}
+        let code = match runtime_ext.get_code(account.code_hash) {
+            Ok(Some(code)) => code,
+            Ok(None) => {
+                let error =
+                    FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                        account_id: account_id.clone(),
+                    });
+                return (None, Some(VMError::FunctionCallError(error)));
+            }
+            Err(e) => {
+                return (
+                    None,
+                    Some(VMError::InconsistentStateError(InconsistentStateError::StorageError(
+                        e.to_string(),
+                    ))),
+                );
+            }
+        };
+        // Output data receipts are ignored if the function call is not the last action in the batch.
+        let output_data_receivers: Vec<_> = if is_last_action {
+            action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
+        } else {
+            vec![]
+        };
+        let random_seed = create_random_seed(
+            apply_state.current_protocol_version,
+            *action_hash,
+            apply_state.random_seed,
+        );
+        let context = VMContext {
+            current_account_id: runtime_ext.account_id().clone(),
+            signer_account_id: action_receipt.signer_id.clone(),
+            signer_account_pk: action_receipt
+                .signer_public_key
+                .try_to_vec()
+                .expect("Failed to serialize"),
+            predecessor_account_id: predecessor_id.clone(),
+            input: function_call.args.clone(),
+            block_index: apply_state.block_index,
+            block_timestamp: apply_state.block_timestamp,
+            epoch_height: apply_state.epoch_height,
+            account_balance: account.amount,
+            account_locked_balance: account.locked,
+            storage_usage: account.storage_usage,
+            attached_deposit: function_call.deposit,
+            prepaid_gas: function_call.gas,
+            random_seed,
+            is_view,
+            output_data_receivers,
+        };
 
-pub(crate) fn get_code_with_cache(
-    state_update: &TrieUpdate,
-    account_id: &AccountId,
-    account: &Account,
-) -> Result<Option<Arc<ContractCode>>, StorageError> {
-    debug!(target:"runtime", "Calling the contract at account {}", account_id);
-    let code_hash = account.code_hash;
-    let code = || get_code(state_update, account_id);
-    crate::cache::get_code(code_hash, code)
+        near_vm_runner::run(
+            &code,
+            &function_call.method_name,
+            runtime_ext,
+            context,
+            &config.wasm_config,
+            &config.transaction_costs,
+            promise_results,
+            apply_state.current_protocol_version,
+            apply_state.cache.as_deref(),
+            &apply_state.profile,
+        )
+    }
 }
 
 pub(crate) fn action_function_call(
@@ -89,27 +158,12 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
-    let code = match get_code_with_cache(state_update, account_id, &account) {
-        Ok(Some(code)) => code,
-        Ok(None) => {
-            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                account_id: account_id.clone(),
-            });
-            result.result = Err(ActionErrorKind::FunctionCallError(error).into());
-            return Ok(());
-        }
-        Err(e) => {
-            return Err(e.into());
-        }
-    };
-
     if account.amount.checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
             "Account balance integer overflow during function call deposit".to_string(),
         )
         .into());
     }
-
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
@@ -118,46 +172,23 @@ pub(crate) fn action_function_call(
         action_receipt.gas_price,
         action_hash,
         &apply_state.epoch_id,
-        &apply_state.last_block_hash,
+        &apply_state.prev_block_hash,
+        &apply_state.block_hash,
         epoch_info_provider,
+        apply_state.current_protocol_version,
     );
-    // Output data receipts are ignored if the function call is not the last action in the batch.
-    let output_data_receivers: Vec<_> = if is_last_action {
-        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
-    } else {
-        vec![]
-    };
-    let context = VMContext {
-        current_account_id: account_id.clone(),
-        signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: action_receipt
-            .signer_public_key
-            .try_to_vec()
-            .expect("Failed to serialize"),
-        predecessor_account_id: receipt.predecessor_id.clone(),
-        input: function_call.args.clone(),
-        block_index: apply_state.block_index,
-        block_timestamp: apply_state.block_timestamp,
-        epoch_height: apply_state.epoch_height,
-        account_balance: account.amount,
-        account_locked_balance: account.locked,
-        storage_usage: account.storage_usage,
-        attached_deposit: function_call.deposit,
-        prepaid_gas: function_call.gas,
-        random_seed: action_hash.as_ref().to_vec(),
-        is_view: false,
-        output_data_receivers,
-    };
-
-    let (outcome, err) = near_vm_runner::run(
-        code.hash.as_ref().to_vec(),
-        &code.code,
-        function_call.method_name.as_bytes(),
+    let (outcome, err) = execute_function_call(
+        apply_state,
         &mut runtime_ext,
-        context,
-        &config.wasm_config,
-        &config.transaction_costs,
+        account,
+        &receipt.predecessor_id,
+        action_receipt,
         promise_results,
+        function_call,
+        action_hash,
+        config,
+        is_last_action,
+        false,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {
@@ -174,6 +205,15 @@ pub(crate) fn action_function_call(
         }
         Some(VMError::InconsistentStateError(err)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
+        }
+        Some(VMError::CacheError(err)) => {
+            let message = match err {
+                CacheError::DeserializationError => "Cache deserialization error",
+                CacheError::SerializationError { hash: _hash } => "Cache serialization error",
+                CacheError::ReadError => "Cache read error",
+                CacheError::WriteError => "Cache write error",
+            };
+            return Err(StorageError::StorageInconsistentState(message.to_string()).into());
         }
         None => true,
     };
@@ -337,22 +377,54 @@ pub(crate) fn action_create_account(
     });
 }
 
+pub(crate) fn action_implicit_account_creation_transfer(
+    state_update: &mut TrieUpdate,
+    fee_config: &RuntimeFeesConfig,
+    account: &mut Option<Account>,
+    actor_id: &mut AccountId,
+    account_id: &AccountId,
+    transfer: &TransferAction,
+) {
+    // NOTE: The account_id is hex like, because we've checked the permissions before.
+    debug_assert!(is_account_id_64_len_hex(account_id));
+
+    *actor_id = account_id.clone();
+
+    let access_key = AccessKey::full_access();
+    // 0 for ED25519
+    let mut public_key_data = Vec::with_capacity(33);
+    public_key_data.push(0u8);
+    public_key_data.extend(
+        hex::decode(account_id.as_bytes())
+            .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
+    );
+    debug_assert_eq!(public_key_data.len(), 33);
+    let public_key = PublicKey::try_from_slice(&public_key_data)
+        .expect("we should be able to deserialize ED25519 public key");
+
+    *account = Some(Account {
+        amount: transfer.deposit,
+        locked: 0,
+        code_hash: CryptoHash::default(),
+        storage_usage: fee_config.storage_usage_config.num_bytes_account
+            + public_key.len() as u64
+            + access_key.try_to_vec().unwrap().len() as u64
+            + fee_config.storage_usage_config.num_extra_bytes_record,
+    });
+
+    set_access_key(state_update, account_id.clone(), public_key, &access_key);
+}
+
 pub(crate) fn action_deploy_contract(
     state_update: &mut TrieUpdate,
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
 ) -> Result<(), StorageError> {
-    let code = ContractCode::new(deploy_contract.code.clone());
-    let prev_code = get_code(state_update, account_id)?;
+    let code = ContractCode::new(deploy_contract.code.clone(), None);
+    let prev_code = get_code(state_update, account_id, Some(account.code_hash))?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
-    account.storage_usage =
-        account.storage_usage.checked_sub(prev_code_length).ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Storage usage integer underflow for account {}",
-                account_id
-            ))
-        })?;
+    account.storage_usage = account.storage_usage.checked_sub(prev_code_length).unwrap_or(0);
     account.storage_usage =
         account.storage_usage.checked_add(code.code.len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -394,37 +466,36 @@ pub(crate) fn action_delete_key(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let access_key = get_access_key(state_update, &account_id, &delete_key.public_key)?;
-    if access_key.is_none() {
+    if let Some(access_key) = access_key {
+        let storage_usage_config = &fee_config.storage_usage_config;
+        let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
+        {
+            delete_key.public_key.try_to_vec().unwrap().len() as u64
+                + access_key.try_to_vec().unwrap().len() as u64
+                + storage_usage_config.num_extra_bytes_record
+        } else {
+            delete_key.public_key.try_to_vec().unwrap().len() as u64
+                + Some(access_key).try_to_vec().unwrap().len() as u64
+                + storage_usage_config.num_extra_bytes_record
+        };
+        // Remove access key
+        remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
+        account.storage_usage = account.storage_usage.checked_sub(storage_usage).unwrap_or(0);
+    } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
             public_key: delete_key.public_key.clone(),
             account_id: account_id.clone(),
         }
         .into());
-        return Ok(());
     }
-    // Remove access key
-    remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
-    let storage_usage_config = &fee_config.storage_usage_config;
-    account.storage_usage = account
-        .storage_usage
-        .checked_sub(
-            delete_key.public_key.try_to_vec().unwrap().len() as u64
-                + access_key.try_to_vec().unwrap().len() as u64
-                + storage_usage_config.num_extra_bytes_record,
-        )
-        .ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Storage usage integer underflow for account {}",
-                account_id
-            ))
-        })?;
     Ok(())
 }
 
 pub(crate) fn action_add_key(
-    fees_config: &RuntimeFeesConfig,
+    apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
     account: &mut Account,
     result: &mut ActionResult,
@@ -439,13 +510,32 @@ pub(crate) fn action_add_key(
         .into());
         return Ok(());
     }
-    set_access_key(
-        state_update,
-        account_id.clone(),
-        add_key.public_key.clone(),
-        &add_key.access_key,
+    checked_feature!(
+        "protocol_feature_access_key_nonce_range",
+        AccessKeyNonceRange,
+        apply_state.current_protocol_version,
+        {
+            let mut access_key = add_key.access_key.clone();
+            access_key.nonce = (apply_state.block_index - 1)
+                * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            set_access_key(
+                state_update,
+                account_id.clone(),
+                add_key.public_key.clone(),
+                &access_key,
+            );
+        },
+        {
+            set_access_key(
+                state_update,
+                account_id.clone(),
+                add_key.public_key.clone(),
+                &add_key.access_key,
+            );
+        }
     );
-    let storage_config = &fees_config.storage_usage_config;
+
+    let storage_config = &apply_state.config.transaction_costs.storage_usage_config;
     account.storage_usage = account
         .storage_usage
         .checked_add(
@@ -503,19 +593,61 @@ pub(crate) fn check_account_existence(
     action: &Action,
     account: &mut Option<Account>,
     account_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
+    is_the_only_action: bool,
+    is_refund: bool,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
             if account.is_some() {
                 return Err(ActionErrorKind::AccountAlreadyExists {
-                    account_id: account_id.clone().into(),
+                    account_id: account_id.clone(),
                 }
                 .into());
+            } else {
+                if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    && is_account_id_64_len_hex(&account_id)
+                {
+                    // If the account doesn't exist and it's 64-length hex account ID, then you
+                    // should only be able to create it using single transfer action.
+                    // Because you should not be able to add another access key to the account in
+                    // the same transaction.
+                    // Otherwise you can hijack an account without having the private key for the
+                    // public key. We've decided to make it an invalid transaction to have any other
+                    // actions on the 64-length hex accounts.
+                    // The easiest way is to reject the `CreateAccount` action.
+                    // See https://github.com/nearprotocol/NEPs/pull/71
+                    return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
+                        account_id: account_id.clone(),
+                    }
+                    .into());
+                }
+            }
+        }
+        Action::Transfer(_) => {
+            if account.is_none() {
+                return if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    && is_the_only_action
+                    && is_account_id_64_len_hex(&account_id)
+                    && !is_refund
+                {
+                    // OK. It's implicit account creation.
+                    // Notes:
+                    // - The transfer action has to be the only action in the transaction to avoid
+                    // abuse by hijacking this account with other public keys or contracts.
+                    // - Refunds don't automatically create accounts, because refunds are free and
+                    // we don't want some type of abuse.
+                    // - Account deletion with beneficiary creates a refund, so it'll not create a
+                    // new account.
+                    Ok(())
+                } else {
+                    Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }
+                        .into())
+                };
             }
         }
         Action::DeployContract(_)
         | Action::FunctionCall(_)
-        | Action::Transfer(_)
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)
@@ -601,7 +733,7 @@ mod tests {
                 kind: ActionErrorKind::CreateAccountNotAllowed {
                     account_id: account_id.clone(),
                     predecessor_id: predecessor_id.clone(),
-                }
+                },
             })
         );
     }
@@ -620,7 +752,7 @@ mod tests {
                     account_id: account_id.clone(),
                     registrar_account_id: AccountId::from("registrar"),
                     predecessor_id: predecessor_id.clone(),
-                }
+                },
             })
         );
     }

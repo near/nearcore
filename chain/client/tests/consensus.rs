@@ -1,7 +1,13 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod tests {
+    use std::collections::{BTreeMap, HashMap, HashSet};
+    use std::sync::{Arc, RwLock, RwLockWriteGuard};
+
     use actix::{Addr, System};
+    use rand::{thread_rng, Rng};
+
+    use near_actix_test_utils::run_actix_until_stop;
     use near_chain::Block;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, ViewClientActor};
@@ -9,9 +15,6 @@ mod tests {
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::types::BlockHeight;
-    use rand::{thread_rng, Rng};
-    use std::collections::{BTreeMap, HashMap, HashSet};
-    use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
     /// Rotates three independent sets of block producers producing blocks with a very short epoch length.
     /// Occasionally when an endorsement comes, make all the endorsers send a skip message far-ish into
@@ -24,7 +27,7 @@ mod tests {
 
         const HEIGHT_GOAL: u64 = 120;
 
-        System::run(move || {
+        run_actix_until_stop(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
             let connectors1 = connectors.clone();
@@ -57,7 +60,7 @@ mod tests {
             let largest_block_height = Arc::new(RwLock::new(0u64));
             let delayed_blocks = Arc::new(RwLock::new(vec![]));
 
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 1,
@@ -68,6 +71,8 @@ mod tests {
                 4,
                 true,
                 vec![true; validators.iter().map(|x| x.len()).sum()],
+                vec![false; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                     let mut all_blocks: RwLockWriteGuard<BTreeMap<BlockHeight, Block>> =
                         all_blocks.write().unwrap();
@@ -274,7 +279,6 @@ mod tests {
             // We only check the terminating condition once every 20 heights, thus extra 20 to
             // account for possibly going beyond the HEIGHT_GOAL.
             near_network::test_utils::wait_or_panic(3000 * (20 + HEIGHT_GOAL));
-        })
-        .unwrap();
+        });
     }
 }

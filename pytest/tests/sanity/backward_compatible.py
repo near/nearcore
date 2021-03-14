@@ -9,13 +9,15 @@ import os
 import subprocess
 import time
 import shutil
+import base58
 import json
 
 sys.path.append('lib')
 
 import branches
 import cluster
-
+from utils import load_binary_file
+from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, sign_create_account_with_full_access_key_and_balance_tx
 
 def main():
     node_root = "/tmp/near/backward"
@@ -23,27 +25,15 @@ def main():
         shutil.rmtree(node_root)
     subprocess.check_output('mkdir -p /tmp/near', shell=True)
 
+    branch = branches.latest_rc_branch()
     near_root, (stable_branch,
-                current_branch) = branches.prepare_ab_test("beta")
+                current_branch) = branches.prepare_ab_test(branch)
 
     # Setup local network.
     subprocess.call([
         "%snear-%s" % (near_root, stable_branch),
         "--home=%s" % node_root, "testnet", "--v", "2", "--prefix", "test"
     ])
-
-    with open('/tmp/near/backward/test0/genesis.json') as f:
-        stable_genesis = json.load(f)
-        stable_protocol_version = stable_genesis['protocol_version']
-
-    with open(
-            os.path.join(os.path.dirname(__file__),
-                         '../../../neard/res/genesis_config.json')) as f:
-        current_genesis = json.load(f)
-        current_protocol_version = current_genesis['protocol_version']
-    if current_protocol_version > stable_protocol_version:
-        print('Protcol upgrade, does not need backward compatible')
-        exit(0)
 
     # Run both binaries at the same time.
     config = {
@@ -61,16 +51,72 @@ def main():
                                         stable_node.addr())
 
     # Check it all works.
-    # TODO: we should run for at least 2 epochs.
-    # TODO: send some transactions to test that runtime works the same.
-    BLOCKS = 20
+    BLOCKS = 100
     TIMEOUT = 150
-    max_height = 0
+    max_height = -1
     started = time.time()
+
+    # Create account, transfer tokens, deploy contract, invoke function call
+    status = stable_node.get_status()
+    block_hash = base58.b58decode(status['sync_info']['latest_block_hash'].encode('utf-8'))
+
+    new_account_id = 'test_account'
+    new_signer_key = cluster.Key(new_account_id, stable_node.signer_key.pk, stable_node.signer_key.sk)
+    create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(stable_node.signer_key, new_account_id, new_signer_key, 10 ** 24, 1, block_hash)
+    res = stable_node.send_tx_and_wait(create_account_tx, timeout=20)
+    assert 'error' not in res, res
+    assert 'Failure' not in res['result']['status'], res
+
+    transfer_tx = sign_payment_tx(stable_node.signer_key, new_account_id, 10 ** 25, 2, block_hash)
+    res = stable_node.send_tx_and_wait(transfer_tx, timeout=20)
+    assert 'error' not in res, res
+
+    tx = sign_deploy_contract_tx(
+        new_signer_key,
+        load_binary_file(
+            '../runtime/near-vm-runner/tests/res/test_contract_rs.wasm'), 1,
+        block_hash)
+    res = stable_node.send_tx_and_wait(tx, timeout=20)
+    assert 'error' not in res, res
+
+    tx = sign_function_call_tx(new_signer_key,
+                               new_account_id,
+                               'write_random_value', [], 10**13, 0, 2,
+                               block_hash)
+    res = stable_node.send_tx_and_wait(tx, timeout=20)
+    assert 'error' not in res, res
+    assert 'Failure' not in res['result']['status'], res
+
+    data = json.dumps([{"create": {
+        "account_id": "near_2",
+        "method_name": "call_promise",
+        "arguments": [],
+        "amount": "0",
+        "gas": 30000000000000,
+    }, "id": 0 },
+        {"then": {
+            "promise_index": 0,
+            "account_id": "near_3",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": "0",
+            "gas": 30000000000000,
+        }, "id": 1}])
+
+    tx = sign_function_call_tx(new_signer_key, new_account_id, 'call_promise', bytes(data, 'utf-8'), 90000000000000, 0, 3, block_hash)
+    res = stable_node.send_tx_and_wait(tx, timeout=20)
+
+    assert 'error' not in res, res
+    assert 'Failure' not in res['result']['status'], res
+
     while max_height < BLOCKS:
         assert time.time() - started < TIMEOUT
         status = current_node.get_status()
-        max_height = status['sync_info']['latest_block_height']
+        cur_height = status['sync_info']['latest_block_height']
+
+        if cur_height > max_height:
+            max_height = cur_height
+        time.sleep(1)
 
 
 if __name__ == "__main__":

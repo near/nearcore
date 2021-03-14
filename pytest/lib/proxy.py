@@ -29,35 +29,30 @@ import asyncio
 import atexit
 import functools
 import multiprocessing
+import random
 import select
 import socket
 import struct
 import time
+import logging
 
-from messages.block import *
-from messages.crypto import *
-from messages.network import *
-from messages.tx import *
-from messages.shard import *
+from messages import schema
+from messages.crypto import PublicKey, Signature
+from messages.network import PeerIdOrHash, PeerMessage
 from serializer import BinarySerializer
 
 MSG_TIMEOUT = 10
 _MY_PORT = [None]
 
-schema = dict(crypto_schema + network_schema + block_schema + tx_schema + shard_schema)
-
-DEBUG_LEVEL = 0
-
-def debug(*args, **kwargs):
-    debug_level = kwargs.pop('level', 1)
-    if debug_level <= DEBUG_LEVEL:
-        print(*args, **kwargs)
+logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
 
 def proxy_cleanup(proxy):
+    logging.debug(f'Cleaning process for {_MY_PORT}')
     proxy.global_stopped.value = 1
     for p in proxy.ps:
-        p.join()
+        p.terminate()
+    logging.debug(f'Finish cleanup for {_MY_PORT}')
     if proxy.error.value != 0:
         assert False, "One of the proxy processes failed, search for the stacktraces above"
 
@@ -179,7 +174,8 @@ class NodesProxy:
         atexit.register(proxy_cleanup, self)
 
     def proxify_node(self, node):
-        proxify_node(node, self.ps, self.handler, self.global_stopped, self.error)
+        proxify_node(node, self.ps, self.handler,
+                     self.global_stopped, self.error, self)
 
 
 async def stop_server(server):
@@ -189,31 +185,36 @@ async def stop_server(server):
 
 def check_finish(server, global_stopped, local_stopped, error):
     loop = asyncio.get_running_loop()
-    if 0 == global_stopped.value and 0 == local_stopped.value and 0 == error.value:
-        loop.call_later(1, check_finish, server, global_stopped, local_stopped, error)
+    if 0 == global_stopped.value and 0 >= local_stopped.value and 0 == error.value:
+        loop.call_later(1, check_finish, server,
+                        global_stopped, local_stopped, error)
     else:
-        debug(f"Stopping server. port={_MY_PORT}, global_stopped={global_stopped.value}, local_stopped={local_stopped.value}, error={error.value}")
+        logging.debug(
+            f"Stopping server. port={_MY_PORT}, global_stopped={global_stopped.value}, local_stopped={local_stopped.value}, error={error.value}")
         server.close()
+        local_stopped.value = 2
 
-import random
 
-async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, error):
-    bridge_id = random.randint(0, 2**256)
-    debug(f"Start bridge. port={_MY_PORT} bridge_id={bridge_id}", level=2)
+async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, bridge_stopped, error):
+    bridge_id = random.randint(0, 10**10)
+    logging.debug(f"Start bridge. port={_MY_PORT} bridge_id={bridge_id}")
 
     try:
-        while 0 == global_stopped.value and 0 == local_stopped.value and 0 == error.value:
+        while 0 == global_stopped.value and 0 >= local_stopped.value and 0 == error.value and 0 == bridge_stopped[0]:
             header = await reader.read(4)
             if not header:
-                writer.close()
-                await writer.wait_closed()
-                debug(f"Endpoint closed (Reader). port={_MY_PORT} bridge_id={bridge_id}", level=2)
+                logging.debug(
+                    f"Endpoint closed (Reader). port={_MY_PORT} bridge_id={bridge_id}")
                 break
 
             assert len(header) == 4, header
-            raw_message = await reader.read(struct.unpack('I', header)[0])
+            raw_message_len = struct.unpack('I', header)[0]
+            raw_message = await reader.read(raw_message_len)
+            while len(raw_message) < raw_message_len:
+                raw_message += await reader.read(raw_message_len - len(raw_message))
 
-            debug(f"Message size={len(raw_message)} port={_MY_PORT} bridge_id={bridge_id}", level=2)
+            logging.debug(
+                f"Message size={len(raw_message)} port={_MY_PORT} bridge_id={bridge_id}")
             decision = await handler_fn(raw_message)
 
             if isinstance(decision, bytes):
@@ -225,97 +226,134 @@ async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, erro
                 writer.write(raw_message)
                 await writer.drain()
 
-        debug(f"Gracefully close bridge. port={_MY_PORT} bridge_id={bridge_id}", level=2)
-    except ConnectionResetError:
-        debug(f"Endpoint closed (Writer). port={_MY_PORT} bridge_id={bridge_id}", level=2)
+        bridge_stopped[0] = 1
+        writer.close()
+        await writer.wait_closed()
+
+        logging.debug(
+            f"Gracefully close bridge. port={_MY_PORT} bridge_id={bridge_id}")
+    except (ConnectionResetError, BrokenPipeError):
+        bridge_stopped[0] = 1
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except:
+            pass
+        logging.debug(
+            f"Endpoint closed (Writer). port={_MY_PORT} bridge_id={bridge_id}")
 
 
 async def handle_connection(outer_reader, outer_writer, inner_port, outer_port, handler, global_stopped, local_stopped, error):
-    connection_id = random.randint(0, 2**256)
-    debug(f"New connection. port={_MY_PORT} connection_id={connection_id}")
+    connection_id = random.randint(0, 10**10)
+    logging.debug(f"New connection. port={_MY_PORT} connection_id={connection_id}")
     try:
         inner_reader, inner_writer = await asyncio.open_connection(
             '127.0.0.1', inner_port)
 
         my_port = [outer_port]
         peer_port_holder = [None]
+        bridge_stopped = [0]
 
         inner_to_outer = bridge(inner_reader, outer_writer, functools.partial(
             handler._handle, writer=inner_writer, sender_port_holder=my_port, receiver_port_holder=peer_port_holder,
             ordinal_to_writer=handler.recv_from_map,
-        ), global_stopped, local_stopped, error)
+        ), global_stopped, local_stopped, bridge_stopped, error)
 
         outer_to_inner = bridge(outer_reader, inner_writer, functools.partial(
             handler._handle, writer=outer_writer, sender_port_holder=peer_port_holder, receiver_port_holder=my_port,
             ordinal_to_writer=handler.send_to_map,
-        ), global_stopped, local_stopped, error)
+        ), global_stopped, local_stopped, bridge_stopped, error)
 
         await asyncio.gather(inner_to_outer, outer_to_inner)
-        debug(f"End of connection. port={_MY_PORT} peer_port={peer_port_holder} connection_id={connection_id}")
+        logging.debug(
+            f"End of connection. port={_MY_PORT} peer_port={peer_port_holder} connection_id={connection_id}")
     except asyncio.CancelledError:
-        debug(f"Cancelled Error (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
-        if local_stopped.value == 0:
+        logging.debug(
+            f"Cancelled Error (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
+        if local_stopped.value <= 0:
             global_stopped.value = 1
+    except ConnectionRefusedError:
+        logging.debug(
+            f"ConnectionRefusedError (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
     except:
-        debug(f"Other Error (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
+        logging.debug(
+            f"Other Error (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
         error.value = 1
         raise
 
 
 async def listener(inner_port, outer_port, handler_ctr, global_stopped, local_stopped, error):
-    debug(f"Starting listener... port={_MY_PORT}")
+    logging.debug(f"Starting listener... port={_MY_PORT}")
     try:
         handler = handler_ctr(port_holder_to_node_ord([outer_port]))
 
         async def start_connection(reader, writer):
             await handle_connection(reader, writer, inner_port, outer_port, handler, global_stopped, local_stopped, error)
 
-        attempts = 2
+        attempts = 3
 
         # Possibly need to wait 1 second to start listener if node was killed and previous listener is on yet.
         while attempts > 0:
             try:
                 server = await asyncio.start_server(
                     start_connection, '127.0.0.1', outer_port)
-                debug(f"Listener started. port={_MY_PORT}")
+                logging.debug(f"Listener started. port={_MY_PORT}")
                 break
             except OSError:
                 attempts -= 1
-                debug(f"Fail starting listener. Remaining attempts: {attempts} port={_MY_PORT}")
+                logging.debug(
+                    f"Fail starting listener. Remaining attempts: {attempts} port={_MY_PORT}")
                 if attempts == 0:
                     raise
                 await asyncio.sleep(1)
 
         check_finish(server, global_stopped, local_stopped, error)
+        local_stopped.value = 0
 
         async with server:
             await server.serve_forever()
     except asyncio.CancelledError:
-        debug(f"Cancelled Error (listener). port={_MY_PORT} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
-        if local_stopped.value == 0:
+        logging.debug(
+            f"Cancelled Error (listener). port={_MY_PORT} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
+        if local_stopped.value <= 0:
             global_stopped.value = 1
     except:
-        debug(f"Other Error (listener). port={_MY_PORT} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
+        logging.debug(
+            f"Other Error (listener). port={_MY_PORT} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
         error.value = 1
         raise
 
 
 def start_server(inner_port, outer_port, handler_ctr, global_stopped, local_stopped, error):
     _MY_PORT[0] = outer_port
-    asyncio.run(listener(inner_port, outer_port, handler_ctr, global_stopped, local_stopped, error))
+    asyncio.run(listener(inner_port, outer_port, handler_ctr,
+                         global_stopped, local_stopped, error))
 
 
-def proxify_node(node, ps, handler, global_stopped, error):
+def proxify_node(node, ps, handler, global_stopped, error, proxy):
     inner_port = node.port
     outer_port = inner_port + 100
 
     def start_proxy():
-        local_stopped = multiprocessing.Value('i', 0)
+        # local_stopped denotes the current of state of the proxy:
+        # -1: The proxy hasn't started yet
+        # 0: The proxy is running
+        # 1: The proxy is running but should be closed soon
+        # 2: The proxy is closed
+        local_stopped = multiprocessing.Value('i', -1)
         p = multiprocessing.Process(target=start_server, args=(
             inner_port, outer_port, handler, global_stopped, local_stopped, error))
         p.start()
         ps.append(p)
+        for attempt in range(3):
+            if local_stopped.value == 0:
+                break
+            time.sleep(1)
+        else:
+            error.value = 1
+            assert False, "The proxy failed to start after 3 seconds"
         return local_stopped
 
     node.port = outer_port
     node._start_proxy = start_proxy
+    node.proxy = proxy

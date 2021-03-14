@@ -34,7 +34,7 @@ fn main() {
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(neard::NightshadeRuntime::new(
         &home_dir,
         store.clone(),
-        Arc::clone(&near_config.genesis),
+        &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     ));

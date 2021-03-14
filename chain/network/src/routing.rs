@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
 use chrono;
-use log::{debug, trace, warn};
+use tracing::{trace, warn};
 
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
@@ -28,9 +28,11 @@ use crate::{
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const ROUTE_BACK_CACHE_SIZE: u64 = 1_000_000;
+const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
 const ROUTE_BACK_CACHE_EVICT_TIMEOUT: u64 = 120_000; // 120 seconds
 const ROUTE_BACK_CACHE_REMOVE_BATCH: u64 = 100;
 const PING_PONG_CACHE_SIZE: usize = 1_000;
@@ -41,6 +43,8 @@ const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// seconds will be removed from cache and persisted in disk.
 pub const SAVE_PEERS_MAX_TIME: u64 = 7_200;
 pub const SAVE_PEERS_AFTER_TIME: u64 = 3_600;
+/// Graph implementation supports up to 128 peers.
+pub const MAX_NUM_PEERS: usize = 128;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -222,12 +226,17 @@ impl Edge {
     }
 
     /// Next nonce of valid addition edge.
-    pub fn next_nonce(&self) -> u64 {
-        if self.nonce % 2 == 1 {
-            self.nonce + 2
+    pub fn next_nonce(nonce: u64) -> u64 {
+        if nonce % 2 == 1 {
+            nonce + 2
         } else {
-            self.nonce + 1
+            nonce + 1
         }
+    }
+
+    /// Next nonce of valid addition edge.
+    pub fn next(&self) -> u64 {
+        Edge::next_nonce(self.nonce)
     }
 
     pub fn contains_peer(&self, peer_id: &PeerId) -> bool {
@@ -250,7 +259,7 @@ pub struct RoutingTable {
     /// PeerId associated for every known account id.
     account_peers: SizedCache<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
-    pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
+    pub peer_forwarding: HashMap<PeerId, Vec<PeerId>>,
     /// Store last update for known edges.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Hash of messages that requires routing back to respective previous hop.
@@ -418,14 +427,14 @@ impl RoutingTable {
     ) -> Result<Vec<Edge>, ()> {
         let enc_nonce = index_to_bytes(nonce);
 
-        let result = match self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref()) {
+        let res = match self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref()) {
             Ok(Some(edges)) => Ok(edges),
             _ => Err(()),
         };
 
         update.delete(ColComponentEdges, enc_nonce.as_ref());
 
-        result
+        res
     }
 
     /// If peer_id is not on memory check if it is on disk in bring it back on memory.
@@ -490,45 +499,51 @@ impl RoutingTable {
         }
     }
 
-    /// Add this edge to the current view of the network.
-    /// This edge is assumed to be valid at this point.
-    /// Edge contains about being added or removed (this can trigger both types of events).
-    /// Return true if the edge contains new information about the network. Old if this information
-    /// is outdated.
-    pub fn process_edge(&mut self, edge: Edge) -> ProcessEdgeResult {
-        let key = edge.get_pair();
+    /// Add several edges to the current view of the network.
+    /// These edges are assumed to be valid at this point.
+    /// Return true if some of the edges contains new information to the network.
+    pub fn process_edges(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
+        let mut new_edge = false;
+        let total = edges.len();
 
-        self.touch(&key.0);
-        self.touch(&key.1);
+        for edge in edges {
+            let key = edge.get_pair();
 
-        if !self.add_edge(edge) {
-            debug!(target:"network", "Received outdated edge.");
-            return ProcessEdgeResult { new_edge: false, schedule_computation: None };
+            self.touch(&key.0);
+            self.touch(&key.1);
+
+            if self.add_edge(edge) {
+                new_edge = true;
+            }
         }
 
-        // Minimum between known routes and 1000
-        let known_routes = std::cmp::min(self.peer_forwarding.len() as u64, 1000);
+        let mut new_schedule = None;
 
-        let new_schedule = self.recalculation_scheduled.map_or_else(
-            move || Some(Duration::from_millis(known_routes)),
-            |target| {
-                if Instant::now() > target {
-                    Some(Duration::from_millis(known_routes))
-                } else {
-                    None
-                }
-            },
-        );
+        if new_edge {
+            // Minimum between known routes and 1000
+            let known_routes = std::cmp::min(self.peer_forwarding.len() as u64, 1000);
 
-        if let Some(duration) = new_schedule {
-            self.recalculation_scheduled = Some(Instant::now() + duration);
+            new_schedule = self.recalculation_scheduled.map_or_else(
+                move || Some(Duration::from_millis(known_routes)),
+                |target| {
+                    if Instant::now() > target {
+                        Some(Duration::from_millis(known_routes))
+                    } else {
+                        None
+                    }
+                },
+            );
+
+            if let Some(duration) = new_schedule {
+                self.recalculation_scheduled = Some(Instant::now() + duration);
+            }
         }
 
         // Update metrics after edge update
-        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, 1);
+        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as u64);
         near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges as i64);
 
-        ProcessEdgeResult { new_edge: true, schedule_computation: new_schedule }
+        ProcessEdgeResult { new_edge, schedule_computation: new_schedule }
     }
 
     pub fn find_nonce(&self, edge: &(PeerId, PeerId)) -> u64 {
@@ -671,6 +686,8 @@ impl RoutingTable {
 
     /// Recalculate routing table.
     pub fn update(&mut self) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
             near_metrics::start_timer(&metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM);
 
@@ -724,8 +741,20 @@ impl RoutingTable {
         }
     }
 
-    pub fn get_raw_graph(&self) -> &HashMap<PeerId, HashSet<PeerId>> {
-        &self.raw_graph.adjacency
+    #[cfg(feature = "metric_recorder")]
+    pub fn get_raw_graph(&self) -> HashMap<PeerId, HashSet<PeerId>> {
+        let mut res = HashMap::with_capacity(self.raw_graph.adjacency.len());
+        for (key, neighbors) in self.raw_graph.adjacency.iter().enumerate() {
+            if self.raw_graph.used[key] {
+                let key = self.raw_graph.id2p[key].clone();
+                let neighbors = neighbors
+                    .iter()
+                    .map(|&node| self.raw_graph.id2p[node as usize].clone())
+                    .collect::<HashSet<_>>();
+                res.insert(key, neighbors);
+            }
+        }
+        res
     }
 }
 
@@ -737,106 +766,186 @@ pub struct ProcessEdgeResult {
 #[derive(Debug)]
 pub struct RoutingTableInfo {
     pub account_peers: HashMap<AccountId, PeerId>,
-    pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
+    pub peer_forwarding: HashMap<PeerId, Vec<PeerId>>,
 }
 
 #[derive(Clone)]
 pub struct Graph {
     pub source: PeerId,
-    adjacency: HashMap<PeerId, HashSet<PeerId>>,
+    source_id: u32,
+    p2id: HashMap<PeerId, u32>,
+    id2p: Vec<PeerId>,
+    used: Vec<bool>,
+    unused: Vec<u32>,
+    adjacency: Vec<Vec<u32>>,
+
     total_active_edges: u64,
 }
 
 impl Graph {
     pub fn new(source: PeerId) -> Self {
-        Self { source, adjacency: HashMap::new(), total_active_edges: 0 }
+        let mut res = Self {
+            source: source.clone(),
+            source_id: 0,
+            p2id: HashMap::default(),
+            id2p: Vec::default(),
+            used: Vec::default(),
+            unused: Vec::default(),
+            adjacency: Vec::default(),
+            total_active_edges: 0,
+        };
+        res.id2p.push(source.clone());
+        res.adjacency.push(Vec::default());
+        res.p2id.insert(source, res.source_id);
+        res.used.push(true);
+
+        res
     }
 
-    fn contains_edge(&mut self, peer0: &PeerId, peer1: &PeerId) -> bool {
-        if let Some(adj) = self.adjacency.get(&peer0) {
-            if adj.contains(&peer1) {
-                return true;
+    fn contains_edge(&self, peer0: &PeerId, peer1: &PeerId) -> bool {
+        if let Some(&id0) = self.p2id.get(&peer0) {
+            if let Some(&id1) = self.p2id.get(&peer1) {
+                return self.adjacency[id0 as usize].contains(&id1);
             }
         }
-
         false
     }
 
-    fn add_directed_edge(&mut self, peer0: PeerId, peer1: PeerId) {
-        self.adjacency.entry(peer0).or_insert_with(HashSet::new).insert(peer1);
+    fn remove_if_unused(&mut self, id: u32) {
+        let entry = &self.adjacency[id as usize];
+
+        if entry.is_empty() && id != self.source_id {
+            self.used[id as usize] = false;
+            self.unused.push(id);
+            self.p2id.remove(&self.id2p[id as usize]);
+        }
     }
 
-    fn remove_directed_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
-        self.adjacency.get_mut(&peer0).unwrap().remove(&peer1);
+    fn get_id(&mut self, peer: &PeerId) -> u32 {
+        match self.p2id.entry(peer.clone()) {
+            Entry::Occupied(occupied) => *occupied.get(),
+            Entry::Vacant(vacant) => {
+                let val = if let Some(val) = self.unused.pop() {
+                    assert!(!self.used[val as usize]);
+                    assert!(self.adjacency[val as usize].is_empty());
+                    self.id2p[val as usize] = peer.clone();
+                    self.used[val as usize] = true;
+                    val
+                } else {
+                    let val = self.id2p.len() as u32;
+                    self.id2p.push(peer.clone());
+                    self.used.push(true);
+                    self.adjacency.push(Vec::default());
+                    val
+                };
+
+                vacant.insert(val);
+                val
+            }
+        }
     }
 
     pub fn add_edge(&mut self, peer0: PeerId, peer1: PeerId) {
+        assert_ne!(peer0, peer1);
         if !self.contains_edge(&peer0, &peer1) {
-            self.add_directed_edge(peer0.clone(), peer1.clone());
-            self.add_directed_edge(peer1, peer0);
+            let id0 = self.get_id(&peer0);
+            let id1 = self.get_id(&peer1);
+
+            self.adjacency[id0 as usize].push(id1);
+            self.adjacency[id1 as usize].push(id0);
+
             self.total_active_edges += 1;
         }
     }
 
     pub fn remove_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
+        assert_ne!(peer0, peer1);
         if self.contains_edge(&peer0, &peer1) {
-            self.remove_directed_edge(&peer0, &peer1);
-            self.remove_directed_edge(&peer1, &peer0);
+            let id0 = self.get_id(&peer0);
+            let id1 = self.get_id(&peer1);
+
+            self.adjacency[id0 as usize].retain(|&x| x != id1);
+            self.adjacency[id1 as usize].retain(|&x| x != id0);
+
+            self.remove_if_unused(id0);
+            self.remove_if_unused(id1);
+
             self.total_active_edges -= 1;
         }
     }
 
-    // TODO(MarX, #1363): This is too slow right now. (See benchmarks)
     /// Compute for every node `u` on the graph (other than `source`) which are the neighbors of
     /// `sources` which belong to the shortest path from `source` to `u`. Nodes that are
     /// not connected to `source` will not appear in the result.
-    pub fn calculate_distance(&self) -> HashMap<PeerId, HashSet<PeerId>> {
-        let mut queue = vec![];
-        let mut distance = HashMap::new();
-        // TODO(MarX, #1363): Represent routes more efficiently at least while calculating distances
-        let mut routes: HashMap<PeerId, HashSet<PeerId>> = HashMap::new();
+    pub fn calculate_distance(&self) -> HashMap<PeerId, Vec<PeerId>> {
+        // TODO add removal of unreachable nodes
 
-        distance.insert(&self.source, 0);
+        let mut queue = VecDeque::new();
 
-        // Add active connections
-        if let Some(neighbors) = self.adjacency.get(&self.source) {
-            for neighbor in neighbors {
-                queue.push(neighbor);
-                distance.insert(neighbor, 1);
-                routes.insert(neighbor.clone(), vec![neighbor.clone()].drain(..).collect());
+        let nodes = self.id2p.len();
+        let mut distance: Vec<i32> = vec![-1; nodes];
+        let mut routes: Vec<u128> = vec![0; nodes];
+
+        distance[self.source_id as usize] = 0;
+
+        {
+            let neighbors = &self.adjacency[self.source_id as usize];
+            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
+                queue.push_back(neighbor);
+                distance[neighbor as usize] = 1;
+                routes[neighbor as usize] = 1u128 << id;
             }
         }
 
-        let mut head = 0;
+        while let Some(cur_peer) = queue.pop_front() {
+            let cur_distance = distance[cur_peer as usize];
 
-        while head < queue.len() {
-            let cur_peer = queue[head];
-            let cur_distance = *distance.get(cur_peer).unwrap();
-            head += 1;
-
-            if let Some(neighbors) = self.adjacency.get(&cur_peer) {
-                for neighbor in neighbors {
-                    if let Entry::Vacant(entry) = distance.entry(neighbor) {
-                        queue.push(entry.key());
-                        entry.insert(cur_distance + 1);
-                        routes.insert(neighbor.clone(), HashSet::new());
-                    }
-
-                    // If this edge belong to a shortest path, all paths to
-                    // the closer nodes are also valid for the current node.
-                    if *distance.get(neighbor).unwrap() == cur_distance + 1 {
-                        let adding_routes = routes.get(cur_peer).unwrap().clone();
-                        let target_routes = routes.get_mut(neighbor).unwrap();
-
-                        for route in adding_routes {
-                            target_routes.insert(route.clone());
-                        }
-                    }
+            for &neighbor in &self.adjacency[cur_peer as usize] {
+                if distance[neighbor as usize] == -1 {
+                    distance[neighbor as usize] = cur_distance + 1;
+                    queue.push_back(neighbor);
+                }
+                // If this edge belong to a shortest path, all paths to
+                // the closer nodes are also valid for the current node.
+                if distance[neighbor as usize] == cur_distance + 1 {
+                    routes[neighbor as usize] |= routes[cur_peer as usize];
                 }
             }
         }
 
-        routes.into_iter().filter(|(_, hops)| !hops.is_empty()).collect()
+        self.compute_result(&mut routes, &distance)
+    }
+
+    fn compute_result(&self, routes: &[u128], distance: &[i32]) -> HashMap<PeerId, Vec<PeerId>> {
+        let mut res = HashMap::with_capacity(routes.len());
+
+        let neighbors = &self.adjacency[self.source_id as usize];
+        let mut unreachable_nodes = 0;
+
+        for (key, &cur_route) in routes.iter().enumerate() {
+            if distance[key] == -1 && self.used[key] {
+                unreachable_nodes += 1;
+            }
+            if key as u32 == self.source_id
+                || distance[key] == -1
+                || cur_route == 0u128
+                || !self.used[key]
+            {
+                continue;
+            }
+            let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
+
+            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
+                if (cur_route & (1u128 << id)) != 0 {
+                    peer_set.push(self.id2p[neighbor as usize].clone());
+                };
+            }
+            res.insert(self.id2p[key].clone(), peer_set);
+        }
+        if unreachable_nodes > 1000 {
+            warn!("We store more than 1000 unreachable nodes: {}", unreachable_nodes);
+        }
+        res
     }
 }
 
@@ -878,6 +987,8 @@ mod test {
         let node0 = random_peer_id();
 
         let mut graph = Graph::new(source.clone());
+        graph.add_edge(source.clone(), node0.clone());
+        graph.remove_edge(&source, &node0);
         graph.add_edge(source.clone(), node0.clone());
 
         assert!(expected_routing_tables(

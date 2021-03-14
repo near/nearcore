@@ -1,8 +1,8 @@
 use crate::util::{Packable, Point, Scalar};
 use arrayref::array_ref;
+use blake2::digest::generic_array::{typenum::U32, GenericArray};
+use blake2::digest::{BlockInput, FixedOutput, Reset, Update, VariableOutput};
 use blake2::VarBlake2b;
-use digest::generic_array::{typenum::U32, GenericArray};
-use digest::{BlockInput, FixedOutput, Input, Reset, VariableOutput};
 
 pub use blake2::Blake2b as Hash512;
 
@@ -15,9 +15,9 @@ impl Default for Hash256 {
     }
 }
 
-impl Input for Hash256 {
-    fn input<B: AsRef<[u8]>>(&mut self, data: B) {
-        self.0.input(data);
+impl Update for Hash256 {
+    fn update(&mut self, data: impl AsRef<[u8]>) {
+        self.0.update(data);
     }
 }
 
@@ -28,12 +28,16 @@ impl BlockInput for Hash256 {
 impl FixedOutput for Hash256 {
     type OutputSize = U32;
 
-    fn fixed_result(self) -> GenericArray<u8, U32> {
-        let mut r = [0; 32];
-        self.0.variable_result(|s| {
-            r = *array_ref!(s, 0, 32);
+    fn finalize_into(self, out: &mut GenericArray<u8, Self::OutputSize>) {
+        self.0.finalize_variable(|s| {
+            out.copy_from_slice(&s[0..32]);
         });
-        r.into()
+    }
+
+    fn finalize_into_reset(&mut self, out: &mut GenericArray<u8, Self::OutputSize>) {
+        self.0.finalize_variable_reset(|s| {
+            out.copy_from_slice(&s[0..32]);
+        });
     }
 }
 
@@ -45,26 +49,26 @@ impl Reset for Hash256 {
 
 mod hashable_trait {
     pub trait Hashable {
-        fn hash_into<D: super::Input>(self, digest: D) -> D;
+        fn hash_into<D: super::Update>(self, digest: D) -> D;
     }
 }
 
 use hashable_trait::*;
 
 impl<T: AsRef<[u8]> + ?Sized> Hashable for &T {
-    fn hash_into<D: Input>(self, digest: D) -> D {
+    fn hash_into<D: Update>(self, digest: D) -> D {
         digest.chain(self.as_ref())
     }
 }
 
 impl Hashable for Point {
-    fn hash_into<D: Input>(self, digest: D) -> D {
+    fn hash_into<D: Update>(self, digest: D) -> D {
         digest.chain(&self.pack())
     }
 }
 
 impl Hashable for Scalar {
-    fn hash_into<D: Input>(self, digest: D) -> D {
+    fn hash_into<D: Update>(self, digest: D) -> D {
         digest.chain(&self.pack())
     }
 }
@@ -73,12 +77,12 @@ pub fn _hash_new<D: Default>() -> D {
     D::default()
 }
 
-pub fn _hash_chain<D: Input, T: Hashable>(digest: D, data: T) -> D {
+pub fn _hash_chain<D: Update, T: Hashable>(digest: D, data: T) -> D {
     data.hash_into(digest)
 }
 
 pub fn _hash_result<D: FixedOutput<OutputSize = U32>>(digest: D) -> [u8; 32] {
-    digest.fixed_result().into()
+    digest.finalize_fixed().into()
 }
 
 pub fn _hash_to_scalar(hash: [u8; 32]) -> Scalar {
@@ -107,7 +111,7 @@ macro_rules! hash_s {
 }
 
 pub fn _prs_result(digest: Hash512) -> Scalar {
-    let res = digest.fixed_result();
+    let res = digest.finalize_fixed();
     Scalar::from_bytes_mod_order_wide(array_ref!(res, 0, 64))
 }
 

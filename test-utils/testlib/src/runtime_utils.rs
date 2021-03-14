@@ -22,6 +22,9 @@ pub fn bob_account() -> AccountId {
 pub fn eve_dot_alice_account() -> AccountId {
     "eve.alice.near".to_string()
 }
+pub fn evm_account() -> AccountId {
+    "evm".to_string()
+}
 
 pub fn default_code_hash() -> CryptoHash {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -30,11 +33,12 @@ pub fn default_code_hash() -> CryptoHash {
     hash(&genesis_wasm)
 }
 
-const DEFAULT_TEST_CONTRACT: &[u8] =
-    include_bytes!("../../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
-
 lazy_static::lazy_static! {
     static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(&DEFAULT_TEST_CONTRACT);
+}
+
+lazy_static_include::lazy_static_include_bytes! {
+    DEFAULT_TEST_CONTRACT => "../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm"
 }
 
 pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
@@ -66,7 +70,7 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
 
 pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTries, StateRoot) {
     let tries = create_tries();
-    let runtime = Runtime::new(genesis.config.runtime_config.clone());
+    let runtime = Runtime::new();
     let (store_update, genesis_root) = runtime.apply_genesis_state(
         tries.clone(),
         0,
@@ -83,6 +87,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
             })
             .collect::<Vec<_>>(),
         &genesis.records.as_ref(),
+        &genesis.config.runtime_config,
     );
     store_update.commit().unwrap();
     (runtime, tries, genesis_root)

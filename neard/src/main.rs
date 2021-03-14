@@ -4,22 +4,34 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 #[cfg(feature = "adversarial")]
-use log::error;
-use log::info;
+use tracing::error;
+use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
+use near_performance_metrics;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
+#[cfg(feature = "memory_stats")]
+use near_rust_allocator_proxy::allocator::MyAllocator;
 use neard::config::init_testnet_configs;
 use neard::genesis_validate::validate_genesis;
 use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 
+#[cfg(feature = "memory_stats")]
+#[global_allocator]
+static ALLOC: MyAllocator = MyAllocator;
+
+#[cfg(all(not(feature = "memory_stats"), jemallocator))]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 fn init_logging(verbose: Option<&str>) {
-    let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info,telemetry=info");
+    let mut env_filter = EnvFilter::new(
+        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,\
+         near-performance-metrics=info,near-rust-allocator-proxy=info",
+    );
 
     if let Some(module) = verbose {
         env_filter = env_filter
@@ -52,18 +64,26 @@ fn init_logging(verbose: Option<&str>) {
         }
     }
     tracing_subscriber::fmt::Subscriber::builder()
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
         .with_env_filter(env_filter)
         .with_writer(io::stderr)
         .init();
 }
 
 fn main() {
+    // We use it to automatically search the for root certificates to perform HTTPS calls
+    // (sending telemetry and downloading genesis)
+    openssl_probe::init_ssl_cert_env_vars();
+    near_performance_metrics::process::schedule_printing_performance_stats(60);
+
     let default_home = get_default_home();
-    let version =
-        Version { version: crate_version!().to_string(), build: git_version!().to_string() };
+    let version = Version {
+        version: crate_version!().to_string(),
+        build: git_version!(fallback = "unknown").to_string(),
+    };
     let matches = App::new("NEAR Protocol Node")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .version(format!("{} (build {})", version.version, version.build).as_str())
+        .version(format!("{} (build {}) (protocol {})", version.version, version.build, PROTOCOL_VERSION).as_str())
         .arg(Arg::with_name("verbose").long("verbose").help("Verbose logging").takes_value(true))
         .arg(
             Arg::with_name("home")
@@ -121,7 +141,8 @@ fn main() {
         ("init", Some(args)) => {
             // TODO: Check if `home` exists. If exists check what networks we already have there.
             let chain_id = args.value_of("chain-id");
-            let account_id = args.value_of("account-id");
+            let account_id =
+                args.value_of("account-id").and_then(|x| if x.is_empty() { None } else { Some(x) });
             let test_seed = args.value_of("test-seed");
             let genesis = args.value_of("genesis");
             let download = args.is_present("download-genesis");
@@ -221,10 +242,11 @@ fn main() {
                 near_config.client_config.archive = true;
             }
 
-            let system = System::new("NEAR");
-            let (_, _, arbiters) = start_with_config(home_dir, near_config);
-            system.run().unwrap();
-            arbiters.into_iter().for_each(|mut a| a.join().unwrap());
+            let sys = actix::System::new();
+            sys.block_on(async move {
+                start_with_config(home_dir, near_config);
+            });
+            sys.run().unwrap();
         }
         ("unsafe_reset_data", Some(_args)) => {
             let store_path = get_store_path(home_dir);

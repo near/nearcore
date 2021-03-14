@@ -1,11 +1,21 @@
+use std::collections::HashMap;
+
+use num_rational::Rational;
+
 use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
-use crate::block_header::{BlockHeader, BlockHeaderV2};
-use crate::errors::EpochError;
+use crate::block_header::BlockHeader;
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+use crate::block_header::BlockHeaderV2;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::block_header::BlockHeaderV3;
+use crate::errors::{EpochError, TxExecutionError};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
+use crate::serialize::from_base64;
+use crate::sharding::ShardChunkHeader;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -14,8 +24,7 @@ use crate::transaction::{
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
-use num_rational::Rational;
-use std::collections::HashMap;
+use crate::views::FinalExecutionStatus;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
@@ -243,6 +252,17 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    pub fn get_mut(&mut self) -> &mut BlockHeaderV3 {
+        match self {
+            BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
+                panic!("old header should not appear in tests")
+            }
+            BlockHeader::BlockHeaderV3(header) => header,
+        }
+    }
+
+    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
     pub fn get_mut(&mut self) -> &mut BlockHeaderV2 {
         match self {
             BlockHeader::BlockHeaderV1(_) => panic!("old header should not appear in tests"),
@@ -266,6 +286,27 @@ impl Block {
     pub fn mut_header(&mut self) -> &mut BlockHeader {
         match self {
             Block::BlockV1(block) => &mut block.header,
+            Block::BlockV2(block) => &mut block.header,
+        }
+    }
+
+    pub fn set_chunks(&mut self, chunks: Vec<ShardChunkHeader>) {
+        match self {
+            Block::BlockV1(block) => {
+                let legacy_chunks = chunks
+                    .into_iter()
+                    .map(|chunk| match chunk {
+                        ShardChunkHeader::V1(header) => header,
+                        ShardChunkHeader::V2(_) => {
+                            panic!("Attempted to set V1 block chunks with V2")
+                        }
+                    })
+                    .collect();
+                block.as_mut().chunks = legacy_chunks;
+            }
+            Block::BlockV2(block) => {
+                block.as_mut().chunks = chunks;
+            }
         }
     }
 
@@ -358,9 +399,13 @@ impl Block {
             PROTOCOL_VERSION,
             prev.header(),
             height,
-            prev.chunks().clone(),
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            (prev.header().block_ordinal() + 1),
+            prev.chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            None,
             approvals,
             Rational::from_integer(0),
             0,
@@ -406,5 +451,25 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         Ok(0)
+    }
+}
+
+impl FinalExecutionStatus {
+    pub fn as_success(self) -> Option<String> {
+        match self {
+            FinalExecutionStatus::SuccessValue(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_failure(self) -> Option<TxExecutionError> {
+        match self {
+            FinalExecutionStatus::Failure(failure) => Some(failure),
+            _ => None,
+        }
+    }
+
+    pub fn as_success_decoded(self) -> Option<Vec<u8>> {
+        self.as_success().and_then(|value| from_base64(&value).ok())
     }
 }

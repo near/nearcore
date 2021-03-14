@@ -1,11 +1,11 @@
 //! Helper functions to compute the costs of certain actions assuming they succeed and the only
 //! actions in the transaction batch.
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{Balance, Gas};
-use near_runtime_fees::RuntimeFeesConfig;
 
 pub struct FeeHelper {
-    cfg: RuntimeFeesConfig,
-    gas_price: Balance,
+    pub cfg: RuntimeFeesConfig,
+    pub gas_price: Balance,
 }
 
 impl FeeHelper {
@@ -103,6 +103,10 @@ impl FeeHelper {
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(false)
             + self.cfg.action_creation_config.transfer_cost.send_fee(false);
         self.gas_to_balance(exec_gas + send_gas)
+    }
+
+    pub fn transfer_cost_64len_hex(&self) -> Balance {
+        self.create_account_transfer_full_key_cost()
     }
 
     pub fn stake_cost(&self) -> Balance {

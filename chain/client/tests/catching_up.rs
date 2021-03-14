@@ -9,20 +9,21 @@ mod tests {
     use borsh::{BorshDeserialize, BorshSerialize};
     use futures::{future, FutureExt};
 
+    use near_actix_test_utils::run_actix_until_stop;
     use near_chain::test_utils::account_id_to_shard_id;
-    use near_client::sync::STATE_SYNC_TIMEOUT;
+    use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::AccountOrPeerIdOrHash;
+    use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash};
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::hash as hash_func;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ChunkHash;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta, BlockIdOrFinality};
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, BlockReference};
     use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
     fn get_validators_and_key_pairs() -> (Vec<Vec<&'static str>>, Vec<PeerInfo>) {
@@ -120,7 +121,7 @@ mod tests {
     fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool) {
         let validator_groups = 1;
         init_integration_logger();
-        System::run(move || {
+        run_actix_until_stop(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
@@ -131,11 +132,11 @@ mod tests {
             let seen_hashes_with_state = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
 
             let connectors1 = connectors.clone();
-            let mut block_prod_time: u64 = 1600;
+            let mut block_prod_time: u64 = 3200;
             if sync_hold {
-                block_prod_time *= STATE_SYNC_TIMEOUT as u64;
+                block_prod_time *= TEST_STATE_SYNC_TIMEOUT as u64;
             }
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -146,6 +147,8 @@ mod tests {
                 5,
                 false,
                 vec![true; validators.iter().map(|x| x.len()).sum()],
+                vec![false; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         let account_from = "test3.3".to_string();
@@ -223,15 +226,14 @@ mod tests {
                                         .collect();
                                     if receipts.len() > 0 {
                                         assert_eq!(
-                                            partial_encoded_chunk.header.inner.shard_id,
+                                            partial_encoded_chunk.header.shard_id(),
                                             source_shard_id
                                         );
-                                        seen_heights_with_receipts.insert(
-                                            partial_encoded_chunk.header.inner.height_created,
-                                        );
+                                        seen_heights_with_receipts
+                                            .insert(partial_encoded_chunk.header.height_created());
                                     } else {
                                         assert_ne!(
-                                            partial_encoded_chunk.header.inner.shard_id,
+                                            partial_encoded_chunk.header.shard_id(),
                                             source_shard_id
                                         );
                                     }
@@ -314,15 +316,14 @@ mod tests {
                                                 connectors1.write().unwrap()[i]
                                                     .1
                                                     .send(Query::new(
-                                                        BlockIdOrFinality::latest(),
+                                                        BlockReference::latest(),
                                                         QueryRequest::ViewAccount {
                                                             account_id: account_to.clone(),
                                                         },
                                                     ))
                                                     .then(move |res| {
                                                         let res_inner = res.unwrap();
-                                                        if let Ok(Some(query_response)) = res_inner
-                                                        {
+                                                        if let Ok(query_response) = res_inner {
                                                             if let ViewAccount(
                                                                 view_account_result,
                                                             ) = query_response.kind
@@ -348,12 +349,11 @@ mod tests {
             *connectors.write().unwrap() = conn;
             let mut max_wait_ms = 240000;
             if sync_hold {
-                max_wait_ms *= STATE_SYNC_TIMEOUT as u64;
+                max_wait_ms *= TEST_STATE_SYNC_TIMEOUT as u64;
             }
 
             near_network::test_utils::wait_or_panic(max_wait_ms);
-        })
-        .unwrap();
+        });
     }
 
     enum RandomSinglePartPhases {
@@ -400,7 +400,7 @@ mod tests {
     fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, height: u64) {
         let validator_groups = 2;
         init_integration_logger();
-        System::run(move || {
+        run_actix_until_stop(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
@@ -432,17 +432,19 @@ mod tests {
                 };
 
             let connectors1 = connectors.clone();
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                3500,
+                6000,
                 false,
                 false,
                 5,
-                false,
+                true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                vec![true; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
@@ -517,7 +519,7 @@ mod tests {
                                                     connectors1.write().unwrap()[i]
                                                         .1
                                                         .send(Query::new(
-                                                            BlockIdOrFinality::latest(),
+                                                            BlockReference::latest(),
                                                             QueryRequest::ViewAccount {
                                                                 account_id: flat_validators[j]
                                                                     .to_string(),
@@ -525,9 +527,7 @@ mod tests {
                                                         ))
                                                         .then(move |res| {
                                                             let res_inner = res.unwrap();
-                                                            if let Ok(Some(query_response)) =
-                                                                res_inner
-                                                            {
+                                                            if let Ok(query_response) = res_inner {
                                                                 if let ViewAccount(
                                                                     view_account_result,
                                                                 ) = query_response.kind
@@ -578,15 +578,13 @@ mod tests {
                                     ..
                                 } = msg
                                 {
-                                    if partial_encoded_chunk.header.inner.height_created == 22 {
-                                        seen_heights_same_block.insert(
-                                            partial_encoded_chunk.header.inner.prev_block_hash,
-                                        );
+                                    if partial_encoded_chunk.header.height_created() == 22 {
+                                        seen_heights_same_block
+                                            .insert(partial_encoded_chunk.header.prev_block_hash());
                                     }
                                     if skip_15 {
-                                        if partial_encoded_chunk.header.inner.height_created == 14
-                                            || partial_encoded_chunk.header.inner.height_created
-                                                == 15
+                                        if partial_encoded_chunk.header.height_created() == 14
+                                            || partial_encoded_chunk.header.height_created() == 15
                                         {
                                             return (NetworkResponses::NoResponse, false);
                                         }
@@ -601,17 +599,19 @@ mod tests {
             *connectors.write().unwrap() = conn;
 
             near_network::test_utils::wait_or_panic(480000);
-        })
-        .unwrap();
+        });
     }
 
     /// Makes sure that 24 consecutive blocks are produced by 12 validators split into three epochs.
-    /// This ensures that at no point validators get stuck with state sync
+    /// For extra coverage doesn't allow block propagation of some heights (and expects the blocks
+    /// to be skipped)
+    /// This test would fail if at any point validators got stuck with state sync, or block
+    /// production stalled for any other reason.
     #[test]
     fn test_catchup_sanity_blocks_produced() {
         let validator_groups = 2;
         init_integration_logger();
-        System::run(move || {
+        run_actix_until_stop(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
@@ -631,77 +631,19 @@ mod tests {
 
             let (validators, key_pairs) = get_validators_and_key_pairs();
 
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                600,
-                false,
-                false,
-                5,
-                false,
-                vec![false; validators.iter().map(|x| x.len()).sum()],
-                Arc::new(RwLock::new(Box::new(
-                    move |_account_id: String, msg: &NetworkRequests| {
-                        if let NetworkRequests::Block { block } = msg {
-                            check_height(*block.hash(), block.header().height());
-                            check_height(*block.header().prev_hash(), block.header().height() - 1);
-
-                            if block.header().height() >= 25 {
-                                System::current().stop();
-                            }
-                        }
-                        (NetworkResponses::NoResponse, true)
-                    },
-                ))),
-            );
-            *connectors.write().unwrap() = conn;
-
-            near_network::test_utils::wait_or_panic(60000);
-        })
-        .unwrap();
-    }
-
-    /// Similar to `test_catchup_sanity_blocks_produced`, but
-    ///  a) Enables doomslug,
-    ///  b) Doesn't allow the propagation of some heights
-    /// Ensures that the block production doesn't get stuck.
-    #[test]
-    fn test_catchup_sanity_blocks_produced_doomslug() {
-        let validator_groups = 2;
-        init_integration_logger();
-        System::run(move || {
-            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-                Arc::new(RwLock::new(vec![]));
-
-            let heights = Arc::new(RwLock::new(HashMap::new()));
-            let heights1 = heights.clone();
-
-            let check_height =
-                move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone())
-                {
-                    Entry::Occupied(entry) => {
-                        assert_eq!(*entry.get(), height);
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(height);
-                    }
-                };
-
-            let (validators, key_pairs) = get_validators_and_key_pairs();
-
-            let (_, conn) = setup_mock_all_validators(
-                validators.clone(),
-                key_pairs.clone(),
-                validator_groups,
-                true,
-                600,
+                2000,
                 false,
                 false,
                 5,
                 true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                vec![true; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         let propagate = if let NetworkRequests::Block { block } = msg {
@@ -736,8 +678,7 @@ mod tests {
             *connectors.write().unwrap() = conn;
 
             near_network::test_utils::wait_or_panic(60000);
-        })
-        .unwrap();
+        });
     }
 
     enum ChunkGrievingPhases {
@@ -745,11 +686,13 @@ mod tests {
         SecondAttack,
     }
 
+    // TODO(#3180): seals are disabled in single shard setting
     #[test]
+    #[ignore]
     fn test_chunk_grieving() {
         let validator_groups = 1;
         init_integration_logger();
-        System::run(move || {
+        run_actix_until_stop(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
@@ -763,8 +706,8 @@ mod tests {
 
             let _connectors1 = connectors.clone();
 
-            let block_prod_time: u64 = 1200;
-            let (_, conn) = setup_mock_all_validators(
+            let block_prod_time: u64 = 3500;
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -775,6 +718,8 @@ mod tests {
                 5,
                 true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                vec![true; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |sender_account_id: String, msg: &NetworkRequests| {
                         let mut grieving_chunk_hash = grieving_chunk_hash.write().unwrap();
@@ -787,8 +732,8 @@ mod tests {
                                     account_id,
                                 } = msg
                                 {
-                                    let height = partial_encoded_chunk.header.inner.height_created;
-                                    let shard_id = partial_encoded_chunk.header.inner.shard_id;
+                                    let height = partial_encoded_chunk.header.height_created();
+                                    let shard_id = partial_encoded_chunk.header.shard_id();
                                     if height == 12 && shard_id == 0 {
                                         // "test3.6" is the chunk producer on height 12, shard_id 0
                                         assert_eq!(sender_account_id, malicious_node);
@@ -819,15 +764,30 @@ mod tests {
                             ChunkGrievingPhases::SecondAttack => {
                                 if let NetworkRequests::PartialEncodedChunkRequest {
                                     request,
-                                    account_id,
+                                    target:
+                                        AccountIdOrPeerTrackingShard {
+                                            account_id: Some(account_id),
+                                            ..
+                                        },
                                 } = msg
                                 {
                                     if request.chunk_hash == *grieving_chunk_hash {
-                                        if *account_id == malicious_node {
+                                        if account_id == &malicious_node {
                                             // holding grieving_chunk_hash by malicious node
                                             return (NetworkResponses::NoResponse, false);
                                         }
                                     }
+                                } else if let NetworkRequests::PartialEncodedChunkRequest {
+                                    request: _,
+                                    target: _,
+                                } = msg
+                                {
+                                    // this test was written before the feature that allows
+                                    // sending requests directly to the peer. The test likely never
+                                    // triggers this path, but if this assert triggers, the above
+                                    // `if let` needs to be extended to block messages sent to the
+                                    // malicious node directly via the peer id
+                                    assert!(false);
                                 }
                                 if let NetworkRequests::PartialEncodedChunkResponse {
                                     route_back: _,
@@ -845,8 +805,8 @@ mod tests {
                                     account_id,
                                 } = msg
                                 {
-                                    let height = partial_encoded_chunk.header.inner.height_created;
-                                    let shard_id = partial_encoded_chunk.header.inner.shard_id;
+                                    let height = partial_encoded_chunk.header.height_created();
+                                    let shard_id = partial_encoded_chunk.header.shard_id();
                                     if height == 42 && shard_id == 2 {
                                         // "test3.6" is the chunk producer on height 42, shard_id 2
                                         assert_eq!(sender_account_id, malicious_node);
@@ -877,23 +837,22 @@ mod tests {
             let max_wait_ms = 240000;
 
             near_network::test_utils::wait_or_panic(max_wait_ms);
-        })
-        .unwrap();
+        });
     }
 
     #[test]
     fn test_all_chunks_accepted_1000() {
-        test_all_chunks_accepted_common(1000, 2000, 5)
+        test_all_chunks_accepted_common(1000, 3000, 5)
     }
 
     #[test]
     fn test_all_chunks_accepted_1000_slow() {
-        test_all_chunks_accepted_common(1000, 4000, 5)
+        test_all_chunks_accepted_common(1000, 6000, 5)
     }
 
     #[test]
     fn test_all_chunks_accepted_1000_rare_epoch_changing() {
-        test_all_chunks_accepted_common(1000, 1000, 100)
+        test_all_chunks_accepted_common(1000, 1500, 100)
     }
 
     fn test_all_chunks_accepted_common(
@@ -903,7 +862,7 @@ mod tests {
     ) {
         let validator_groups = 1;
         init_integration_logger();
-        System::run(move || {
+        run_actix_until_stop(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
@@ -917,7 +876,7 @@ mod tests {
             let responded =
                 Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
 
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -926,8 +885,10 @@ mod tests {
                 false,
                 false,
                 epoch_length,
-                false,
+                true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                vec![true; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |sender_account_id: String, msg: &NetworkRequests| {
                         let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
@@ -941,22 +902,20 @@ mod tests {
                             let header = &partial_encoded_chunk.header;
                             if seen_chunk_same_sender.contains(&(
                                 account_id.clone(),
-                                header.inner.height_created,
-                                header.inner.shard_id,
+                                header.height_created(),
+                                header.shard_id(),
                             )) {
                                 println!("=== SAME CHUNK AGAIN!");
                                 assert!(false);
                             };
                             seen_chunk_same_sender.insert((
                                 account_id.clone(),
-                                header.inner.height_created,
-                                header.inner.shard_id,
+                                header.height_created(),
+                                header.shard_id(),
                             ));
                         }
-                        if let NetworkRequests::PartialEncodedChunkRequest {
-                            account_id: _,
-                            request,
-                        } = msg
+                        if let NetworkRequests::PartialEncodedChunkRequest { target: _, request } =
+                            msg
                         {
                             if verbose {
                                 if requested.contains(&(
@@ -1019,7 +978,6 @@ mod tests {
             let max_wait_ms = block_prod_time * last_height / 10 * 18 + 20000;
 
             near_network::test_utils::wait_or_panic(max_wait_ms);
-        })
-        .unwrap();
+        });
     }
 }

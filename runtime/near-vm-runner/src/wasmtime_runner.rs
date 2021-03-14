@@ -1,19 +1,24 @@
-use wasmtime::{Engine, Module};
+use wasmtime::Module;
 
 // mod only to apply feature to it. Is it possible to avoid it?
 #[cfg(feature = "wasmtime_vm")]
 pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
     use crate::{imports, prepare};
-    use near_runtime_fees::RuntimeFeesConfig;
+    use near_primitives::runtime::fees::RuntimeFeesConfig;
+    use near_primitives::{
+        config::VMConfig, profile::ProfileData, types::CompiledContractCache,
+        version::ProtocolVersion,
+    };
     use near_vm_errors::FunctionCallError::{LinkError, WasmUnknownError};
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
-    use near_vm_logic::types::PromiseResult;
-    use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+    use near_vm_logic::{
+        types::PromiseResult, External, MemoryLike, VMContext, VMLogic, VMOutcome,
+    };
     use std::ffi::c_void;
     use std::str;
     use wasmtime::ExternType::Func;
-    use wasmtime::{Engine, Limits, Linker, Memory, MemoryType, Module, Store};
+    use wasmtime::{Config, Engine, Limits, Linker, Memory, MemoryType, Module, Store};
 
     pub struct WasmtimeMemory(Memory);
 
@@ -78,6 +83,7 @@ pub mod wasmtime_runner {
                 Some(VMLogicError::InconsistentStateError(e)) => {
                     VMError::InconsistentStateError(e.clone())
                 }
+                Some(VMLogicError::EvmError(_)) => unreachable!("Wasm can't return EVM error"),
                 None => panic!("Error is not properly set"),
             }
         } else {
@@ -106,16 +112,20 @@ pub mod wasmtime_runner {
     }
 
     pub fn run_wasmtime<'a>(
-        _code_hash: Vec<u8>,
+        _code_hash: &[u8],
         code: &[u8],
-        method_name: &[u8],
+        method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
         wasm_config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
+        profile: ProfileData,
+        current_protocol_version: ProtocolVersion,
+        _cache: Option<&'a dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
-        let engine = Engine::default();
+        let mut config = Config::default();
+        let engine = get_engine(&mut config);
         let store = Store::new(&engine);
         let mut memory = WasmtimeMemory::new(
             &store,
@@ -131,8 +141,16 @@ pub mod wasmtime_runner {
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
         let mut linker = Linker::new(&store);
-        let mut logic =
-            VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory);
+        let mut logic = VMLogic::new_with_protocol_version(
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            &mut memory,
+            profile,
+            current_protocol_version,
+        );
         if logic.add_contract_compile_fee(code.len() as u64).is_err() {
             return (
                 Some(logic.outcome()),
@@ -144,18 +162,7 @@ pub mod wasmtime_runner {
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
         // lifetimes of the logic instance and pass raw pointers here.
         let raw_logic = &mut logic as *mut _ as *mut c_void;
-        imports::link_wasmtime(&mut linker, memory_copy, raw_logic);
-        let func_name = match str::from_utf8(method_name) {
-            Ok(name) => name,
-            Err(_) => {
-                return (
-                    None,
-                    Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                        MethodResolveError::MethodUTF8Error,
-                    ))),
-                )
-            }
-        };
+        imports::link_wasmtime(&mut linker, memory_copy, raw_logic, current_protocol_version);
         if method_name.is_empty() {
             return (
                 None,
@@ -164,7 +171,7 @@ pub mod wasmtime_runner {
                 ))),
             );
         }
-        match module.get_export(func_name) {
+        match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {
                     if !func_type.params().is_empty() || !func_type.results().is_empty() {
@@ -197,7 +204,7 @@ pub mod wasmtime_runner {
             }
         }
         match linker.instantiate(&module) {
-            Ok(instance) => match instance.get_func(func_name) {
+            Ok(instance) => match instance.get_func(method_name) {
                 Some(func) => match func.get0::<()>() {
                     Ok(run) => match run() {
                         Ok(_) => (Some(logic.outcome()), None),
@@ -208,16 +215,31 @@ pub mod wasmtime_runner {
                 None => (
                     None,
                     Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                        MethodResolveError::MethodUTF8Error,
+                        MethodResolveError::MethodNotFound,
                     ))),
                 ),
             },
             Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
         }
     }
+    #[cfg(not(feature = "lightbeam"))]
+    pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
+        Engine::new(config)
+    }
+
+    #[cfg(feature = "lightbeam")]
+    pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
+        Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap())
+    }
 }
 
-pub fn compile_module(code: &[u8]) {
-    let engine = Engine::default();
-    Module::new(&engine, code).unwrap();
+pub fn compile_module(code: &[u8]) -> bool {
+    let mut config = wasmtime::Config::default();
+    let engine = wasmtime_runner::get_engine(&mut config);
+    Module::new(&engine, code).is_ok()
+}
+
+pub(crate) fn wasmtime_vm_hash() -> u64 {
+    // TODO: take into account compiler and engine used to compile the contract.
+    64
 }

@@ -1,7 +1,9 @@
+use std::fmt::{self, Error, Formatter};
+
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+
+use near_rpc_error_macro::RpcError;
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum VMError {
@@ -11,6 +13,8 @@ pub enum VMError {
     /// An error that is caused by an operation on an inconsistent state.
     /// E.g. an integer overflow by using a value from the given context.
     InconsistentStateError(InconsistentStateError),
+    /// Error caused by caching.
+    CacheError(CacheError),
 }
 
 #[derive(
@@ -29,6 +33,22 @@ pub enum FunctionCallError {
     WasmTrap(WasmTrap),
     WasmUnknownError,
     HostError(HostError),
+    EvmError(EvmError),
+    /// An error message when wasmer 1.0 returns a wasmer::RuntimeError
+    WasmerRuntimeError(String),
+    /// A trap in Wasmer 1.0, not same as WasmTrap above, String is a machine readable form like "stk_ovf"
+    /// String is used instead of wasmer internal enum is because of BorshSerializable.
+    /// It can be convert back by wasmer_vm::TrapCode::from_str
+    Wasmer1Trap(String),
+}
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+pub enum CacheError {
+    ReadError,
+    WriteError,
+    DeserializationError,
+    SerializationError { hash: [u8; 32] },
 }
 /// A kind of a trap happened during execution of a binary
 #[derive(
@@ -60,7 +80,6 @@ pub enum WasmTrap {
 )]
 pub enum MethodResolveError {
     MethodEmptyName,
-    MethodUTF8Error,
     MethodNotFound,
     MethodInvalidSignature,
 }
@@ -72,6 +91,7 @@ pub enum CompilationError {
     CodeDoesNotExist { account_id: String },
     PrepareError(PrepareError),
     WasmerCompileError { msg: String },
+    UnsupportedCompiler { msg: String },
 }
 
 #[derive(
@@ -166,21 +186,115 @@ pub enum HostError {
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The host function was deprecated.
     Deprecated { method_name: String },
+    /// Deserialization error for alt_bn128 functions
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    AltBn128DeserializationError { msg: String },
+    /// Serialization error for alt_bn128 functions
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    AltBn128SerializationError { msg: String },
+}
+
+/// Errors specifically from native EVM.
+#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+pub enum EvmError {
+    /// Contract not found.
+    ContractNotFound,
+    /// Fatal failure due conflicting addresses on contract deployment.
+    DuplicateContract(#[serde(with = "hex_format")] Vec<u8>),
+    /// Contract deployment failure.
+    DeployFail(#[serde(with = "hex_format")] Vec<u8>),
+    /// Contract execution failed, revert the state.
+    Revert(#[serde(with = "hex_format")] Vec<u8>),
+    /// Failed to parse arguments.
+    ArgumentParseError,
+    /// No deposit when expected.
+    MissingDeposit,
+    /// Insufficient funds to finish the operation.
+    InsufficientFunds,
+    /// U256 overflow.
+    IntegerOverflow,
+    /// Method not found.
+    MethodNotFound,
+    /// Invalid signature when recovering.
+    InvalidEcRecoverSignature,
+    /// Invalid nonce.
+    InvalidNonce,
+    /// Invalid sub EVM account.
+    InvalidSubAccount,
+    /// Won't withdraw to itself.
+    FailSelfWithdraw,
+    /// Too small NEAR deposit.
+    InsufficientDeposit,
+    /// `OutOfGas` is returned when transaction execution runs out of gas.
+    /// The state should be reverted to the state from before the
+    /// transaction execution. But it does not mean that transaction
+    /// was invalid. Balance still should be transfered and nonce
+    /// should be increased.
+    OutOfGas,
+    /// `BadJumpDestination` is returned when execution tried to move
+    /// to position that wasn't marked with JUMPDEST instruction
+    BadJumpDestination {
+        /// Position the code tried to jump to.
+        destination: u64,
+    },
+    /// `BadInstructions` is returned when given instruction is not supported
+    BadInstruction {
+        /// Unrecognized opcode
+        instruction: u8,
+    },
+    /// `StackUnderflow` when there is not enough stack elements to execute instruction
+    StackUnderflow {
+        /// Invoked instruction
+        instruction: String,
+        /// How many stack elements was requested by instruction
+        wanted: u64,
+        /// How many elements were on stack
+        on_stack: u64,
+    },
+    /// When execution would exceed defined Stack Limit
+    OutOfStack {
+        /// Invoked instruction
+        instruction: String,
+        /// How many stack elements instruction wanted to push
+        wanted: u64,
+        /// What was the stack limit
+        limit: u64,
+    },
+    /// Built-in contract failed on given input
+    BuiltIn(String),
+    /// When execution tries to modify the state in static context
+    MutableCallInStaticContext,
+    /// Out of bounds access in RETURNDATACOPY.
+    OutOfBounds,
+    /// Execution has been reverted with REVERT.
+    Reverted,
+    /// Invalid method name to parse
+    InvalidMetaTransactionMethodName,
+    /// Invalid function args in meta txn
+    InvalidMetaTransactionFunctionArg,
+    /// Chain ID doesn't match. Trying to use transaction signed for a different chain.
+    InvalidChainId,
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum VMLogicError {
+    /// Errors coming from native Wasm VM.
     HostError(HostError),
     /// Serialized external error from External trait implementation.
     ExternalError(Vec<u8>),
     /// An error that is caused by an operation on an inconsistent state.
     InconsistentStateError(InconsistentStateError),
+    /// An error coming from native EVM.
+    EvmError(EvmError),
 }
+
+impl std::error::Error for VMLogicError {}
 
 /// An error that is caused by an operation on an inconsistent state.
 /// E.g. a deserialization error or an integer overflow.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum InconsistentStateError {
+    StorageError(String),
     /// Math operation with a value from the state resulted in a integer overflow.
     IntegerOverflow,
 }
@@ -202,6 +316,25 @@ impl From<PrepareError> for VMError {
         VMError::FunctionCallError(FunctionCallError::CompilationError(
             CompilationError::PrepareError(err),
         ))
+    }
+}
+
+impl From<&VMLogicError> for VMError {
+    fn from(err: &VMLogicError) -> Self {
+        match err {
+            VMLogicError::HostError(h) => {
+                VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+            }
+            VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
+            VMLogicError::InconsistentStateError(e) => VMError::InconsistentStateError(e.clone()),
+            VMLogicError::EvmError(_) => unreachable!("Wasm can't return EVM error"),
+        }
+    }
+}
+
+impl fmt::Display for VMLogicError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "{:?}", self)
     }
 }
 
@@ -233,6 +366,9 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::WasmUnknownError => {
                 write!(f, "Unknown error during Wasm contract execution")
             }
+            FunctionCallError::EvmError(e) => write!(f, "EVM: {:?}", e),
+            FunctionCallError::WasmerRuntimeError(e) => write!(f, "Wasmer Runtime: {}", e),
+            FunctionCallError::Wasmer1Trap(e) => write!(f, "Wasmer 1.0 trap: {}", e),
         }
     }
 }
@@ -267,6 +403,9 @@ impl fmt::Display for CompilationError {
             CompilationError::WasmerCompileError { msg } => {
                 write!(f, "Wasmer compilation error: {}", msg)
             }
+            CompilationError::UnsupportedCompiler { msg } => {
+                write!(f, "Unsupported compiler: {}", msg)
+            }
         }
     }
 }
@@ -283,6 +422,7 @@ impl fmt::Display for VMError {
             VMError::FunctionCallError(err) => fmt::Display::fmt(err, f),
             VMError::ExternalError(_err) => write!(f, "Serialized ExternalError"),
             VMError::InconsistentStateError(err) => fmt::Display::fmt(err, f),
+            VMError::CacheError(err) => write!(f, "Cache error: {:?}", err),
         }
     }
 }
@@ -290,6 +430,7 @@ impl fmt::Display for VMError {
 impl std::fmt::Display for InconsistentStateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
+            InconsistentStateError::StorageError(err) => write!(f, "Storage error: {:?}", err),
             InconsistentStateError::IntegerOverflow => write!(
                 f,
                 "Math operation with a value from the state resulted in a integer overflow.",
@@ -332,7 +473,35 @@ impl std::fmt::Display for HostError {
             ReturnedValueLengthExceeded { length, limit } => write!(f, "The length of a returned value {} exceeds the limit {}", length, limit),
             ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
             Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            AltBn128SerializationError { msg } => write!(f, "AltBn128 serialization error: {}", msg),
         }
+    }
+}
+
+pub mod hex_format {
+    use hex::{decode, encode};
+
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S, T>(data: T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: AsRef<[u8]>,
+    {
+        serializer.serialize_str(&encode(data))
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: From<Vec<u8>>,
+    {
+        let s = String::deserialize(deserializer)?;
+        decode(&s).map_err(|err| de::Error::custom(err.to_string())).map(Into::into)
     }
 }
 

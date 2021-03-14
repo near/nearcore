@@ -9,27 +9,29 @@ members = [
     "core/chain-configs",
     "core/crypto",
     "core/primitives",
-    "core/runtime-configs",
+    "core/primitives-core",
     "core/store",
     "core/metrics",
-    "utils/actix",
-    "runtime/runtime",
-    "runtime/runtime-standalone",
-    "runtime/near-runtime-fees",
+    "runtime/near-evm-runner",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
+    "runtime/runtime",
     "runtime/runtime-params-estimator",
     "chain/chain",
     "chain/chunks",
     "chain/epoch_manager",
     "chain/pool",
     "chain/client",
+    "chain/client-primitives",
     "chain/network",
     "chain/indexer",
     "chain/jsonrpc",
     "chain/jsonrpc/client",
     "chain/jsonrpc/test-utils",
+    "chain/jsonrpc-primitives",
+    "chain/rosetta-rpc",
+    "test-utils/actix-test-utils",
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",
@@ -41,26 +43,23 @@ members = [
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",
     "tools/restaked",
-    "tools/indexer/example"
+    "tools/indexer/example",
+    "tools/delay_detector"
 ]
 
-[dependencies]
-# pins this version to fix https://github.com/actix/actix-net/issues/129
-actix-rt = "=1.1.1"
-
 [dev-dependencies]
-actix = "0.9"
-lazy_static = "1.4"
-log = "^0.4.6"
+# Pin dependency to avoid compilation errors
+funty = "=1.1.0"
+
 rand = "0.7"
-serde_json = "1"
-futures = "0.3"
 
 near-logger-utils = { path = "./test-utils/logger" }
 near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
+runtime-params-estimator = { path = "./runtime/runtime-params-estimator", default_features = false }
+near-chain = { path = "./chain/chain" }
 
 node-runtime = { path = "./runtime/runtime" }
 
@@ -70,6 +69,9 @@ near-network = { path = "./chain/network" }
 neard = { path = "./neard"}
 
 testlib = { path = "./test-utils/testlib" }
+
+[replace]
+"ethereum-types:0.10.0" = { path = "./patches/ethereum-types-0.10.0-to-0.11.0" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.
@@ -94,9 +96,32 @@ opt-level = 3 # BLS library is too slow to use in debug
 opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]
+performance_stats = ["neard/performance_stats", "near-network/performance_stats"]
+memory_stats = ["neard/memory_stats"]
+c_memory_stats = ["neard/c_memory_stats"]
 expensive_tests = ["neard/expensive_tests"]
 regression_tests = []
 old_tests = []
 adversarial = ["neard/adversarial", "near-jsonrpc/adversarial", "near-store/adversarial"]
 no_cache = ["neard/no_cache"]
 metric_recorder = ["neard/metric_recorder"]
+delay_detector = ["neard/delay_detector"]
+rosetta_rpc = ["neard/rosetta_rpc"]
+nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
+nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_access_key_nonce_range"]
+protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_parts"]
+protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
+protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128", "testlib/protocol_feature_alt_bn128", "runtime-params-estimator/protocol_feature_alt_bn128"]
+protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
+protocol_feature_access_key_nonce_range = ["neard/protocol_feature_access_key_nonce_range"]
+
+# enable this to build neard with wasmer 1.0 runner
+# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
+wasmer1_default = ["node-runtime/wasmer1_default"]
+wasmer0_default = ["node-runtime/wasmer0_default"]
+wasmtime_default = ["node-runtime/wasmtime_default"]
+# enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
+# but would not change default runner used by neard
+wasmer1_vm = ["node-runtime/wasmer1_vm"]
+wasmer0_vm = ["node-runtime/wasmer0_vm"]
+wasmtime_vm = ["node-runtime/wasmtime_vm"]

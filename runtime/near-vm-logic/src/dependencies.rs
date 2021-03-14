@@ -1,6 +1,7 @@
 //! External dependencies of the near-vm-logic.
 
-use crate::types::{AccountId, Balance, Gas, PublicKey, ReceiptIndex};
+use crate::types::{PublicKey, ReceiptIndex};
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::VMLogicError;
 
 /// An abstraction over the memory of the smart contract.
@@ -111,12 +112,36 @@ pub trait External {
     ///
     /// # let mut external = MockedExternal::new();
     /// external.storage_set(b"key42", b"value1337").unwrap();
-    /// // Returns value if exists
+    /// // Returns Ok if exists
     /// assert_eq!(external.storage_remove(b"key42"), Ok(()));
-    /// // Returns None if there was no value
+    /// // Returns Ok if there was no value
     /// assert_eq!(external.storage_remove(b"no_value_key"), Ok(()));
     /// ```
     fn storage_remove(&mut self, key: &[u8]) -> Result<()>;
+
+    /// Removes all keys under given suffix in the storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - a prefix for all keys to remove
+    ///
+    /// # Errors
+    ///
+    /// This function could return HostErrorOrStorageError::StorageError on underlying DB failure
+    ///
+    /// # Example
+    /// ```
+    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
+    /// # use near_vm_logic::External;
+    ///
+    /// # let mut external = MockedExternal::new();
+    /// external.storage_set(b"key1", b"value1337").unwrap();
+    /// external.storage_set(b"key2", b"value1337").unwrap();
+    /// assert_eq!(external.storage_remove_subtree(b"key"), Ok(()));
+    /// assert!(!external.storage_has_key(b"key1").unwrap());
+    /// assert!(!external.storage_has_key(b"key2").unwrap());
+    /// ```
+    fn storage_remove_subtree(&mut self, prefix: &[u8]) -> Result<()>;
 
     /// Check whether key exists. Returns Ok(true) if key exists or Ok(false) otherwise
     ///
@@ -443,71 +468,6 @@ pub trait External {
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
     ) -> Result<()>;
-
-    /// Computes sha256 hash
-    ///
-    /// # Arguments
-    ///
-    /// * `data` - data to hash
-    ///
-    /// # Example
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let result = external.sha256(b"tesdsst").unwrap();
-    /// assert_eq!(&result, &[
-    ///        18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112,
-    ///        92, 255, 88, 43, 83, 147, 122, 55, 26, 36, 42, 156, 160, 158,
-    /// ]);
-    ///
-    /// ```
-    fn sha256(&self, data: &[u8]) -> Result<Vec<u8>>;
-
-    /// Computes keccak256 hash
-    ///
-    /// # Arguments
-    ///
-    /// * `data` - data to hash
-    ///
-    /// # Example
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let result = external.keccak256(b"tesdsst").unwrap();
-    /// assert_eq!(&result, &[
-    ///         104, 110, 58, 122, 230, 181, 215, 145, 231, 229, 49, 162, 123, 167, 177, 58, 26, 142,
-    ///         129, 173, 7, 37, 9, 26, 233, 115, 64, 102, 61, 85, 10, 159
-    /// ]);
-    ///
-    /// ```
-    fn keccak256(&self, data: &[u8]) -> Result<Vec<u8>>;
-
-    /// Computes keccak512 hash
-    ///
-    /// # Arguments
-    ///
-    /// * `data` - data to hash
-    ///
-    /// # Example
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let result = external.keccak512(b"tesdsst").unwrap();
-    /// assert_eq!(&result, &[
-    ///         55, 134, 96, 137, 168, 122, 187, 95, 67, 76, 18, 122, 146, 11, 225, 106, 117, 194, 154,
-    ///         157, 48, 160, 90, 146, 104, 209, 118, 126, 222, 230, 200, 125, 48, 73, 197, 236, 123,
-    ///         173, 192, 197, 90, 153, 167, 121, 100, 88, 209, 240, 137, 86, 239, 41, 87, 128, 219, 249,
-    ///         136, 203, 220, 109, 46, 168, 234, 190
-    /// ].to_vec());
-    ///
-    /// ```
-    fn keccak512(&self, data: &[u8]) -> Result<Vec<u8>>;
 
     /// Returns amount of touched trie nodes by storage operations
     fn get_touched_nodes_count(&self) -> u64;

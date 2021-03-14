@@ -1,0 +1,17 @@
+[package]
+name = "near-chain-primitives"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = { version = "0.4.4", features = ["serde"] }
+failure = "0.1"
+failure_derive = "0.1"
+log = "0.4"
+thiserror = "1.0"
+
+near-primitives = { path = "../../core/primitives" }
+near-crypto = { path = "../../core/crypto" }

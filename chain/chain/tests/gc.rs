@@ -2,9 +2,9 @@
 mod tests {
     use std::sync::Arc;
 
-    use near_chain::chain::{Chain, ChainGenesis};
+    use near_chain::chain::Chain;
     use near_chain::test_utils::KeyValueRuntime;
-    use near_chain::types::Tip;
+    use near_chain::types::{ChainGenesis, Tip};
     use near_chain::DoomslugThresholdMode;
     use near_crypto::KeyType;
     use near_primitives::block::Block;

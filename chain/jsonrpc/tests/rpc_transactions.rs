@@ -4,6 +4,7 @@ use actix::{Actor, System};
 use borsh::BorshSerialize;
 use futures::{future, FutureExt, TryFutureExt};
 
+use near_actix_test_utils::run_actix_until_stop;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::{init_integration_logger, init_test_logger};
@@ -11,7 +12,7 @@ use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockIdOrFinality;
+use near_primitives::types::BlockReference;
 use near_primitives::views::FinalExecutionStatus;
 
 #[macro_use]
@@ -22,7 +23,7 @@ pub mod test_utils;
 fn test_send_tx_async() {
     init_test_logger();
 
-    System::run(|| {
+    run_actix_until_stop(async {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::Validator);
 
         let client = new_client(&format!("http://{}", addr.clone()));
@@ -32,7 +33,7 @@ fn test_send_tx_async() {
         let tx_hash2_2 = tx_hash2.clone();
         let signer_account_id = "test1".to_string();
 
-        actix::spawn(client.block(BlockIdOrFinality::latest()).then(move |res| {
+        actix::spawn(client.block(BlockReference::latest()).then(move |res| {
             let block_hash = res.unwrap().header.hash;
             let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
             let tx = SignedTransaction::send_money(
@@ -66,22 +67,21 @@ fn test_send_tx_async() {
                                 }
                             })
                             .map(drop),
-                    )
+                    );
                 }
             }),
             100,
             2000,
         )
         .start();
-    })
-    .unwrap();
+    });
 }
 
 /// Test sending transaction and waiting for it to be committed to a block.
 #[test]
 fn test_send_tx_commit() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let block_hash = client.block(BlockIdOrFinality::latest()).await.unwrap().header.hash;
+        let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
@@ -101,9 +101,12 @@ fn test_send_tx_commit() {
 #[test]
 fn test_expired_tx() {
     init_integration_logger();
-    System::run(|| {
-        let (_, addr) =
-            test_utils::start_all_with_validity_period(test_utils::NodeType::Validator, 1, false);
+    run_actix_until_stop(async {
+        let (_, addr) = test_utils::start_all_with_validity_period_and_no_epoch_sync(
+            test_utils::NodeType::Validator,
+            1,
+            false,
+        );
 
         let block_hash = Arc::new(Mutex::new(None));
         let block_height = Arc::new(Mutex::new(None));
@@ -113,7 +116,7 @@ fn test_expired_tx() {
                 let block_hash = block_hash.clone();
                 let block_height = block_height.clone();
                 let client = new_client(&format!("http://{}", addr));
-                actix::spawn(client.block(BlockIdOrFinality::latest()).then(move |res| {
+                actix::spawn(client.block(BlockReference::latest()).then(move |res| {
                     let header = res.unwrap().header;
                     let hash = block_hash.lock().unwrap().clone();
                     let height = block_height.lock().unwrap().clone();
@@ -152,8 +155,7 @@ fn test_expired_tx() {
             1000,
         )
         .start();
-    })
-    .unwrap();
+    });
 }
 
 /// Test sending transaction based on a different fork should be rejected
@@ -196,6 +198,31 @@ fn test_tx_status_missing_tx() {
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();
                 assert_eq!(s, "\"Transaction 11111111111111111111111111111111 doesn't exist\"");
+            }
+            Ok(_) => panic!("transaction should not succeed"),
+        }
+    });
+}
+
+#[test]
+fn test_check_invalid_tx() {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        // invalid base hash
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test2".to_string(),
+            &signer,
+            100,
+            hash(&[1]),
+        );
+        let bytes = tx.try_to_vec().unwrap();
+        match client.EXPERIMENTAL_check_tx(to_base64(&bytes)).await {
+            Err(e) => {
+                let s = serde_json::to_string(&e.data.unwrap()).unwrap();
+                println!("{}", s);
+                assert_eq!(s, "{\"TxExecutionError\":{\"InvalidTxError\":\"Expired\"}}");
             }
             Ok(_) => panic!("transaction should not succeed"),
         }

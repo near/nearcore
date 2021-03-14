@@ -1,5 +1,6 @@
 use crate::runtime_group_tools::RuntimeGroup;
 use borsh::ser::BorshSerialize;
+use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
@@ -16,12 +17,15 @@ const GAS_1: u64 = 900_000_000_000_000;
 const GAS_2: u64 = GAS_1 / 3;
 const GAS_3: u64 = GAS_2 / 3;
 
+lazy_static_include::lazy_static_include_bytes! {
+    TEST_CONTRACT => "../near-vm-runner/tests/res/test_contract_rs.wasm"
+}
+
 #[test]
 fn test_simple_func_call() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(2, 2, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(2, 2, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
@@ -55,10 +59,9 @@ fn test_simple_func_call() {
 // single promise, no callback (A->B)
 #[test]
 fn test_single_promise_no_callback() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(3, 3, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(3, 3, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"create": {
@@ -114,10 +117,9 @@ fn test_single_promise_no_callback() {
 // single promise with callback (A->B=>C)
 #[test]
 fn test_single_promise_with_callback() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(4, 4, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(4, 4, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"create": {
@@ -198,10 +200,9 @@ fn test_single_promise_with_callback() {
 // two promises, no callbacks (A->B->C)
 #[test]
 fn test_two_promises_no_callbacks() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(4, 4, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(4, 4, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"create": {
@@ -276,10 +277,9 @@ fn test_two_promises_no_callbacks() {
 // two promises, with two callbacks (A->B->C=>D=>E) where call to E is initialized by completion of D.
 #[test]
 fn test_two_promises_with_two_callbacks() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(6, 6, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(6, 6, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"create": {
@@ -391,10 +391,9 @@ fn test_two_promises_with_two_callbacks() {
 // single promise, no callback (A->B) with `promise_batch`
 #[test]
 fn test_single_promise_no_callback_batch() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(3, 3, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(3, 3, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -453,10 +452,9 @@ fn test_single_promise_no_callback_batch() {
 // single promise with callback (A->B=>C) with batch actions
 #[test]
 fn test_single_promise_with_callback_batch() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(4, 4, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(4, 4, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -542,10 +540,9 @@ fn test_single_promise_with_callback_batch() {
 
 #[test]
 fn test_simple_transfer() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(3, 3, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(3, 3, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -601,11 +598,10 @@ fn test_simple_transfer() {
 
 #[test]
 fn test_create_account_with_transfer_and_full_key() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(3, 2, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
-    let signer_new_account = group.runtimes[2].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(3, 2, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+    let signer_new_account = group.signers[2].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -675,11 +671,10 @@ fn test_create_account_with_transfer_and_full_key() {
 
 #[test]
 fn test_account_factory() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(3, 2, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
-    let signer_new_account = group.runtimes[2].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(3, 2, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+    let signer_new_account = group.signers[2].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -702,7 +697,7 @@ fn test_account_factory() {
         }, "id": 0 },
         {"action_deploy_contract": {
             "promise_index": 0,
-            "code": base64::encode(wasm_binary),
+            "code": base64::encode(&TEST_CONTRACT),
         }, "id": 0 },
         {"action_function_call": {
             "promise_index": 0,
@@ -790,7 +785,7 @@ fn test_account_factory() {
                         }));
                      },
                      a3, Action::DeployContract(DeployContractAction{code}), {
-                        assert_eq!(code, &wasm_binary);
+                        assert_eq!(code, &*TEST_CONTRACT);
                      },
                      a4, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
                         assert_eq!(*gas, GAS_2);
@@ -833,11 +828,10 @@ fn test_account_factory() {
 
 #[test]
 fn test_create_account_add_key_call_delete_key_delete_account() {
-    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
-    let group = RuntimeGroup::new(4, 3, wasm_binary);
-    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
-    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
-    let signer_new_account = group.runtimes[2].lock().unwrap().signer.clone();
+    let group = RuntimeGroup::new(4, 3, &TEST_CONTRACT);
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+    let signer_new_account = group.signers[2].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
@@ -857,7 +851,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_deploy_contract": {
             "promise_index": 0,
-            "code": base64::encode(wasm_binary),
+            "code": base64::encode(&TEST_CONTRACT),
         }, "id": 0 },
         {"action_function_call": {
             "promise_index": 0,
@@ -927,7 +921,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(access_key.permission, AccessKeyPermission::FullAccess);
                      },
                      a3, Action::DeployContract(DeployContractAction{code}), {
-                        assert_eq!(code, &wasm_binary);
+                        assert_eq!(code, &*TEST_CONTRACT);
                      },
                      a4, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
                         assert_eq!(*gas, GAS_2);
@@ -953,4 +947,135 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
     assert_refund!(group, ref1 @ "near_2");
     assert_refund!(group, ref2 @ "near_0");
     assert_refund!(group, ref3 @ "near_0");
+}
+
+#[test]
+fn test_transfer_64len_hex() {
+    let pk = InMemorySigner::from_seed("test_hex", KeyType::ED25519, "test_hex");
+    let account_id = hex::encode(pk.public_key.unwrap_as_ed25519().0);
+
+    let group = RuntimeGroup::new_with_account_ids(
+        vec!["near_0".to_string(), "near_1".to_string(), account_id.clone()],
+        2,
+        &TEST_CONTRACT,
+    );
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+
+    let data = serde_json::json!([
+        {"batch_create": {
+            "account_id": account_id,
+        }, "id": 0 },
+        {"action_transfer": {
+            "promise_index": 0,
+            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+        }, "id": 0 },
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.account_id.clone(),
+        signer_receiver.account_id.clone(),
+        &signer_sender,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: GAS_1,
+            deposit: 0,
+        })],
+        CryptoHash::default(),
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    assert_receipts!(group, signed_transaction => [r0]);
+    assert_receipts!(group, "near_0" => r0 @ "near_1",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, GAS_1);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [r1, ref0] );
+    assert_receipts!(group, "near_1" => r1 @ &account_id,
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::Transfer(TransferAction{deposit}), {
+                        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                     }
+                     => [ref1] );
+    assert_refund!(group, ref0 @ "near_0");
+    assert_refund!(group, ref1 @ "near_0");
+}
+
+#[test]
+fn test_create_transfer_64len_hex_fail() {
+    let pk = InMemorySigner::from_seed("test_hex", KeyType::ED25519, "test_hex");
+    let account_id = hex::encode(pk.public_key.unwrap_as_ed25519().0);
+
+    let group = RuntimeGroup::new_with_account_ids(
+        vec!["near_0".to_string(), "near_1".to_string(), account_id.clone()],
+        2,
+        &TEST_CONTRACT,
+    );
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+
+    let data = serde_json::json!([
+        {"batch_create": {
+            "account_id": account_id,
+        }, "id": 0 },
+        {"action_create_account": {
+            "promise_index": 0,
+        }, "id": 0 },
+        {"action_transfer": {
+            "promise_index": 0,
+            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+        }, "id": 0 },
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.account_id.clone(),
+        signer_receiver.account_id.clone(),
+        &signer_sender,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: GAS_1,
+            deposit: 0,
+        })],
+        CryptoHash::default(),
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    assert_receipts!(group, signed_transaction => [r0]);
+    assert_receipts!(group, "near_0" => r0 @ "near_1",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, GAS_1);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [r1, ref0] );
+    assert_receipts!(group, "near_1" => r1 @ &account_id,
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::CreateAccount(CreateAccountAction{}), {},
+                     a1, Action::Transfer(TransferAction{deposit}), {
+                        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                     }
+                     => [ref1, ref2] );
+    assert_refund!(group, ref0 @ "near_0");
+    assert_refund!(group, ref1 @ "near_1");
+    assert_refund!(group, ref2 @ "near_0");
 }

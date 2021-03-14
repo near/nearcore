@@ -11,17 +11,16 @@
 
 ## Reference implementation of NEAR Protocol
 
+[![Build Status][ci-badge-master]][ci-url] 
+![Stable Status][stable-release]
+![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
 [![Discord chat][discord-badge]][discord-url]
 [![Telegram Group][telegram-badge]][telegram-url]
 
-master | beta | stable
----|---|---|
-[![Build Status][ci-badge-master]][ci-url] | [![Build Status][ci-badge-beta]][ci-url] | [![Build Status][ci-badge-stable]][ci-url] 
-
+[stable-release]: https://img.shields.io/github/v/release/nearprotocol/nearcore?label=stable
+[prerelease]: https://img.shields.io/github/v/release/nearprotocol/nearcore?include_prereleases&label=prerelease
 [ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=master
-[ci-badge-beta]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=beta
-[ci-badge-stable]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=stable
 [ci-url]: https://buildkite.com/nearprotocol/nearcore
 [codecov-badge]: https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg
 [codecov-url]: https://codecov.io/gh/nearprotocol/nearcore
@@ -36,10 +35,10 @@ NEAR's purpose is to enable community-driven innovation to benefit people around
 
 To achieve this purpose, *NEAR* provides a developer platform where developers and entrepreneurs can create apps that put users back in control of their data and assets, which is the foundation of ["Open Web" movement][open-web-url].
 
-One of the components of *NEAR* is NEAR Protocol, an infrastructure for server-less applications and smart contracts powered by blockchain.
-NEAR Protocol is built to deliver usability and scalability of modern PaaS like Firebase at fraction of prices that blockchains like Ethereum charge.
+One of the components of *NEAR* is the NEAR Protocol, an infrastructure for server-less applications and smart contracts powered by a blockchain.
+NEAR Protocol is built to deliver usability and scalability of modern PaaS like Firebase at fraction of the prices that blockchains like Ethereum charge.
 
-*NEAR* overall provides wide range of tools for developers to easily build applications:
+Overall, *NEAR* provides a wide range of tools for developers to easily build applications:
  - [JS Client library][js-api] to connect to NEAR Protocol from your applications.
  - [Rust][rust-sdk] and [AssemblyScript][as-sdk] SDKs to write smart contracts and stateful server-less functions.
  - [Numerous examples][examples-url] with links to hack on them right inside your browser.
@@ -56,24 +55,21 @@ NEAR Protocol is built to deliver usability and scalability of modern PaaS like 
 
 ## Join the Network
 
-The easiest way to join the network, is by using `nearup` command, which you can install:
+The easiest way to join the network, is by using the `nearup` command, which you can install as follows:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSfL https://up.near.dev | python3
+pip3 install --user nearup
 ```
 
 You can join all the active networks:
-* TestNet: `nearup testnet`
-* BetaNet: `nearup betanet`
-* DevNet: `nearup devnet`
+* TestNet: `nearup run testnet`
+* BetaNet: `nearup run betanet`
 
-Check `nearup` repository for [more details](https://github.com/near/nearup) how to run with or without docker.
+Check the `nearup` repository for [more details](https://github.com/near/nearup) how to run with or without docker.
 
 To learn how to become validator, checkout [documentation](https://docs.nearprotocol.com/docs/validator/staking-overview).
 
 ## Development Status
-
-This project is currently under heavy development toward MainNet launch.
 
 We are using [ZenHub](https://zenhub.com) to manage the development process. You can either login on their website or [install ZenHub extension](https://www.zenhub.com/extension) to see additional information right on Github.
 
@@ -82,4 +78,4 @@ For the high-level roadmap, checkout [Chain&Middleware's roadmap](https://app.ze
 ## Contributing
 
 The workflow and details of setup to contribute are described in [CONTRIBUTING.md](CONTRIBUTING.md), and security policy is described in [SECURITY.md](SECURITY.md).
-To propose new protocol change or standard use [Specification & Standards repository](https://github.com/nearprotocol/NEPs). 
+To propose new protocol changes or standards use [Specification & Standards repository](https://github.com/nearprotocol/NEPs).

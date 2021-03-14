@@ -5,19 +5,17 @@ use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde::Deserialize;
 use serde::Serialize;
 
-use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{
-    RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse,
+use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::message::{from_slice, Message};
+use near_jsonrpc_primitives::rpc::{
+    RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
 };
-use near_primitives::types::{BlockId, BlockIdOrFinality, MaybeBlockId, ShardId};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    GenesisRecordsView, QueryResponse, StatusResponse,
+    StatusResponse, ValidatorStakeView,
 };
-
-use crate::message::{from_slice, Message, RpcError};
-
-pub mod message;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -43,7 +41,7 @@ where
     // TODO: simplify this.
     client
         .post(server_addr)
-        .header("Content-Type", "application/json")
+        .insert_header(("Content-Type", "application/json"))
         .send_json(&request)
         .map_err(|err| RpcError::server_error(Some(format!("{:?}", err))))
         .and_then(|mut response| {
@@ -183,6 +181,8 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_commit(&self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn status(&self) -> RpcRequest<StatusResponse>;
     #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_check_tx(&self, tx: String) -> RpcRequest<serde_json::Value>;
+    #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_genesis_config(&self) -> RpcRequest<serde_json::Value>;
     pub fn health(&self) -> RpcRequest<()>;
     pub fn tx(&self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
@@ -192,21 +192,20 @@ jsonrpc_client!(pub struct JsonRpcClient {
 });
 
 impl JsonRpcClient {
-    #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_genesis_records(
-        &self,
-        request: RpcGenesisRecordsRequest,
-    ) -> RpcRequest<GenesisRecordsView<'_>> {
-        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_genesis_records", request)
-    }
-
     /// This is a soft-deprecated method to do query RPC request with a path and data positional
     /// parameters.
-    pub fn query_by_path(&self, path: String, data: String) -> RpcRequest<QueryResponse> {
+    pub fn query_by_path(
+        &self,
+        path: String,
+        data: String,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::query::RpcQueryResponse> {
         call_method(&self.client, &self.server_addr, "query", [path, data])
     }
 
-    pub fn query(&self, request: RpcQueryRequest) -> RpcRequest<QueryResponse> {
+    pub fn query(
+        &self,
+        request: near_jsonrpc_primitives::types::query::RpcQueryRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::query::RpcQueryResponse> {
         call_method(&self.client, &self.server_addr, "query", request)
     }
 
@@ -214,7 +213,7 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "block", [block_id])
     }
 
-    pub fn block(&self, request: BlockIdOrFinality) -> RpcRequest<BlockView> {
+    pub fn block(&self, request: BlockReference) -> RpcRequest<BlockView> {
         call_method(&self.client, &self.server_addr, "block", request)
     }
 
@@ -225,10 +224,34 @@ impl JsonRpcClient {
     ) -> RpcRequest<RpcStateChangesResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_changes", request)
     }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_validators_ordered(
+        &self,
+        request: RpcValidatorsOrderedRequest,
+    ) -> RpcRequest<Vec<ValidatorStakeView>> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_validators_ordered", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_receipt(
+        &self,
+        request: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::receipts::RpcReceiptResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_receipt", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_protocol_config(
+        &self,
+        request: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_protocol_config", request)
+    }
 }
 
 fn create_client() -> Client {
-    Client::build()
+    Client::builder()
         .timeout(CONNECT_TIMEOUT)
         .connector(
             Connector::new()
