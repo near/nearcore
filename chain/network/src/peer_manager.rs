@@ -274,7 +274,6 @@ impl PeerManagerActor {
             self.routing_table.add_account(account.clone());
         }
 
-        info!("PIOTR {} {}", new_edges.len(), accounts.len());
         let new_data = SyncData { edges: new_edges, accounts };
 
         if !new_data.is_empty() {
@@ -293,7 +292,6 @@ impl PeerManagerActor {
                 Duration::from_secs(1),
                 move |act, ctx| {
                     act.scheduled_broadcast_edges = false;
-                    info!("PIOTR1");
                     act.broadcast_accounts_and_edges(ctx, Default::default());
                 },
             );
@@ -1584,7 +1582,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         }
                     })
                     .collect();
-                info!("SYNC {}", edges.len());
 
                 // Ask client to validate accounts before accepting them.
                 let peer_id_clone = peer_id.clone();
@@ -1597,7 +1594,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 act.try_ban_peer(ctx, &peer_id_clone, ban_reason);
                             }
                             Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => {
-                                info!("PIOTR2");
                                 act.broadcast_accounts_and_edges(ctx, accounts);
                             }
                             _ => {
@@ -1621,7 +1617,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             Ok(true) => {}
                             Err(err) => warn!(target: "network", "error validating edges: {}", err),
                         }
-                        info!("PIOTR3");
                         act.broadcast_accounts_and_edges(ctx, Default::default());
 
                         actix::fut::ready(())
