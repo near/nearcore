@@ -22,7 +22,9 @@ impl MockedValuePtr {
     where
         T: AsRef<[u8]>,
     {
-        MockedValuePtr { value: value.as_ref().to_vec() }
+        MockedValuePtr {
+            value: value.as_ref().to_vec(),
+        }
     }
 }
 
@@ -56,10 +58,11 @@ impl External for MockedExternal {
     }
 
     fn storage_get(&self, key: &[u8]) -> Result<Option<Box<dyn ValuePtr>>> {
-        Ok(self
-            .fake_trie
-            .get(key)
-            .map(|value| Box::new(MockedValuePtr { value: value.clone() }) as Box<_>))
+        Ok(self.fake_trie.get(key).map(|value| {
+            Box::new(MockedValuePtr {
+                value: value.clone(),
+            }) as Box<_>
+        }))
     }
 
     fn storage_remove(&mut self, key: &[u8]) -> Result<()> {
@@ -72,16 +75,30 @@ impl External for MockedExternal {
     }
 
     fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> Result<u64> {
-        if let Some(index) = receipt_indices.iter().find(|&&el| el >= self.receipts.len() as u64) {
-            return Err(HostError::InvalidReceiptIndex { receipt_index: *index }.into());
+        if let Some(index) = receipt_indices
+            .iter()
+            .find(|&&el| el >= self.receipts.len() as u64)
+        {
+            return Err(HostError::InvalidReceiptIndex {
+                receipt_index: *index,
+            }
+            .into());
         }
         let res = self.receipts.len() as u64;
-        self.receipts.push(Receipt { receipt_indices, receiver_id, actions: vec![] });
+        self.receipts.push(Receipt {
+            receipt_indices,
+            receiver_id,
+            actions: vec![],
+        });
         Ok(res)
     }
 
     fn append_action_create_account(&mut self, receipt_index: u64) -> Result<()> {
-        self.receipts.get_mut(receipt_index as usize).unwrap().actions.push(Action::CreateAccount);
+        self.receipts
+            .get_mut(receipt_index as usize)
+            .unwrap()
+            .actions
+            .push(Action::CreateAccount);
         Ok(())
     }
 
@@ -102,14 +119,16 @@ impl External for MockedExternal {
         attached_deposit: u128,
         prepaid_gas: u64,
     ) -> Result<()> {
-        self.receipts.get_mut(receipt_index as usize).unwrap().actions.push(Action::FunctionCall(
-            FunctionCallAction {
+        self.receipts
+            .get_mut(receipt_index as usize)
+            .unwrap()
+            .actions
+            .push(Action::FunctionCall(FunctionCallAction {
                 method_name,
                 args: arguments,
                 deposit: attached_deposit,
                 gas: prepaid_gas,
-            },
-        ));
+            }));
         Ok(())
     }
 
@@ -146,7 +165,10 @@ impl External for MockedExternal {
             .get_mut(receipt_index as usize)
             .unwrap()
             .actions
-            .push(Action::AddKeyWithFullAccess(AddKeyWithFullAccessAction { public_key, nonce }));
+            .push(Action::AddKeyWithFullAccess(AddKeyWithFullAccessAction {
+                public_key,
+                nonce,
+            }));
         Ok(())
     }
 
@@ -159,15 +181,19 @@ impl External for MockedExternal {
         receiver_id: String,
         method_names: Vec<Vec<u8>>,
     ) -> Result<()> {
-        self.receipts.get_mut(receipt_index as usize).unwrap().actions.push(
-            Action::AddKeyWithFunctionCall(AddKeyWithFunctionCallAction {
-                public_key,
-                nonce,
-                allowance,
-                receiver_id,
-                method_names,
-            }),
-        );
+        self.receipts
+            .get_mut(receipt_index as usize)
+            .unwrap()
+            .actions
+            .push(Action::AddKeyWithFunctionCall(
+                AddKeyWithFunctionCallAction {
+                    public_key,
+                    nonce,
+                    allowance,
+                    receiver_id,
+                    method_names,
+                },
+            ));
         Ok(())
     }
 
@@ -189,7 +215,9 @@ impl External for MockedExternal {
             .get_mut(receipt_index as usize)
             .unwrap()
             .actions
-            .push(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }));
+            .push(Action::DeleteAccount(DeleteAccountAction {
+                beneficiary_id,
+            }));
         Ok(())
     }
 
@@ -237,9 +265,9 @@ impl External for MockedExternal {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Receipt {
-    receipt_indices: Vec<u64>,
-    receiver_id: String,
-    actions: Vec<Action>,
+    pub receipt_indices: Vec<u64>,
+    pub receiver_id: String,
+    pub actions: Vec<Action>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -263,54 +291,54 @@ pub struct DeployContractAction {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FunctionCallAction {
     #[serde(with = "crate::serde_with::bytes_as_str")]
-    method_name: Vec<u8>,
+    pub method_name: Vec<u8>,
     /// Most function calls still take JSON as input, so we'll keep it there as a string.
     /// Once we switch to borsh, we'll have to switch to base64 encoding.
     /// Right now, it is only used with standalone runtime when passing in Receipts or expecting
     /// receipts. The workaround for input is to use a VMContext input.
     #[serde(with = "crate::serde_with::bytes_as_str")]
-    args: Vec<u8>,
-    gas: Gas,
-    deposit: Balance,
+    pub args: Vec<u8>,
+    pub gas: Gas,
+    pub deposit: Balance,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TransferAction {
-    deposit: Balance,
+    pub deposit: Balance,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StakeAction {
-    stake: Balance,
+    pub stake: Balance,
     #[serde(with = "crate::serde_with::bytes_as_base58")]
-    public_key: PublicKey,
+    pub public_key: PublicKey,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AddKeyWithFullAccessAction {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
-    public_key: PublicKey,
-    nonce: u64,
+    pub public_key: PublicKey,
+    pub nonce: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AddKeyWithFunctionCallAction {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
-    public_key: PublicKey,
-    nonce: u64,
-    allowance: Option<Balance>,
-    receiver_id: AccountId,
+    pub public_key: PublicKey,
+    pub nonce: u64,
+    pub allowance: Option<Balance>,
+    pub receiver_id: AccountId,
     #[serde(with = "crate::serde_with::vec_bytes_as_str")]
-    method_names: Vec<Vec<u8>>,
+    pub method_names: Vec<Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DeleteKeyAction {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
-    public_key: PublicKey,
+    pub public_key: PublicKey,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DeleteAccountAction {
-    beneficiary_id: AccountId,
+    pub beneficiary_id: AccountId,
 }
