@@ -3,9 +3,6 @@ on:
   push:
     branches:
       - master
-      - beta
-      - stable
-      - mac-binary-release
 jobs:
   build_binary:
     runs-on: macOS-latest
@@ -16,11 +13,11 @@ jobs:
         rust-version: nightly-2020-03-19
     - uses: actions/checkout@master
     - uses: isbang/setup-awscli@v0.1.0
-    - run: scripts/binary-release.sh
+    - run: scripts/mac-release.sh
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    - run: scripts/binary-release.sh nightly-release
+    - run: scripts/mac-release.sh nightly-release
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
