@@ -28,6 +28,7 @@ use crate::{
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
+use conqueue::{QueueReceiver, QueueSender};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 
@@ -264,8 +265,9 @@ pub struct RoutingTable {
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Shared version of edges_info used by multiple threads
     edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// List of edges that should be added
-    edges_to_add_shared: Arc<Mutex<Vec<Edge>>>,
+    /// Queue of edges verified, but not added yes
+    pub edges_to_add_receiver: QueueReceiver<Edge>,
+    pub edges_to_add_sender: QueueSender<Edge>,
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: RouteBackCache,
     /// Last time a peer with reachable through active edges.
@@ -308,12 +310,15 @@ impl RoutingTable {
             .unwrap_or(None)
             .map_or(0, |nonce| nonce + 1);
 
+        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
+
         Self {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: Default::default(),
             edges_info: Default::default(),
             edges_info_shared: Default::default(),
-            edges_to_add_shared: Default::default(),
+            edges_to_add_sender: tx,
+            edges_to_add_receiver: rx,
             route_back: RouteBackCache::new(
                 ROUTE_BACK_CACHE_SIZE,
                 ROUTE_BACK_CACHE_EVICT_TIMEOUT,
@@ -567,10 +572,6 @@ impl RoutingTable {
 
     pub fn get_edges_info_shared(&self) -> Arc<Mutex<HashMap<(PeerId, PeerId), u64>>> {
         self.edges_info_shared.clone()
-    }
-
-    pub fn get_edges_to_add_shared(&self) -> Arc<Mutex<Vec<Edge>>> {
-        self.edges_to_add_shared.clone()
     }
 
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {

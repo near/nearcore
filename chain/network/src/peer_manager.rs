@@ -130,7 +130,7 @@ impl Handler<EdgeList> for EdgeVerifier {
                 let cur_nonce = entry.or_insert(edge.nonce);
                 *cur_nonce = max(*cur_nonce, edge.nonce);
             }
-            msg.2.lock().unwrap().push(edge);
+            msg.2.push(edge);
         }
         true
     }
@@ -1494,7 +1494,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     }
                 });
 
-                self.edge_verifier_pool.send(EdgeList(edges, self.routing_table.get_edges_info_shared(), self.routing_table.get_edges_to_add_shared()))
+                self.edge_verifier_pool.send(EdgeList(edges, self.routing_table.get_edges_info_shared(), self.routing_table.edges_to_add_sender.clone()))
                     .into_actor(self)
                     .then(move |response, act, ctx| {
                         match response {
@@ -1531,44 +1531,40 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                         // Filter known edges.
                                         let me = act.peer_id.clone();
 
-                                        let new_edges: Vec<_> = act.routing_table.get_edges_to_add_shared().lock().unwrap().drain(..)
-                                            .into_iter()
-                                            .filter( |edge| {
-                                                if let Some(cur_edge) = act.routing_table.get_edge(edge.peer0.clone(), edge.peer1.clone()){
-                                                    if cur_edge.nonce >= edge.nonce {
-                                                        // We have newer update. Drop this.
-                                                        return false;
-                                                    }
+                                        let mut new_edges = Vec::new();
+                                        while let Some(edge) = act.routing_table.edges_to_add_receiver.pop() {
+                                            if let Some(cur_edge) = act.routing_table.get_edge(edge.peer0.clone(), edge.peer1.clone()){
+                                                if cur_edge.nonce >= edge.nonce {
+                                                    // We have newer update. Drop this.
+                                                    continue;
                                                 }
-                                                // Add new edge update to the routing table.
-                                                act.process_edges(ctx, vec![edge.clone()]);
-                                                if let Some(other) = edge.other(&me) {
-                                                    // We belong to this edge.
-                                                    if act.active_peers.contains_key(&other) {
-                                                        // This is an active connection.
-                                                        match edge.edge_type() {
-                                                            EdgeType::Added => true,
-                                                            EdgeType::Removed => {
-                                                                // Try to update the nonce, and in case it fails removes the peer.
-                                                                act.try_update_nonce(ctx, edge.clone(), other);
-                                                                false
-                                                            }
-                                                        }
-                                                    } else {
-                                                        match edge.edge_type() {
-                                                            EdgeType::Added => {
-                                                                act.wait_peer_or_remove(ctx, edge.clone());
-                                                                false
-                                                            }
-                                                            EdgeType::Removed => true
+                                            }
+                                            // Add new edge update to the routing table.
+                                            act.process_edges(ctx, vec![edge.clone()]);
+                                            if let Some(other) = edge.other(&me) {
+                                                // We belong to this edge.
+                                                if act.active_peers.contains_key(&other) {
+                                                    // This is an active connection.
+                                                    match edge.edge_type() {
+                                                        EdgeType::Added => {},
+                                                        EdgeType::Removed => {
+                                                            // Try to update the nonce, and in case it fails removes the peer.
+                                                            act.try_update_nonce(ctx, edge.clone(), other);
+                                                            continue;
                                                         }
                                                     }
                                                 } else {
-                                                    true
+                                                    match edge.edge_type() {
+                                                        EdgeType::Added => {
+                                                            act.wait_peer_or_remove(ctx, edge.clone());
+                                                            continue;
+                                                        }
+                                                        EdgeType::Removed => {}
+                                                    }
                                                 }
-
-                                            })
-                                            .collect();
+                                            }
+                                            new_edges.push(edge);
+                                        }
 
                                         // Add accounts to the routing table.
                                         if !accounts.is_empty() {

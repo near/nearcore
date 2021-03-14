@@ -46,6 +46,7 @@ use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use std::fmt::{Debug, Error, Formatter};
 use std::io;
 
+use conqueue::QueueSender;
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_primitives::merkle::combine_hash;
 
@@ -1285,7 +1286,7 @@ pub enum PeerManagerRequest {
 pub struct EdgeList(
     pub Vec<Edge>,
     pub Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    pub Arc<Mutex<Vec<Edge>>>,
+    pub QueueSender<Edge>,
 );
 
 impl Message for EdgeList {
