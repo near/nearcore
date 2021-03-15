@@ -20,9 +20,7 @@ use crate::migrations::v6_to_v7::{
 use crate::migrations::v8_to_v9::{
     recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
 };
-use crate::{
-    create_store, Store, StoreUpdate, Trie, TrieUpdate, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, HEAD_KEY,
-};
+use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 
 use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
@@ -284,11 +282,11 @@ pub fn migrate_11_to_12(path: &String) {
     set_store_version(&store, 12);
 }
 
-fn map_col<T, U, F>(store: &Store, col: DBCol, mut f: F) -> Result<(), std::io::Error>
+fn map_col<T, U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
 where
     T: BorshDeserialize,
     U: BorshSerialize,
-    F: FnMut(T) -> U,
+    F: Fn(T) -> U,
 {
     let mut store_update = store.store_update();
     let batch_size_limit = 10_000_000;
@@ -525,7 +523,6 @@ pub fn migrate_17_to_18(path: &String) {
 
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::types::{Balance, BlockHeight, EpochId, ValidatorStakeV1};
-    use near_primitives::utils::index_to_bytes;
     use near_primitives::version::ProtocolVersion;
 
     // Migrate from OldBlockInfo to NewBlockInfo - add hash
@@ -580,29 +577,14 @@ pub fn migrate_17_to_18(path: &String) {
     })
     .unwrap();
 
-    // Add ColHeaderHashesByHeight
-    let chunk_tail =
-        store.get_ser::<BlockHeight>(ColBlockMisc, CHUNK_TAIL_KEY).unwrap().unwrap_or(0);
-    let mut heights_to_hashes = HashMap::new();
-
-    map_col(&store, DBCol::ColBlockHeader, |header: BlockHeader| {
-        let height = header.height();
-        if height >= chunk_tail {
-            heights_to_hashes.entry(height).or_insert_with(Vec::new).push(header.hash().clone());
-        } else {
-            // ColHeaderHashesByHeight will be GCed for current height, do nothing
-        };
-        header
-    })
-    .unwrap();
-
-    let mut store_update = store.store_update();
-    for (height, hashes) in heights_to_hashes {
-        store_update
-            .set_ser(DBCol::ColHeaderHashesByHeight, &index_to_bytes(height), &hashes)
-            .expect("storage update should not fail");
-    }
-    store_update.commit().expect("storage update should not fail");
+    // Add ColHeaderHashesByHeight lazily
+    //
+    // KPR: traversing thru ColBlockHeader at Mainnet (20 mln Headers)
+    // takes ~13 minutes on my laptop.
+    // It's annoying to wait until migration finishes
+    // as real impact is not too big as we don't GC Headers now.
+    // I expect that after 5 Epochs ColHeaderHashesByHeight will be filled
+    // properly and we never return to this migration again.
 
     set_store_version(&store, 18);
 }
