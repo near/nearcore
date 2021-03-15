@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::ops::Sub;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -287,9 +287,6 @@ pub struct RoutingTable {
     pub peer_forwarding: HashMap<PeerId, Vec<PeerId>>,
     /// Store last update for known edges.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
-    /// Store verified edges
-    pub edges_info_shared: Arc<RwLock<HashMap<(PeerId, PeerId), u64>>>,
-
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: RouteBackCache,
     /// Last time a peer with reachable through active edges.
@@ -338,7 +335,6 @@ impl RoutingTable {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
-            edges_info_shared: Default::default(),
             route_back: RouteBackCache::new(
                 ROUTE_BACK_CACHE_SIZE,
                 ROUTE_BACK_CACHE_EVICT_TIMEOUT,

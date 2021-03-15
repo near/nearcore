@@ -52,7 +52,6 @@ use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::version::NEW_ROUTING_PROTOCOL_VERSION;
 use rand::{thread_rng, RngCore};
-use std::cmp::max;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: u64 = 60;
@@ -118,21 +117,7 @@ impl Handler<EdgeList> for EdgeVerifier {
 
     #[perf]
     fn handle(&mut self, msg: EdgeList, _ctx: &mut Self::Context) -> Self::Result {
-        for edge in msg.0.iter() {
-            let key = (edge.peer0.clone(), edge.peer1.clone());
-            if msg.1.read().unwrap().get(&key).cloned().unwrap_or(0u64) >= edge.nonce {
-                continue;
-            }
-            if !edge.verify() {
-                return false;
-            }
-            let mut guard = msg.1.write().unwrap();
-            let entry = guard.entry(key);
-
-            let cur_nonce = entry.or_insert(edge.nonce);
-            *cur_nonce = max(*cur_nonce, edge.nonce);
-        }
-        true
+        msg.0.iter().all(|edge| edge.verify())
     }
 }
 
@@ -387,6 +372,7 @@ impl PeerManagerActor {
         // If the last edge we have with this peer represent a connection addition, create the edge
         // update that represents the connection removal.
         self.active_peers.remove(&peer_id);
+        self.routing_table.remove_peer(&peer_id);
 
         if let Some(edge) = self.routing_table.get_edge(self.peer_id.clone(), peer_id.clone()) {
             if edge.edge_type() == EdgeType::Added {
@@ -986,7 +972,7 @@ impl PeerManagerActor {
             })
             .collect();
 
-        self.edge_verifier_pool.send(EdgeList(edges.clone(), self.routing_table.edges_info_shared.clone()))
+        self.edge_verifier_pool.send(EdgeList(edges.clone()))
             .into_actor(self)
             .then(move |response, act, ctx| {
                 match response {
@@ -1988,7 +1974,7 @@ impl Handler<Consolidate> for PeerManagerActor {
             edge_info,
             msg.peer_type,
             msg.actor,
-            msg.ibfp2,
+            msg.ibf_set,
             msg.protocol_version,
             ctx,
         );

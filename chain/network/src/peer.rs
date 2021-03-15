@@ -194,7 +194,7 @@ pub struct Peer {
     peer_counter: Arc<AtomicUsize>,
     /// The last time a Epoch Sync request was received from this peer
     last_time_received_epoch_sync_request: Instant,
-
+    /// Data structure representing routing table
     ibf_set: Arc<Mutex<IbfSet<SimpleEdge>>>,
 }
 
@@ -694,7 +694,6 @@ impl Actor for Peer {
                     remove_from_peer_store: self.peer_status != PeerStatus::Connecting,
                 })
             }
-            // TODO PIOTR tell PeerManager to remove DATA
         }
         Running::Stop
     }
@@ -909,7 +908,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         chain_info: handshake.chain_info.clone(),
                         this_edge_info: self.edge_info.clone(),
                         other_edge_info: handshake.edge_info.clone(),
-                        ibfp2: self.ibf_set.clone(),
+                        ibf_set: self.ibf_set.clone(),
                         protocol_version: self.protocol_version,
                     })
                     .into_actor(self)
@@ -918,7 +917,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                             Ok(ConsolidateResponse::Accept(edge_info)) => {
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
-
                                 // Respond to handshake if it's inbound and connection was consolidated.
                                 if act.peer_type == PeerType::Inbound {
                                     act.edge_info = edge_info;

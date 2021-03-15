@@ -1080,7 +1080,7 @@ pub struct Consolidate {
     pub this_edge_info: Option<EdgeInfo>,
     // Edge information from other node.
     pub other_edge_info: EdgeInfo,
-    pub ibfp2: Arc<Mutex<IbfSet<SimpleEdge>>>,
+    pub ibf_set: Arc<Mutex<IbfSet<SimpleEdge>>>,
     pub protocol_version: ProtocolVersion,
 }
 
@@ -1309,7 +1309,7 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-pub struct EdgeList(pub Vec<Edge>, pub Arc<RwLock<HashMap<(PeerId, PeerId), u64>>>);
+pub struct EdgeList(pub Vec<Edge>);
 
 impl Message for EdgeList {
     type Result = bool;
