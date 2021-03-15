@@ -46,8 +46,9 @@ use near_primitives::syncing::{
     StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::{AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, MerkleHash, NumBlocks, ShardId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, MerkleHash, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
+use near_primitives::utils;
 use near_primitives::version::VALIDATOR_STAKE_UPGRADE_VERSION;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
@@ -1067,8 +1068,7 @@ impl Chain {
                 let sum = block
                     .header()
                     .validator_proposals()
-                    .iter()
-                    .map(|validator_stake| (validator_stake.stake / NEAR_BASE) as i64)
+                    .map(|validator_stake| (validator_stake.stake() / NEAR_BASE) as i64)
                     .sum::<i64>();
                 near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED, sum);
 
@@ -3072,17 +3072,22 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Verify that proposals from chunks match block header proposals.
-        let header_proposals = block.header().validator_proposals();
-        for (i, p) in block.chunks()
-            .iter()
-            .filter(|chunk| block.header().height() == chunk.height_included())
-            .flat_map(|chunk| chunk.validator_proposals())
-            .enumerate() {
-            if i >= header_proposals.len() {
+        let block_height = block.header().height();
+        for (hp, cp) in
+            utils::full_zip(
+                block.header().validator_proposals(),
+                block.chunks()
+                    .iter()
+                    .filter(|chunk| block_height == chunk.height_included())
+                    .flat_map(|chunk| chunk.validator_proposals())
+            ) {
+            // Can only occur if there were a different number of proposals in the header
+            // and chunks
+            if hp.is_none() || cp.is_none() {
                 return Err(ErrorKind::InvalidValidatorProposals.into());
             }
-            let q = ValidatorStake::lift(header_proposals[i].clone());
-            if p != q {
+            // Proposals differed!
+            if hp.unwrap() != cp.unwrap() {
                 return Err(ErrorKind::InvalidValidatorProposals.into());
             }
         }

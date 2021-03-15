@@ -69,7 +69,37 @@ impl<T: Sized> Deref for MaybeValidated<T> {
     }
 }
 
+/// Similar to https://doc.rust-lang.org/std/iter/struct.Zip.html
+/// but it does not short-circuit when one of the iterators returns None,
+/// instead it will only stop when _both_ iterators return None.
+/// Notably, this can be used to lazily discover if two iterators
+/// contain a different number of elements.
+pub struct FullZip<A: Iterator, B: Iterator> {
+    iter_a: A,
+    iter_b: B,
+}
 
+impl<A: Iterator, B: Iterator> Iterator for FullZip<A, B> {
+    type Item = (Option<A::Item>, Option<B::Item>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let a = self.iter_a.next();
+        let b = self.iter_b.next();
+
+        if a.is_none() && b.is_none() {
+            None
+        } else {
+            Some((a, b))
+        }
+    }
+}
+
+pub fn full_zip<A: Iterator, B: Iterator>(iter_a: A, iter_b: B) -> FullZip<A, B> {
+    FullZip {
+        iter_a,
+        iter_b,
+    }
+}
 
 pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);

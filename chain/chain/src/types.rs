@@ -126,7 +126,7 @@ impl BlockHeaderInfo {
             random_value: *header.random_value(),
             last_finalized_height,
             last_finalized_block_hash: *header.last_final_block(),
-            proposals: header.validator_proposals().to_vec(),
+            proposals: header.validator_proposals().map(|v| v.into_v1()).collect(),
             slashed_validators: vec![],
             chunk_mask: header.chunk_mask().to_vec(),
             total_supply: header.total_supply(),

@@ -635,7 +635,7 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
             old_block_info.last_finalized_height,
             *block_header.last_final_block(),
             *block_header.prev_hash(),
-            block_header.validator_proposals().to_vec(),
+            block_header.validator_proposals().map(|v| v.into_v1()).collect(),
             block_header.chunk_mask().to_vec(),
             vec![],
             block_header.total_supply(),

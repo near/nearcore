@@ -261,7 +261,8 @@ impl Block {
         match prev {
             BlockHeader::BlockHeaderV1(_) => debug_assert_eq!(prev.block_ordinal(), 0),
             BlockHeader::BlockHeaderV2(_) => debug_assert_eq!(prev.block_ordinal(), 0),
-            BlockHeader::BlockHeaderV3(_) => {
+            BlockHeader::BlockHeaderV3(_) => debug_assert_eq!(prev.block_ordinal(), 0),
+            BlockHeader::BlockHeaderV4(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
         };
@@ -278,7 +279,7 @@ impl Block {
             time,
             Block::compute_challenges_root(&challenges),
             random_value,
-            validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
+            validator_proposals,
             chunk_mask,
             #[cfg(feature = "protocol_feature_block_header_v4")]
             block_ordinal,

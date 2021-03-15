@@ -44,7 +44,7 @@ use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
 };
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ValidatorStakeV1};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ValidatorStake};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -597,11 +597,11 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                         .mut_header()
                                         .get_mut()
                                         .inner_rest
-                                        .validator_proposals = vec![ValidatorStakeV1 {
-                                        account_id: "test1".to_string(),
-                                        public_key: PublicKey::empty(KeyType::ED25519),
-                                        stake: 0,
-                                    }];
+                                        .validator_proposals = vec![ValidatorStake::v1(
+                                        "test1".to_string(),
+                                        PublicKey::empty(KeyType::ED25519),
+                                        0,
+                                    )];
                                     block_mut.mut_header().resign(&validator_signer1);
                                 }
                             }
@@ -1830,11 +1830,11 @@ fn test_not_process_height_twice() {
     let mut invalid_block = block.clone();
     env.process_block(0, block, Provenance::PRODUCED);
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
-    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = vec![ValidatorStakeV1 {
-        account_id: "test1".to_string(),
-        public_key: PublicKey::empty(KeyType::ED25519),
-        stake: 0,
-    }];
+    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = vec![ValidatorStake::v1(
+        "test1".to_string(),
+        PublicKey::empty(KeyType::ED25519),
+        0,
+    )];
     invalid_block.mut_header().resign(&validator_signer);
     let (accepted_blocks, res) = env.clients[0].process_block(invalid_block, Provenance::NONE);
     assert!(accepted_blocks.is_empty());
