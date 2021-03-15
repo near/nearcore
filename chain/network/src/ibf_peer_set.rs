@@ -119,6 +119,45 @@ impl IbfPeerSet {
         }
         false
     }
+
+    pub fn recover_edges(
+        &self,
+        unknown_edges: &[SlotMapId],
+        edges_info: &HashMap<(PeerId, PeerId), Edge>,
+    ) -> Vec<Edge> {
+        self.get_edges_by_ids(unknown_edges)
+            .iter()
+            .filter_map(|v| edges_info.get(&(v.peer0.clone(), v.peer1.clone())))
+            .cloned()
+            .collect()
+    }
+
+    pub fn get_edges_for_peer(
+        &self,
+        peer_id: &PeerId,
+        unknown_edges: &[u64],
+        edges_info: &HashMap<(PeerId, PeerId), Edge>,
+    ) -> Vec<Edge> {
+        if let Some(ibf) = self.get(peer_id) {
+            let unknown_edges = ibf.lock().unwrap().get_edges_by_hashes(unknown_edges);
+            return self.recover_edges(unknown_edges.as_slice(), edges_info);
+        }
+        Default::default()
+    }
+
+    pub fn split_edges(
+        &self,
+        peer_id: &PeerId,
+        unknown_edges: &[u64],
+        edges_info: &HashMap<(PeerId, PeerId), Edge>,
+    ) -> (Vec<Edge>, Vec<u64>) {
+        if let Some(ibf) = self.get(peer_id) {
+            let (known_edges, unknown_edges) =
+                ibf.lock().unwrap().get_edges_by_hashes2(unknown_edges);
+            return (self.recover_edges(known_edges.as_slice(), edges_info), unknown_edges);
+        }
+        (Default::default(), Default::default())
+    }
 }
 
 #[cfg(test)]
@@ -177,15 +216,24 @@ mod test {
         let mut ips = IbfPeerSet::default();
         let ibf_set = Arc::new(Mutex::new(IbfSet::new()));
 
+        let edge = Edge::make_fake_edge(peer_id.clone(), peer_id2.clone(), 111);
         let mut edges_info: HashMap<(PeerId, PeerId), Edge> = Default::default();
-        ips.add_peer(peer_id.clone(), ibf_set, &mut edges_info);
+        edges_info.insert((peer_id.clone(), peer_id2.clone()), edge.clone());
 
+        // Add Peer
+        ips.add_peer(peer_id.clone(), ibf_set.clone(), &mut edges_info);
+
+        // Remove Peer
         assert!(ips.get(&peer_id).is_some());
         assert!(ips.get(&peer_id2).is_none());
         ips.remove_peer(&peer_id);
         assert!(ips.get(&peer_id).is_none());
 
-        let e = SimpleEdge { peer0: peer_id, peer1: peer_id2, nonce: 111 };
+        // Add Peer again
+        ips.add_peer(peer_id.clone(), ibf_set.clone(), &mut edges_info);
+
+        // Add edge
+        let e = SimpleEdge { peer0: peer_id.clone(), peer1: peer_id2.clone(), nonce: 111 };
         assert!(ips.add_edge(&e).is_some());
         assert!(ips.add_edge(&e).is_none());
 
@@ -193,5 +241,16 @@ mod test {
         assert!(!ips.remove_edge(&e));
 
         assert!(ips.add_edge(&e).is_some());
+
+        let mut hashes = ibf_set.lock().unwrap().get_ibf(10).try_recover().0;
+
+        for x in 0..4 {
+            hashes.push(x);
+        }
+
+        // try to recover the edge
+        assert_eq!(vec!(edge.clone()), ips.get_edges_for_peer(&peer_id, &hashes, &edges_info));
+        assert_eq!(vec!(edge), ips.split_edges(&peer_id, &hashes, &edges_info).0);
+        assert_eq!(4, ips.split_edges(&peer_id, &hashes, &edges_info).1.len());
     }
 }

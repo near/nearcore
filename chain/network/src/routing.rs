@@ -11,6 +11,8 @@ use cached::{Cached, SizedCache};
 use chrono;
 use tracing::{trace, warn};
 
+#[cfg(test)]
+use near_crypto::KeyType;
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
@@ -116,6 +118,18 @@ impl Edge {
         };
 
         Self { peer0, peer1, nonce, signature0, signature1, removal_info: None }
+    }
+
+    #[cfg(test)]
+    pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {
+        Self {
+            peer0,
+            peer1,
+            nonce,
+            signature0: Signature::empty(KeyType::ED25519),
+            signature1: Signature::empty(KeyType::ED25519),
+            removal_info: None,
+        }
     }
 
     /// Build a new edge with given information from the other party.
@@ -345,29 +359,11 @@ impl RoutingTable {
     }
 
     pub fn get_edges_for_peer(&self, peer_id: &PeerId, unknown_edges: &[u64]) -> Vec<Edge> {
-        let ibf = self.peer_ibf_set.get(peer_id).unwrap();
-        let unknown_edges = ibf.lock().unwrap().get_edges_by_hashes(unknown_edges);
-        self.peer_ibf_set
-            .get_edges_by_ids(unknown_edges.as_slice())
-            .iter()
-            .filter_map(|v| self.edges_info.get(&(v.peer0.clone(), v.peer1.clone())))
-            .cloned()
-            .collect()
+        self.peer_ibf_set.get_edges_for_peer(peer_id, unknown_edges, &self.edges_info)
     }
 
     pub fn split_edges(&self, peer_id: &PeerId, unknown_edges: &[u64]) -> (Vec<Edge>, Vec<u64>) {
-        // TODO remove code duplication?
-        let ibf = self.peer_ibf_set.get(peer_id).unwrap();
-        let (known_edges, unknown_edges) = ibf.lock().unwrap().get_edges_by_hashes2(unknown_edges);
-        (
-            self.peer_ibf_set
-                .get_edges_by_ids(known_edges.as_slice())
-                .iter()
-                .filter_map(|v| self.edges_info.get(&(v.peer0.clone(), v.peer1.clone())))
-                .cloned()
-                .collect(),
-            unknown_edges,
-        )
+        self.peer_ibf_set.split_edges(peer_id, unknown_edges, &self.edges_info)
     }
 
     fn peer_id(&self) -> &PeerId {
