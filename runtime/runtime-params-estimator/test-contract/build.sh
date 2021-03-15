@@ -19,6 +19,8 @@ function filesize
   exit 1
 }
 
+rustup target add wasm32-unknown-unknown
+
 # First, measure the size of the file without payload.
 rm -rf target
 RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release
