@@ -295,7 +295,6 @@ impl PeerManagerActor {
                 let ibf_vec = ibf_set.lock().unwrap().get_ibf_vec(MIN_IBF_LEVEL as usize);
 
                 let _ = addr.do_send(SendMessage {
-                    //PeerMessage::IbfMsgResponse
                     message: PeerMessage::RoutingTableSyncV2(RoutingSyncV2 {
                         known_edges: self.routing_table.get_edges_len(),
                         ibf_level: MIN_IBF_LEVEL,
