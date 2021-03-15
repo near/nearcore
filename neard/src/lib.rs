@@ -26,6 +26,7 @@ use near_store::migrations::{
     migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 
+use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use near_store::migrations::migrate_18_to_rectify_inflation;
 
@@ -293,6 +294,9 @@ pub fn start_with_config(
     network_adapter.set_recipient(network_actor.recipient());
 
     trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
+
+    // We probably reached peak memory once on this thread, we want to see when it happens again.
+    reset_memory_usage_max();
 
     (client_actor, view_client, vec![client_arbiter_handle, arbiter.handle()])
 }
