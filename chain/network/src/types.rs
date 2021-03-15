@@ -1283,11 +1283,11 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-pub struct EdgeList(
-    pub Vec<Edge>,
-    pub Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    pub QueueSender<Edge>,
-);
+pub struct EdgeList {
+    pub edges: Vec<Edge>,
+    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    pub sender: QueueSender<Edge>,
+}
 
 impl Message for EdgeList {
     type Result = bool;

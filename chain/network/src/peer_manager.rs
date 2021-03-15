@@ -115,22 +115,24 @@ impl Handler<EdgeList> for EdgeVerifier {
 
     #[perf]
     fn handle(&mut self, msg: EdgeList, _ctx: &mut Self::Context) -> Self::Result {
-        for edge in msg.0 {
+        for edge in msg.edges {
             let key = (edge.peer0.clone(), edge.peer1.clone());
-            if msg.1.lock().unwrap().get(&key).cloned().unwrap_or(0u64) >= edge.nonce {
+            if msg.edges_info_shared.lock().unwrap().get(&key).cloned().unwrap_or(0u64)
+                >= edge.nonce
+            {
                 continue;
             }
             if !edge.verify() {
                 return false;
             }
             {
-                let mut guard = msg.1.lock().unwrap();
+                let mut guard = msg.edges_info_shared.lock().unwrap();
                 let entry = guard.entry(key);
 
                 let cur_nonce = entry.or_insert(edge.nonce);
                 *cur_nonce = max(*cur_nonce, edge.nonce);
             }
-            msg.2.push(edge);
+            msg.sender.push(edge);
         }
         true
     }
@@ -1605,11 +1607,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 
                 // Broadcast edges once EdgeVerifier finishes
                 self.edge_verifier_pool
-                    .send(EdgeList(
+                    .send(EdgeList {
                         edges,
-                        self.routing_table.get_edges_info_shared(),
-                        self.routing_table.edges_to_add_sender.clone(),
-                    ))
+                        edges_info_shared: self.routing_table.get_edges_info_shared(),
+                        sender: self.routing_table.edges_to_add_sender.clone(),
+                    })
                     .into_actor(self)
                     .then(move |response, act, ctx| {
                         match response {
