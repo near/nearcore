@@ -52,7 +52,7 @@ impl SlotMap {
     }
 }
 
-#[derive(Hash, Clone, Eq, PartialEq)]
+#[derive(Hash, Clone, Eq, PartialEq, Debug)]
 pub struct SimpleEdge {
     pub peer0: PeerId,
     pub peer1: PeerId,
@@ -140,11 +140,18 @@ mod test {
         assert_eq!(None, sm.pop(&e0));
 
         assert_eq!(Some(1 as SlotMapId), sm.get(&e1));
+
+        assert_eq!(Some(e1.clone()), sm.get_by_id(&(1 as SlotMapId)));
+        assert_eq!(None, sm.get_by_id(&(1000 as SlotMapId)));
+
         assert_eq!(Some(1 as SlotMapId), sm.pop(&e1));
         assert_eq!(None, sm.get(&e1));
         assert_eq!(None, sm.pop(&e1));
 
         assert_eq!(3 as SlotMapId, sm.insert(&e2));
         assert_eq!(Some(3 as SlotMapId), sm.pop(&e2));
+
+        assert_eq!(None, sm.get_by_id(&(1 as SlotMapId)));
+        assert_eq!(None, sm.get_by_id(&(1000 as SlotMapId)));
     }
 }
