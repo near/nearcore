@@ -183,7 +183,7 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                 header.inner.gas_limit,
                 header.inner.balance_burnt,
                 header.inner.tx_root,
-                header.inner.validator_proposals.iter().map(|v| ValidatorStake::lift(v.clone())).collect(),
+                header.inner.validator_proposals.iter().map(|v| ValidatorStake::from_v1(v.clone())).collect(),
                 transactions,
                 &receipts,
                 header.inner.outgoing_receipts_root,
@@ -651,7 +651,7 @@ pub fn migrate_18_to_19(path: &str) {
     use near_primitives::epoch_manager::{BlockInfo, BlockInfoV1, EpochSummary};
     let store = create_store(path);
 
-    #[derive(BorshSerialize, BorshDeserialize)]
+    #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {
         pub prev_epoch_last_block_hash: CryptoHash,
         /// Proposals from the epoch, only the latest one per account

@@ -74,7 +74,7 @@ fn add_blocks(
             vec![],
             vec![],
             signer,
-            Chain::compute_bp_hash_inner(vec![ValidatorStake::v1(
+            Chain::compute_bp_hash_inner(vec![ValidatorStake::new(
                 "other".to_string(),
                 signer.public_key(),
                 TESTING_INIT_STAKE,

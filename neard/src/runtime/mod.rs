@@ -193,7 +193,7 @@ impl NightshadeRuntime {
                 genesis_config
                     .validators
                     .iter()
-                    .map(|account_info| ValidatorStake::v1 (
+                    .map(|account_info| ValidatorStake::new(
                         account_info.account_id.clone(),
                         account_info
                             .public_key
@@ -2275,7 +2275,7 @@ mod test {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
             let proposals = if i == 1 {
-                vec![ValidatorStake::v1 (
+                vec![ValidatorStake::new(
                     block_producers[0].validator_id().clone(),
                     block_producers[0].public_key(),
                     TESTING_INIT_STAKE + 1,
@@ -2456,7 +2456,7 @@ mod test {
                 next_validators: next_epoch_validator_info.clone(),
                 current_fishermen: vec![],
                 next_fishermen: vec![],
-                current_proposals: vec![ValidatorStake::v1(
+                current_proposals: vec![ValidatorStake::new(
                     "test1".to_string(),
                     block_producers[0].public_key(),
                     0,

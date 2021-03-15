@@ -163,7 +163,7 @@ impl KeyValueRuntime {
                 .map(|account_ids| {
                     account_ids
                         .iter()
-                        .map(|account_id| ValidatorStake::v1(
+                        .map(|account_id| ValidatorStake::new(
                             account_id.clone(),
                             SecretKey::from_seed(KeyType::ED25519, account_id)
                                 .public_key(),

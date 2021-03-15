@@ -597,7 +597,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                         .mut_header()
                                         .get_mut()
                                         .inner_rest
-                                        .validator_proposals = vec![ValidatorStake::v1(
+                                        .validator_proposals = vec![ValidatorStake::new(
                                         "test1".to_string(),
                                         PublicKey::empty(KeyType::ED25519),
                                         0,
@@ -1830,7 +1830,7 @@ fn test_not_process_height_twice() {
     let mut invalid_block = block.clone();
     env.process_block(0, block, Provenance::PRODUCED);
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
-    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = vec![ValidatorStake::v1(
+    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = vec![ValidatorStake::new(
         "test1".to_string(),
         PublicKey::empty(KeyType::ED25519),
         0,

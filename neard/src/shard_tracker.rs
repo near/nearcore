@@ -277,7 +277,7 @@ mod tests {
                 initial_epoch_config,
                 PROTOCOL_VERSION,
                 reward_calculator,
-                vec![ValidatorStake::v1(
+                vec![ValidatorStake::new(
                     "test".to_string(),
                     PublicKey::empty(KeyType::ED25519),
                     100,

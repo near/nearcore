@@ -92,7 +92,7 @@ pub fn epoch_info_with_num_seats(
     let account_to_validators = |accounts: Vec<(&str, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()
-            .map(|(account_id, stake)| ValidatorStake::v1 (
+            .map(|(account_id, stake)| ValidatorStake::new(
                 account_id.to_string(),
                 SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
                 stake,
@@ -152,7 +152,7 @@ pub fn epoch_config(
 
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
     let public_key = SecretKey::from_seed(KeyType::ED25519, account_id).public_key();
-    ValidatorStake::v1(account_id.to_string(), public_key, amount)
+    ValidatorStake::new(account_id.to_string(), public_key, amount)
 }
 
 /// No-op reward calculator. Will produce no reward

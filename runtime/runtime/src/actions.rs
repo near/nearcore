@@ -275,7 +275,7 @@ pub(crate) fn action_stake(
             }
         }
 
-        result.validator_proposals.push(ValidatorStake::v1(
+        result.validator_proposals.push(ValidatorStake::new(
             account_id.clone(),
             stake.public_key.clone(),
             stake.stake,

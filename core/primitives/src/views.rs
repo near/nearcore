@@ -1154,7 +1154,7 @@ impl From<ValidatorStakeView> for ValidatorStake {
     fn from(view: ValidatorStakeView) -> Self {
         match view {
             ValidatorStakeView::V1(v1) => {
-                Self::v1(
+                Self::new(
                     v1.account_id, v1.public_key, v1.stake
                 )
             }
