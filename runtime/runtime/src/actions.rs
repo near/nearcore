@@ -77,10 +77,6 @@ pub(crate) fn execute_function_call(
             is_view,
         )
     } else {
-        let cache = match &apply_state.cache {
-            Some(cache) => Some((*cache).as_ref()),
-            None => None,
-        };
         let code = match runtime_ext.get_code(account.code_hash) {
             Ok(Some(code)) => code,
             Ok(None) => {
@@ -133,8 +129,7 @@ pub(crate) fn execute_function_call(
         };
 
         near_vm_runner::run(
-            code.hash.as_ref().to_vec(),
-            &code.code,
+            &code,
             &function_call.method_name,
             runtime_ext,
             context,
@@ -142,7 +137,7 @@ pub(crate) fn execute_function_call(
             &config.transaction_costs,
             promise_results,
             apply_state.current_protocol_version,
-            cache,
+            apply_state.cache.as_deref(),
             &apply_state.profile,
         )
     }
@@ -500,7 +495,7 @@ pub(crate) fn action_delete_key(
 }
 
 pub(crate) fn action_add_key(
-    fees_config: &RuntimeFeesConfig,
+    apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
     account: &mut Account,
     result: &mut ActionResult,
@@ -515,13 +510,32 @@ pub(crate) fn action_add_key(
         .into());
         return Ok(());
     }
-    set_access_key(
-        state_update,
-        account_id.clone(),
-        add_key.public_key.clone(),
-        &add_key.access_key,
+    checked_feature!(
+        "protocol_feature_access_key_nonce_range",
+        AccessKeyNonceRange,
+        apply_state.current_protocol_version,
+        {
+            let mut access_key = add_key.access_key.clone();
+            access_key.nonce = (apply_state.block_index - 1)
+                * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            set_access_key(
+                state_update,
+                account_id.clone(),
+                add_key.public_key.clone(),
+                &access_key,
+            );
+        },
+        {
+            set_access_key(
+                state_update,
+                account_id.clone(),
+                add_key.public_key.clone(),
+                &add_key.access_key,
+            );
+        }
     );
-    let storage_config = &fees_config.storage_usage_config;
+
+    let storage_config = &apply_state.config.transaction_costs.storage_usage_config;
     account.storage_usage = account
         .storage_usage
         .checked_add(

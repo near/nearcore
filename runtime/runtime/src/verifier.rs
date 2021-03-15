@@ -24,7 +24,9 @@ use near_store::{
 use crate::config::total_size;
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::VerificationResult;
+use near_primitives::checked_feature;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::types::BlockHeight;
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
@@ -78,6 +80,7 @@ pub fn verify_and_charge_transaction(
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
     verify_signature: bool,
+    #[allow(unused)] block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
@@ -117,6 +120,24 @@ pub fn verify_and_charge_transaction(
         }
         .into());
     }
+    checked_feature!(
+        "protocol_feature_access_key_nonce_range",
+        AccessKeyNonceRange,
+        current_protocol_version,
+        {
+            if let Some(height) = block_height {
+                let upper_bound =
+                    height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+                if transaction.nonce >= upper_bound {
+                    return Err(InvalidTxError::NonceTooLarge {
+                        tx_nonce: transaction.nonce,
+                        upper_bound,
+                    }
+                    .into());
+                }
+            }
+        }
+    );
 
     access_key.nonce = transaction.nonce;
 
@@ -526,6 +547,7 @@ mod tests {
                 gas_price,
                 &signed_transaction,
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -558,6 +580,7 @@ mod tests {
             gas_price,
             &transaction,
             true,
+            None,
             PROTOCOL_VERSION,
         )
         .expect("valid transaction");
@@ -679,6 +702,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 false,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -745,6 +769,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -777,6 +802,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -825,6 +851,7 @@ mod tests {
                 CryptoHash::default(),
             ),
             true,
+            None,
             PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
@@ -876,6 +903,7 @@ mod tests {
                 CryptoHash::default(),
             ),
             true,
+            None,
             PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
@@ -917,6 +945,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -967,6 +996,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -989,6 +1019,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1011,6 +1042,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1055,6 +1087,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1102,6 +1135,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1146,6 +1180,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),

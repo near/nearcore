@@ -1,5 +1,8 @@
 use crate::errors::IntoVMError;
 use crate::prepare;
+use crate::wasmer1_runner::wasmer1_vm_hash;
+use crate::wasmer_runner::wasmer0_vm_hash;
+use crate::wasmtime_runner::wasmtime_vm_hash;
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(not(feature = "no_cache"))]
 use cached::{cached_key, SizedCache};
@@ -15,7 +18,17 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
 enum ContractCacheKey {
-    Version1 { code_hash: CryptoHash, vm_config_non_crypto_hash: u64, vm_kind: VMKind },
+    Version1 {
+        code_hash: CryptoHash,
+        vm_config_non_crypto_hash: u64,
+        vm_kind: VMKind,
+    },
+    Version2 {
+        code_hash: CryptoHash,
+        vm_config_non_crypto_hash: u64,
+        vm_kind: VMKind,
+        vm_hash: u64,
+    },
 }
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -24,16 +37,25 @@ enum CacheRecord {
     Code(Vec<u8>),
 }
 
+fn vm_hash(vm_kind: VMKind) -> u64 {
+    match vm_kind {
+        VMKind::Wasmer0 => wasmer0_vm_hash(),
+        VMKind::Wasmer1 => wasmer1_vm_hash(),
+        VMKind::Wasmtime => wasmtime_vm_hash(),
+    }
+}
+
 fn get_key(code_hash: &[u8], code: &[u8], vm_kind: VMKind, config: &VMConfig) -> CryptoHash {
     let hash = match CryptoHash::try_from(code_hash) {
         Ok(hash) => hash,
         // Sometimes caller doesn't compute code_hash, so hash the code ourselves.
         Err(_e) => near_primitives::hash::hash(code),
     };
-    let key = ContractCacheKey::Version1 {
+    let key = ContractCacheKey::Version2 {
         code_hash: hash,
         vm_config_non_crypto_hash: config.non_crypto_hash(),
-        vm_kind: vm_kind,
+        vm_kind,
+        vm_hash: vm_hash(vm_kind),
     };
     near_primitives::hash::hash(&key.try_to_vec().unwrap())
 }
@@ -99,6 +121,8 @@ pub mod wasmer0_cache {
         key: &CryptoHash,
         cache: &dyn CompiledContractCache,
     ) -> Result<wasmer_runtime::Module, VMError> {
+        let _span = tracing::debug_span!("compile_and_serialize_wasmer");
+
         let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
         let artifact = module
             .cache()
@@ -117,6 +141,8 @@ pub mod wasmer0_cache {
     fn deserialize_wasmer(
         serialized: &[u8],
     ) -> Result<Result<wasmer_runtime::Module, VMError>, CacheError> {
+        let _span = tracing::debug_span!("deserialize_wasmer");
+
         let record = CacheRecord::try_from_slice(serialized).map_err(|_e| DeserializationError)?;
         let serialized_artifact = match record {
             CacheRecord::Error(err) => return Ok(Err(err)),
@@ -175,7 +201,7 @@ pub mod wasmer0_cache {
         }
     }
 
-    pub(crate) fn compile_module_cached_wasmer(
+    pub(crate) fn compile_module_cached_wasmer0(
         wasm_code_hash: &[u8],
         wasm_code: &[u8],
         config: &VMConfig,
@@ -192,7 +218,6 @@ pub mod wasmer0_cache {
 #[cfg(feature = "wasmer1_vm")]
 pub mod wasmer1_cache {
     use super::*;
-
     pub(crate) fn compile_module_cached_wasmer1(
         wasm_code_hash: &[u8],
         wasm_code: &[u8],
@@ -220,6 +245,8 @@ pub mod wasmer1_cache {
         cache: &dyn CompiledContractCache,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
+        let _span = tracing::debug_span!("compile_and_serialize_wasmer1");
+
         let module = compile_module_wasmer1(wasm_code, config, store)
             .map_err(|e| cache_error(e, &key, cache))?;
         let code = module
@@ -234,6 +261,8 @@ pub mod wasmer1_cache {
         serialized: &[u8],
         store: &wasmer::Store,
     ) -> Result<Result<wasmer::Module, VMError>, CacheError> {
+        let _span = tracing::debug_span!("deserialize_wasmer1");
+
         let record = CacheRecord::try_from_slice(serialized).map_err(|_e| DeserializationError)?;
         let serialized_module = match record {
             CacheRecord::Error(err) => return Ok(Err(err)),

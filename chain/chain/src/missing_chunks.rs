@@ -1,4 +1,3 @@
-use log::warn;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::BlockHeight;
@@ -8,6 +7,7 @@ use std::collections::{
     hash_map::{self, HashMap},
     BinaryHeap, HashSet,
 };
+use tracing::warn;
 
 type BlockHash = CryptoHash;
 

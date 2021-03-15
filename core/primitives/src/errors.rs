@@ -113,6 +113,8 @@ pub enum InvalidTxError {
     SignerDoesNotExist { signer_id: AccountId },
     /// Transaction nonce must be account[access_key].nonce + 1
     InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
+    /// Transaction nonce is larger than the upper bound given by the block height
+    NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
     /// TX receiver_id is not in a valid format or not satisfy requirements see `near_runtime_utils::is_valid_account_id`
     InvalidReceiverId { receiver_id: AccountId },
     /// TX signature is not valid
@@ -445,6 +447,7 @@ impl Display for InvalidTxError {
             InvalidTxError::ActionsValidation(error) => {
                 write!(f, "Transaction actions validation error: {}", error)
             }
+            InvalidTxError::NonceTooLarge { tx_nonce, upper_bound } => { write!(f, "Transaction nonce {} must be smaller than the access key nonce upper bound {}", tx_nonce, upper_bound) }
         }
     }
 }
