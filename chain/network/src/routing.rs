@@ -311,7 +311,7 @@ pub struct RoutingTable {
     last_ping_nonce: SizedCache<PeerId, usize>,
     /// Last nonce used to store edges on disk.
     pub component_nonce: u64,
-
+    /// Data structure used for exchanging routing tables.
     pub peer_ibf_set: IbfPeerSet,
 }
 
