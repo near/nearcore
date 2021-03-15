@@ -11,7 +11,7 @@ pub const MAX_IBF_LEVEL: u64 = 17;
 
 #[derive(Default)]
 pub struct IbfSet<T: Hash + Clone> {
-    seed: u64,
+    seed: Option<u64>,
     ibf: Vec<Ibf<DefaultHasher>>,
     h2e: HashMap<u64, SlotMapId>,
     hasher: DefaultHasher,
@@ -31,22 +31,29 @@ where
     }
 
     pub fn new() -> Self {
-        let mut ibfs = Vec::new();
-        for i in MIN_IBF_LEVEL..=MAX_IBF_LEVEL {
-            ibfs.push(Ibf::new(1 << i, i));
-        }
-        let mut hasher = DefaultHasher::new();
-        hasher.write_u64(u64::max_value());
         Self {
-            ibf: ibfs,
+            ibf: Default::default(),
             h2e: Default::default(),
-            hasher,
+            hasher: Default::default(),
             pd: PhantomData::<T>::default(),
-            seed: 0,
+            seed: None,
         }
     }
 
-    pub fn get_edges_by_hashes(&self, edges: &[u64]) -> (Vec<SlotMapId>, Vec<u64>) {
+    pub fn set_seed(&mut self, seed: u64) {
+        if self.seed.is_some() {
+            error!("already initialized");
+            return;
+        }
+        for i in MIN_IBF_LEVEL..=MAX_IBF_LEVEL {
+            self.ibf.push(Ibf::new(1 << i, seed ^ i));
+        }
+        self.hasher.write_u64(u64::max_value());
+        self.hasher.write_u64(seed);
+        self.seed = Some(seed);
+    }
+
+    pub fn get_edges_by_hashes_ext(&self, edges: &[u64]) -> (Vec<SlotMapId>, Vec<u64>) {
         let mut known_edges: Vec<SlotMapId> = Default::default();
         let mut unknown_edges: Vec<u64> = Default::default();
 
@@ -60,15 +67,9 @@ where
         (known_edges, unknown_edges)
     }
 
-    pub fn set_seed(&mut self, seed: u64) {
-        if self.seed != 0 {
-            error!("seed already set");
-        }
-        self.seed = seed;
-        self.hasher.write_u64(seed);
-    }
-
     pub fn add_edge(&mut self, item: &T, id: SlotMapId) -> bool {
+        assert!(self.seed.is_some());
+
         let mut h = self.hasher.clone();
         item.hash(&mut h);
         let h = h.finish();
@@ -105,7 +106,9 @@ mod test {
     #[test]
     fn test_ibf_set() {
         let mut a = IbfSet::<u64>::new();
+        a.set_seed(12);
         let mut b = IbfSet::<u64>::new();
+        b.set_seed(12);
 
         for i in 0..10000 {
             a.add_edge(&(i as u64), (i + 1000000) as SlotMapId);
@@ -127,8 +130,8 @@ mod test {
             for x in 0..333 {
                 res.push(x + 33333333);
             }
-            assert_eq!(100 - 10, a.get_edges_by_hashes(&res).0.len());
-            assert_eq!(100 + 333, a.get_edges_by_hashes(&res).1.len());
+            assert_eq!(100 - 10, a.get_edges_by_hashes_ext(&res).0.len());
+            assert_eq!(100 + 333, a.get_edges_by_hashes_ext(&res).1.len());
         }
     }
 }

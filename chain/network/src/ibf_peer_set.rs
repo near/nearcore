@@ -137,7 +137,7 @@ impl IbfPeerSet {
     ) -> (Vec<Edge>, Vec<u64>) {
         if let Some(ibf) = self.get(peer_id) {
             let (known_edges, unknown_edges) =
-                ibf.lock().unwrap().get_edges_by_hashes(unknown_edges);
+                ibf.lock().unwrap().get_edges_by_hashes_ext(unknown_edges);
             return (self.recover_edges(known_edges.as_slice(), edges_info), unknown_edges);
         }
         (Default::default(), Default::default())
@@ -199,6 +199,7 @@ mod test {
         let peer_id2 = random_peer_id();
         let mut ips = IbfPeerSet::default();
         let ibf_set = Arc::new(Mutex::new(IbfSet::new()));
+        ibf_set.lock().unwrap().set_seed(1111);
 
         let edge = Edge::make_fake_edge(peer_id.clone(), peer_id2.clone(), 111);
         let mut edges_info: HashMap<(PeerId, PeerId), Edge> = Default::default();

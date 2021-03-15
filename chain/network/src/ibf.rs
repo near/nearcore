@@ -29,8 +29,8 @@ pub struct Ibf<H: Hasher + Default + Clone> {
     pub capacity: usize,
     k: i32,
     pub data: Vec<IbfElem>,
+    pub hasher: H,
     seed: u64,
-    hasher: H,
 }
 
 impl<H: Hasher + Default + Clone> Ibf<H> {
@@ -46,9 +46,9 @@ impl<H: Hasher + Default + Clone> Ibf<H> {
         Self {
             capacity: new_capacity,
             data: vec![IbfElem::default(); new_capacity],
-            seed,
             hasher,
             k,
+            seed,
         }
     }
 
