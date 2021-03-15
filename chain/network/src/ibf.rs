@@ -28,10 +28,10 @@ type MyHasher = DefaultHasher;
 
 #[derive(Clone)]
 pub struct Ibf {
-    pub capacity: usize,
+    capacity: usize,
     k: i32,
     pub data: Vec<IbfElem>,
-    pub hasher: MyHasher,
+    hasher: MyHasher,
     pub seed: u64,
 }
 
@@ -62,7 +62,7 @@ impl Ibf {
         self.adjust(elem)
     }
 
-    pub fn compute_hash(&self, elem: u64) -> u64 {
+    fn compute_hash(&self, elem: u64) -> u64 {
         let mut h = self.hasher.clone();
         h.write_u64(elem);
         h.finish()
@@ -81,7 +81,7 @@ impl Ibf {
     }
 
     #[cfg(test)]
-    pub fn recover(&mut self) -> Result<Vec<u64>, &'static str> {
+    fn recover(&mut self) -> Result<Vec<u64>, &'static str> {
         let (result, difference) = self.try_recover();
 
         if difference != 0 {
