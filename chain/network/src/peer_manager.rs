@@ -281,6 +281,7 @@ impl PeerManagerActor {
         let enabled = false;
 
         if enabled && protocol_version >= NEW_ROUTING_PROTOCOL_VERSION {
+            // TODO(Piotr) remove this log
             info!(
                 "GOT NEW PROTOCOL VERSION STARTING NEW SYNC ALGORITHM edges.len: {} accounts.len: {}",
                 self.routing_table.edges_info.len(),
@@ -291,7 +292,6 @@ impl PeerManagerActor {
                 let seed: u64 = rng.next_u64();
                 ibf_set.lock().unwrap().set_seed(seed);
                 self.routing_table.add_peer(peer_id.clone(), ibf_set.clone());
-                // let ibf_set = self.routing_table.get_ibf_set(&peer_id).unwrap();
                 let ibf_vec = ibf_set.lock().unwrap().get_ibf_vec(MIN_IBF_LEVEL as usize);
 
                 let _ = addr.do_send(SendMessage {
@@ -943,8 +943,8 @@ impl PeerManagerActor {
                 None => true,
             }
         });
-        // TODO(Piotr) remove this print
-        debug!(
+        // TODO(Piotr) remove this log
+        info!(
             "SYNC edges.len: {} announce_len: {} active_edges: {} nodes.used: {} nodes.unused: {} new_edges: {}/{}",
             self.routing_table.edges_info.len(),
             self.routing_table.get_announce_accounts_size(),
