@@ -82,7 +82,6 @@ impl IbfPeerSet {
     ) {
         if let None = self.peers.insert(peer_id, ibf_set.clone()) {
             let mut peer_ibf_set = ibf_set.lock().unwrap();
-            // TODO: Keep (SimpleEdge + 32 bytes hash) in self.edges_info
             for (_, e) in edges_info.iter() {
                 let se =
                     SimpleEdge { peer0: e.peer0.clone(), peer1: e.peer1.clone(), nonce: e.nonce };
@@ -116,8 +115,13 @@ impl IbfPeerSet {
 
 #[cfg(test)]
 mod test {
-    use crate::ibf_peer_set::{SimpleEdge, SlotMap, SlotMapId};
+    use crate::ibf_peer_set::{IbfPeerSet, SimpleEdge, SlotMap, SlotMapId};
+    use crate::ibf_set::IbfSet;
+    use crate::routing::Edge;
     use crate::test_utils::random_peer_id;
+    use near_primitives::network::PeerId;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_slot_map() {
@@ -153,5 +157,21 @@ mod test {
 
         assert_eq!(None, sm.get_by_id(&(1 as SlotMapId)));
         assert_eq!(None, sm.get_by_id(&(1000 as SlotMapId)));
+    }
+
+    #[test]
+    fn test_adding_ibf_peer_set_adding_peers() {
+        let peer_id = random_peer_id();
+        let peer_id2 = random_peer_id();
+        let mut ips = IbfPeerSet::default();
+        let ibf_set = Arc::new(Mutex::new(IbfSet::new()));
+
+        let mut edges_info: HashMap<(PeerId, PeerId), Edge> = Default::default();
+        ips.add_peer(peer_id.clone(), ibf_set, &mut edges_info);
+
+        assert!(ips.get(&peer_id).is_some());
+        assert!(ips.get(&peer_id2).is_none());
+        ips.remove_peer(&peer_id);
+        assert!(ips.get(&peer_id).is_none());
     }
 }
