@@ -118,11 +118,11 @@ mod test {
         }
         for i in 10..=17 {
             let mut ibf1 = a.get_ibf(i);
-            let ibf2 = a.get_ibf(i);
+            let ibf2 = b.get_ibf(i);
             ibf1.merge(&ibf2);
             let (mut res, diff) = ibf1.try_recover();
             assert_eq!(0, diff);
-            assert_eq!(100 - 10, res.len());
+            assert_eq!(200 - 10, res.len());
 
             for x in 0..333 {
                 res.push(x + 33333333);
@@ -130,7 +130,7 @@ mod test {
             assert_eq!(100 - 10, a.get_edges_by_hashes(&res).len());
 
             assert_eq!(100 - 10, a.get_edges_by_hashes2(&res).0.len());
-            assert_eq!(333 + 10, a.get_edges_by_hashes2(&res).1.len());
+            assert_eq!(100 + 333, a.get_edges_by_hashes2(&res).1.len());
         }
     }
 }
