@@ -88,7 +88,7 @@ pub enum ProtocolFeature {
     RectifyInflation,
     #[cfg(feature = "protocol_feature_evm")]
     EVM,
-    #[cfg(feature = "protocol_feature_block_header_v3")]
+    #[cfg(feature = "protocol_feature_block_header_v4")]
     BlockHeaderV3,
     /// Decreases the storage cost of 1 byte by 10X.
     #[cfg(feature = "protocol_feature_lower_storage_cost")]
@@ -139,7 +139,7 @@ lazy_static! {
             (ProtocolFeature::RectifyInflation, 102),
             #[cfg(feature = "protocol_feature_evm")]
             (ProtocolFeature::EVM, 103),
-            #[cfg(feature = "protocol_feature_block_header_v3")]
+            #[cfg(feature = "protocol_feature_block_header_v4")]
             (ProtocolFeature::BlockHeaderV3, 104),
             #[cfg(feature = "protocol_feature_alt_bn128")]
             (ProtocolFeature::AltBn128, 105),

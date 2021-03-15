@@ -7,10 +7,10 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::block_header::BlockHeader;
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+#[cfg(not(feature = "protocol_feature_block_header_v4"))]
 use crate::block_header::BlockHeaderV2;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use crate::block_header::BlockHeaderV3;
+#[cfg(feature = "protocol_feature_block_header_v4")]
+use crate::block_header::BlockHeaderV4;
 use crate::errors::{EpochError, TxExecutionError};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
@@ -252,8 +252,8 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
-    #[cfg(feature = "protocol_feature_block_header_v3")]
-    pub fn get_mut(&mut self) -> &mut BlockHeaderV3 {
+    #[cfg(feature = "protocol_feature_block_header_v4")]
+    pub fn get_mut(&mut self) -> &mut BlockHeaderV4 {
         match self {
             BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
                 panic!("old header should not appear in tests")
@@ -262,7 +262,7 @@ impl BlockHeader {
         }
     }
 
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+    #[cfg(not(feature = "protocol_feature_block_header_v4"))]
     pub fn get_mut(&mut self) -> &mut BlockHeaderV2 {
         match self {
             BlockHeader::BlockHeaderV1(_) => panic!("old header should not appear in tests"),
@@ -402,12 +402,12 @@ impl Block {
             PROTOCOL_VERSION,
             prev.header(),
             height,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
+            #[cfg(feature = "protocol_feature_block_header_v4")]
             (prev.header().block_ordinal() + 1),
             prev.chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
+            #[cfg(feature = "protocol_feature_block_header_v4")]
             None,
             approvals,
             Rational::from_integer(0),

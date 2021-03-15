@@ -50,12 +50,12 @@ fn create_block() -> Block {
         PROTOCOL_VERSION,
         genesis.header(),
         10,
-        #[cfg(feature = "protocol_feature_block_header_v3")]
+        #[cfg(feature = "protocol_feature_block_header_v4")]
         (genesis.header().block_ordinal() + 1),
         vec![genesis.chunks()[0].clone()],
         EpochId::default(),
         EpochId::default(),
-        #[cfg(feature = "protocol_feature_block_header_v3")]
+        #[cfg(feature = "protocol_feature_block_header_v4")]
         None,
         vec![],
         Rational::from_integer(0),

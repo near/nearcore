@@ -27,6 +27,6 @@ near-store = { path = "../../core/store" }
 [features]
 expensive_tests = []
 protocol_feature_rectify_inflation = ["near-primitives/protocol_feature_rectify_inflation", "chrono"]
-protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "protocol_feature_rectify_inflation", "protocol_feature_block_header_v3"]
+protocol_feature_block_header_v4 = ["near-primitives/protocol_feature_block_header_v4"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "protocol_feature_rectify_inflation", "protocol_feature_block_header_v4"]
 nightly_protocol = ["near-primitives/nightly_protocol"]

@@ -51,12 +51,12 @@ fn test_verify_block_double_sign_challenge() {
         PROTOCOL_VERSION,
         genesis.header(),
         2,
-        #[cfg(feature = "protocol_feature_block_header_v3")]
+        #[cfg(feature = "protocol_feature_block_header_v4")]
         (genesis.header().block_ordinal() + 1),
         genesis.chunks().iter().cloned().collect(),
         b1.header().epoch_id().clone(),
         b1.header().next_epoch_id().clone(),
-        #[cfg(feature = "protocol_feature_block_header_v3")]
+        #[cfg(feature = "protocol_feature_block_header_v4")]
         None,
         vec![],
         Rational::from_integer(0),
@@ -354,12 +354,12 @@ fn test_verify_chunk_invalid_state_challenge() {
         PROTOCOL_VERSION,
         &last_block.header(),
         last_block.header().height() + 1,
-        #[cfg(feature = "protocol_feature_block_header_v3")]
+        #[cfg(feature = "protocol_feature_block_header_v4")]
         (last_block.header().block_ordinal() + 1),
         vec![invalid_chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
-        #[cfg(feature = "protocol_feature_block_header_v3")]
+        #[cfg(feature = "protocol_feature_block_header_v4")]
         None,
         vec![],
         Rational::from_integer(0),
