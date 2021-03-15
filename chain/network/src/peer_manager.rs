@@ -35,11 +35,11 @@ use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable, MAX_NUM_PEERS};
 use crate::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
-    IbfMsg, InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo,
-    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
-    PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest,
-    PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
-    RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData, Unregister,
+    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
+    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
+    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, RoutingSyncV2, SendMessage, StateResponseInfo, SyncData, Unregister,
 };
 use crate::types::{
     EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
@@ -296,7 +296,7 @@ impl PeerManagerActor {
 
                 let _ = addr.do_send(SendMessage {
                     //PeerMessage::IbfMsgResponse
-                    message: PeerMessage::IbfMessage(IbfMsg {
+                    message: PeerMessage::RoutingTableSyncV2(RoutingSyncV2 {
                         known_edges: self.routing_table.get_edges_len(),
                         ibf_level: MIN_IBF_LEVEL,
                         ibf: ibf_vec,
@@ -1664,7 +1664,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         );
 
                         let _ = addr.do_send(SendMessage {
-                            message: PeerMessage::IbfMessage(IbfMsg {
+                            message: PeerMessage::RoutingTableSyncV2(RoutingSyncV2 {
                                 known_edges: self.routing_table.get_edges_len(),
                                 ibf_level: ibf_msg.ibf_level,
                                 ibf: Default::default(),
@@ -1720,7 +1720,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             // get result
 
                             let ibf_msg = if unknown_edges_count == 0 {
-                                IbfMsg {
+                                RoutingSyncV2 {
                                     known_edges: self.routing_table.get_edges_len(),
                                     ibf_level: ibf_msg.ibf_level + 1,
                                     ibf: Default::default(),
@@ -1732,7 +1732,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 }
                             } else {
                                 if ibf_msg.ibf_level + 1 > MAX_IBF_LEVEL {
-                                    IbfMsg {
+                                    RoutingSyncV2 {
                                         known_edges: self.routing_table.get_edges_len(),
                                         ibf_level: ibf_msg.ibf_level + 1,
                                         ibf: Default::default(),
@@ -1745,7 +1745,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 } else {
                                     let ibf_vec =
                                         ibf_set.lock().unwrap().get_ibf_vec(MIN_IBF_LEVEL as usize);
-                                    IbfMsg {
+                                    RoutingSyncV2 {
                                         known_edges: self.routing_table.get_edges_len(),
                                         ibf_level: ibf_msg.ibf_level + 1,
                                         ibf: ibf_vec,
@@ -1758,8 +1758,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 }
                             };
 
-                            let _ = addr
-                                .do_send(SendMessage { message: PeerMessage::IbfMessage(ibf_msg) });
+                            let _ = addr.do_send(SendMessage {
+                                message: PeerMessage::RoutingTableSyncV2(ibf_msg),
+                            });
                         }
                     }
                 }

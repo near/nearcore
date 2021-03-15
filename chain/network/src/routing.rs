@@ -544,15 +544,11 @@ impl RoutingTable {
             }
             // Remove old edge from IbfPeerSet
             if let Some(old_edge) = self.edges_info.get(&key) {
-                let old_se = SimpleEdge {
-                    peer0: key.0.clone(),
-                    peer1: key.1.clone(),
-                    nonce: old_edge.nonce,
-                };
+                let old_se = SimpleEdge { key: key.clone(), nonce: old_edge.nonce };
                 self.peer_ibf_set.remove_edge(&old_se);
             }
 
-            let se = SimpleEdge { peer0: key.0.clone(), peer1: key.1.clone(), nonce: edge.nonce };
+            let se = SimpleEdge { key: key.clone(), nonce: edge.nonce };
             self.peer_ibf_set.add_edge(&se);
             self.edges_info.insert(key, edge);
             true

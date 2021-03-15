@@ -774,11 +774,11 @@ pub enum PeerMessage {
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
 
-    IbfMessage(IbfMsg),
+    RoutingTableSyncV2(RoutingSyncV2),
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct IbfMsg {
+pub struct RoutingSyncV2 {
     pub known_edges: u64,
     pub ibf_level: u64,
     pub ibf: Vec<IbfElem>,
@@ -1296,7 +1296,7 @@ pub enum NetworkRequests {
     // IbfMessage
     IbfMessage {
         peer_id: PeerId,
-        ibf_msg: IbfMsg,
+        ibf_msg: RoutingSyncV2,
         ibf_set: Arc<Mutex<IbfSet<SimpleEdge>>>,
     },
 }

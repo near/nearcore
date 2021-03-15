@@ -51,8 +51,7 @@ impl SlotMap {
 
 #[derive(Hash, Clone, Eq, PartialEq, Debug)]
 pub struct SimpleEdge {
-    pub peer0: PeerId,
-    pub peer1: PeerId,
+    pub key: (PeerId, PeerId),
     pub nonce: u64,
 }
 
@@ -76,8 +75,7 @@ impl IbfPeerSet {
         if let None = self.peers.insert(peer_id, ibf_set.clone()) {
             let mut peer_ibf_set = ibf_set.lock().unwrap();
             for (_, e) in edges_info.iter() {
-                let se =
-                    SimpleEdge { peer0: e.peer0.clone(), peer1: e.peer1.clone(), nonce: e.nonce };
+                let se = SimpleEdge { key: (e.peer0.clone(), e.peer1.clone()), nonce: e.nonce };
                 if let Some(id) = self.slot_map.get(&se) {
                     peer_ibf_set.add_edge(&se, id);
                 }
@@ -117,7 +115,7 @@ impl IbfPeerSet {
         unknown_edges
             .iter()
             .filter_map(|v| self.slot_map.get_by_id(v))
-            .filter_map(|v| edges_info.get(&(v.peer0.clone(), v.peer1.clone())))
+            .filter_map(|v| edges_info.get(&(v.key)))
             .cloned()
             .collect()
     }
@@ -153,9 +151,9 @@ mod test {
         let p1 = random_peer_id();
         let p2 = random_peer_id();
 
-        let e0 = SimpleEdge { peer0: p0.clone(), peer1: p1.clone(), nonce: 0 };
-        let e1 = SimpleEdge { peer0: p1.clone(), peer1: p2.clone(), nonce: 0 };
-        let e2 = SimpleEdge { peer0: p1.clone(), peer1: p2.clone(), nonce: 3 };
+        let e0 = SimpleEdge { key: (p0.clone(), p1.clone()), nonce: 0 };
+        let e1 = SimpleEdge { key: (p1.clone(), p2.clone()), nonce: 0 };
+        let e2 = SimpleEdge { key: (p1.clone(), p2.clone()), nonce: 3 };
 
         let mut sm = SlotMap::default();
         assert_eq!(0 as SlotMapId, sm.insert(&e0).unwrap());
@@ -211,7 +209,7 @@ mod test {
         ips.add_peer(peer_id.clone(), ibf_set.clone(), &mut edges_info);
 
         // Add edge
-        let e = SimpleEdge { peer0: peer_id.clone(), peer1: peer_id2.clone(), nonce: 111 };
+        let e = SimpleEdge { key: (peer_id.clone(), peer_id2.clone()), nonce: 111 };
         assert!(ips.add_edge(&e).is_some());
         assert!(ips.add_edge(&e).is_none());
 

@@ -586,7 +586,7 @@ impl Peer {
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
             | PeerMessage::RoutingTableSync(_)
-            | PeerMessage::IbfMessage(_)
+            | PeerMessage::RoutingTableSyncV2(_)
             | PeerMessage::LastEdge(_)
             | PeerMessage::Disconnect
             | PeerMessage::RequestUpdateNonce(_)
@@ -1026,7 +1026,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 self.peer_manager_addr
                     .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
             }
-            (_, PeerStatus::Ready, PeerMessage::IbfMessage(ibf_message)) => {
+            (_, PeerStatus::Ready, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
                 self.peer_manager_addr.do_send(NetworkRequests::IbfMessage {
                     peer_id: self.peer_id().unwrap(),
                     ibf_msg: ibf_message,
