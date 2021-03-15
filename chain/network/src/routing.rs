@@ -358,12 +358,12 @@ impl RoutingTable {
         }
     }
 
-    pub fn get_edges_for_peer(&self, peer_id: &PeerId, unknown_edges: &[u64]) -> Vec<Edge> {
-        self.peer_ibf_set.get_edges_for_peer(peer_id, unknown_edges, &self.edges_info)
-    }
-
-    pub fn split_edges(&self, peer_id: &PeerId, unknown_edges: &[u64]) -> (Vec<Edge>, Vec<u64>) {
-        self.peer_ibf_set.split_edges(peer_id, unknown_edges, &self.edges_info)
+    pub fn split_edges_for_peer(
+        &self,
+        peer_id: &PeerId,
+        unknown_edges: &[u64],
+    ) -> (Vec<Edge>, Vec<u64>) {
+        self.peer_ibf_set.split_edges_for_peer(peer_id, unknown_edges, &self.edges_info)
     }
 
     fn peer_id(&self) -> &PeerId {

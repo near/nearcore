@@ -74,10 +74,6 @@ impl IbfPeerSet {
         self.peers.get(peer_id).cloned()
     }
 
-    pub fn get_edges_by_ids(&self, edges: &[SlotMapId]) -> Vec<SimpleEdge> {
-        edges.iter().filter_map(|v| self.slot_map.get_by_id(v)).collect()
-    }
-
     pub fn add_peer(
         &mut self,
         peer_id: PeerId,
@@ -125,27 +121,15 @@ impl IbfPeerSet {
         unknown_edges: &[SlotMapId],
         edges_info: &HashMap<(PeerId, PeerId), Edge>,
     ) -> Vec<Edge> {
-        self.get_edges_by_ids(unknown_edges)
+        unknown_edges
             .iter()
+            .filter_map(|v| self.slot_map.get_by_id(v))
             .filter_map(|v| edges_info.get(&(v.peer0.clone(), v.peer1.clone())))
             .cloned()
             .collect()
     }
 
-    pub fn get_edges_for_peer(
-        &self,
-        peer_id: &PeerId,
-        unknown_edges: &[u64],
-        edges_info: &HashMap<(PeerId, PeerId), Edge>,
-    ) -> Vec<Edge> {
-        if let Some(ibf) = self.get(peer_id) {
-            let unknown_edges = ibf.lock().unwrap().get_edges_by_hashes(unknown_edges);
-            return self.recover_edges(unknown_edges.as_slice(), edges_info);
-        }
-        Default::default()
-    }
-
-    pub fn split_edges(
+    pub fn split_edges_for_peer(
         &self,
         peer_id: &PeerId,
         unknown_edges: &[u64],
@@ -153,7 +137,7 @@ impl IbfPeerSet {
     ) -> (Vec<Edge>, Vec<u64>) {
         if let Some(ibf) = self.get(peer_id) {
             let (known_edges, unknown_edges) =
-                ibf.lock().unwrap().get_edges_by_hashes_ext(unknown_edges);
+                ibf.lock().unwrap().get_edges_by_hashes(unknown_edges);
             return (self.recover_edges(known_edges.as_slice(), edges_info), unknown_edges);
         }
         (Default::default(), Default::default())
@@ -249,8 +233,7 @@ mod test {
         }
 
         // try to recover the edge
-        assert_eq!(vec!(edge.clone()), ips.get_edges_for_peer(&peer_id, &hashes, &edges_info));
-        assert_eq!(vec!(edge), ips.split_edges(&peer_id, &hashes, &edges_info).0);
-        assert_eq!(4, ips.split_edges(&peer_id, &hashes, &edges_info).1.len());
+        assert_eq!(vec!(edge), ips.split_edges_for_peer(&peer_id, &hashes, &edges_info).0);
+        assert_eq!(4, ips.split_edges_for_peer(&peer_id, &hashes, &edges_info).1.len());
     }
 }

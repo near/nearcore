@@ -1697,9 +1697,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         }
 
                         // Edges to send to the other side
-                        let mut edges_for_peer: Vec<Edge> = self
+                        let (mut edges_for_peer, _) = self
                             .routing_table
-                            .get_edges_for_peer(&peer_id, &ibf_msg.requested_edges);
+                            .split_edges_for_peer(&peer_id, &ibf_msg.requested_edges);
 
                         // Edges to add
                         self.verify_and_broadcast_edges(
@@ -1726,7 +1726,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             let (edge_hashes, unknown_edges_count) = ibf.try_recover();
 
                             let (known, unknown_edges) =
-                                self.routing_table.split_edges(&peer_id, &edge_hashes);
+                                self.routing_table.split_edges_for_peer(&peer_id, &edge_hashes);
                             // combine
 
                             edges_for_peer.extend_from_slice(known.as_slice());

@@ -46,18 +46,18 @@ where
         }
     }
 
-    pub fn get_edges_by_hashes(&self, unknown_edges: &[u64]) -> Vec<SlotMapId> {
-        unknown_edges.iter().filter_map(|v| self.h2e.get(v)).cloned().collect()
-    }
+    pub fn get_edges_by_hashes(&self, edges: &[u64]) -> (Vec<SlotMapId>, Vec<u64>) {
+        let mut known_edges: Vec<SlotMapId> = Default::default();
+        let mut unknown_edges: Vec<u64> = Default::default();
 
-    pub fn get_edges_by_hashes_ext(&self, unknown_edges: &[u64]) -> (Vec<SlotMapId>, Vec<u64>) {
-        (
-            unknown_edges.iter().filter_map(|v| self.h2e.get(v)).cloned().collect(),
-            unknown_edges
-                .iter()
-                .filter_map(|v| if let None = self.h2e.get(v) { Some(*v) } else { None })
-                .collect(),
-        )
+        for hash in edges {
+            if let Some(edge) = self.h2e.get(hash) {
+                known_edges.push(*edge)
+            } else {
+                unknown_edges.push(*hash)
+            }
+        }
+        (known_edges, unknown_edges)
     }
 
     pub fn set_seed(&mut self, seed: u64) {
@@ -127,10 +127,8 @@ mod test {
             for x in 0..333 {
                 res.push(x + 33333333);
             }
-            assert_eq!(100 - 10, a.get_edges_by_hashes(&res).len());
-
-            assert_eq!(100 - 10, a.get_edges_by_hashes_ext(&res).0.len());
-            assert_eq!(100 + 333, a.get_edges_by_hashes_ext(&res).1.len());
+            assert_eq!(100 - 10, a.get_edges_by_hashes(&res).0.len());
+            assert_eq!(100 + 333, a.get_edges_by_hashes(&res).1.len());
         }
     }
 }
