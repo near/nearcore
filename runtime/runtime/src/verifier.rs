@@ -1426,10 +1426,12 @@ mod tests {
 
     #[test]
     #[cfg(feature = "protocol_feature_tx_size_limit")]
-    fn test_validate_actions_exceeding_tx_size_limit() {
+    fn test_validate_actions_checking_tx_size_limit() {
         let mut limit_config = VMLimitConfig::default();
-        limit_config.max_transaction_size = 3;
         let contract_size = 5;
+        let args_size = 3;
+
+        limit_config.max_transaction_size = 3;
         assert_eq!(
             validate_actions(
                 &limit_config,
@@ -1442,6 +1444,25 @@ mod tests {
                 size: contract_size,
                 limit: limit_config.max_transaction_size
             },
+        );
+
+        limit_config.max_transaction_size = 10;
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &vec![
+                    Action::DeployContract(DeployContractAction {
+                        code: vec![1; contract_size as usize]
+                    }),
+                    Action::FunctionCall(FunctionCallAction {
+                        method_name: "test-method".to_string(),
+                        args: vec![0; args_size as usize],
+                        gas: 100,
+                        deposit: 0
+                    })
+                ]
+            ),
+            Ok(()),
         );
     }
 
