@@ -14,6 +14,7 @@ use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
+#[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
@@ -296,6 +297,7 @@ pub fn start_with_config(
     trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
 
     // We probably reached peak memory once on this thread, we want to see when it happens again.
+    #[cfg(feature = "performance_stats")]
     reset_memory_usage_max();
 
     (client_actor, view_client, vec![client_arbiter_handle, arbiter.handle()])
