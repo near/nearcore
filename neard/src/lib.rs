@@ -14,6 +14,7 @@ use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
+use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
@@ -26,7 +27,6 @@ use near_store::migrations::{
     migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 
-use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use near_store::migrations::migrate_18_to_rectify_inflation;
 
