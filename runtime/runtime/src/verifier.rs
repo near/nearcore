@@ -1424,6 +1424,27 @@ mod tests {
         );
     }
 
+    #[test]
+    #[cfg(feature = "protocol_feature_tx_size_limit")]
+    fn test_validate_actions_exceeding_tx_size_limit() {
+        let mut limit_config = VMLimitConfig::default();
+        limit_config.max_transaction_size = 3;
+        let contract_size = 5;
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &vec![Action::DeployContract(DeployContractAction {
+                    code: vec![1; contract_size as usize]
+                }),]
+            )
+            .expect_err("Expected an error"),
+            ActionsValidationError::TransactionSizeExceeded {
+                size: contract_size,
+                limit: limit_config.max_transaction_size
+            },
+        );
+    }
+
     // Individual actions
 
     #[test]
