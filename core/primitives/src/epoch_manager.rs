@@ -596,19 +596,13 @@ impl EpochInfo {
 pub struct EpochSummary {
     pub prev_epoch_last_block_hash: CryptoHash,
     /// Proposals from the epoch, only the latest one per account
-    pub all_proposals: Vec<ValidatorStakeV1>,
+    pub all_proposals: Vec<ValidatorStake>,
     /// Kickout set, includes slashed
     pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     /// Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
     /// Protocol version for next epoch.
     pub next_version: ProtocolVersion,
-}
-
-impl EpochSummary {
-    pub fn proposals_iter(&self) -> ValidatorStakeIter {
-        ValidatorStakeIter::v1(&self.all_proposals)
-    }
 }
 
 /// State that a slashed validator can be in.

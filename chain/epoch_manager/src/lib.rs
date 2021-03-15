@@ -336,7 +336,7 @@ impl EpochManager {
 
         Ok(EpochSummary {
             prev_epoch_last_block_hash,
-            all_proposals: proposals.into_iter().map(ValidatorStake::into_v1).collect(),
+            all_proposals: proposals,
             validator_kickout,
             validator_block_chunk_stats,
             next_version,
@@ -401,7 +401,7 @@ impl EpochManager {
             &self.config,
             rng_seed,
             &next_epoch_info,
-            all_proposals.into_iter().map(ValidatorStake::lift).collect(),
+            all_proposals,
             validator_kickout,
             validator_reward,
             minted_amount,
@@ -966,7 +966,7 @@ impl EpochManager {
                 (
                     cur_validators,
                     EpochId(epoch_summary.prev_epoch_last_block_hash),
-                    epoch_summary.proposals_iter().map(Into::into).collect(),
+                    epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
                 )
             }
             ValidatorInfoIdentifier::BlockHash(ref h) => {

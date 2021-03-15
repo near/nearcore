@@ -647,9 +647,22 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
 }
 
 pub fn migrate_18_to_19(path: &str) {
-    use near_primitives::types::{ChunkExtraV1, ChunkExtra};
-    use near_primitives::epoch_manager::{BlockInfo, BlockInfoV1};
+    use near_primitives::types::{ChunkExtraV1, ChunkExtra, ValidatorStakeV1, AccountId, ValidatorKickoutReason, ProtocolVersion, BlockChunkValidatorStats};
+    use near_primitives::epoch_manager::{BlockInfo, BlockInfoV1, EpochSummary};
     let store = create_store(path);
+
+    #[derive(BorshSerialize, BorshDeserialize)]
+    pub struct OldEpochSummary {
+        pub prev_epoch_last_block_hash: CryptoHash,
+        /// Proposals from the epoch, only the latest one per account
+        pub all_proposals: Vec<ValidatorStakeV1>,
+        /// Kickout set, includes slashed
+        pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+        /// Only for validators who met the threshold and didn't get slashed
+        pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
+        /// Protocol version for next epoch.
+        pub next_version: ProtocolVersion,
+    }
 
     map_col(&store, DBCol::ColChunkExtra, |extra: ChunkExtraV1| {
         ChunkExtra::V1(extra)
@@ -661,6 +674,16 @@ pub fn migrate_18_to_19(path: &str) {
 
     map_col(&store, DBCol::ColBlockInfo, |info: BlockInfoV1| {
         BlockInfo::V1(info)
+    }).unwrap();
+
+    map_col(&store, DBCol::ColEpochValidatorInfo, |info: OldEpochSummary| {
+        EpochSummary {
+            prev_epoch_last_block_hash: info.prev_epoch_last_block_hash,
+            all_proposals: info.all_proposals.into_iter().map(ValidatorStake::V1).collect(),
+            validator_kickout: info.validator_kickout,
+            validator_block_chunk_stats: info.validator_block_chunk_stats,
+            next_version: info.next_version,
+        }
     }).unwrap();
 
     set_store_version(&store, 19);
