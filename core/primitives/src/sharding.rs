@@ -8,9 +8,15 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake, ValidatorStakeV1, ValidatorStakeIter};
+use crate::types::{
+    Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake, ValidatorStakeIter,
+    ValidatorStakeV1,
+};
 use crate::validator_signer::ValidatorSigner;
-use crate::version::{ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION, VALIDATOR_STAKE_UPGRADE_VERSION};
+use crate::version::{
+    ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+    VALIDATOR_STAKE_UPGRADE_VERSION,
+};
 use reed_solomon_erasure::ReconstructShard;
 use std::sync::Arc;
 
@@ -363,7 +369,6 @@ impl ShardChunkHeaderV3 {
     }
 }
 
-
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
 pub enum ShardChunkHeader {
     V1(ShardChunkHeaderV1),
@@ -548,9 +553,10 @@ impl ShardChunkHeader {
             ShardChunkHeader::V1(_) => {
                 ProtocolVersionRange::new(0, Some(SHARD_CHUNK_HEADER_UPGRADE_VERSION))
             }
-            ShardChunkHeader::V2(_) => {
-                ProtocolVersionRange::new(SHARD_CHUNK_HEADER_UPGRADE_VERSION, Some(VALIDATOR_STAKE_UPGRADE_VERSION))
-            }
+            ShardChunkHeader::V2(_) => ProtocolVersionRange::new(
+                SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+                Some(VALIDATOR_STAKE_UPGRADE_VERSION),
+            ),
             ShardChunkHeader::V3(_) => {
                 ProtocolVersionRange::new(VALIDATOR_STAKE_UPGRADE_VERSION, None)
             }
@@ -632,9 +638,7 @@ impl PartialEncodedChunk {
             ShardChunkHeader::V1(header) => {
                 Self::V1(PartialEncodedChunkV1 { header, parts, receipts })
             }
-            header => {
-                Self::V2(PartialEncodedChunkV2 { header, parts, receipts })
-            }
+            header => Self::V2(PartialEncodedChunkV2 { header, parts, receipts }),
         }
     }
 

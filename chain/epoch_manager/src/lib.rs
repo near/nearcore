@@ -275,12 +275,12 @@ impl EpochManager {
             .map(|&id| epoch_info.validator_stake(*id))
             .sum();
 
-        let protocol_version = if epoch_info.protocol_version() >= UPGRADABILITY_FIX_PROTOCOL_VERSION
-        {
-            next_epoch_info.protocol_version()
-        } else {
-            epoch_info.protocol_version()
-        };
+        let protocol_version =
+            if epoch_info.protocol_version() >= UPGRADABILITY_FIX_PROTOCOL_VERSION {
+                next_epoch_info.protocol_version()
+            } else {
+                epoch_info.protocol_version()
+            };
 
         let next_version = if let Some((&version, stake)) =
             versions.into_iter().max_by(|left, right| left.1.cmp(&right.1))
@@ -354,10 +354,8 @@ impl EpochManager {
         let epoch_summary = self.collect_blocks_info(&block_info, last_block_hash)?;
         let epoch_info = self.get_epoch_info(&block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
-        let validator_stake = epoch_info
-            .validators_iter()
-            .map(|r| r.account_and_stake())
-            .collect::<HashMap<_, _>>();
+        let validator_stake =
+            epoch_info.validators_iter().map(|r| r.account_and_stake()).collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
         self.save_epoch_validator_info(store_update, &block_info.epoch_id(), &epoch_summary)?;
@@ -454,7 +452,8 @@ impl EpochManager {
                     is_epoch_start = true;
                 } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
-                    *block_info.epoch_id_mut() = self.get_next_epoch_id_from_info(&prev_block_info)?;
+                    *block_info.epoch_id_mut() =
+                        self.get_next_epoch_id_from_info(&prev_block_info)?;
                     *block_info.epoch_first_block_mut() = current_hash;
                     is_epoch_start = true;
                 } else {
@@ -883,9 +882,11 @@ impl EpochManager {
         let total_slashed_stake: Balance = slashed
             .iter()
             .filter_map(|(account_id, slashed)| match slashed {
-                SlashState::DoubleSign => {
-                    Some(epoch_info.get_validator_id(account_id).map_or(0, |id| epoch_info.validator_stake(*id)))
-                }
+                SlashState::DoubleSign => Some(
+                    epoch_info
+                        .get_validator_id(account_id)
+                        .map_or(0, |id| epoch_info.validator_stake(*id)),
+                ),
                 _ => None,
             })
             .sum();
@@ -925,7 +926,9 @@ impl EpochManager {
         let mut validator_to_shard = (0..cur_epoch_info.validators_len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_id, validators) in cur_epoch_info.chunk_producers_settlement().into_iter().enumerate() {
+        for (shard_id, validators) in
+            cur_epoch_info.chunk_producers_settlement().into_iter().enumerate()
+        {
             for validator_id in validators {
                 validator_to_shard[*validator_id as usize].insert(shard_id as ShardId);
             }
@@ -1010,7 +1013,8 @@ impl EpochManager {
         let mut next_validator_to_shard = (0..next_epoch_info.validators_len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_id, validators) in next_epoch_info.chunk_producers_settlement().iter().enumerate()
+        for (shard_id, validators) in
+            next_epoch_info.chunk_producers_settlement().iter().enumerate()
         {
             for validator_id in validators {
                 next_validator_to_shard[*validator_id as usize].insert(shard_id as u64);
@@ -1026,12 +1030,7 @@ impl EpochManager {
                     .collect::<Vec<ShardId>>();
                 shards.sort();
                 let (account_id, public_key, stake) = info.destructure();
-                NextEpochValidatorInfo {
-                    account_id,
-                    public_key,
-                    stake,
-                    shards,
-                }
+                NextEpochValidatorInfo { account_id, public_key, stake, shards }
             })
             .collect();
         let prev_epoch_kickout = next_epoch_info
@@ -1127,7 +1126,8 @@ impl EpochManager {
             return Ok(true);
         }
         let estimated_next_epoch_start =
-            *self.get_block_info(block_info.epoch_first_block())?.height() + self.config.epoch_length;
+            *self.get_block_info(block_info.epoch_first_block())?.height()
+                + self.config.epoch_length;
 
         if self.config.epoch_length <= 3 {
             // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
@@ -1148,7 +1148,8 @@ impl EpochManager {
             return Ok(false);
         }
         let estimated_next_epoch_start =
-            *self.get_block_info(block_info.epoch_first_block())?.height() + self.config.epoch_length;
+            *self.get_block_info(block_info.epoch_first_block())?.height()
+                + self.config.epoch_length;
         Ok(*block_info.last_finalized_height() + 3 < estimated_next_epoch_start
             && *block_info.height() + 3 >= estimated_next_epoch_start)
     }
@@ -1325,7 +1326,8 @@ impl EpochManager {
             let prev_height = self.get_block_info(&prev_hash).map(|info| *info.height());
 
             let block_info = self.get_block_info(&cur_hash)?;
-            if block_info.epoch_id() != epoch_id || block_info.prev_hash() == &CryptoHash::default() {
+            if block_info.epoch_id() != epoch_id || block_info.prev_hash() == &CryptoHash::default()
+            {
                 // This means that we reached the previous epoch and still hasn't seen
                 // `aggregator.last_block_hash` and therefore implies either a fork has happened
                 // or we are at the start of an epoch. In this case, the new aggregator should
@@ -1951,7 +1953,11 @@ mod tests {
         record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
         let next_epoch = epoch_manager.get_next_epoch_id(&h[2]).unwrap();
         assert_eq!(
-            epoch_manager.get_epoch_info(&next_epoch).unwrap().validators_iter().collect::<Vec<_>>(),
+            epoch_manager
+                .get_epoch_info(&next_epoch)
+                .unwrap()
+                .validators_iter()
+                .collect::<Vec<_>>(),
             vec![
                 stake("test1", stake_amount),
                 stake("test2", stake_amount),
@@ -3281,9 +3287,15 @@ mod tests {
                 DEFAULT_TOTAL_SUPPLY,
             );
             if i != 4 {
-                set_block_info_protocol_version(&mut block_info, UPGRADABILITY_FIX_PROTOCOL_VERSION + 1);
+                set_block_info_protocol_version(
+                    &mut block_info,
+                    UPGRADABILITY_FIX_PROTOCOL_VERSION + 1,
+                );
             } else {
-                set_block_info_protocol_version(&mut block_info, UPGRADABILITY_FIX_PROTOCOL_VERSION);
+                set_block_info_protocol_version(
+                    &mut block_info,
+                    UPGRADABILITY_FIX_PROTOCOL_VERSION,
+                );
             }
             epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
         }

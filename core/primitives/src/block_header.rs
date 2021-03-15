@@ -8,7 +8,10 @@ use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ValidatorStakeV1, ValidatorStake, ValidatorStakeIter};
+use crate::types::{
+    AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ValidatorStake,
+    ValidatorStakeIter, ValidatorStakeV1,
+};
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolVersion, PROTOCOL_VERSION, VALIDATOR_STAKE_UPGRADE_VERSION};
@@ -888,11 +891,19 @@ impl BlockHeader {
     #[inline]
     pub fn validator_proposals(&self) -> ValidatorStakeIter {
         match self {
-            BlockHeader::BlockHeaderV1(header) => ValidatorStakeIter::v1(&header.inner_rest.validator_proposals),
-            BlockHeader::BlockHeaderV2(header) => ValidatorStakeIter::v1(&header.inner_rest.validator_proposals),
-            BlockHeader::BlockHeaderV3(header) => ValidatorStakeIter::new(&header.inner_rest.validator_proposals),
+            BlockHeader::BlockHeaderV1(header) => {
+                ValidatorStakeIter::v1(&header.inner_rest.validator_proposals)
+            }
+            BlockHeader::BlockHeaderV2(header) => {
+                ValidatorStakeIter::v1(&header.inner_rest.validator_proposals)
+            }
+            BlockHeader::BlockHeaderV3(header) => {
+                ValidatorStakeIter::new(&header.inner_rest.validator_proposals)
+            }
             #[cfg(feature = "protocol_feature_block_header_v4")]
-            BlockHeader::BlockHeaderV4(header) => ValidatorStakeIter::new(&header.inner_rest.validator_proposals),
+            BlockHeader::BlockHeaderV4(header) => {
+                ValidatorStakeIter::new(&header.inner_rest.validator_proposals)
+            }
         }
     }
 

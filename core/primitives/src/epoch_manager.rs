@@ -7,7 +7,11 @@ use smart_default::SmartDefault;
 
 use crate::challenge::SlashedValidator;
 use crate::hash::CryptoHash;
-use crate::types::{AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, NumSeats, NumShards, ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStakeV1, ValidatorStakeIter};
+use crate::types::{
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
+    EpochId, NumSeats, NumShards, ValidatorId, ValidatorKickoutReason, ValidatorStake,
+    ValidatorStakeIter, ValidatorStakeV1,
+};
 use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
 
 pub type RngSeed = [u8; 32];
@@ -551,8 +555,13 @@ impl EpochInfo {
 
     pub fn get_validator_by_account(&self, account_id: &AccountId) -> Option<ValidatorStake> {
         match self {
-            Self::V1(v1) => v1.validator_to_index.get(account_id).map(|validator_id| ValidatorStake::from_v1(v1.validators[*validator_id as usize].clone())),
-            Self::V2(v2) => v2.validator_to_index.get(account_id).map(|validator_id| v2.validators[*validator_id as usize].clone()),
+            Self::V1(v1) => v1.validator_to_index.get(account_id).map(|validator_id| {
+                ValidatorStake::from_v1(v1.validators[*validator_id as usize].clone())
+            }),
+            Self::V2(v2) => v2
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v2.validators[*validator_id as usize].clone()),
         }
     }
 
@@ -572,8 +581,13 @@ impl EpochInfo {
 
     pub fn get_fisherman_by_account(&self, account_id: &AccountId) -> Option<ValidatorStake> {
         match self {
-            Self::V1(v1) => v1.fishermen_to_index.get(account_id).map(|validator_id| ValidatorStake::from_v1(v1.fishermen[*validator_id as usize].clone())),
-            Self::V2(v2) => v2.fishermen_to_index.get(account_id).map(|validator_id| v2.fishermen[*validator_id as usize].clone()),
+            Self::V1(v1) => v1.fishermen_to_index.get(account_id).map(|validator_id| {
+                ValidatorStake::from_v1(v1.fishermen[*validator_id as usize].clone())
+            }),
+            Self::V2(v2) => v2
+                .fishermen_to_index
+                .get(account_id)
+                .map(|validator_id| v2.fishermen[*validator_id as usize].clone()),
         }
     }
 

@@ -21,7 +21,7 @@ use near_network::types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkReque
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2, ShardChunkHeaderInner,
+    ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV2,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;

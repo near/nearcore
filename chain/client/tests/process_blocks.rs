@@ -38,7 +38,8 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash, Digest};
 use near_primitives::merkle::verify_hash;
 use near_primitives::sharding::{
-    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderV3, ShardChunkHeaderInner,
+    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
+    ShardChunkHeaderV3,
 };
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
@@ -1005,8 +1006,12 @@ fn test_bad_orphan() {
                 ShardChunkHeader::V3(chunk) => chunk,
             };
             match &mut chunk.inner {
-                ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash(Digest([1; 32])),
-                ShardChunkHeaderInner::V2(inner) => inner.outcome_root = CryptoHash(Digest([1; 32])),
+                ShardChunkHeaderInner::V1(inner) => {
+                    inner.outcome_root = CryptoHash(Digest([1; 32]))
+                }
+                ShardChunkHeaderInner::V2(inner) => {
+                    inner.outcome_root = CryptoHash(Digest([1; 32]))
+                }
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -1360,8 +1365,10 @@ fn test_process_block_after_state_sync() {
     let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap().clone();
     let sync_hash = *sync_block.hash();
     let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
-    let state_part =
-        env.clients[0].runtime_adapter.obtain_state_part(0, chunk_extra.state_root(), 0, 1).unwrap();
+    let state_part = env.clients[0]
+        .runtime_adapter
+        .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
+        .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
@@ -1830,11 +1837,8 @@ fn test_not_process_height_twice() {
     let mut invalid_block = block.clone();
     env.process_block(0, block, Provenance::PRODUCED);
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
-    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = vec![ValidatorStake::new(
-        "test1".to_string(),
-        PublicKey::empty(KeyType::ED25519),
-        0,
-    )];
+    invalid_block.mut_header().get_mut().inner_rest.validator_proposals =
+        vec![ValidatorStake::new("test1".to_string(), PublicKey::empty(KeyType::ED25519), 0)];
     invalid_block.mut_header().resign(&validator_signer);
     let (accepted_blocks, res) = env.clients[0].process_block(invalid_block, Provenance::NONE);
     assert!(accepted_blocks.is_empty());

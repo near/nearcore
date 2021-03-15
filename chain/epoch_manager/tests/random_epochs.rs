@@ -174,7 +174,11 @@ fn validate(
         println!("== End epoch infos ==");
         println!("== Begin block infos ==");
         for block_info in &block_infos {
-            println!("height: {:?}, proposals: {:?}", block_info.height(), block_info.proposals_iter().collect::<Vec<_>>());
+            println!(
+                "height: {:?}, proposals: {:?}",
+                block_info.height(),
+                block_info.proposals_iter().collect::<Vec<_>>()
+            );
         }
         println!("== End block infos ==");
     }
@@ -214,7 +218,8 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
             }
         }
         assert_eq!(
-            stakes_with_change, stakes_after_change,
+            stakes_with_change,
+            stakes_after_change,
             "stake change: {:?}",
             epoch_info.stake_change()
         );
@@ -253,7 +258,8 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
             if *prev_block_info.height() == 0 {
                 // special case: epochs 0 and 1
                 assert_eq!(
-                    prev_block_info.epoch_id(), block_info.epoch_id(),
+                    prev_block_info.epoch_id(),
+                    block_info.epoch_id(),
                     "first two epochs have same id"
                 );
             } else {
@@ -271,8 +277,7 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
                 block_info.proposals_iter().map(|p| (p.account_id().clone(), p)),
             );
         } else {
-            proposals
-                .extend(block_info.proposals_iter().map(|p| (p.account_id().clone(), p)));
+            proposals.extend(block_info.proposals_iter().map(|p| (p.account_id().clone(), p)));
         }
     }
 }
@@ -343,7 +348,8 @@ fn verify_block_stats(
     for i in 1..block_infos.len() {
         let prev_epoch_end =
             *epoch_manager.get_block_info(block_infos[i].epoch_first_block()).unwrap().prev_hash();
-        let prev_epoch_end_height = *epoch_manager.get_block_info(&prev_epoch_end).unwrap().height();
+        let prev_epoch_end_height =
+            *epoch_manager.get_block_info(&prev_epoch_end).unwrap().height();
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;
         {

@@ -183,7 +183,12 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                 header.inner.gas_limit,
                 header.inner.balance_burnt,
                 header.inner.tx_root,
-                header.inner.validator_proposals.iter().map(|v| ValidatorStake::from_v1(v.clone())).collect(),
+                header
+                    .inner
+                    .validator_proposals
+                    .iter()
+                    .map(|v| ValidatorStake::from_v1(v.clone()))
+                    .collect(),
                 transactions,
                 &receipts,
                 header.inner.outgoing_receipts_root,
@@ -647,8 +652,11 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
 }
 
 pub fn migrate_18_to_19(path: &str) {
-    use near_primitives::types::{ChunkExtraV1, ChunkExtra, ValidatorStakeV1, AccountId, ValidatorKickoutReason, ProtocolVersion, BlockChunkValidatorStats};
     use near_primitives::epoch_manager::{BlockInfo, BlockInfoV1, EpochSummary};
+    use near_primitives::types::{
+        AccountId, BlockChunkValidatorStats, ChunkExtra, ChunkExtraV1, ProtocolVersion,
+        ValidatorKickoutReason, ValidatorStakeV1,
+    };
     let store = create_store(path);
 
     #[derive(BorshDeserialize)]
@@ -664,27 +672,20 @@ pub fn migrate_18_to_19(path: &str) {
         pub next_version: ProtocolVersion,
     }
 
-    map_col(&store, DBCol::ColChunkExtra, |extra: ChunkExtraV1| {
-        ChunkExtra::V1(extra)
-    }).unwrap();
+    map_col(&store, DBCol::ColChunkExtra, |extra: ChunkExtraV1| ChunkExtra::V1(extra)).unwrap();
 
-    map_col(&store, DBCol::ColEpochInfo, |info: EpochInfoV1| {
-        EpochInfo::V1(info)
-    }).unwrap();
+    map_col(&store, DBCol::ColEpochInfo, |info: EpochInfoV1| EpochInfo::V1(info)).unwrap();
 
-    map_col(&store, DBCol::ColBlockInfo, |info: BlockInfoV1| {
-        BlockInfo::V1(info)
-    }).unwrap();
+    map_col(&store, DBCol::ColBlockInfo, |info: BlockInfoV1| BlockInfo::V1(info)).unwrap();
 
-    map_col(&store, DBCol::ColEpochValidatorInfo, |info: OldEpochSummary| {
-        EpochSummary {
-            prev_epoch_last_block_hash: info.prev_epoch_last_block_hash,
-            all_proposals: info.all_proposals.into_iter().map(ValidatorStake::V1).collect(),
-            validator_kickout: info.validator_kickout,
-            validator_block_chunk_stats: info.validator_block_chunk_stats,
-            next_version: info.next_version,
-        }
-    }).unwrap();
+    map_col(&store, DBCol::ColEpochValidatorInfo, |info: OldEpochSummary| EpochSummary {
+        prev_epoch_last_block_hash: info.prev_epoch_last_block_hash,
+        all_proposals: info.all_proposals.into_iter().map(ValidatorStake::V1).collect(),
+        validator_kickout: info.validator_kickout,
+        validator_block_chunk_stats: info.validator_block_chunk_stats,
+        next_version: info.next_version,
+    })
+    .unwrap();
 
     set_store_version(&store, 19);
 }

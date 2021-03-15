@@ -100,9 +100,7 @@ impl EpochInfoAggregator {
 
         // Step 4: update proposals
         for proposal in block_info.proposals_iter() {
-            self.all_proposals
-                .entry(proposal.account_id().clone())
-                .or_insert(proposal);
+            self.all_proposals.entry(proposal.account_id().clone()).or_insert(proposal);
         }
     }
 

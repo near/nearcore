@@ -400,11 +400,7 @@ pub struct ValidatorStakeIter<'a> {
 
 impl<'a> ValidatorStakeIter<'a> {
     pub fn empty() -> Self {
-        Self {
-            collection: ValidatorStakeIterSource::V2(&[]),
-            curr_index: 0,
-            len: 0,
-        }
+        Self { collection: ValidatorStakeIterSource::V2(&[]), curr_index: 0, len: 0 }
     }
 
     pub fn v1(collection: &'a [ValidatorStakeV1]) -> Self {
@@ -434,7 +430,9 @@ impl<'a> Iterator for ValidatorStakeIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.curr_index < self.len {
             let item = match self.collection {
-                ValidatorStakeIterSource::V1(collection) => ValidatorStake::from_v1(collection[self.curr_index].clone()),
+                ValidatorStakeIterSource::V1(collection) => {
+                    ValidatorStake::from_v1(collection[self.curr_index].clone())
+                }
                 ValidatorStakeIterSource::V2(collection) => collection[self.curr_index].clone(),
             };
             self.curr_index += 1;
@@ -482,14 +480,14 @@ impl ValidatorStake {
     #[inline]
     pub fn account_and_stake(self) -> (AccountId, Balance) {
         match self {
-            Self::V1(v1) => (v1.account_id, v1.stake)
+            Self::V1(v1) => (v1.account_id, v1.stake),
         }
     }
 
     #[inline]
     pub fn destructure(self) -> (AccountId, PublicKey, Balance) {
         match self {
-            Self::V1(v1) => (v1.account_id, v1.public_key, v1.stake)
+            Self::V1(v1) => (v1.account_id, v1.public_key, v1.stake),
         }
     }
 
@@ -555,7 +553,7 @@ pub struct BlockExtra {
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
 pub enum ChunkExtra {
     V1(ChunkExtraV1),
-    V2(ChunkExtraV2)
+    V2(ChunkExtraV2),
 }
 
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
@@ -589,7 +587,6 @@ pub struct ChunkExtraV2 {
     /// Total balance burnt after processing the current chunk.
     pub balance_burnt: Balance,
 }
-
 
 impl ChunkExtra {
     pub fn new(

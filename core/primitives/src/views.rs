@@ -16,8 +16,8 @@ use near_crypto::{PublicKey, Signature};
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader};
 use crate::block_header::{
-    BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderV1,
-    BlockHeaderV2, BlockHeaderV3, BlockHeaderInnerRestV3,
+    BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
+    BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
 #[cfg(feature = "protocol_feature_block_header_v4")]
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
@@ -33,7 +33,8 @@ use crate::serialize::{
     u128_dec_format, u64_dec_format,
 };
 use crate::sharding::{
-    ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2, ShardChunkHeaderV3,
+    ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
+    ShardChunkHeaderV3,
 };
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -407,10 +408,7 @@ impl From<BlockHeader> for BlockHeaderView {
             timestamp: header.raw_timestamp(),
             timestamp_nanosec: header.raw_timestamp(),
             random_value: header.random_value().clone(),
-            validator_proposals: header
-                .validator_proposals()
-                .map(Into::into)
-                .collect(),
+            validator_proposals: header.validator_proposals().map(Into::into).collect(),
             chunk_mask: header.chunk_mask().to_vec(),
             #[cfg(feature = "protocol_feature_block_header_v4")]
             block_ordinal: if header.block_ordinal() != 0 {
@@ -529,7 +527,11 @@ impl From<BlockHeaderView> for BlockHeader {
                     chunk_tx_root: view.chunk_tx_root,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
+                    validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
                     chunk_mask: view.chunk_mask,
                     gas_price: view.gas_price,
                     total_supply: view.total_supply,
@@ -558,7 +560,11 @@ impl From<BlockHeaderView> for BlockHeader {
                         chunk_tx_root: view.chunk_tx_root,
                         challenges_root: view.challenges_root,
                         random_value: view.random_value,
-                        validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
+                        validator_proposals: view
+                            .validator_proposals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
                         chunk_mask: view.chunk_mask,
                         gas_price: view.gas_price,
                         block_ordinal: match view.block_ordinal {
@@ -1141,11 +1147,11 @@ pub struct ValidatorStakeViewV1 {
 impl From<ValidatorStake> for ValidatorStakeView {
     fn from(stake: ValidatorStake) -> Self {
         match stake {
-            ValidatorStake::V1(v1) => {
-                Self::V1(ValidatorStakeViewV1 {
-                    account_id: v1.account_id, public_key: v1.public_key, stake: v1.stake
-                })
-            }
+            ValidatorStake::V1(v1) => Self::V1(ValidatorStakeViewV1 {
+                account_id: v1.account_id,
+                public_key: v1.public_key,
+                stake: v1.stake,
+            }),
         }
     }
 }
@@ -1153,11 +1159,7 @@ impl From<ValidatorStake> for ValidatorStakeView {
 impl From<ValidatorStakeView> for ValidatorStake {
     fn from(view: ValidatorStakeView) -> Self {
         match view {
-            ValidatorStakeView::V1(v1) => {
-                Self::new(
-                    v1.account_id, v1.public_key, v1.stake
-                )
-            }
+            ValidatorStakeView::V1(v1) => Self::new(v1.account_id, v1.public_key, v1.stake),
         }
     }
 }

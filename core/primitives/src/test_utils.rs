@@ -255,9 +255,9 @@ impl BlockHeader {
     #[cfg(feature = "protocol_feature_block_header_v4")]
     pub fn get_mut(&mut self) -> &mut BlockHeaderV4 {
         match self {
-            BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) | BlockHeader::BlockHeaderV3(_) => {
-                panic!("old header should not appear in tests")
-            }
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_) => panic!("old header should not appear in tests"),
             BlockHeader::BlockHeaderV4(header) => header,
         }
     }
@@ -265,7 +265,9 @@ impl BlockHeader {
     #[cfg(not(feature = "protocol_feature_block_header_v4"))]
     pub fn get_mut(&mut self) -> &mut BlockHeaderV3 {
         match self {
-            BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => panic!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
+                panic!("old header should not appear in tests")
+            }
             BlockHeader::BlockHeaderV3(header) => header,
         }
     }

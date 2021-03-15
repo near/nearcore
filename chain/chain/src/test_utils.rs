@@ -24,7 +24,10 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
     TransferAction,
 };
-use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards, ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::{
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
+    ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStakeIter,
+};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -163,12 +166,13 @@ impl KeyValueRuntime {
                 .map(|account_ids| {
                     account_ids
                         .iter()
-                        .map(|account_id| ValidatorStake::new(
-                            account_id.clone(),
-                            SecretKey::from_seed(KeyType::ED25519, account_id)
-                                .public_key(),
-                            1_000_000,
-                        ))
+                        .map(|account_id| {
+                            ValidatorStake::new(
+                                account_id.clone(),
+                                SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
+                                1_000_000,
+                            )
+                        })
                         .collect()
                 })
                 .collect(),

@@ -366,7 +366,7 @@ impl Client {
         )?;
 
         let validator_pk = validator_stake.take_public_key();
-        if validator_pk!= validator_signer.public_key() {
+        if validator_pk != validator_signer.public_key() {
             debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_pk);
             #[cfg(not(feature = "adversarial"))]
             return Ok(None);
@@ -1772,8 +1772,12 @@ mod test {
             }
             ShardChunkHeader::V3(header) => {
                 match &mut header.inner {
-                    ShardChunkHeaderInner::V1(inner) => inner.prev_block_hash = hash(b"some_prev_block"),
-                    ShardChunkHeaderInner::V2(inner) => inner.prev_block_hash = hash(b"some_prev_block"),
+                    ShardChunkHeaderInner::V1(inner) => {
+                        inner.prev_block_hash = hash(b"some_prev_block")
+                    }
+                    ShardChunkHeaderInner::V2(inner) => {
+                        inner.prev_block_hash = hash(b"some_prev_block")
+                    }
                 }
                 header.init();
             }

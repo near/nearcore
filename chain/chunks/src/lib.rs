@@ -1524,9 +1524,7 @@ impl ShardsManager {
             ShardChunkHeader::V1(header) => {
                 PartialEncodedChunk::V1(PartialEncodedChunkV1 { header, parts, receipts })
             }
-            header => {
-                PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts })
-            }
+            header => PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts }),
         };
 
         store_update.save_partial_chunk(partial_chunk);

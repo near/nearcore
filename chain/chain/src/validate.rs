@@ -128,8 +128,9 @@ pub fn validate_chunk_with_chunk_extra(
 
     let chunk_extra_proposals = prev_chunk_extra.validator_proposals();
     let chunk_header_proposals = chunk_header.validator_proposals();
-    if chunk_header_proposals.len() != chunk_extra_proposals.len() ||
-        !chunk_extra_proposals.zip(chunk_header_proposals).all(|(a, b)| a == b) {
+    if chunk_header_proposals.len() != chunk_extra_proposals.len()
+        || !chunk_extra_proposals.zip(chunk_header_proposals).all(|(a, b)| a == b)
+    {
         return Err(ErrorKind::InvalidValidatorProposals.into());
     }
 
@@ -337,8 +338,13 @@ fn validate_chunk_state_challenge(
         )
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
     let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
-    let proposals_match = result.validator_proposals.len() == chunk_state.chunk_header.validator_proposals().len() &&
-        result.validator_proposals.iter().zip(chunk_state.chunk_header.validator_proposals()).all(|(x, y)| x == &y);
+    let proposals_match = result.validator_proposals.len()
+        == chunk_state.chunk_header.validator_proposals().len()
+        && result
+            .validator_proposals
+            .iter()
+            .zip(chunk_state.chunk_header.validator_proposals())
+            .all(|(x, y)| x == &y);
     if result.new_root != chunk_state.chunk_header.prev_state_root()
         || outcome_root != chunk_state.chunk_header.outcome_root()
         || !proposals_match

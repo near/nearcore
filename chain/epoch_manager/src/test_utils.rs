@@ -4,7 +4,7 @@ use num_rational::Rational;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_manager::{EpochConfig, EpochInfo, ValidatorWeight, BlockInfoV2};
+use near_primitives::epoch_manager::{BlockInfoV2, EpochConfig, EpochInfo, ValidatorWeight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
@@ -92,11 +92,13 @@ pub fn epoch_info_with_num_seats(
     let account_to_validators = |accounts: Vec<(&str, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()
-            .map(|(account_id, stake)| ValidatorStake::new(
-                account_id.to_string(),
-                SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
-                stake,
-            ))
+            .map(|(account_id, stake)| {
+                ValidatorStake::new(
+                    account_id.to_string(),
+                    SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
+                    stake,
+                )
+            })
             .collect()
     };
     let validator_kickout =

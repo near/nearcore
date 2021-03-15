@@ -95,10 +95,7 @@ impl<A: Iterator, B: Iterator> Iterator for FullZip<A, B> {
 }
 
 pub fn full_zip<A: Iterator, B: Iterator>(iter_a: A, iter_b: B) -> FullZip<A, B> {
-    FullZip {
-        iter_a,
-        iter_b,
-    }
+    FullZip { iter_a, iter_b }
 }
 
 pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
