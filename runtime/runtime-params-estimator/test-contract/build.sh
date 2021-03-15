@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -ex
 
 function filesize
@@ -29,6 +29,11 @@ echo ${bare_wasm}
 # bloat its size to the given values.
 
 # 10KiB
+
+if [ "${bare_wasm}" -ge 10239 ]; then
+    bare_wasm=10239
+fi
+
 dd if=/dev/urandom of=./res/payload bs=$(expr 10240 - ${bare_wasm}) count=1
 RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features payload
 cp target/wasm32-unknown-unknown/release/test_contract.wasm ./res/stable_small_contract.wasm
@@ -57,6 +62,9 @@ echo ${bare_wasm}
 
 # Note the base is 16057 due to alt_bn128 hardcoded input.
 # 20KiB
+if [ "${bare_wasm}" -ge 20479 ]; then
+    bare_wasm=20479
+fi
 dd if=/dev/urandom of=./res/payload bs=$(expr 20480 - ${bare_wasm}) count=1
 RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features payload,nightly_protocol_features
 cp target/wasm32-unknown-unknown/release/test_contract.wasm ./res/nightly_small_contract.wasm
