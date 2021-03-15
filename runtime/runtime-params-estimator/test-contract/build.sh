@@ -30,6 +30,7 @@ echo ${bare_wasm}
 
 # 10KiB
 
+# hotfix for people building cargo with debug flags, causing binary to be 35kb
 if [ "${bare_wasm}" -ge 10239 ]; then
     bare_wasm=10239
 fi
