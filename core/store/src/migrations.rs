@@ -604,7 +604,7 @@ pub fn migrate_17_to_18(path: &String) {
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 pub fn migrate_18_to_rectify_inflation(path: &String) {
-    use near_primitives::epoch_manager::BlockInfo;
+    use near_primitives::epoch_manager::BlockInfoV1;
     use near_primitives::epoch_manager::SlashState;
     use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStakeV1};
     use near_primitives::version::ProtocolVersion;
@@ -629,7 +629,7 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
             store.get_ser::<BlockHeader>(DBCol::ColBlockHeader, key).unwrap().unwrap();
         let old_block_info =
             store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
-        BlockInfo::new(
+        BlockInfoV1::new(
             *block_header.hash(),
             block_header.height(),
             old_block_info.last_finalized_height,
@@ -648,6 +648,7 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
 
 pub fn migrate_18_to_19(path: &str) {
     use near_primitives::types::{ChunkExtraV1, ChunkExtra};
+    use near_primitives::epoch_manager::{BlockInfo, BlockInfoV1};
     let store = create_store(path);
 
     map_col(&store, DBCol::ColChunkExtra, |extra: ChunkExtraV1| {
@@ -656,6 +657,10 @@ pub fn migrate_18_to_19(path: &str) {
 
     map_col(&store, DBCol::ColEpochInfo, |info: EpochInfoV1| {
         EpochInfo::V1(info)
+    }).unwrap();
+
+    map_col(&store, DBCol::ColBlockInfo, |info: BlockInfoV1| {
+        BlockInfo::V1(info)
     }).unwrap();
 
     set_store_version(&store, 19);

@@ -4,7 +4,7 @@ use num_rational::Rational;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_manager::{EpochConfig, EpochInfo, ValidatorWeight};
+use near_primitives::epoch_manager::{EpochConfig, EpochInfo, ValidatorWeight, BlockInfoV2};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
@@ -243,7 +243,7 @@ pub fn record_block_with_final_block_hash(
                 height.saturating_sub(2),
                 last_final_block_hash,
                 prev_h,
-                proposals.into_iter().map(ValidatorStake::into_v1).collect::<Vec<_>>(),
+                proposals,
                 vec![],
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
@@ -276,7 +276,7 @@ pub fn record_block_with_slashes(
                 height.saturating_sub(2),
                 prev_h,
                 prev_h,
-                proposals.into_iter().map(ValidatorStake::into_v1).collect::<Vec<_>>(),
+                proposals,
                 vec![],
                 slashed,
                 DEFAULT_TOTAL_SUPPLY,
@@ -313,7 +313,7 @@ pub fn block_info(
     chunk_mask: Vec<bool>,
     total_supply: Balance,
 ) -> BlockInfo {
-    BlockInfo {
+    BlockInfo::V2(BlockInfoV2 {
         hash,
         height,
         last_finalized_height,
@@ -328,7 +328,7 @@ pub fn block_info(
         total_supply,
         #[cfg(feature = "protocol_feature_rectify_inflation")]
         timestamp_nanosec: height * NUM_NS_IN_SECOND,
-    }
+    })
 }
 
 pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {

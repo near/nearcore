@@ -174,7 +174,7 @@ fn validate(
         println!("== End epoch infos ==");
         println!("== Begin block infos ==");
         for block_info in &block_infos {
-            println!("height: {:?}, proposals: {:?}", block_info.height, block_info.proposals);
+            println!("height: {:?}, proposals: {:?}", block_info.height(), block_info.proposals_iter().collect::<Vec<_>>());
         }
         println!("== End block infos ==");
     }
@@ -247,22 +247,22 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
     for i in 1..block_infos.len() {
         let prev_block_info = &block_infos[i - 1];
         let block_info = &block_infos[i];
-        assert!(block_info.last_finalized_height >= prev_block_info.last_finalized_height);
-        if epoch_manager.is_next_block_epoch_start(&block_infos[i].prev_hash).unwrap() {
-            assert_ne!(prev_block_info.epoch_first_block, block_info.epoch_first_block);
-            if prev_block_info.height == 0 {
+        assert!(block_info.last_finalized_height() >= prev_block_info.last_finalized_height());
+        if epoch_manager.is_next_block_epoch_start(block_infos[i].prev_hash()).unwrap() {
+            assert_ne!(prev_block_info.epoch_first_block(), block_info.epoch_first_block());
+            if *prev_block_info.height() == 0 {
                 // special case: epochs 0 and 1
                 assert_eq!(
-                    prev_block_info.epoch_id, block_info.epoch_id,
+                    prev_block_info.epoch_id(), block_info.epoch_id(),
                     "first two epochs have same id"
                 );
             } else {
-                assert_ne!(prev_block_info.epoch_id, block_info.epoch_id, "epoch id changes");
+                assert_ne!(prev_block_info.epoch_id(), block_info.epoch_id(), "epoch id changes");
             }
             let aggregator = epoch_manager
                 .get_and_update_epoch_info_aggregator(
-                    &prev_block_info.epoch_id,
-                    &block_info.prev_hash,
+                    prev_block_info.epoch_id(),
+                    block_info.prev_hash(),
                     true,
                 )
                 .unwrap();
@@ -283,8 +283,8 @@ fn verify_slashes(
     slashes_per_block: &Vec<Vec<SlashedValidator>>,
 ) {
     for i in 1..block_infos.len() {
-        let prev_slashes_set = &block_infos[i - 1].slashed;
-        let slashes_set = &block_infos[i].slashed;
+        let prev_slashes_set = block_infos[i - 1].slashed();
+        let slashes_set = block_infos[i].slashed();
 
         let this_block_slashes = slashes_per_block[i]
             .iter()
@@ -295,8 +295,8 @@ fn verify_slashes(
                 )
             })
             .collect::<HashMap<_, _>>();
-        if epoch_manager.is_next_block_epoch_start(&block_infos[i].prev_hash).unwrap() {
-            let epoch_info = epoch_manager.get_epoch_info(&block_infos[i].epoch_id).unwrap();
+        if epoch_manager.is_next_block_epoch_start(block_infos[i].prev_hash()).unwrap() {
+            let epoch_info = epoch_manager.get_epoch_info(block_infos[i].epoch_id()).unwrap();
 
             // Epoch boundary.
             // DoubleSign or Other => become AlreadySlashed
@@ -342,19 +342,19 @@ fn verify_block_stats(
 ) {
     for i in 1..block_infos.len() {
         let prev_epoch_end =
-            epoch_manager.get_block_info(&block_infos[i].epoch_first_block).unwrap().prev_hash;
-        let prev_epoch_end_height = epoch_manager.get_block_info(&prev_epoch_end).unwrap().height;
+            *epoch_manager.get_block_info(block_infos[i].epoch_first_block()).unwrap().prev_hash();
+        let prev_epoch_end_height = *epoch_manager.get_block_info(&prev_epoch_end).unwrap().height();
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;
         {
             let aggregator = epoch_manager
                 .get_and_update_epoch_info_aggregator(
-                    &block_infos[i].epoch_id,
+                    block_infos[i].epoch_id(),
                     &block_hashes[i],
                     true,
                 )
                 .unwrap();
-            let epoch_info = epoch_manager.get_epoch_info(&block_infos[i].epoch_id).unwrap();
+            let epoch_info = epoch_manager.get_epoch_info(block_infos[i].epoch_id()).unwrap();
             for key in aggregator.block_tracker.keys().copied() {
                 assert!(key < epoch_info.validators_iter().len() as u64);
             }

@@ -243,7 +243,7 @@ impl EpochManager {
         last_block_info: &BlockInfo,
         last_block_hash: &CryptoHash,
     ) -> Result<EpochSummary, EpochError> {
-        let epoch_info = self.get_epoch_info(&last_block_info.epoch_id)?.clone();
+        let epoch_info = self.get_epoch_info(&last_block_info.epoch_id())?.clone();
         let next_epoch_id = self.get_next_epoch_id(&last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
         let EpochInfoAggregator {
@@ -253,7 +253,7 @@ impl EpochManager {
             version_tracker,
             ..
         } = self.get_and_update_epoch_info_aggregator(
-            &last_block_info.epoch_id,
+            &last_block_info.epoch_id(),
             last_block_hash,
             false,
         )?;
@@ -299,7 +299,7 @@ impl EpochManager {
         };
 
         // Gather slashed validators and add them to kick out first.
-        let slashed_validators = last_block_info.slashed.clone();
+        let slashed_validators = last_block_info.slashed().clone();
         for (account_id, _) in slashed_validators.iter() {
             validator_kickout.insert(account_id.clone(), ValidatorKickoutReason::Slashed);
         }
@@ -316,7 +316,7 @@ impl EpochManager {
         }
 
         let prev_epoch_last_block_hash =
-            self.get_block_info(&last_block_info.epoch_first_block)?.prev_hash;
+            *self.get_block_info(last_block_info.epoch_first_block())?.prev_hash();
         let prev_validator_kickout = next_epoch_info.validator_kickout();
 
         // Compute kick outs for validators who are offline.
@@ -352,7 +352,7 @@ impl EpochManager {
         rng_seed: RngSeed,
     ) -> Result<EpochId, EpochError> {
         let epoch_summary = self.collect_blocks_info(&block_info, last_block_hash)?;
-        let epoch_info = self.get_epoch_info(&block_info.epoch_id)?;
+        let epoch_info = self.get_epoch_info(&block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
         let validator_stake = epoch_info
             .validators_iter()
@@ -360,7 +360,7 @@ impl EpochManager {
             .collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
-        self.save_epoch_validator_info(store_update, &block_info.epoch_id, &epoch_summary)?;
+        self.save_epoch_validator_info(store_update, &block_info.epoch_id(), &epoch_summary)?;
 
         let EpochSummary {
             prev_epoch_last_block_hash,
@@ -373,15 +373,15 @@ impl EpochManager {
         #[cfg(feature = "protocol_feature_rectify_inflation")]
         let (validator_reward, minted_amount) = {
             let last_epoch_last_block_hash =
-                self.get_block_info(&block_info.epoch_first_block)?.prev_hash;
+                *self.get_block_info(block_info.epoch_first_block())?.prev_hash();
             let last_block_in_last_epoch = self.get_block_info(&last_epoch_last_block_hash)?;
-            assert!(block_info.timestamp_nanosec > last_block_in_last_epoch.timestamp_nanosec);
+            assert!(block_info.timestamp_nanosec() > last_block_in_last_epoch.timestamp_nanosec());
             let epoch_duration =
-                block_info.timestamp_nanosec - last_block_in_last_epoch.timestamp_nanosec;
+                block_info.timestamp_nanosec() - last_block_in_last_epoch.timestamp_nanosec();
             self.reward_calculator.calculate_reward(
                 validator_block_chunk_stats,
                 &validator_stake,
-                block_info.total_supply,
+                *block_info.total_supply(),
                 epoch_protocol_version,
                 self.genesis_protocol_version,
                 #[cfg(feature = "protocol_feature_rectify_inflation")]
@@ -392,7 +392,7 @@ impl EpochManager {
         let (validator_reward, minted_amount) = self.reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
-            block_info.total_supply,
+            *block_info.total_supply(),
             epoch_protocol_version,
             self.genesis_protocol_version,
         );
@@ -428,13 +428,13 @@ impl EpochManager {
         mut block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<StoreUpdate, EpochError> {
-        let current_hash = block_info.hash;
+        let current_hash = *block_info.hash();
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
         if !self.has_block_info(&current_hash)? {
-            if block_info.prev_hash == CryptoHash::default() {
+            if block_info.prev_hash() == &CryptoHash::default() {
                 // This is genesis block, we special case as new epoch.
-                assert_eq!(block_info.proposals.len(), 0);
+                assert_eq!(block_info.proposals_iter().len(), 0);
                 let pre_genesis_epoch_id = EpochId::default();
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?.clone();
                 self.save_block_info(&mut store_update, block_info)?;
@@ -444,47 +444,47 @@ impl EpochManager {
                     genesis_epoch_info,
                 )?;
             } else {
-                let prev_block_info = self.get_block_info(&block_info.prev_hash)?.clone();
+                let prev_block_info = self.get_block_info(block_info.prev_hash())?.clone();
 
                 let mut is_epoch_start = false;
-                if prev_block_info.prev_hash == CryptoHash::default() {
+                if prev_block_info.prev_hash() == &CryptoHash::default() {
                     // This is first real block, starts the new epoch.
-                    block_info.epoch_id = EpochId::default();
-                    block_info.epoch_first_block = current_hash;
+                    *block_info.epoch_id_mut() = EpochId::default();
+                    *block_info.epoch_first_block_mut() = current_hash;
                     is_epoch_start = true;
                 } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
-                    block_info.epoch_id = self.get_next_epoch_id_from_info(&prev_block_info)?;
-                    block_info.epoch_first_block = current_hash;
+                    *block_info.epoch_id_mut() = self.get_next_epoch_id_from_info(&prev_block_info)?;
+                    *block_info.epoch_first_block_mut() = current_hash;
                     is_epoch_start = true;
                 } else {
                     // Same epoch as parent, copy epoch_id and epoch_start_height.
-                    block_info.epoch_id = prev_block_info.epoch_id;
-                    block_info.epoch_first_block = prev_block_info.epoch_first_block;
+                    *block_info.epoch_id_mut() = prev_block_info.epoch_id().clone();
+                    *block_info.epoch_first_block_mut() = *prev_block_info.epoch_first_block();
                 }
-                let epoch_info = self.get_epoch_info(&block_info.epoch_id)?.clone();
+                let epoch_info = self.get_epoch_info(block_info.epoch_id())?.clone();
 
                 // Keep `slashed` from previous block if they are still in the epoch info stake change
                 // (e.g. we need to keep track that they are still slashed, because when we compute
                 // returned stake we are skipping account ids that are slashed in `stake_change`).
-                for (account_id, slash_state) in prev_block_info.slashed.iter() {
+                for (account_id, slash_state) in prev_block_info.slashed().iter() {
                     if is_epoch_start {
                         if slash_state == &SlashState::DoubleSign
                             || slash_state == &SlashState::Other
                         {
                             block_info
-                                .slashed
+                                .slashed_mut()
                                 .entry(account_id.clone())
                                 .or_insert(SlashState::AlreadySlashed);
                         } else if epoch_info.stake_change().contains_key(account_id) {
                             block_info
-                                .slashed
+                                .slashed_mut()
                                 .entry(account_id.clone())
                                 .or_insert_with(|| slash_state.clone());
                         }
                     } else {
                         block_info
-                            .slashed
+                            .slashed_mut()
                             .entry(account_id.clone())
                             .and_modify(|e| {
                                 if let SlashState::Other = slash_state {
@@ -498,16 +498,16 @@ impl EpochManager {
                 if is_epoch_start {
                     self.save_epoch_start(
                         &mut store_update,
-                        &block_info.epoch_id,
-                        block_info.height,
+                        block_info.epoch_id(),
+                        *block_info.height(),
                     )?;
                 }
 
                 // Save current block info.
                 self.save_block_info(&mut store_update, block_info.clone())?;
                 let mut is_new_final_block = false;
-                if block_info.last_finalized_height > self.largest_final_height {
-                    self.largest_final_height = block_info.last_finalized_height;
+                if block_info.last_finalized_height() > &self.largest_final_height {
+                    self.largest_final_height = *block_info.last_finalized_height();
                     is_new_final_block = true;
                 }
 
@@ -517,9 +517,9 @@ impl EpochManager {
                 let last_block_hash = if !is_new_final_block {
                     None
                 } else {
-                    match self.get_block_info(&block_info.last_final_block_hash) {
+                    match self.get_block_info(block_info.last_final_block_hash()) {
                         Ok(final_block_info) => {
-                            if final_block_info.epoch_id != block_info.epoch_id {
+                            if final_block_info.epoch_id() != block_info.epoch_id() {
                                 if is_epoch_start {
                                     Some(&current_hash)
                                 } else {
@@ -529,7 +529,7 @@ impl EpochManager {
                                     None
                                 }
                             } else {
-                                Some(&block_info.last_final_block_hash)
+                                Some(block_info.last_final_block_hash())
                             }
                         }
                         Err(e) => {
@@ -540,14 +540,14 @@ impl EpochManager {
                 };
                 if let Some(last_block_hash) = last_block_hash {
                     let epoch_info_aggregator = self.get_and_update_epoch_info_aggregator(
-                        &block_info.epoch_id,
+                        block_info.epoch_id(),
                         last_block_hash,
                         false,
                     )?;
                     self.save_epoch_info_aggregator(
                         &mut store_update,
                         epoch_info_aggregator,
-                        is_epoch_start || block_info.height % AGGREGATOR_SAVE_PERIOD == 0,
+                        is_epoch_start || *block_info.height() % AGGREGATOR_SAVE_PERIOD == 0,
                     )?;
                 }
 
@@ -718,11 +718,11 @@ impl EpochManager {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<&HashMap<AccountId, SlashState>, EpochError> {
-        Ok(&self.get_block_info(block_hash)?.slashed)
+        Ok(self.get_block_info(block_hash)?.slashed())
     }
 
     pub fn get_epoch_id(&mut self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        Ok(self.get_block_info(block_hash)?.epoch_id.clone())
+        Ok(self.get_block_info(block_hash)?.epoch_id().clone())
     }
 
     pub fn get_next_epoch_id(&mut self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
@@ -731,8 +731,8 @@ impl EpochManager {
     }
 
     pub fn get_prev_epoch_id(&mut self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block;
-        let prev_epoch_last_hash = self.get_block_info(&epoch_first_block)?.prev_hash;
+        let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
+        let prev_epoch_last_hash = *self.get_block_info(&epoch_first_block)?.prev_hash();
         self.get_epoch_id(&prev_epoch_last_hash)
     }
 
@@ -801,8 +801,8 @@ impl EpochManager {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<BlockHeight, EpochError> {
-        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block;
-        Ok(self.get_block_info(&epoch_first_block)?.height)
+        let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
+        Ok(*self.get_block_info(&epoch_first_block)?.height())
     }
 
     /// Compute stake return info based on the last block hash of the epoch that is just finalized
@@ -837,7 +837,7 @@ impl EpochManager {
         let stake_change = self.get_epoch_info(&next_next_epoch_id)?.stake_change();
         debug!(target: "epoch_manager",
             "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}, slashed: {:?}",
-            prev_prev_stake_change, prev_stake_change, stake_change, last_block_info.slashed
+            prev_prev_stake_change, prev_stake_change, stake_change, last_block_info.slashed()
         );
         let mut all_keys = HashSet::new();
         for (key, _) in
@@ -847,7 +847,7 @@ impl EpochManager {
         }
         let mut stake_info = HashMap::new();
         for account_id in all_keys {
-            if last_block_info.slashed.contains_key(account_id) {
+            if last_block_info.slashed().contains_key(account_id) {
                 if prev_prev_stake_change.contains_key(account_id)
                     && !prev_stake_change.contains_key(account_id)
                     && !stake_change.contains_key(account_id)
@@ -918,7 +918,7 @@ impl EpochManager {
     ) -> Result<EpochValidatorInfo, EpochError> {
         let epoch_id = match epoch_identifier {
             ValidatorInfoIdentifier::EpochId(ref id) => id.clone(),
-            ValidatorInfoIdentifier::BlockHash(ref b) => self.get_block_info(b)?.epoch_id.clone(),
+            ValidatorInfoIdentifier::BlockHash(ref b) => self.get_block_info(b)?.epoch_id().clone(),
         };
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?.clone();
         let epoch_start_height = self.get_epoch_start_from_epoch_id(&epoch_id)?;
@@ -1123,19 +1123,19 @@ impl EpochManager {
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
     #[allow(clippy::wrong_self_convention)]
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
-        if block_info.prev_hash == CryptoHash::default() {
+        if block_info.prev_hash() == &CryptoHash::default() {
             return Ok(true);
         }
         let estimated_next_epoch_start =
-            self.get_block_info(&block_info.epoch_first_block)?.height + self.config.epoch_length;
+            *self.get_block_info(block_info.epoch_first_block())?.height() + self.config.epoch_length;
 
         if self.config.epoch_length <= 3 {
             // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
             // https://github.com/nearprotocol/nearcore/issues/2522
-            return Ok(block_info.height + 1 >= estimated_next_epoch_start);
+            return Ok(*block_info.height() + 1 >= estimated_next_epoch_start);
         }
 
-        Ok(block_info.last_finalized_height + 3 >= estimated_next_epoch_start)
+        Ok(*block_info.last_finalized_height() + 3 >= estimated_next_epoch_start)
     }
 
     /// Returns true, if given current block info, next block must include the approvals from the next
@@ -1148,9 +1148,9 @@ impl EpochManager {
             return Ok(false);
         }
         let estimated_next_epoch_start =
-            self.get_block_info(&block_info.epoch_first_block)?.height + self.config.epoch_length;
-        Ok(block_info.last_finalized_height + 3 < estimated_next_epoch_start
-            && block_info.height + 3 >= estimated_next_epoch_start)
+            *self.get_block_info(block_info.epoch_first_block())?.height() + self.config.epoch_length;
+        Ok(*block_info.last_finalized_height() + 3 < estimated_next_epoch_start
+            && *block_info.height() + 3 >= estimated_next_epoch_start)
     }
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
@@ -1158,8 +1158,8 @@ impl EpochManager {
         &mut self,
         block_info: &BlockInfo,
     ) -> Result<EpochId, EpochError> {
-        let first_block_info = self.get_block_info(&block_info.epoch_first_block)?;
-        Ok(EpochId(first_block_info.prev_hash))
+        let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
+        Ok(EpochId(*first_block_info.prev_hash()))
     }
 
     pub fn get_epoch_info(&mut self, epoch_id: &EpochId) -> Result<&EpochInfo, EpochError> {
@@ -1248,7 +1248,7 @@ impl EpochManager {
         store_update: &mut StoreUpdate,
         block_info: BlockInfo,
     ) -> Result<(), EpochError> {
-        let block_hash = block_info.hash;
+        let block_hash = *block_info.hash();
         store_update
             .set_ser(ColBlockInfo, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
@@ -1321,11 +1321,11 @@ impl EpochManager {
         let mut overwrite = false;
         while cur_hash != aggregator.last_block_hash || epoch_change {
             // Avoid cloning
-            let prev_hash = self.get_block_info(&cur_hash)?.prev_hash;
-            let prev_height = self.get_block_info(&prev_hash).map(|info| info.height);
+            let prev_hash = *self.get_block_info(&cur_hash)?.prev_hash();
+            let prev_height = self.get_block_info(&prev_hash).map(|info| *info.height());
 
             let block_info = self.get_block_info(&cur_hash)?;
-            if &block_info.epoch_id != epoch_id || block_info.prev_hash == CryptoHash::default() {
+            if block_info.epoch_id() != epoch_id || block_info.prev_hash() == &CryptoHash::default() {
                 // This means that we reached the previous epoch and still hasn't seen
                 // `aggregator.last_block_hash` and therefore implies either a fork has happened
                 // or we are at the start of an epoch. In this case, the new aggregator should
@@ -1334,7 +1334,7 @@ impl EpochManager {
                 break;
             }
             new_aggregator.update(&block_info, &epoch_info, prev_height?);
-            cur_hash = block_info.prev_hash;
+            cur_hash = *block_info.prev_hash();
         }
         aggregator.merge(new_aggregator, overwrite);
 
@@ -3182,6 +3182,13 @@ mod tests {
         );
     }
 
+    fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
+        match info {
+            BlockInfo::V1(v1) => v1.latest_protocol_version = protocol_version,
+            BlockInfo::V2(v2) => v2.latest_protocol_version = protocol_version,
+        }
+    }
+
     #[test]
     fn test_protocol_version_switch() {
         let store = create_test_store();
@@ -3200,7 +3207,7 @@ mod tests {
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         let mut block_info1 =
             block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
-        block_info1.latest_protocol_version = 0;
+        set_block_info_protocol_version(&mut block_info1, 0);
         epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
         for i in 2..6 {
             record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
@@ -3231,7 +3238,7 @@ mod tests {
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         let mut block_info1 =
             block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
-        block_info1.latest_protocol_version = 0;
+        set_block_info_protocol_version(&mut block_info1, 0);
         epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
         for i in 2..32 {
             record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
@@ -3274,9 +3281,9 @@ mod tests {
                 DEFAULT_TOTAL_SUPPLY,
             );
             if i != 4 {
-                block_info.latest_protocol_version = UPGRADABILITY_FIX_PROTOCOL_VERSION + 1;
+                set_block_info_protocol_version(&mut block_info, UPGRADABILITY_FIX_PROTOCOL_VERSION + 1);
             } else {
-                block_info.latest_protocol_version = UPGRADABILITY_FIX_PROTOCOL_VERSION;
+                set_block_info_protocol_version(&mut block_info, UPGRADABILITY_FIX_PROTOCOL_VERSION);
             }
             epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
         }
@@ -3303,7 +3310,7 @@ mod tests {
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
             );
-            block_info.latest_protocol_version = UPGRADABILITY_FIX_PROTOCOL_VERSION;
+            set_block_info_protocol_version(&mut block_info, UPGRADABILITY_FIX_PROTOCOL_VERSION);
             epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
         }
         assert_eq!(

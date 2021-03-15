@@ -302,7 +302,7 @@ mod tests {
                     0,
                     prev_h,
                     prev_h,
-                    proposals.into_iter().map(ValidatorStake::into_v1).collect(),
+                    proposals,
                     vec![],
                     vec![],
                     DEFAULT_TOTAL_SUPPLY,

@@ -1023,17 +1023,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         let get_gc_stop_height_inner = || -> Result<BlockHeight, Error> {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
             // an epoch must have a first block.
-            let epoch_first_block = epoch_manager.get_block_info(block_hash)?.epoch_first_block;
+            let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
             let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
             // maintain pointers to avoid cloning.
-            let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
-            let mut epoch_start_height = epoch_first_block_info.height;
+            let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+            let mut epoch_start_height = *epoch_first_block_info.height();
             for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
                 let epoch_first_block =
-                    epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block;
+                    *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
                 let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-                epoch_start_height = epoch_first_block_info.height;
-                last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+                epoch_start_height = *epoch_first_block_info.height();
+                last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
             }
             Ok(epoch_start_height)
         };
@@ -1083,10 +1083,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(BlockInfo, BlockInfo, BlockInfo, EpochInfo, EpochInfo, EpochInfo), Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?.clone();
-        let prev_epoch_id = last_block_info.epoch_id.clone();
+        let prev_epoch_id = last_block_info.epoch_id().clone();
         Ok((
-            epoch_manager.get_block_info(&last_block_info.epoch_first_block)?.clone(),
-            epoch_manager.get_block_info(&last_block_info.prev_hash)?.clone(),
+            epoch_manager.get_block_info(last_block_info.epoch_first_block())?.clone(),
+            epoch_manager.get_block_info(last_block_info.prev_hash())?.clone(),
             last_block_info,
             epoch_manager.get_epoch_info(&prev_epoch_id)?.clone(),
             epoch_manager.get_epoch_info(epoch_id)?.clone(),
@@ -1852,7 +1852,7 @@ mod test {
                     height: self.head.height + 1,
                     last_finalized_height: self.head.height.saturating_sub(1),
                     last_finalized_block_hash: self.head.last_block_hash,
-                    proposals: self.last_proposals.iter().cloned().map(ValidatorStake::into_v1).collect(),
+                    proposals: self.last_proposals.clone(),
                     slashed_validators: challenges_result,
                     chunk_mask,
                     total_supply: self.runtime.genesis_config.total_supply,
@@ -2292,7 +2292,7 @@ mod test {
                     height: i,
                     last_finalized_height: i.saturating_sub(2),
                     last_finalized_block_hash: prev_hash,
-                    proposals: new_env.last_proposals.iter().cloned().map(ValidatorStake::into_v1).collect(),
+                    proposals: new_env.last_proposals,
                     slashed_validators: vec![],
                     chunk_mask: vec![true],
                     total_supply: new_env.runtime.genesis_config.total_supply,
