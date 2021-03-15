@@ -153,7 +153,7 @@ impl Default for VMLimitConfig {
             max_length_returned_data: 4 * 2u64.pow(20), // 4 Mib
             max_contract_size: 4 * 2u64.pow(20),    // 4 Mib,
             #[cfg(feature = "protocol_feature_tx_size_limit")]
-            max_transaction_size: 4 * 2u64.pow(20),    // 4 Mib
+            max_transaction_size: 4 * 2u64.pow(20), // 4 Mib
 
             max_length_storage_key: 4 * 2u64.pow(20), // 4 Mib
             max_length_storage_value: 4 * 2u64.pow(20), // 4 Mib
