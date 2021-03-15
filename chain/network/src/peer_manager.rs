@@ -943,6 +943,7 @@ impl PeerManagerActor {
                 None => true,
             }
         });
+        // TODO(Piotr) remove this print
         debug!(
             "SYNC edges.len: {} announce_len: {} active_edges: {} nodes.used: {} nodes.unused: {} new_edges: {}/{}",
             self.routing_table.edges_info.len(),
