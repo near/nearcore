@@ -153,7 +153,7 @@ impl IbfPeerSet {
     ) -> (Vec<Edge>, Vec<u64>) {
         if let Some(ibf) = self.get(peer_id) {
             let (known_edges, unknown_edges) =
-                ibf.lock().unwrap().get_edges_by_hashes2(unknown_edges);
+                ibf.lock().unwrap().get_edges_by_hashes_ext(unknown_edges);
             return (self.recover_edges(known_edges.as_slice(), edges_info), unknown_edges);
         }
         (Default::default(), Default::default())

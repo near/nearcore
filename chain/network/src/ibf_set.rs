@@ -50,7 +50,7 @@ where
         unknown_edges.iter().filter_map(|v| self.h2e.get(v)).cloned().collect()
     }
 
-    pub fn get_edges_by_hashes2(&self, unknown_edges: &[u64]) -> (Vec<SlotMapId>, Vec<u64>) {
+    pub fn get_edges_by_hashes_ext(&self, unknown_edges: &[u64]) -> (Vec<SlotMapId>, Vec<u64>) {
         (
             unknown_edges.iter().filter_map(|v| self.h2e.get(v)).cloned().collect(),
             unknown_edges
@@ -129,8 +129,8 @@ mod test {
             }
             assert_eq!(100 - 10, a.get_edges_by_hashes(&res).len());
 
-            assert_eq!(100 - 10, a.get_edges_by_hashes2(&res).0.len());
-            assert_eq!(100 + 333, a.get_edges_by_hashes2(&res).1.len());
+            assert_eq!(100 - 10, a.get_edges_by_hashes_ext(&res).0.len());
+            assert_eq!(100 + 333, a.get_edges_by_hashes_ext(&res).1.len());
         }
     }
 }
