@@ -112,8 +112,8 @@ pub fn proposals_to_epoch_info(
             fishermen.push(p);
         } else {
             *stake_change.get_mut(&account_id).unwrap() = 0;
-            if prev_epoch_info.validator_to_index.contains_key(&account_id)
-                || prev_epoch_info.fishermen_to_index.contains_key(&account_id)
+            if prev_epoch_info.account_is_validator(&account_id)
+                || prev_epoch_info.account_is_fisherman(&account_id)
             {
                 validator_kickout.insert(
                     account_id,
@@ -162,8 +162,8 @@ pub fn proposals_to_epoch_info(
         } else {
             let account_id = p.take_account_id();
             stake_change.insert(account_id.clone(), 0);
-            if prev_epoch_info.validator_to_index.contains_key(&account_id)
-                || prev_epoch_info.fishermen_to_index.contains_key(&account_id)
+            if prev_epoch_info.account_is_validator(&account_id)
+                || prev_epoch_info.account_is_fisherman(&account_id)
             {
                 validator_kickout.insert(account_id, ValidatorKickoutReason::DidNotGetASeat);
             }
@@ -200,22 +200,22 @@ pub fn proposals_to_epoch_info(
         .map(|(index, s)| (s.account_id().clone(), index as ValidatorId))
         .collect::<HashMap<_, _>>();
 
-    Ok(EpochInfo {
-        epoch_height: prev_epoch_info.epoch_height + 1,
-        validators: final_proposals.into_iter().map(ValidatorStake::into_v1).collect(),
-        fishermen: fishermen.into_iter().map(ValidatorStake::into_v1).collect(),
+    Ok(EpochInfo::new(
+        prev_epoch_info.epoch_height() + 1,
+        final_proposals,
         validator_to_index,
         block_producers_settlement,
         chunk_producers_settlement,
-        hidden_validators_settlement: vec![],
+        vec![],
+        fishermen,
+        fishermen_to_index,
         stake_change,
         validator_reward,
         validator_kickout,
-        fishermen_to_index,
         minted_amount,
-        seat_price: threshold,
-        protocol_version: next_version,
-    })
+        threshold,
+        next_version,
+    ))
 }
 
 #[cfg(test)]
@@ -373,7 +373,10 @@ mod tests {
             HashMap::default(),
             0,
         );
-        epoch_info.validator_kickout = HashMap::default();
+        match &mut epoch_info {
+            EpochInfo::V1(info) => info.validator_kickout = HashMap::default(),
+            EpochInfo::V2(info) => info.validator_kickout = HashMap::default(),
+        }
         assert_eq!(
             proposals_to_epoch_info(
                 &epoch_config(2, 2, 1, 0, 90, 60, 10),

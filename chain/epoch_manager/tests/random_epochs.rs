@@ -190,8 +190,8 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
         let epoch_info = &epoch_infos[i];
         let prev_epoch_info = &epoch_infos[i - 1];
         assert_eq!(
-            epoch_info.epoch_height,
-            prev_epoch_info.epoch_height + 1,
+            epoch_info.epoch_height(),
+            prev_epoch_info.epoch_height() + 1,
             "epoch height increases by 1"
         );
         let stakes_before_change = get_stakes_map(prev_epoch_info);
@@ -201,12 +201,12 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
         }
         let stakes_after_change = get_stakes_map(epoch_info);
         let mut stakes_with_change = stakes_before_change.clone();
-        for (account_id, new_stake) in &epoch_info.stake_change {
+        for (account_id, new_stake) in epoch_info.stake_change() {
             if *new_stake == 0 {
                 if stakes_before_change.get(account_id).is_none() {
                     // Stake change from 0 to 0
-                    assert!(prev_epoch_info.validator_kickout.contains_key(account_id));
-                    assert!(epoch_info.validator_kickout.contains_key(account_id));
+                    assert!(prev_epoch_info.validator_kickout().contains_key(account_id));
+                    assert!(epoch_info.validator_kickout().contains_key(account_id));
                 }
                 stakes_with_change.remove(account_id);
             } else {
@@ -216,12 +216,12 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
         assert_eq!(
             stakes_with_change, stakes_after_change,
             "stake change: {:?}",
-            epoch_info.stake_change
+            epoch_info.stake_change()
         );
 
         for account_id in stakes_after_change.keys() {
             assert!(
-                epoch_info.validator_kickout.get(account_id).is_none(),
+                epoch_info.validator_kickout().get(account_id).is_none(),
                 "cannot be in both validator and kickout set"
             );
         }
@@ -229,10 +229,10 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
         if is_possible_bad_epochs_case(&epoch_infos[i - 1], &epoch_infos[i]) {
             continue;
         }
-        for (account_id, reason) in &epoch_info.validator_kickout {
+        for (account_id, reason) in epoch_info.validator_kickout() {
             let was_validaror_2_ago = (i >= 2
-                && epoch_infos[i - 2].validator_to_index.contains_key(account_id))
-                || (i == 1 && epoch_infos[0].validator_to_index.contains_key(account_id));
+                && epoch_infos[i - 2].account_is_validator(account_id))
+                || (i == 1 && epoch_infos[0].account_is_validator(account_id));
             let in_slashes_set = reason == &ValidatorKickoutReason::Slashed;
             assert!(
                 was_validaror_2_ago || in_slashes_set,
@@ -308,7 +308,7 @@ fn verify_slashes(
                     continue;
                 }
                 if slash_state == &SlashState::AlreadySlashed {
-                    if epoch_info.stake_change.contains_key(account) {
+                    if epoch_info.stake_change().contains_key(account) {
                         assert_eq!(slashes_set.get(account), Some(&SlashState::AlreadySlashed));
                     } else {
                         assert_eq!(slashes_set.get(account), None);
@@ -356,11 +356,11 @@ fn verify_block_stats(
                 .unwrap();
             let epoch_info = epoch_manager.get_epoch_info(&block_infos[i].epoch_id).unwrap();
             for key in aggregator.block_tracker.keys().copied() {
-                assert!(key < epoch_info.validators.len() as u64);
+                assert!(key < epoch_info.validators_iter().len() as u64);
             }
             for shard_stats in aggregator.shard_tracker.values() {
                 for key in shard_stats.keys().copied() {
-                    assert!(key < epoch_info.validators.len() as u64);
+                    assert!(key < epoch_info.validators_iter().len() as u64);
                 }
             }
             let sum_produced =
@@ -394,7 +394,7 @@ fn verify_block_stats(
 // Bad epoch case: All validators are kicked out.
 fn is_possible_bad_epochs_case(prev: &EpochInfo, curr: &EpochInfo) -> bool {
     let mut copy = prev.clone();
-    copy.epoch_height += 1;
+    *copy.epoch_height_mut() += 1;
     &copy == curr
 }
 

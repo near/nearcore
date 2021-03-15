@@ -101,22 +101,22 @@ pub fn epoch_info_with_num_seats(
     };
     let validator_kickout =
         validator_kickout.into_iter().map(|(s, r)| (s.to_string(), r)).collect();
-    EpochInfo {
+    EpochInfo::new(
         epoch_height,
-        validators: account_to_validators(accounts).into_iter().map(ValidatorStake::into_v1).collect::<Vec<_>>(),
+        account_to_validators(accounts),
         validator_to_index,
         block_producers_settlement,
         chunk_producers_settlement,
         hidden_validators_settlement,
-        fishermen: account_to_validators(fishermen).into_iter().map(ValidatorStake::into_v1).collect::<Vec<_>>(),
+        account_to_validators(fishermen),
         fishermen_to_index,
         stake_change,
         validator_reward,
         validator_kickout,
         minted_amount,
-        protocol_version: PROTOCOL_VERSION,
         seat_price,
-    }
+        PROTOCOL_VERSION,
+    )
 }
 
 pub fn epoch_config(

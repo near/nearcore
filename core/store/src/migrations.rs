@@ -28,7 +28,7 @@ use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
-use near_primitives::epoch_manager::EpochInfo;
+use near_primitives::epoch_manager::{EpochInfo, EpochInfoV1};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
@@ -386,7 +386,7 @@ pub fn migrate_14_to_15(path: &String) {
                 .expect("chunk should exist");
 
             let epoch_info = store
-                .get_ser::<EpochInfo>(DBCol::ColEpochInfo, block.header().epoch_id().as_ref())
+                .get_ser::<EpochInfoV1>(DBCol::ColEpochInfo, block.header().epoch_id().as_ref())
                 .unwrap()
                 .expect("epoch id should exist");
             let protocol_version = epoch_info.protocol_version;
@@ -652,6 +652,10 @@ pub fn migrate_18_to_19(path: &str) {
 
     map_col(&store, DBCol::ColChunkExtra, |extra: ChunkExtraV1| {
         ChunkExtra::V1(extra)
+    }).unwrap();
+
+    map_col(&store, DBCol::ColEpochInfo, |info: EpochInfoV1| {
+        EpochInfo::V1(info)
     }).unwrap();
 
     set_store_version(&store, 19);

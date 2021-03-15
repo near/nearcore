@@ -116,8 +116,20 @@ impl BlockInfo {
 pub struct ValidatorWeight(ValidatorId, u64);
 
 /// Information per epoch.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+pub enum EpochInfo {
+    V1(EpochInfoV1),
+    V2(EpochInfoV2),
+}
+
+impl Default for EpochInfo {
+    fn default() -> Self {
+        Self::V2(EpochInfoV2::default())
+    }
+}
+
 #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
-pub struct EpochInfo {
+pub struct EpochInfoV1 {
     /// Ordinal of given epoch from genesis.
     /// There can be multiple epochs with the same ordinal in case of long forks.
     pub epoch_height: EpochHeight,
@@ -150,33 +162,237 @@ pub struct EpochInfo {
     pub protocol_version: ProtocolVersion,
 }
 
+#[derive(SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct EpochInfoV2 {
+    /// Ordinal of given epoch from genesis.
+    /// There can be multiple epochs with the same ordinal in case of long forks.
+    pub epoch_height: EpochHeight,
+    /// List of current validators.
+    pub validators: Vec<ValidatorStake>,
+    /// Validator account id to index in proposals.
+    pub validator_to_index: HashMap<AccountId, ValidatorId>,
+    /// Settlement of validators responsible for block production.
+    pub block_producers_settlement: Vec<ValidatorId>,
+    /// Per each shard, settlement validators that are responsible.
+    pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    /// Settlement of hidden validators with weights used to determine how many shards they will validate.
+    pub hidden_validators_settlement: Vec<ValidatorWeight>,
+    /// List of current fishermen.
+    pub fishermen: Vec<ValidatorStake>,
+    /// Fisherman account id to index of proposal.
+    pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
+    /// New stake for validators.
+    pub stake_change: BTreeMap<AccountId, Balance>,
+    /// Validator reward for the epoch.
+    pub validator_reward: HashMap<AccountId, Balance>,
+    /// Validators who are kicked out in this epoch.
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    /// Total minted tokens in the epoch.
+    pub minted_amount: Balance,
+    /// Seat price of this epoch.
+    pub seat_price: Balance,
+    /// Current protocol version during this epoch.
+    #[default(PROTOCOL_VERSION)]
+    pub protocol_version: ProtocolVersion,
+}
+
 impl EpochInfo {
+    pub fn new(
+        epoch_height: EpochHeight,
+        validators: Vec<ValidatorStake>,
+        validator_to_index: HashMap<AccountId, ValidatorId>,
+        block_producers_settlement: Vec<ValidatorId>,
+        chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+        hidden_validators_settlement: Vec<ValidatorWeight>,
+        fishermen: Vec<ValidatorStake>,
+        fishermen_to_index: HashMap<AccountId, ValidatorId>,
+        stake_change: BTreeMap<AccountId, Balance>,
+        validator_reward: HashMap<AccountId, Balance>,
+        validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+        minted_amount: Balance,
+        seat_price: Balance,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
+        Self::V2(EpochInfoV2 {
+            epoch_height,
+            validators,
+            fishermen,
+            validator_to_index,
+            block_producers_settlement,
+            chunk_producers_settlement,
+            hidden_validators_settlement,
+            stake_change,
+            validator_reward,
+            validator_kickout,
+            fishermen_to_index,
+            minted_amount,
+            seat_price,
+            protocol_version,
+        })
+    }
+
+    #[inline]
+    pub fn epoch_height_mut(&mut self) -> &mut EpochHeight {
+        match self {
+            Self::V1(v1) => &mut v1.epoch_height,
+            Self::V2(v2) => &mut v2.epoch_height,
+        }
+    }
+
+    #[inline]
+    pub fn epoch_height(&self) -> EpochHeight {
+        match self {
+            Self::V1(v1) => v1.epoch_height,
+            Self::V2(v2) => v2.epoch_height,
+        }
+    }
+
+    #[inline]
+    pub fn seat_price(&self) -> Balance {
+        match self {
+            Self::V1(v1) => v1.seat_price,
+            Self::V2(v2) => v2.seat_price,
+        }
+    }
+
+    #[inline]
+    pub fn minted_amount(&self) -> Balance {
+        match self {
+            Self::V1(v1) => v1.minted_amount,
+            Self::V2(v2) => v2.minted_amount,
+        }
+    }
+
+    #[inline]
+    pub fn block_producers_settlement(&self) -> &[ValidatorId] {
+        match self {
+            Self::V1(v1) => &v1.block_producers_settlement,
+            Self::V2(v2) => &v2.block_producers_settlement,
+        }
+    }
+
+    #[inline]
+    pub fn chunk_producers_settlement(&self) -> &[Vec<ValidatorId>] {
+        match self {
+            Self::V1(v1) => &v1.chunk_producers_settlement,
+            Self::V2(v2) => &v2.chunk_producers_settlement,
+        }
+    }
+
+    #[inline]
+    pub fn validator_kickout(&self) -> &HashMap<AccountId, ValidatorKickoutReason> {
+        match self {
+            Self::V1(v1) => &v1.validator_kickout,
+            Self::V2(v2) => &v2.validator_kickout,
+        }
+    }
+
+    #[inline]
+    pub fn protocol_version(&self) -> ProtocolVersion {
+        match self {
+            Self::V1(v1) => v1.protocol_version,
+            Self::V2(v2) => v2.protocol_version,
+        }
+    }
+
+    #[inline]
+    pub fn stake_change(&self) -> &BTreeMap<AccountId, Balance> {
+        match self {
+            Self::V1(v1) => &v1.stake_change,
+            Self::V2(v2) => &v2.stake_change,
+        }
+    }
+
+    #[inline]
+    pub fn validator_reward(&self) -> &HashMap<AccountId, Balance> {
+        match self {
+            Self::V1(v1) => &v1.validator_reward,
+            Self::V2(v2) => &v2.validator_reward,
+        }
+    }
+
     pub fn validators_iter(&self) -> ValidatorStakeIter {
-        ValidatorStakeIter::v1(&self.validators)
+        match self {
+            Self::V1(v1) => ValidatorStakeIter::v1(&v1.validators),
+            Self::V2(v2) => ValidatorStakeIter::new(&v2.validators),
+        }
     }
 
     pub fn fishermen_iter(&self) -> ValidatorStakeIter {
-        ValidatorStakeIter::v1(&self.fishermen)
+        match self {
+            Self::V1(v1) => ValidatorStakeIter::v1(&v1.fishermen),
+            Self::V2(v2) => ValidatorStakeIter::new(&v2.fishermen),
+        }
     }
 
     pub fn validator_stake(&self, validator_id: u64) -> Balance {
-        self.validators[validator_id as usize].stake
+        match self {
+            Self::V1(v1) => v1.validators[validator_id as usize].stake,
+            Self::V2(v2) => v2.validators[validator_id as usize].stake(),
+        }
     }
 
     pub fn validator_account_id(&self, validator_id: u64) -> &AccountId {
-        &self.validators[validator_id as usize].account_id
+        match self {
+            Self::V1(v1) => &v1.validators[validator_id as usize].account_id,
+            Self::V2(v2) => v2.validators[validator_id as usize].account_id(),
+        }
+    }
+
+    pub fn account_is_validator(&self, account_id: &str) -> bool {
+        match self {
+            Self::V1(v1) => v1.validator_to_index.contains_key(account_id),
+            Self::V2(v2) => v2.validator_to_index.contains_key(account_id),
+        }
+    }
+
+    pub fn get_validator_id(&self, account_id: &AccountId) -> Option<&ValidatorId> {
+        match self {
+            Self::V1(v1) => v1.validator_to_index.get(account_id),
+            Self::V2(v2) => v2.validator_to_index.get(account_id),
+        }
+    }
+
+    pub fn get_validator_by_account(&self, account_id: &AccountId) -> Option<ValidatorStake> {
+        match self {
+            Self::V1(v1) => v1.validator_to_index.get(account_id).map(|validator_id| ValidatorStake::lift(v1.validators[*validator_id as usize].clone())),
+            Self::V2(v2) => v2.validator_to_index.get(account_id).map(|validator_id| v2.validators[*validator_id as usize].clone()),
+        }
     }
 
     pub fn get_validator(&self, validator_id: u64) -> ValidatorStake {
-        ValidatorStake::lift(self.validators[validator_id as usize].clone())
+        match self {
+            Self::V1(v1) => ValidatorStake::lift(v1.validators[validator_id as usize].clone()),
+            Self::V2(v2) => v2.validators[validator_id as usize].clone(),
+        }
+    }
+
+    pub fn account_is_fisherman(&self, account_id: &AccountId) -> bool {
+        match self {
+            Self::V1(v1) => v1.fishermen_to_index.contains_key(account_id),
+            Self::V2(v2) => v2.fishermen_to_index.contains_key(account_id),
+        }
+    }
+
+    pub fn get_fisherman_by_account(&self, account_id: &AccountId) -> Option<ValidatorStake> {
+        match self {
+            Self::V1(v1) => v1.fishermen_to_index.get(account_id).map(|validator_id| ValidatorStake::lift(v1.fishermen[*validator_id as usize].clone())),
+            Self::V2(v2) => v2.fishermen_to_index.get(account_id).map(|validator_id| v2.fishermen[*validator_id as usize].clone()),
+        }
     }
 
     pub fn get_fisherman(&self, fisherman_id: u64) -> ValidatorStake {
-        ValidatorStake::lift(self.fishermen[fisherman_id as usize].clone())
+        match self {
+            Self::V1(v1) => ValidatorStake::lift(v1.fishermen[fisherman_id as usize].clone()),
+            Self::V2(v2) => v2.fishermen[fisherman_id as usize].clone(),
+        }
     }
 
     pub fn validators_len(&self) -> usize {
-        self.validators.len()
+        match self {
+            Self::V1(v1) => v1.validators.len(),
+            Self::V2(v2) => v2.validators.len(),
+        }
     }
 }
 
