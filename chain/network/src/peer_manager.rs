@@ -1701,20 +1701,18 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             && ibf_msg.ibf_level >= MIN_IBF_LEVEL
                             && ibf_msg.ibf_level <= MAX_IBF_LEVEL
                         {
-                            let mut ibf =
-                                ibf_set.lock().unwrap().get_ibf(ibf_msg.ibf_level as usize);
+                            let (known_edges, unknown_edge_hashes, unknown_edges_count) =
+                                self.routing_table.exchange_routing_tables_using_ibf(
+                                    &peer_id,
+                                    ibf_set.clone(),
+                                    ibf_msg.ibf_level as usize,
+                                    &ibf_msg.ibf,
+                                    ibf_msg.seed,
+                                );
 
-                            ibf.merge(&ibf_msg.ibf, ibf_msg.seed);
-                            let (edge_hashes, unknown_edges_count) = ibf.try_recover();
+                            edges_for_peer.extend_from_slice(known_edges.as_slice());
 
-                            let (known, unknown_edges) =
-                                self.routing_table.split_edges_for_peer(&peer_id, &edge_hashes);
-                            // combine
-
-                            edges_for_peer.extend_from_slice(known.as_slice());
-
-                            // get result
-
+                            // Prepare message
                             let ibf_msg = if unknown_edges_count == 0 {
                                 RoutingSyncV2 {
                                     known_edges: self.routing_table.get_edges_len(),
@@ -1723,7 +1721,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                     request_all_edges: false,
                                     seed: ibf_msg.seed,
                                     edges: edges_for_peer,
-                                    requested_edges: unknown_edges,
+                                    requested_edges: unknown_edge_hashes,
                                     done: true,
                                 }
                             } else {
@@ -1735,12 +1733,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                         request_all_edges: true,
                                         seed: ibf_msg.seed,
                                         edges: self.routing_table.get_edges(),
-                                        requested_edges: unknown_edges,
+                                        requested_edges: unknown_edge_hashes,
                                         done: false,
                                     }
                                 } else {
-                                    let ibf_vec =
-                                        ibf_set.lock().unwrap().get_ibf_vec(MIN_IBF_LEVEL as usize);
+                                    let ibf_vec = ibf_set
+                                        .lock()
+                                        .unwrap()
+                                        .get_ibf_vec(ibf_msg.ibf_level as usize + 1);
                                     RoutingSyncV2 {
                                         known_edges: self.routing_table.get_edges_len(),
                                         ibf_level: ibf_msg.ibf_level + 1,
@@ -1748,7 +1748,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                         request_all_edges: false,
                                         seed: ibf_msg.seed,
                                         edges: edges_for_peer,
-                                        requested_edges: unknown_edges,
+                                        requested_edges: unknown_edge_hashes,
                                         done: false,
                                     }
                                 }

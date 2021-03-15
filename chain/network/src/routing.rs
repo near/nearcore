@@ -24,6 +24,7 @@ use near_store::{
     StoreUpdate,
 };
 
+use crate::ibf::IbfElem;
 use crate::ibf_peer_set::{IbfPeerSet, SimpleEdge};
 use crate::ibf_set::IbfSet;
 use crate::metrics;
@@ -352,6 +353,24 @@ impl RoutingTable {
             component_nonce,
             peer_ibf_set: Default::default(),
         }
+    }
+
+    pub fn exchange_routing_tables_using_ibf(
+        &self,
+        peer_id: &PeerId,
+        ibf_set: Arc<Mutex<IbfSet<SimpleEdge>>>,
+        ibf_level: usize,
+        ibf_vec: &Vec<IbfElem>,
+        seed: u64,
+    ) -> (Vec<Edge>, Vec<u64>, u64) {
+        let mut ibf = ibf_set.lock().unwrap().get_ibf(ibf_level as usize);
+
+        ibf.merge(ibf_vec, seed);
+        let (edge_hashes, unknown_edges_count) = ibf.try_recover();
+
+        let (known, unknown_edges) = self.split_edges_for_peer(&peer_id, &edge_hashes);
+
+        (known, unknown_edges, unknown_edges_count)
     }
 
     pub fn split_edges_for_peer(
