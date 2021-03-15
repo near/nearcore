@@ -12,7 +12,7 @@ pub const MAX_IBF_LEVEL: u64 = 17;
 #[derive(Default)]
 pub struct IbfSet<T: Hash + Clone> {
     seed: Option<u64>,
-    ibf: Vec<Ibf<DefaultHasher>>,
+    ibf: Vec<Ibf>,
     h2e: HashMap<u64, SlotMapId>,
     hasher: DefaultHasher,
     pd: PhantomData<T>,
@@ -26,7 +26,7 @@ where
         self.ibf[k - MIN_IBF_LEVEL as usize].data.clone()
     }
 
-    pub fn get_ibf(&self, k: usize) -> Ibf<DefaultHasher> {
+    pub fn get_ibf(&self, k: usize) -> Ibf {
         self.ibf[k - MIN_IBF_LEVEL as usize].clone()
     }
 

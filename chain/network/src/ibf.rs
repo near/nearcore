@@ -2,6 +2,7 @@ use std::cmp::{max, min};
 use std::hash::Hasher;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use std::collections::hash_map::DefaultHasher;
 
 // const NUM_HASHES: usize = 3;
 
@@ -23,24 +24,25 @@ impl IbfElem {
     }
 }
 
+type MyHasher = DefaultHasher;
+
 #[derive(Clone)]
-//pub struct Ibf<H: Hasher + Default + Clone = AHasher> {
-pub struct Ibf<H: Hasher + Default + Clone> {
+pub struct Ibf {
     pub capacity: usize,
     k: i32,
     pub data: Vec<IbfElem>,
-    pub hasher: H,
+    pub hasher: MyHasher,
     seed: u64,
 }
 
-impl<H: Hasher + Default + Clone> Ibf<H> {
+impl Ibf {
     pub fn new(capacity: usize, seed: u64) -> Self {
         let mut k = 0;
         while (1 << k) + 2 < capacity {
             k += 1;
         }
 
-        let mut hasher = H::default();
+        let mut hasher = MyHasher::default();
         hasher.write_u64(seed);
         let new_capacity = (1 << k) + 2;
         Self {
@@ -70,7 +72,7 @@ impl<H: Hasher + Default + Clone> Ibf<H> {
         self.adjust_value(elem);
     }
 
-    pub fn merge(&mut self, rhs: &Ibf<H>) {
+    pub fn merge(&mut self, rhs: &Ibf) {
         assert_eq!(self.capacity, rhs.capacity);
         assert_eq!(self.seed, rhs.seed);
         for i in 0..self.capacity {
@@ -78,6 +80,7 @@ impl<H: Hasher + Default + Clone> Ibf<H> {
         }
     }
 
+    #[cfg(test)]
     pub fn recover(&mut self) -> Result<Vec<u64>, &'static str> {
         let (result, difference) = self.try_recover();
 
@@ -164,9 +167,8 @@ impl<H: Hasher + Default + Clone> Ibf<H> {
 #[cfg(test)]
 mod tests {
     use crate::ibf::Ibf;
-    use std::collections::hash_map::DefaultHasher;
 
-    fn create_blt(elements: impl IntoIterator<Item = u64>, capacity: usize) -> Ibf<DefaultHasher> {
+    fn create_blt(elements: impl IntoIterator<Item = u64>, capacity: usize) -> Ibf {
         let mut sketch = Ibf::new(capacity, 0);
         for item in elements.into_iter() {
             sketch.add(item);
