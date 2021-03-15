@@ -32,7 +32,7 @@ pub struct Ibf {
     k: i32,
     pub data: Vec<IbfElem>,
     pub hasher: MyHasher,
-    seed: u64,
+    pub seed: u64,
 }
 
 impl Ibf {
@@ -72,11 +72,11 @@ impl Ibf {
         self.adjust_value(elem);
     }
 
-    pub fn merge(&mut self, rhs: &Ibf) {
-        assert_eq!(self.capacity, rhs.capacity);
-        assert_eq!(self.seed, rhs.seed);
+    pub fn merge(&mut self, rhs_data: &Vec<IbfElem>, rhs_seed: u64) {
+        assert_eq!(self.data.len(), rhs_data.len());
+        assert_eq!(self.seed, rhs_seed);
         for i in 0..self.capacity {
-            self.data[i].merge(&rhs.data[i]);
+            self.data[i].merge(&rhs_data[i]);
         }
     }
 

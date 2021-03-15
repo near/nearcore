@@ -122,7 +122,7 @@ mod test {
         for i in 10..=17 {
             let mut ibf1 = a.get_ibf(i);
             let ibf2 = b.get_ibf(i);
-            ibf1.merge(&ibf2);
+            ibf1.merge(&ibf2.data, ibf2.seed);
             let (mut res, diff) = ibf1.try_recover();
             assert_eq!(0, diff);
             assert_eq!(200 - 10, res.len());

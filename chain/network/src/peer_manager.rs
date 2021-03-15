@@ -1704,11 +1704,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             let mut ibf =
                                 ibf_set.lock().unwrap().get_ibf(ibf_msg.ibf_level as usize);
 
-                            // TODO rewrite without using 2 clones
-                            let mut ibf2 = ibf.clone();
-                            ibf2.data = ibf_msg.ibf.clone();
-
-                            ibf.merge(&ibf2);
+                            ibf.merge(&ibf_msg.ibf, ibf_msg.seed);
                             let (edge_hashes, unknown_edges_count) = ibf.try_recover();
 
                             let (known, unknown_edges) =
