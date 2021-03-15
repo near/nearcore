@@ -7,13 +7,6 @@ use crate::routing::Edge;
 
 pub type SlotMapId = u64;
 
-/*
-#[derive(Default, Clone, Copy, Hash, PartialEq, Eq, Debug)]
-pub struct SlotMapId {
-    pub id: u64,
-}
- */
-
 #[derive(Default)]
 struct SlotMap {
     id: u64,
