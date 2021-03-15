@@ -23,14 +23,18 @@ struct SlotMap {
 
 #[allow(dead_code)]
 impl SlotMap {
-    fn insert(&mut self, edge: &SimpleEdge) -> SlotMapId {
+    fn insert(&mut self, edge: &SimpleEdge) -> Option<SlotMapId> {
+        if let Some(_) = self.e2id.get(edge) {
+            return None;
+        }
+
         let new_id = self.id as SlotMapId;
         self.id += 1;
 
         self.e2id.insert(edge.clone(), new_id);
         self.id2e.insert(new_id, edge.clone());
 
-        new_id
+        Some(new_id)
     }
 
     fn get(&self, edge: &SimpleEdge) -> Option<SlotMapId> {
@@ -96,20 +100,24 @@ impl IbfPeerSet {
         self.peers.remove(peer_id);
     }
 
-    pub fn add_edge(&mut self, edge: &SimpleEdge) {
+    pub fn add_edge(&mut self, edge: &SimpleEdge) -> Option<SlotMapId> {
         let id = self.slot_map.insert(edge);
-
-        for (_, val) in self.peers.iter() {
-            val.lock().unwrap().add_edge(edge, id);
+        if let Some(id) = id {
+            for (_, val) in self.peers.iter() {
+                val.lock().unwrap().add_edge(edge, id);
+            }
         }
+        id
     }
 
-    pub fn remove_edge(&mut self, edge: &SimpleEdge) {
+    pub fn remove_edge(&mut self, edge: &SimpleEdge) -> bool {
         if let Some(_id) = self.slot_map.pop(edge) {
             for (_, val) in self.peers.iter() {
                 val.lock().unwrap().remove_edge(&edge);
             }
+            return true;
         }
+        false
     }
 }
 
@@ -134,9 +142,12 @@ mod test {
         let e2 = SimpleEdge { peer0: p1.clone(), peer1: p2.clone(), nonce: 3 };
 
         let mut sm = SlotMap::default();
-        assert_eq!(0 as SlotMapId, sm.insert(&e0));
-        assert_eq!(1 as SlotMapId, sm.insert(&e1));
-        assert_eq!(2 as SlotMapId, sm.insert(&e2));
+        assert_eq!(0 as SlotMapId, sm.insert(&e0).unwrap());
+
+        assert!(sm.insert(&e0).is_none());
+
+        assert_eq!(1 as SlotMapId, sm.insert(&e1).unwrap());
+        assert_eq!(2 as SlotMapId, sm.insert(&e2).unwrap());
 
         assert_eq!(Some(2 as SlotMapId), sm.pop(&e2));
         assert_eq!(None, sm.pop(&e2));
@@ -152,7 +163,7 @@ mod test {
         assert_eq!(None, sm.get(&e1));
         assert_eq!(None, sm.pop(&e1));
 
-        assert_eq!(3 as SlotMapId, sm.insert(&e2));
+        assert_eq!(3 as SlotMapId, sm.insert(&e2).unwrap());
         assert_eq!(Some(3 as SlotMapId), sm.pop(&e2));
 
         assert_eq!(None, sm.get_by_id(&(1 as SlotMapId)));
@@ -173,5 +184,14 @@ mod test {
         assert!(ips.get(&peer_id2).is_none());
         ips.remove_peer(&peer_id);
         assert!(ips.get(&peer_id).is_none());
+
+        let e = SimpleEdge { peer0: peer_id, peer1: peer_id2, nonce: 111 };
+        assert!(ips.add_edge(&e).is_some());
+        assert!(ips.add_edge(&e).is_none());
+
+        assert!(ips.remove_edge(&e));
+        assert!(!ips.remove_edge(&e));
+
+        assert!(ips.add_edge(&e).is_some());
     }
 }
