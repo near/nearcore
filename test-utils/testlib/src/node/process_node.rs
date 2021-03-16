@@ -47,6 +47,7 @@ impl Node for ProcessNode {
     fn start(&mut self) {
         match self.state {
             ProcessNodeState::Stopped => {
+                std::env::set_var("ADVERSARY_CONSENT", "1");
                 let child =
                     self.get_start_node_command().spawn().expect("start node command failed");
                 self.state = ProcessNodeState::Running(child);
@@ -150,7 +151,7 @@ impl ProcessNode {
             ]);
             command
         } else {
-            let mut command = Command::new("normal_target/debug/neard");
+            let mut command = Command::new("target/debug/neard");
             command.args(&["--home", &self.work_dir, "run"]);
             command
         }
