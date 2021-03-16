@@ -21,6 +21,7 @@ pub struct VMConfig {
 
 /// Describes limits for VM and Runtime.
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[serde(default)]
 pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
