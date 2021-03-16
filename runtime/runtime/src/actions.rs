@@ -17,7 +17,7 @@ use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION, PROTOCOL_FEATURES_TO_VERSION_MAPPING,
 };
 use near_runtime_utils::{
     is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
@@ -35,7 +35,6 @@ use near_vm_logic::{VMContext, VMOutcome};
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
-use crate::near_primitives::version::STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING;
 use crate::{ActionResult, ApplyState};
 
 /// Runs given function call with given context / apply state.
@@ -449,7 +448,7 @@ pub(crate) fn action_delete_account(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     if current_protocol_version
-        >= STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
+        >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
     {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage;
@@ -458,7 +457,7 @@ pub(crate) fn action_delete_account(
             // account storage usage should be larger than code size
             let code_len = code.code.len() as u64;
             debug_assert!(account_storage_usage > code_len);
-            account_storage_usage -= code_len;
+            account_storage_usage = account_storage_usage.saturating_sub(code_len);
         }
         if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
             result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
@@ -815,7 +814,7 @@ mod tests {
             &mut action_result,
             account_id,
             &DeleteAccountAction { beneficiary_id: "bob".to_string() },
-            STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction],
+            PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction],
         );
         assert!(res.is_ok());
         action_result

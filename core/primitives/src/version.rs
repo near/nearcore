@@ -106,7 +106,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 pub const PROTOCOL_VERSION: ProtocolVersion = 106;
 
 lazy_static! {
-    pub static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
+    static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
         vec![
             #[cfg(feature = "protocol_feature_lower_storage_cost")]
             (ProtocolFeature::LowerStorageCost, 42),
