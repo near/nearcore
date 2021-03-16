@@ -556,7 +556,7 @@ impl EpochInfo {
     pub fn get_validator_by_account(&self, account_id: &AccountId) -> Option<ValidatorStake> {
         match self {
             Self::V1(v1) => v1.validator_to_index.get(account_id).map(|validator_id| {
-                ValidatorStake::from_v1(v1.validators[*validator_id as usize].clone())
+                ValidatorStake::V1(v1.validators[*validator_id as usize].clone())
             }),
             Self::V2(v2) => v2
                 .validator_to_index
@@ -567,7 +567,7 @@ impl EpochInfo {
 
     pub fn get_validator(&self, validator_id: u64) -> ValidatorStake {
         match self {
-            Self::V1(v1) => ValidatorStake::from_v1(v1.validators[validator_id as usize].clone()),
+            Self::V1(v1) => ValidatorStake::V1(v1.validators[validator_id as usize].clone()),
             Self::V2(v2) => v2.validators[validator_id as usize].clone(),
         }
     }
@@ -582,7 +582,7 @@ impl EpochInfo {
     pub fn get_fisherman_by_account(&self, account_id: &AccountId) -> Option<ValidatorStake> {
         match self {
             Self::V1(v1) => v1.fishermen_to_index.get(account_id).map(|validator_id| {
-                ValidatorStake::from_v1(v1.fishermen[*validator_id as usize].clone())
+                ValidatorStake::V1(v1.fishermen[*validator_id as usize].clone())
             }),
             Self::V2(v2) => v2
                 .fishermen_to_index
@@ -593,7 +593,7 @@ impl EpochInfo {
 
     pub fn get_fisherman(&self, fisherman_id: u64) -> ValidatorStake {
         match self {
-            Self::V1(v1) => ValidatorStake::from_v1(v1.fishermen[fisherman_id as usize].clone()),
+            Self::V1(v1) => ValidatorStake::V1(v1.fishermen[fisherman_id as usize].clone()),
             Self::V2(v2) => v2.fishermen[fisherman_id as usize].clone(),
         }
     }

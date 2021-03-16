@@ -185,7 +185,7 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                     .inner
                     .validator_proposals
                     .iter()
-                    .map(|v| ValidatorStake::from_v1(v.clone()))
+                    .map(|v| ValidatorStake::V1(v.clone()))
                     .collect(),
                 transactions,
                 &receipts,

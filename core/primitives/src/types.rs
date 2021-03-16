@@ -431,7 +431,7 @@ impl<'a> Iterator for ValidatorStakeIter<'a> {
         if self.curr_index < self.len {
             let item = match self.collection {
                 ValidatorStakeIterSource::V1(collection) => {
-                    ValidatorStake::from_v1(collection[self.curr_index].clone())
+                    ValidatorStake::V1(collection[self.curr_index].clone())
                 }
                 ValidatorStakeIterSource::V2(collection) => collection[self.curr_index].clone(),
             };
@@ -465,10 +465,6 @@ pub struct ApprovalStake {
 impl ValidatorStake {
     pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
         Self::V1(ValidatorStakeV1 { account_id, public_key, stake })
-    }
-
-    pub fn from_v1(v1: ValidatorStakeV1) -> Self {
-        Self::V1(v1)
     }
 
     pub fn into_v1(self) -> ValidatorStakeV1 {
