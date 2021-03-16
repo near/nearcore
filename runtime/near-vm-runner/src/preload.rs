@@ -30,7 +30,6 @@ struct CallInner {
 }
 pub struct ContractCallPrepareRequest {
     pub code: Arc<ContractCode>,
-    pub vm_config: VMConfig,
     pub cache: Option<Arc<dyn CompiledContractCache>>,
 }
 
@@ -53,6 +52,7 @@ impl ContractCaller {
         &mut self,
         requests: Vec<ContractCallPrepareRequest>,
         vm_kind: VMKind,
+        vm_config: VMConfig,
     ) -> Vec<ContractCallPrepareResult> {
         let mut result: Vec<ContractCallPrepareResult> = Vec::new();
         for request in requests {
@@ -61,7 +61,8 @@ impl ContractCaller {
             self.prepared.push(CallInner { rx });
             self.pool.execute({
                 let tx = tx.clone();
-                move || prepare_in_thread(request, vm_kind, tx)
+                let vm_config = vm_config.clone();
+                move || prepare_in_thread(request, vm_kind, vm_config, tx)
             });
             result.push(ContractCallPrepareResult { handle: index });
         }
@@ -123,12 +124,12 @@ impl Drop for ContractCaller {
     }
 }
 
-fn prepare_in_thread(request: ContractCallPrepareRequest, vm_kind: VMKind, tx: Sender<VMCallData>) {
+fn prepare_in_thread(request: ContractCallPrepareRequest, vm_kind: VMKind, vm_config: VMConfig, tx: Sender<VMCallData>) {
     let cache = request.cache.as_deref();
     let result = match vm_kind {
         VMKind::Wasmer0 => cache::wasmer0_cache::compile_module_cached_wasmer0(
             &request.code,
-            &request.vm_config,
+            &vm_config,
             cache,
         )
         .map(VMModule::Wasmer0),
@@ -136,7 +137,7 @@ fn prepare_in_thread(request: ContractCallPrepareRequest, vm_kind: VMKind, tx: S
             let store = default_wasmer1_store();
             cache::wasmer1_cache::compile_module_cached_wasmer1(
                 &request.code,
-                &request.vm_config,
+                &vm_config,
                 cache,
                 &store,
             )

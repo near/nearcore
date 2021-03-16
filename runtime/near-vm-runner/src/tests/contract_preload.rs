@@ -114,23 +114,21 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
         for _ in 0..repeat {
             requests.push(ContractCallPrepareRequest {
                 code: Arc::clone(&code1),
-                vm_config: vm_config.clone(),
                 cache: cache.clone(),
             });
             requests.push(ContractCallPrepareRequest {
                 code: Arc::clone(&code2),
-                vm_config: vm_config.clone(),
                 cache: cache.clone(),
             });
         }
-        let calls = caller.preload(requests, vm_kind);
+        let calls = caller.preload(requests, vm_kind, vm_config.clone());
         for prepared in &calls {
             let result = caller.run_preloaded(
                 prepared,
                 method_name1,
                 &mut fake_external,
                 context.clone(),
-                &vm_config,
+                &vm_config.clone(),
                 &fees,
                 &promise_results,
                 ProtocolVersion::MAX,
