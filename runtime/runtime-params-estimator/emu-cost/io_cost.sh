@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 log=./io_log.txt
 base=.
