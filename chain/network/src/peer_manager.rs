@@ -229,13 +229,32 @@ impl PeerManagerActor {
         })
     }
 
-    fn broadcast_accounts_and_edges(
+    fn broadcast_accounts(
         &mut self,
         ctx: &mut Context<PeerManagerActor>,
         accounts: Vec<AnnounceAccount>,
     ) {
+        if !accounts.is_empty() {
+            debug!(target: "network", "{:?} Received new accounts: {:?}", self.config.account_id, accounts);
+        }
+        for account in accounts.iter() {
+            self.routing_table.add_account(account.clone());
+        }
+
+        let new_data = SyncData { edges: Default::default(), accounts };
+
+        if !new_data.is_empty() {
+            self.broadcast_message(
+                ctx,
+                SendMessage { message: PeerMessage::RoutingTableSync(new_data) },
+            )
+        };
+    }
+
+    fn broadcast_edges(&mut self, ctx: &mut Context<PeerManagerActor>) {
         let me = self.peer_id.clone();
 
+        let start = Instant::now();
         let mut new_edges = Vec::new();
         while let Some(edge) = self.routing_table_exchange_helper.edges_to_add_receiver.pop() {
             if let Some(cur_edge) =
@@ -271,17 +290,12 @@ impl PeerManagerActor {
                 }
             }
             new_edges.push(edge);
+            if start.elapsed() >= Duration::from_millis(50) {
+                break;
+            }
         }
 
-        // Add accounts to the routing table.
-        if !accounts.is_empty() {
-            debug!(target: "network", "{:?} Received new accounts: {:?}", self.config.account_id, accounts);
-        }
-        for account in accounts.iter() {
-            self.routing_table.add_account(account.clone());
-        }
-
-        let new_data = SyncData { edges: new_edges, accounts };
+        let new_data = SyncData { edges: new_edges, accounts: Default::default() };
 
         if !new_data.is_empty() {
             self.broadcast_message(
@@ -296,10 +310,10 @@ impl PeerManagerActor {
                 ctx,
                 file!(),
                 line!(),
-                Duration::from_secs(1),
+                Duration::from_millis(50),
                 move |act, ctx| {
                     act.scheduled_broadcast_edges = false;
-                    act.broadcast_accounts_and_edges(ctx, Default::default());
+                    act.broadcast_edges(ctx);
                 },
             );
         }
@@ -1321,6 +1335,8 @@ impl Actor for PeerManagerActor {
         // Periodically ping all peers to determine latencies between pair of peers.
         #[cfg(feature = "metric_recorder")]
         self.ping_all_peers(ctx);
+
+        self.broadcast_edges(ctx);
     }
 
     /// Try to gracefully disconnect from active peers.
@@ -1598,7 +1614,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 act.try_ban_peer(ctx, &peer_id_clone, ban_reason);
                             }
                             Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => {
-                                act.broadcast_accounts_and_edges(ctx, accounts);
+                                act.broadcast_accounts(ctx, accounts);
                             }
                             _ => {
                                 debug!(target: "network", "Received invalid account confirmation from client.");
@@ -1624,8 +1640,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             Ok(true) => {}
                             Err(err) => warn!(target: "network", "error validating edges: {}", err),
                         }
-                        act.broadcast_accounts_and_edges(ctx, Default::default());
-
                         actix::fut::ready(())
                     })
                     .spawn(ctx);
