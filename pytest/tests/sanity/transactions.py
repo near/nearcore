@@ -15,13 +15,22 @@ from transaction import sign_payment_tx
 TIMEOUT = 240
 
 nodes = start_cluster(
-    4, 0, 4, None,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 70]], {})
+    num_nodes=4,
+    num_observers=0,
+    num_shards=1,
+    config=None,
+    genesis_config_changes=[
+        ["min_gas_price", 0],
+        ["max_inflation_rate", [0, 1]],
+        ["epoch_length", 10],
+        ["block_producer_kickout_threshold", 70]
+    ],
+    client_config_changes={}
+)
 
 started = time.time()
 
-act_to_val = [3, 2, 0, 3]
+act_to_val = [0, 0, 0, 0]
 
 ctx = TxContext(act_to_val, nodes)
 
