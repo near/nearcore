@@ -176,7 +176,6 @@ pub struct PeerManagerActor {
     pending_incoming_connections_counter: Arc<AtomicUsize>,
     peer_counter: Arc<AtomicUsize>,
     scheduled_routing_table_update: bool,
-    scheduled_broadcast_edges: bool,
 }
 
 impl PeerManagerActor {
@@ -225,7 +224,6 @@ impl PeerManagerActor {
             pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
             peer_counter: Arc::new(AtomicUsize::new(0)),
             scheduled_routing_table_update: false,
-            scheduled_broadcast_edges: false,
         })
     }
 
@@ -304,19 +302,15 @@ impl PeerManagerActor {
             )
         };
 
-        if !self.scheduled_broadcast_edges {
-            self.scheduled_broadcast_edges = true;
-            near_performance_metrics::actix::run_later(
-                ctx,
-                file!(),
-                line!(),
-                Duration::from_millis(50),
-                move |act, ctx| {
-                    act.scheduled_broadcast_edges = false;
-                    act.broadcast_edges(ctx);
-                },
-            );
-        }
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            Duration::from_millis(50),
+            move |act, ctx| {
+                act.broadcast_edges(ctx);
+            },
+        );
     }
 
     fn num_active_peers(&self) -> usize {
