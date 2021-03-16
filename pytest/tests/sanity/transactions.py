@@ -16,8 +16,8 @@ TIMEOUT = 240
 
 nodes = start_cluster(
     num_nodes=4,
-    num_observers=0,
-    num_shards=1,
+    num_observers=1,
+    num_shards=4,
     config=None,
     genesis_config_changes=[
         ["min_gas_price", 0],
@@ -25,12 +25,12 @@ nodes = start_cluster(
         ["epoch_length", 10],
         ["block_producer_kickout_threshold", 70]
     ],
-    client_config_changes={}
+    client_config_changes={ 4: {"tracked_shards": [0, 1, 2, 3]}}
 )
 
 started = time.time()
 
-act_to_val = [0, 0, 0, 0]
+act_to_val = [4, 4, 4, 4, 4]
 
 ctx = TxContext(act_to_val, nodes)
 
@@ -50,7 +50,7 @@ while True:
         if height >= 1:
             tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
                                  base58.b58decode(hash_.encode('utf8')))
-            nodes[3].send_tx(tx)
+            nodes[4].send_tx(tx)
             ctx.expected_balances[0] -= 100
             ctx.expected_balances[1] += 100
             print('Sent tx at height %s' % height)
