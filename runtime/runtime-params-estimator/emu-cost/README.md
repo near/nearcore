@@ -109,7 +109,7 @@ To execute commands in already running container first find its id with:
     > docker ps
 
     CONTAINER ID        IMAGE               COMMAND                  CREATED             STATUS              PORTS                  NAMES
-    e9dcb52cc91b        ubuntu-emu          "/bin/bash"   2 hours ago         Up 2 hours          0.0.0.0:5000->22/tcp   reverent_carson
+    e9dcb52cc91b        ubuntu-emu         "/usr/bin/env bash"   	2 hours ago         Up 2 hours          0.0.0.0:5000->22/tcp   reverent_carson
 
 and the use container ID for `docker exec` command, like:
 

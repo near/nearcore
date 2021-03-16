@@ -570,25 +570,22 @@ impl PeerManagerActor {
 
     /// Add an edge update to the routing table and return if it is a new edge update.
     fn process_edges(&mut self, ctx: &mut Context<Self>, edges: Vec<Edge>) -> bool {
-        let ProcessEdgeResult { new_edge, schedule_computation } =
-            self.routing_table.process_edges(edges);
+        let ProcessEdgeResult { new_edge } = self.routing_table.process_edges(edges);
 
         if !self.scheduled_routing_table_update {
-            if let Some(duration) = schedule_computation {
-                self.scheduled_routing_table_update = true;
-                near_performance_metrics::actix::run_later(
-                    ctx,
-                    file!(),
-                    line!(),
-                    duration,
-                    |act, _ctx| {
-                        act.scheduled_routing_table_update = false;
-                        act.routing_table.update();
-                        #[cfg(feature = "metric_recorder")]
-                        act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
-                    },
-                );
-            }
+            self.scheduled_routing_table_update = true;
+            near_performance_metrics::actix::run_later(
+                ctx,
+                file!(),
+                line!(),
+                Duration::from_millis(1000),
+                |act, _ctx| {
+                    act.scheduled_routing_table_update = false;
+                    act.routing_table.update();
+                    #[cfg(feature = "metric_recorder")]
+                    act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
+                },
+            );
         }
 
         new_edge

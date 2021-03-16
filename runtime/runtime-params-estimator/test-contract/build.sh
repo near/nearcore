@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -ex
 
 function filesize
@@ -18,6 +18,8 @@ function filesize
 
   exit 1
 }
+
+rustup target add wasm32-unknown-unknown
 
 # First, measure the size of the file without payload.
 rm -rf target
