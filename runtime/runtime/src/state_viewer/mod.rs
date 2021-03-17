@@ -16,6 +16,7 @@ use near_primitives::{
 use near_runtime_utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_logic::ReturnData;
+use near_vm_runner::WasmMachine;
 use std::{str, sync::Arc, time::Instant};
 
 use crate::{actions::execute_function_call, ext::RuntimeExt};
@@ -216,8 +217,10 @@ impl TrieViewer {
             gas: config.wasm_config.limit_config.max_gas_burnt_view,
             deposit: 0,
         };
+        let mut machine = WasmMachine::new();
         let (outcome, err) = execute_function_call(
             &apply_state,
+            &mut machine,
             &mut runtime_ext,
             &mut account,
             &originator_id,

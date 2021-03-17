@@ -40,6 +40,7 @@ use near_store::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
+use near_vm_runner::WasmMachine;
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
@@ -272,6 +273,7 @@ impl Runtime {
         action: &Action,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
+        machine: &mut WasmMachine,
         account: &mut Option<Account>,
         actor_id: &mut AccountId,
         receipt: &Receipt,
@@ -339,6 +341,7 @@ impl Runtime {
                 action_function_call(
                     state_update,
                     apply_state,
+                    machine,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     receipt,
                     action_receipt,
@@ -438,6 +441,7 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
+        machine: &mut WasmMachine,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
@@ -497,6 +501,7 @@ impl Runtime {
                 action,
                 state_update,
                 apply_state,
+                machine,
                 &mut account,
                 &mut actor_id,
                 receipt,
@@ -790,6 +795,7 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
+        machine: &mut WasmMachine,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
@@ -858,6 +864,7 @@ impl Runtime {
                             .apply_action_receipt(
                                 state_update,
                                 apply_state,
+                                machine,
                                 &ready_receipt,
                                 outgoing_receipts,
                                 validator_proposals,
@@ -912,6 +919,7 @@ impl Runtime {
                         .apply_action_receipt(
                             state_update,
                             apply_state,
+                            machine,
                             receipt,
                             outgoing_receipts,
                             validator_proposals,
@@ -1127,13 +1135,17 @@ impl Runtime {
             get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
         let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
 
+        let mut machine = WasmMachine::new();
+
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
+                                   machine: &mut WasmMachine,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
             self.process_receipt(
                 state_update,
                 apply_state,
+                machine,
                 receipt,
                 &mut outgoing_receipts,
                 &mut validator_proposals,
@@ -1159,7 +1171,7 @@ impl Runtime {
             if total_gas_burnt < gas_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+                process_receipt(&receipt, &mut state_update, &mut machine, &mut total_gas_burnt)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
@@ -1191,7 +1203,7 @@ impl Runtime {
             state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
-            process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+            process_receipt(&receipt, &mut state_update, &mut machine, &mut total_gas_burnt)?;
         }
 
         // And then we process the new incoming receipts. These are receipts from other shards.
@@ -1201,7 +1213,7 @@ impl Runtime {
             validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt)
                 .map_err(RuntimeError::ReceiptValidationError)?;
             if total_gas_burnt < gas_limit {
-                process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+                process_receipt(&receipt, &mut state_update, &mut machine, &mut total_gas_burnt)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }

@@ -8,6 +8,8 @@ use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
 
+/// Runs a single contract
+///
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
 /// - injects gas counting into
@@ -45,6 +47,48 @@ pub fn run<'a>(
         cache,
         profile.clone(),
     )
+}
+
+/// Runs a batch of contracts.
+///
+/// Re-using the same `WasmMachine` is potentially more efficient than calling
+/// `run` repeatedly.
+pub struct WasmMachine {
+    _private: (),
+}
+
+impl WasmMachine {
+    pub fn new() -> WasmMachine {
+        WasmMachine { _private: () }
+    }
+
+    pub fn run(
+        &mut self,
+        code: &ContractCode,
+        method_name: &str,
+        ext: &mut dyn External,
+        context: VMContext,
+        vm_config: &VMConfig,
+        fees_config: &RuntimeFeesConfig,
+        promise_results: &[PromiseResult],
+        current_protocol_version: ProtocolVersion,
+        cache: Option<&dyn CompiledContractCache>,
+        profile: &ProfileData,
+    ) -> (Option<VMOutcome>, Option<VMError>) {
+        run_vm(
+            code,
+            method_name,
+            ext,
+            context,
+            vm_config,
+            fees_config,
+            promise_results,
+            VMKind::default(),
+            current_protocol_version,
+            cache,
+            profile.clone(),
+        )
+    }
 }
 
 pub fn run_vm(

@@ -32,6 +32,7 @@ use near_vm_errors::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_runner::WasmMachine;
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
@@ -42,6 +43,7 @@ use crate::{ActionResult, ApplyState};
 ///  - 0x1: EVM interpreter;
 pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
+    machine: &mut WasmMachine,
     runtime_ext: &mut RuntimeExt,
     account: &mut Account,
     predecessor_id: &AccountId,
@@ -128,7 +130,7 @@ pub(crate) fn execute_function_call(
             output_data_receivers,
         };
 
-        near_vm_runner::run(
+        machine.run(
             &code,
             &function_call.method_name,
             runtime_ext,
@@ -146,6 +148,7 @@ pub(crate) fn execute_function_call(
 pub(crate) fn action_function_call(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
+    machine: &mut WasmMachine,
     account: &mut Account,
     receipt: &Receipt,
     action_receipt: &ActionReceipt,
@@ -179,6 +182,7 @@ pub(crate) fn action_function_call(
     );
     let (outcome, err) = execute_function_call(
         apply_state,
+        machine,
         &mut runtime_ext,
         account,
         &receipt.predecessor_id,

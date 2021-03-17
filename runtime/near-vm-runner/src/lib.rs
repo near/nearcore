@@ -23,8 +23,9 @@ mod wasmer1_runner;
 pub use near_vm_errors::VMError;
 pub use preload::{ContractCallPrepareRequest, ContractCallPrepareResult, ContractCaller};
 pub use runner::compile_module;
-pub use runner::run;
 pub use runner::run_vm;
+pub use runner::run;
+pub use runner::WasmMachine;
 
 pub use near_vm_logic::with_ext_cost_counter;
 
