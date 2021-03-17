@@ -56,7 +56,7 @@ pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
 
 /// Changes ValidatorStake and related data structures to be versioned
-pub const VALIDATOR_STAKE_UPGRADE_VERSION: ProtocolVersion = 43;
+pub const VALIDATOR_STAKE_UPGRADE_VERSION: ProtocolVersion = 44;
 
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
@@ -97,21 +97,25 @@ pub enum ProtocolFeature {
     AltBn128,
     #[cfg(feature = "protocol_feature_access_key_nonce_range")]
     AccessKeyNonceRange,
+    DeleteActionRestriction,
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    AccountVersions,
 }
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 43;
+pub const PROTOCOL_VERSION: ProtocolVersion = 44;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 106;
+pub const PROTOCOL_VERSION: ProtocolVersion = 107;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
         vec![
             #[cfg(feature = "protocol_feature_lower_storage_cost")]
             (ProtocolFeature::LowerStorageCost, 42),
+            (ProtocolFeature::DeleteActionRestriction, 43),
         ]
         .into_iter()
         .collect();
@@ -145,6 +149,8 @@ lazy_static! {
             (ProtocolFeature::AltBn128, 105),
             #[cfg(feature = "protocol_feature_access_key_nonce_range")]
             (ProtocolFeature::AccessKeyNonceRange, 106),
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            (ProtocolFeature::AccountVersions, 107),
         ]
         .into_iter()
         .collect();
