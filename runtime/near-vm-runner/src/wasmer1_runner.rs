@@ -1,5 +1,6 @@
 use crate::errors::IntoVMError;
 use crate::{cache, imports};
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{profile::ProfileData, types::CompiledContractCache};
 use near_vm_errors::{
@@ -142,18 +143,17 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     }
 }
 
-pub fn run_wasmer1<'a>(
-    code_hash: &[u8],
-    code: &[u8],
+pub fn run_wasmer1(
+    code: &ContractCode,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
-    wasm_config: &'a VMConfig,
-    fees_config: &'a RuntimeFeesConfig,
-    promise_results: &'a [PromiseResult],
+    wasm_config: &VMConfig,
+    fees_config: &RuntimeFeesConfig,
+    promise_results: &[PromiseResult],
     profile: ProfileData,
     current_protocol_version: ProtocolVersion,
-    cache: Option<&'a dyn CompiledContractCache>,
+    cache: Option<&dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let _span = tracing::debug_span!("run_wasmer1").entered();
     // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
@@ -177,7 +177,6 @@ pub fn run_wasmer1<'a>(
 
     let store = default_wasmer1_store();
     let module = match cache::wasmer1_cache::compile_module_cached_wasmer1(
-        code_hash,
         &code,
         wasm_config,
         cache,
@@ -207,7 +206,7 @@ pub fn run_wasmer1<'a>(
         current_protocol_version,
     );
 
-    if logic.add_contract_compile_fee(code.len() as u64).is_err() {
+    if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
         return (
             Some(logic.outcome()),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(

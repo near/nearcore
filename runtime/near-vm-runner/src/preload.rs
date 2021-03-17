@@ -1,9 +1,9 @@
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
+use near_primitives::contract::ContractCode;
 use threadpool::ThreadPool;
 
-use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError;
@@ -28,12 +28,8 @@ struct VMCallData {
 struct CallInner {
     rx: Receiver<VMCallData>,
 }
-
-// TODO: consider using https://crates.io/crates/scoped_threadpool and not clone the data.
-#[derive(Clone)]
 pub struct ContractCallPrepareRequest {
-    pub code_hash: CryptoHash,
-    pub code: Vec<u8>,
+    pub code: Arc<ContractCode>,
     pub vm_config: VMConfig,
     pub cache: Option<Arc<dyn CompiledContractCache>>,
 }
@@ -64,7 +60,6 @@ impl ContractCaller {
             let (tx, rx) = channel();
             self.prepared.push(CallInner { rx });
             self.pool.execute({
-                let request = request.clone();
                 let tx = tx.clone();
                 move || prepare_in_thread(request, vm_kind, tx)
             });
@@ -132,8 +127,7 @@ fn prepare_in_thread(request: ContractCallPrepareRequest, vm_kind: VMKind, tx: S
     let cache = request.cache.as_deref();
     let result = match vm_kind {
         VMKind::Wasmer0 => cache::wasmer0_cache::compile_module_cached_wasmer0(
-            &(request.code_hash.0).0,
-            request.code.as_slice(),
+            &request.code,
             &request.vm_config,
             cache,
         )
@@ -141,8 +135,7 @@ fn prepare_in_thread(request: ContractCallPrepareRequest, vm_kind: VMKind, tx: S
         VMKind::Wasmer1 => {
             let store = default_wasmer1_store();
             cache::wasmer1_cache::compile_module_cached_wasmer1(
-                &(request.code_hash.0).0,
-                request.code.as_slice(),
+                &request.code,
                 &request.vm_config,
                 cache,
                 &store,
