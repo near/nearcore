@@ -111,6 +111,9 @@ def test_changes_with_new_account_with_access_key():
                                 })
 
     # Test happy-path
+    block_header = nodes[0].get_block(block_hash)['result']['header']
+    protocol_version = block_header['latest_protocol_version']
+    nonce = block_header['prev_height'] * 1000000 if protocol_version >= 106 else 0
     expected_response = {
         "block_hash":
             block_hash,
@@ -126,7 +129,7 @@ def test_changes_with_new_account_with_access_key():
                 "account_id": new_key.account_id,
                 "public_key": new_key.pk,
                 "access_key": {
-                    "nonce": 0,
+                    "nonce": nonce,
                     "permission": "FullAccess"
                 },
             }
@@ -155,11 +158,12 @@ def test_changes_with_new_account_with_access_key():
     # Step 3
     status = nodes[0].get_status()
     latest_block_hash = status['sync_info']['latest_block_hash']
+    nonce += 8
     delete_access_key_tx = transaction.sign_delete_access_key_tx(
         signer_key=new_key,
         target_account_id=new_key.account_id,
         key_for_deletion=new_key,
-        nonce=8,
+        nonce=nonce,
         block_hash=base58.b58decode(latest_block_hash.encode('utf8')))
     delete_access_key_response = nodes[1].send_tx_and_wait(
         delete_access_key_tx, 10)
@@ -248,7 +252,7 @@ def test_changes_with_new_account_with_access_key():
                 "account_id": new_key.account_id,
                 "public_key": new_key.pk,
                 "access_key": {
-                    "nonce": 8,
+                    "nonce": nonce,
                     "permission": "FullAccess"
                 },
             }
