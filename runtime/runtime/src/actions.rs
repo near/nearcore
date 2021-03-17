@@ -799,12 +799,7 @@ mod tests {
         storage_usage: u64,
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
-        let mut account = Some(Account {
-            amount: 100,
-            locked: 0,
-            code_hash: *code_hash,
-            storage_usage: storage_usage,
-        });
+        let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
