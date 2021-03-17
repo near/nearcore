@@ -387,6 +387,8 @@ pub enum ActionErrorKind {
     /// Error occurs when a `CreateAccount` action is called on hex-characters account of length 64.
     /// See implicit account creation NEP: https://github.com/nearprotocol/NEPs/pull/71
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
+    /// Delete account whose state is large is temporarily banned.
+    DeleteAccountWithLargeState { account_id: AccountId },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -674,7 +676,8 @@ impl Display for ActionErrorKind {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }
             ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(f, "Account {} tries to stake {} but minimum required stake is {}", account_id, stake, minimum_stake),
-            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id)
+            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id),
+            ActionErrorKind::DeleteAccountWithLargeState { account_id } => write!(f, "The state of account {} is too large and therefore cannot be deleted", account_id),
         }
     }
 }

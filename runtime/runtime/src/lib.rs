@@ -458,6 +458,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_account,
+                    apply_state.current_protocol_version,
                 )?;
             }
         };

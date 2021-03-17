@@ -90,11 +90,12 @@ pub enum ProtocolFeature {
     /// Decreases the storage cost of 1 byte by 10X.
     #[cfg(feature = "protocol_feature_lower_storage_cost")]
     LowerStorageCost,
+    DeleteActionRestriction,
 }
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 42;
+pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
@@ -105,6 +106,7 @@ lazy_static! {
         vec![
             #[cfg(feature = "protocol_feature_lower_storage_cost")]
             (ProtocolFeature::LowerStorageCost, 42),
+            (ProtocolFeature::DeleteActionRestriction, 43),
         ]
         .into_iter()
         .collect();
