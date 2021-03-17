@@ -23,7 +23,9 @@ mod test {
         // Set expensive state requirements and add alice more money.
         genesis.config.runtime_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
         match &mut genesis.records.as_mut()[0] {
-            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 10000,
+            StateRecord::Account { account, .. } => {
+                account.set_amount(TESTING_INIT_BALANCE * 10000)
+            }
             _ => {
                 panic!("the first record is expected to be alice account creation!");
             }

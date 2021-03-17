@@ -25,6 +25,7 @@ use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
 use crate::vm_estimator::{cost_per_op, cost_to_compile, load_and_compile};
+use crate::TestContract;
 
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::fees::{
@@ -33,22 +34,18 @@ use near_primitives::runtime::fees::{
 };
 use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 
-#[cfg(feature = "nightly_protocol_features")]
-lazy_static_include::lazy_static_include_bytes! {
-    SMALLEST_CODE => "test-contract/res/smallest_contract.wasm",
+static SMALLEST_CODE: TestContract = TestContract::new("test-contract/res/smallest_contract.wasm");
 
-    CODE_10K => "test-contract/res/nightly_small_contract.wasm",
-    CODE_100K => "test-contract/res/nightly_medium_contract.wasm",
-    CODE_1M => "test-contract/res/nightly_large_contract.wasm",
-}
-
-#[cfg(not(feature = "nightly_protocol_features"))]
-lazy_static_include::lazy_static_include_bytes! {
-    SMALLEST_CODE => "test-contract/res/smallest_contract.wasm",
-
-    CODE_10K => "test-contract/res/stable_small_contract.wasm",
-    CODE_100K => "test-contract/res/stable_medium_contract.wasm",
-    CODE_1M => "test-contract/res/stable_large_contract.wasm",
+cfg_if::cfg_if! {
+    if #[cfg(feature = "nightly_protocol_features")] {
+        static CODE_10K: TestContract = TestContract::new("test-contract/res/nightly_small_contract.wasm");
+        static CODE_100K: TestContract = TestContract::new("test-contract/res/nightly_medium_contract.wasm");
+        static CODE_1M: TestContract = TestContract::new("test-contract/res/nightly_large_contract.wasm");
+    } else {
+        static CODE_10K: TestContract = TestContract::new("test-contract/res/stable_small_contract.wasm");
+        static CODE_100K: TestContract = TestContract::new("test-contract/res/stable_medium_contract.wasm");
+        static CODE_1M: TestContract = TestContract::new("test-contract/res/stable_large_contract.wasm");
+    }
 }
 
 /// How much gas there is in a nanosecond worth of computation.
