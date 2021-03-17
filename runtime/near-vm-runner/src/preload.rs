@@ -52,17 +52,49 @@ pub struct ContractCallPrepareResult {
 
 pub struct ContractCaller {
     pool: ThreadPool,
-    vm_data_private: Option<VMDataPrivate>,
-    vm_data_shared: Option<VMDataShared>,
+    vm_kind: VMKind,
+    vm_config: VMConfig,
+    vm_data_private: VMDataPrivate,
+    vm_data_shared: VMDataShared,
     prepared: Vec<CallInner>,
 }
 
 impl ContractCaller {
-    pub fn new(num_threads: usize) -> ContractCaller {
+    pub fn new(num_threads: usize, vm_kind: VMKind, vm_config: VMConfig) -> ContractCaller {
+        let (shared, private) = match vm_kind {
+            VMKind::Wasmer0 => (
+                VMDataShared::Wasmer0,
+                VMDataPrivate::Wasmer0(
+                    WasmerMemory::new(
+                        vm_config.limit_config.initial_memory_pages,
+                        vm_config.limit_config.max_memory_pages,
+                    )
+                    .unwrap(),
+                ),
+            ),
+            VMKind::Wasmer1 => {
+                let store = default_wasmer1_store();
+                let store_clone = store.clone();
+                (
+                    VMDataShared::Wasmer1(store),
+                    VMDataPrivate::Wasmer1(
+                        Wasmer1Memory::new(
+                            &store_clone,
+                            vm_config.limit_config.initial_memory_pages,
+                            vm_config.limit_config.max_memory_pages,
+                        )
+                        .unwrap(),
+                    ),
+                )
+            }
+            _ => panic!("Not currently supported"),
+        };
         ContractCaller {
             pool: ThreadPool::new(num_threads),
-            vm_data_private: None,
-            vm_data_shared: None,
+            vm_kind,
+            vm_config,
+            vm_data_private: private,
+            vm_data_shared: shared,
             prepared: Vec::new(),
         }
     }
@@ -70,46 +102,17 @@ impl ContractCaller {
     pub fn preload(
         &mut self,
         requests: Vec<ContractCallPrepareRequest>,
-        vm_kind: VMKind,
-        vm_config: VMConfig,
     ) -> Vec<ContractCallPrepareResult> {
         let mut result: Vec<ContractCallPrepareResult> = Vec::new();
-        if self.vm_data_private.is_none() {
-            match vm_kind {
-                VMKind::Wasmer0 => {
-                    self.vm_data_shared = Some(VMDataShared::Wasmer0);
-                    self.vm_data_private = Some(VMDataPrivate::Wasmer0(
-                        WasmerMemory::new(
-                            vm_config.limit_config.initial_memory_pages,
-                            vm_config.limit_config.max_memory_pages,
-                        )
-                        .unwrap(),
-                    ));
-                }
-                VMKind::Wasmer1 => {
-                    let store = default_wasmer1_store();
-                    let store_clone = store.clone();
-                    self.vm_data_shared = Some(VMDataShared::Wasmer1(store));
-                    self.vm_data_private = Some(VMDataPrivate::Wasmer1(
-                        Wasmer1Memory::new(
-                            &store_clone,
-                            vm_config.limit_config.initial_memory_pages,
-                            vm_config.limit_config.max_memory_pages,
-                        )
-                        .unwrap(),
-                    ));
-                }
-                _ => panic!("Not currently supported"),
-            };
-        }
         for request in requests {
             let index = self.prepared.len();
             let (tx, rx) = channel();
             self.prepared.push(CallInner { rx });
             self.pool.execute({
                 let tx = tx.clone();
-                let vm_config = vm_config.clone();
-                let vm_data_shared = self.vm_data_shared.clone().unwrap().clone();
+                let vm_config = self.vm_config.clone();
+                let vm_data_shared = self.vm_data_shared.clone();
+                let vm_kind = self.vm_kind.clone();
                 move || prepare_in_thread(request, vm_kind, vm_config, vm_data_shared, tx)
             });
             result.push(ContractCallPrepareResult { handle: index });
@@ -123,7 +126,6 @@ impl ContractCaller {
         method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
-        vm_config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         current_protocol_version: ProtocolVersion,
@@ -138,15 +140,15 @@ impl ContractCaller {
                         match (&module, &mut self.vm_data_private, &self.vm_data_shared) {
                             (
                                 Wasmer0(module),
-                                Some(VMDataPrivate::Wasmer0(memory)),
-                                Some(VMDataShared::Wasmer0),
+                                VMDataPrivate::Wasmer0(memory),
+                                VMDataShared::Wasmer0,
                             ) => run_wasmer0_module(
                                 module.clone(),
                                 memory,
                                 method_name,
                                 ext,
                                 context,
-                                vm_config,
+                                &self.vm_config,
                                 fees_config,
                                 promise_results,
                                 profile,
@@ -154,8 +156,8 @@ impl ContractCaller {
                             ),
                             (
                                 Wasmer1(module),
-                                Some(VMDataPrivate::Wasmer1(memory)),
-                                Some(VMDataShared::Wasmer1(store)),
+                                VMDataPrivate::Wasmer1(memory),
+                                VMDataShared::Wasmer1(store),
                             ) => run_wasmer1_module(
                                 &module,
                                 store,
@@ -163,7 +165,7 @@ impl ContractCaller {
                                 method_name,
                                 ext,
                                 context,
-                                vm_config,
+                                &self.vm_config,
                                 fees_config,
                                 promise_results,
                                 profile,
