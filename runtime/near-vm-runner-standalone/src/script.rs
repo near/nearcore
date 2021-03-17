@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use near_primitives::contract::ContractCode;
 use near_primitives::types::CompiledContractCache;
 use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
@@ -17,7 +18,7 @@ pub struct Contract(usize);
 /// Constructs a "script" to execute several contracts in a row. This is mainly
 /// intended for VM benchmarking.
 pub struct Script {
-    contracts: Vec<Vec<u8>>,
+    contracts: Vec<ContractCode>,
     vm_kind: VMKind,
     vm_config: VMConfig,
     protocol_version: ProtocolVersion,
@@ -57,9 +58,9 @@ impl Default for Script {
 }
 
 impl Script {
-    pub(crate) fn contract(&mut self, contract: Vec<u8>) -> Contract {
+    pub(crate) fn contract(&mut self, code: Vec<u8>) -> Contract {
         let res = Contract(self.contracts.len());
-        self.contracts.push(contract);
+        self.contracts.push(ContractCode::new(code, None));
         res
     }
 
@@ -116,7 +117,6 @@ impl Script {
         for step in &self.steps {
             for _ in 0..step.repeat {
                 let res = run_vm(
-                    vec![],
                     &self.contracts[step.contract.0],
                     &step.method,
                     &mut external,
