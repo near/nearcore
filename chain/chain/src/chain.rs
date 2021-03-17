@@ -2972,7 +2972,7 @@ impl<'a> ChainUpdate<'a> {
             }
             block.check_validity()?;
             // TODO: enable after #3729 and #3863
-            // #[cfg(feature = "protocol_feature_block_header_v4")]
+            // #[cfg(feature = "protocol_feature_block_header_v3")]
             // self.verify_orphan_header_approvals(&block.header())?;
             return Err(ErrorKind::Orphan.into());
         }
@@ -3271,7 +3271,7 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 
-        #[cfg(feature = "protocol_feature_block_header_v4")]
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         if let Some(prev_height) = header.prev_height() {
             if prev_height != prev_header.height() {
                 return Err(ErrorKind::Other("Invalid prev_height".to_string()).into());
@@ -3345,7 +3345,7 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "protocol_feature_block_header_v4")]
+    #[cfg(feature = "protocol_feature_block_header_v3")]
     #[allow(dead_code)]
     fn verify_orphan_header_approvals(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let prev_hash = header.prev_hash();

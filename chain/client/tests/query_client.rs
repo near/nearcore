@@ -63,12 +63,12 @@ fn query_status_not_crash() {
                 PROTOCOL_VERSION,
                 &header,
                 block.header.height + 1,
-                #[cfg(feature = "protocol_feature_block_header_v4")]
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 (header.block_ordinal() + 1),
                 block.chunks.into_iter().map(|c| c.into()).collect(),
                 EpochId(block.header.next_epoch_id),
                 EpochId(block.header.hash),
-                #[cfg(feature = "protocol_feature_block_header_v4")]
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 None,
                 vec![],
                 Rational::from_integer(0),

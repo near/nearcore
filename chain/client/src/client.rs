@@ -35,7 +35,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
-#[cfg(feature = "protocol_feature_block_header_v4")]
+#[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::NumBlocks;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
@@ -432,7 +432,7 @@ impl Client {
         let block_merkle_root = block_merkle_tree.root();
         // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
         // The ordinal of the next Block will be equal to this amount plus one.
-        #[cfg(feature = "protocol_feature_block_header_v4")]
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
@@ -456,7 +456,7 @@ impl Client {
                 None
             };
 
-        #[cfg(feature = "protocol_feature_block_header_v4")]
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         let epoch_sync_data_hash =
             if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
                 Some(self.runtime_adapter.get_epoch_sync_data_hash(
@@ -477,12 +477,12 @@ impl Client {
             protocol_version,
             &prev_header,
             next_height,
-            #[cfg(feature = "protocol_feature_block_header_v4")]
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             block_ordinal,
             chunks,
             epoch_id,
             next_epoch_id,
-            #[cfg(feature = "protocol_feature_block_header_v4")]
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             epoch_sync_data_hash,
             approvals,
             gas_price_adjustment_rate,

@@ -45,11 +45,11 @@ use crate::store::ChainStoreAccess;
 use crate::types::{
     ApplyTransactionResult, BlockHeaderInfo, ChainGenesis, ValidatorInfoIdentifier,
 };
-#[cfg(feature = "protocol_feature_block_header_v4")]
+#[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use near_chain_configs::ProtocolConfig;
-#[cfg(feature = "protocol_feature_block_header_v4")]
+#[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::block_header::{Approval, ApprovalInner};
 
 #[derive(
@@ -355,7 +355,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
-    #[cfg(feature = "protocol_feature_block_header_v4")]
+    #[cfg(feature = "protocol_feature_block_header_v3")]
     fn verify_approvals_and_threshold_orphan(
         &self,
         epoch_id: &EpochId,

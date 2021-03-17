@@ -14,7 +14,7 @@ use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier};
 
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
-#[cfg(feature = "protocol_feature_block_header_v4")]
+#[cfg(feature = "protocol_feature_block_header_v3")]
 use near_chain::{Doomslug, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig};
 #[cfg(feature = "protocol_feature_evm")]
@@ -787,7 +787,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    #[cfg(feature = "protocol_feature_block_header_v4")]
+    #[cfg(feature = "protocol_feature_block_header_v3")]
     fn verify_approvals_and_threshold_orphan(
         &self,
         epoch_id: &EpochId,

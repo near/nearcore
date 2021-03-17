@@ -19,7 +19,7 @@ use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
     BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
-#[cfg(feature = "protocol_feature_block_header_v4")]
+#[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::contract::ContractCode;
@@ -339,7 +339,7 @@ impl From<Challenge> for ChallengeView {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockHeight,
-    #[cfg(feature = "protocol_feature_block_header_v4")]
+    #[cfg(feature = "protocol_feature_block_header_v3")]
     pub prev_height: Option<BlockHeight>,
     pub epoch_id: CryptoHash,
     pub next_epoch_id: CryptoHash,
@@ -361,7 +361,7 @@ pub struct BlockHeaderView {
     pub chunk_mask: Vec<bool>,
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
-    #[cfg(feature = "protocol_feature_block_header_v4")]
+    #[cfg(feature = "protocol_feature_block_header_v3")]
     pub block_ordinal: Option<NumBlocks>,
     /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
@@ -376,7 +376,7 @@ pub struct BlockHeaderView {
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
-    #[cfg(feature = "protocol_feature_block_header_v4")]
+    #[cfg(feature = "protocol_feature_block_header_v3")]
     pub epoch_sync_data_hash: Option<CryptoHash>,
     pub approvals: Vec<Option<Signature>>,
     pub signature: Signature,
@@ -387,7 +387,7 @@ impl From<BlockHeader> for BlockHeaderView {
     fn from(header: BlockHeader) -> Self {
         Self {
             height: header.height(),
-            #[cfg(feature = "protocol_feature_block_header_v4")]
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             prev_height: header.prev_height(),
             epoch_id: header.epoch_id().0,
             next_epoch_id: header.next_epoch_id().0,
@@ -405,7 +405,7 @@ impl From<BlockHeader> for BlockHeaderView {
             random_value: header.random_value().clone(),
             validator_proposals: header.validator_proposals().map(Into::into).collect(),
             chunk_mask: header.chunk_mask().to_vec(),
-            #[cfg(feature = "protocol_feature_block_header_v4")]
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             block_ordinal: if header.block_ordinal() != 0 {
                 Some(header.block_ordinal())
             } else {
@@ -420,7 +420,7 @@ impl From<BlockHeader> for BlockHeaderView {
             last_ds_final_block: header.last_ds_final_block().clone(),
             next_bp_hash: header.next_bp_hash().clone(),
             block_merkle_root: header.block_merkle_root().clone(),
-            #[cfg(feature = "protocol_feature_block_header_v4")]
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             epoch_sync_data_hash: header.epoch_sync_data_hash(),
             approvals: header.approvals().to_vec(),
             signature: header.signature().clone(),
@@ -441,9 +441,9 @@ impl From<BlockHeaderView> for BlockHeader {
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
         };
-        #[cfg(not(feature = "protocol_feature_block_header_v4"))]
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         let last_header_v3_version = None;
-        #[cfg(feature = "protocol_feature_block_header_v4")]
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         let last_header_v3_version = Some(
             crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
                 .get(&crate::version::ProtocolFeature::BlockHeaderV3)
@@ -542,9 +542,9 @@ impl From<BlockHeaderView> for BlockHeader {
             header.init();
             BlockHeader::BlockHeaderV3(Box::new(header))
         } else {
-            #[cfg(not(feature = "protocol_feature_block_header_v4"))]
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
             unreachable!();
-            #[cfg(feature = "protocol_feature_block_header_v4")]
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             {
                 let mut header = BlockHeaderV4 {
                     prev_hash: view.prev_hash,
@@ -636,7 +636,7 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
                 next_bp_hash: header.inner_lite.next_bp_hash,
                 block_merkle_root: header.inner_lite.block_merkle_root,
             },
-            #[cfg(feature = "protocol_feature_block_header_v4")]
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             BlockHeader::BlockHeaderV4(header) => BlockHeaderInnerLiteView {
                 height: header.inner_lite.height,
                 epoch_id: header.inner_lite.epoch_id.0,

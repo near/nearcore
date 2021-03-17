@@ -19,7 +19,7 @@ use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
 };
-#[cfg(feature = "protocol_feature_block_header_v4")]
+#[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::types::NumBlocks;
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
 use crate::utils::to_timestamp;
@@ -194,11 +194,11 @@ impl Block {
         protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
-        #[cfg(feature = "protocol_feature_block_header_v4")] block_ordinal: NumBlocks,
+        #[cfg(feature = "protocol_feature_block_header_v3")] block_ordinal: NumBlocks,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
-        #[cfg(feature = "protocol_feature_block_header_v4")] epoch_sync_data_hash: Option<
+        #[cfg(feature = "protocol_feature_block_header_v3")] epoch_sync_data_hash: Option<
             CryptoHash,
         >,
         approvals: Vec<Option<Signature>>,
@@ -257,7 +257,7 @@ impl Block {
                 prev.last_final_block()
             };
 
-        #[cfg(feature = "protocol_feature_block_header_v4")]
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         match prev {
             BlockHeader::BlockHeaderV1(_) => debug_assert_eq!(prev.block_ordinal(), 0),
             BlockHeader::BlockHeaderV2(_) => debug_assert_eq!(prev.block_ordinal(), 0),
@@ -281,7 +281,7 @@ impl Block {
             random_value,
             validator_proposals,
             chunk_mask,
-            #[cfg(feature = "protocol_feature_block_header_v4")]
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             block_ordinal,
             epoch_id,
             next_epoch_id,
@@ -291,12 +291,12 @@ impl Block {
             signer,
             last_final_block.clone(),
             last_ds_final_block.clone(),
-            #[cfg(feature = "protocol_feature_block_header_v4")]
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             epoch_sync_data_hash,
             approvals,
             next_bp_hash,
             block_merkle_root,
-            #[cfg(feature = "protocol_feature_block_header_v4")]
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             prev.height(),
         );
 
