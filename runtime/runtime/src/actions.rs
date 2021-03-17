@@ -583,8 +583,8 @@ pub(crate) fn check_actor_permissions(
         Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
-                    account_id: actor_id.clone(),
-                    actor_id: account_id.clone(),
+                    account_id: account_id.clone(),
+                    actor_id: actor_id.clone(),
                 }
                 .into());
             }
