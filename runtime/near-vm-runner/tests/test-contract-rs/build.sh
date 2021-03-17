@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release
 cp target/wasm32-unknown-unknown/release/test_contract_rs.wasm ../res/
