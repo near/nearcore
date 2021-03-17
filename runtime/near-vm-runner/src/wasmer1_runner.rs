@@ -294,6 +294,7 @@ pub(crate) fn default_wasmer1_store() -> Store {
 pub(crate) fn run_wasmer1_module<'a>(
     module: &Module,
     store: &Store,
+    memory: &mut Wasmer1Memory,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -312,12 +313,6 @@ pub(crate) fn run_wasmer1_module<'a>(
             ))),
         );
     }
-    let mut memory = Wasmer1Memory::new(
-        store,
-        wasm_config.limit_config.initial_memory_pages,
-        wasm_config.limit_config.max_memory_pages,
-    )
-    .unwrap();
 
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
@@ -328,7 +323,7 @@ pub(crate) fn run_wasmer1_module<'a>(
         wasm_config,
         fees_config,
         promise_results,
-        &mut memory,
+        memory,
         profile,
         current_protocol_version,
     );

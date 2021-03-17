@@ -12,13 +12,25 @@ use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
 
 use crate::cache;
+use crate::memory::WasmerMemory;
 use crate::preload::VMModule::{Wasmer0, Wasmer1};
-use crate::wasmer1_runner::{default_wasmer1_store, run_wasmer1_module};
+use crate::wasmer1_runner::{default_wasmer1_store, run_wasmer1_module, Wasmer1Memory};
 use crate::wasmer_runner::run_wasmer0_module;
 
 enum VMModule {
     Wasmer0(wasmer_runtime::Module),
-    Wasmer1(wasmer::Module, wasmer::Store),
+    Wasmer1(wasmer::Module),
+}
+
+enum VMDataPrivate {
+    Wasmer0(WasmerMemory),
+    Wasmer1(Wasmer1Memory),
+}
+
+#[derive(Clone)]
+enum VMDataShared {
+    Wasmer0,
+    Wasmer1(wasmer::Store),
 }
 
 struct VMCallData {
@@ -40,12 +52,14 @@ pub struct ContractCallPrepareResult {
 
 pub struct ContractCaller {
     pool: ThreadPool,
+    vm_data_private: Option<VMDataPrivate>,
+    vm_data_shared: Option<VMDataShared>,
     prepared: Vec<CallInner>,
 }
 
 impl ContractCaller {
     pub fn new(num_threads: usize) -> ContractCaller {
-        ContractCaller { pool: ThreadPool::new(num_threads), prepared: Vec::new() }
+        ContractCaller { pool: ThreadPool::new(num_threads), vm_data_private: None, vm_data_shared: None, prepared: Vec::new() }
     }
 
     pub fn preload(
@@ -55,6 +69,32 @@ impl ContractCaller {
         vm_config: VMConfig,
     ) -> Vec<ContractCallPrepareResult> {
         let mut result: Vec<ContractCallPrepareResult> = Vec::new();
+        if self.vm_data_private.is_none() {
+            match vm_kind {
+                VMKind::Wasmer0 => {
+                    self.vm_data_shared = Some(VMDataShared::Wasmer0);
+                    self.vm_data_private = Some(VMDataPrivate::Wasmer0(
+                        WasmerMemory::new(
+                            vm_config.limit_config.initial_memory_pages,
+                            vm_config.limit_config.max_memory_pages,
+                        )
+                            .unwrap(),
+                    ));
+                },
+                VMKind::Wasmer1 => {
+                    let store = default_wasmer1_store();
+                    let store_clone = store.clone();
+                    self.vm_data_shared = Some(VMDataShared::Wasmer1(store));
+                    self.vm_data_private = Some(VMDataPrivate::Wasmer1(
+                        Wasmer1Memory::new(
+                            &store_clone,
+                            vm_config.limit_config.initial_memory_pages,
+                            vm_config.limit_config.max_memory_pages,
+                        ).unwrap()));
+                }
+                _ => panic!("Not currently supported"),
+            };
+        }
         for request in requests {
             let index = self.prepared.len();
             let (tx, rx) = channel();
@@ -62,7 +102,8 @@ impl ContractCaller {
             self.pool.execute({
                 let tx = tx.clone();
                 let vm_config = vm_config.clone();
-                move || prepare_in_thread(request, vm_kind, vm_config, tx)
+                let vm_data_shared = self.vm_data_shared.clone().unwrap().clone();
+                move || prepare_in_thread(request, vm_kind, vm_config, vm_data_shared, tx)
             });
             result.push(ContractCallPrepareResult { handle: index });
         }
@@ -87,29 +128,50 @@ impl ContractCaller {
                 match call_data.result {
                     Err(err) => (None, Some(err)),
                     Ok(module) => match module {
-                        Wasmer0(module) => run_wasmer0_module(
-                            module,
-                            method_name,
-                            ext,
-                            context,
-                            vm_config,
-                            fees_config,
-                            promise_results,
-                            profile,
-                            current_protocol_version,
-                        ),
-                        Wasmer1(module, store) => run_wasmer1_module(
-                            &module,
-                            &store,
-                            method_name,
-                            ext,
-                            context,
-                            vm_config,
-                            fees_config,
-                            promise_results,
-                            profile,
-                            current_protocol_version,
-                        ),
+                        Wasmer0(module) => match &mut self.vm_data_private {
+                            Some(data) => match data {
+                                VMDataPrivate::Wasmer0(memory) => run_wasmer0_module(
+                                    module,
+                                    memory,
+                                    method_name,
+                                    ext,
+                                    context,
+                                    vm_config,
+                                    fees_config,
+                                    promise_results,
+                                    profile,
+                                    current_protocol_version,
+                                ),
+                                _ => panic!("Incorrect logic"),
+                            },
+                            _ => panic!("Incorrect logic"),
+                        },
+                        Wasmer1(module) => match &mut self.vm_data_private {
+                            Some(private_data) => match private_data {
+                                VMDataPrivate::Wasmer1(memory) => {
+                                    match &self.vm_data_shared.clone().unwrap() {
+                                        VMDataShared::Wasmer1(store) => {
+                                            run_wasmer1_module(
+                                                &module,
+                                                store,
+                                                memory,
+                                                method_name,
+                                                ext,
+                                                context,
+                                                vm_config,
+                                                fees_config,
+                                                promise_results,
+                                                profile,
+                                                current_protocol_version,
+                                            )
+                                        },
+                                        _ => panic!("Incorrect logic"),
+                                    }
+                                },
+                                _ => panic!("Incorrect logic"),
+                            },
+                            _ => panic!("Incorrect logic"),
+                        },
                     },
                 }
             }
@@ -124,27 +186,28 @@ impl Drop for ContractCaller {
     }
 }
 
-fn prepare_in_thread(request: ContractCallPrepareRequest, vm_kind: VMKind, vm_config: VMConfig, tx: Sender<VMCallData>) {
+fn prepare_in_thread(
+    request: ContractCallPrepareRequest,
+    vm_kind: VMKind,
+    vm_config: VMConfig,
+    vm_data_shared: VMDataShared,
+    tx: Sender<VMCallData>,
+) {
     let cache = request.cache.as_deref();
-    let result = match vm_kind {
-        VMKind::Wasmer0 => cache::wasmer0_cache::compile_module_cached_wasmer0(
+    let result = match (vm_kind, vm_data_shared) {
+        (VMKind::Wasmer0, VMDataShared::Wasmer0) => cache::wasmer0_cache::compile_module_cached_wasmer0(
             &request.code,
             &vm_config,
             cache,
-        )
-        .map(VMModule::Wasmer0),
-        VMKind::Wasmer1 => {
-            let store = default_wasmer1_store();
+        ).map(VMModule::Wasmer0),
+        (VMKind::Wasmer1, VMDataShared::Wasmer1(store)) =>
             cache::wasmer1_cache::compile_module_cached_wasmer1(
                 &request.code,
                 &vm_config,
                 cache,
                 &store,
-            )
-            .map(|m| VMModule::Wasmer1(m, store))
-        }
-
-        _ => panic!("Unsupported VM"),
+            ).map(|m| VMModule::Wasmer1(m)),
+        _ => panic!("Incorrect logic"),
     };
     tx.send(VMCallData { result }).unwrap();
 }

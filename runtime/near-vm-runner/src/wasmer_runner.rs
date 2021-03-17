@@ -269,6 +269,7 @@ fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Resu
 
 pub(crate) fn run_wasmer0_module<'a>(
     module: Module,
+    memory: &mut WasmerMemory,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -286,11 +287,6 @@ pub(crate) fn run_wasmer0_module<'a>(
             ))),
         );
     }
-    let mut memory = WasmerMemory::new(
-        wasm_config.limit_config.initial_memory_pages,
-        wasm_config.limit_config.max_memory_pages,
-    )
-    .expect("Cannot create memory for a contract call");
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
@@ -300,7 +296,7 @@ pub(crate) fn run_wasmer0_module<'a>(
         wasm_config,
         fees_config,
         promise_results,
-        &mut memory,
+        memory,
         profile,
         current_protocol_version,
     );
