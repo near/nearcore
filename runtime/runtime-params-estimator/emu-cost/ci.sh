@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd ${DIR}
 ./build.sh
@@ -11,7 +11,7 @@ docker run \
      --rm --mount type=bind,source=$HOST_DIR,target=/host \
      --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
      -i -t rust-emu \
-     /bin/bash -c "
+     /usr/bin/env bash -c "
 set -ex
 cd /host/${srcdir}/runtime/runtime-params-estimator
 $(cd test-contract && ./build.sh)
