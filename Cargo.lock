@@ -4841,6 +4841,7 @@ name = "runtime-params-estimator"
 version = "3.0.0"
 dependencies = [
  "borsh",
+ "cfg-if 1.0.0",
  "clap 2.33.3",
  "csv",
  "ethabi",
@@ -4851,7 +4852,6 @@ dependencies = [
  "gnuplot",
  "hex",
  "indicatif 0.15.0",
- "lazy-static-include",
  "libc",
  "near-chain-configs",
  "near-crypto",
@@ -4864,6 +4864,7 @@ dependencies = [
  "node-runtime",
  "num-rational",
  "num-traits",
+ "once_cell",
  "rand 0.7.3",
  "rand_xorshift 0.2.0",
  "rocksdb",
