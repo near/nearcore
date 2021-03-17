@@ -13,14 +13,14 @@ use borsh::maybestd::io::Error;
 pub struct Account {
     /// The total not locked tokens.
     #[serde(with = "u128_dec_format_compatible")]
-    pub amount: Balance,
+    amount: Balance,
     /// The amount locked due to staking.
     #[serde(with = "u128_dec_format_compatible")]
-    pub locked: Balance,
+    locked: Balance,
     /// Hash of the code stored in the storage for this account.
-    pub code_hash: CryptoHash,
+    code_hash: CryptoHash,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
-    pub storage_usage: StorageUsage,
+    storage_usage: StorageUsage,
 }
 
 #[cfg(feature = "protocol_feature_add_account_versions")]
@@ -28,14 +28,14 @@ pub struct Account {
 pub struct AccountV1 {
     /// The total not locked tokens.
     #[serde(with = "u128_dec_format_compatible")]
-    pub amount: Balance,
+    amount: Balance,
     /// The amount locked due to staking.
     #[serde(with = "u128_dec_format_compatible")]
-    pub locked: Balance,
+    locked: Balance,
     /// Hash of the code stored in the storage for this account.
-    pub code_hash: CryptoHash,
+    code_hash: CryptoHash,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
-    pub storage_usage: StorageUsage,
+    storage_usage: StorageUsage,
 }
 
 #[cfg(feature = "protocol_feature_add_account_versions")]
