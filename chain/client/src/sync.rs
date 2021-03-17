@@ -1217,9 +1217,8 @@ mod test {
     use near_chain::test_utils::{setup, setup_with_validators};
     use near_chain::{ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
-    use near_network::routing::EdgeInfo;
     use near_network::test_utils::MockNetworkAdapter;
-    use near_network::types::PeerChainInfoV2;
+    use near_network::types::{EdgeInfo, PeerChainInfoV2};
     use near_network::PeerInfo;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;

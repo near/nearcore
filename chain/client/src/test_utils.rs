@@ -18,10 +18,9 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_network::routing::EdgeInfo;
 use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfoV2,
+    AccountOrPeerIdOrHash, EdgeInfo, NetworkInfo, NetworkViewClientMessages,
+    NetworkViewClientResponses, PeerChainInfoV2,
 };
 use near_network::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
@@ -964,6 +963,8 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::RequestUpdateNonce(_, _)
                         | NetworkRequests::ResponseUpdateNonce(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
+                        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+                        | NetworkRequests::IbfMessage { .. } => {}
                     };
                 }
                 Box::new(Some(resp))

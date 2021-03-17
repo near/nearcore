@@ -3,15 +3,16 @@ use std::ops::Sub;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
 use chrono;
-use tracing::{trace, warn};
+use conqueue::{QueueReceiver, QueueSender};
+use tracing::{debug, trace, warn};
 
-use near_crypto::{SecretKey, Signature};
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_metrics;
-use near_primitives::hash::{hash, CryptoHash};
+use near_network_primitives::types::SimpleEdge;
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use near_primitives::utils::index_to_bytes;
@@ -21,14 +22,12 @@ use near_store::{
 };
 
 use crate::metrics;
+use crate::types::{Edge, EdgeType};
 use crate::{
     cache::RouteBackCache,
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
-use conqueue::{QueueReceiver, QueueSender};
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
@@ -44,215 +43,6 @@ pub const SAVE_PEERS_MAX_TIME: u64 = 7_200;
 pub const SAVE_PEERS_AFTER_TIME: u64 = 3_600;
 /// Graph implementation supports up to 128 peers.
 pub const MAX_NUM_PEERS: usize = 128;
-
-/// Information that will be ultimately used to create a new edge.
-/// It contains nonce proposed for the edge with signature from peer.
-#[derive(Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Default)]
-pub struct EdgeInfo {
-    pub nonce: u64,
-    pub signature: Signature,
-}
-
-impl EdgeInfo {
-    pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
-        let (peer0, peer1) = Edge::key(peer0, peer1);
-        let data = Edge::build_hash(&peer0, &peer1, nonce);
-        let signature = secret_key.sign(data.as_ref());
-        Self { nonce, signature }
-    }
-}
-
-/// Status of the edge
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, Hash)]
-pub enum EdgeType {
-    Added,
-    Removed,
-}
-
-/// Edge object. Contains information relative to a new edge that is being added or removed
-/// from the network. This is the information that is required.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Edge {
-    /// Since edges are not directed `peer0 < peer1` should hold.
-    pub peer0: PeerId,
-    pub peer1: PeerId,
-    /// Nonce to keep tracking of the last update on this edge.
-    /// It must be even
-    pub nonce: u64,
-    /// Signature from parties validating the edge. These are signature of the added edge.
-    signature0: Signature,
-    signature1: Signature,
-    /// Info necessary to declare an edge as removed.
-    /// The bool says which party is removing the edge: false for Peer0, true for Peer1
-    /// The signature from the party removing the edge.
-    removal_info: Option<(bool, Signature)>,
-}
-
-impl Edge {
-    /// Create an addition edge.
-    pub fn new(
-        peer0: PeerId,
-        peer1: PeerId,
-        nonce: u64,
-        signature0: Signature,
-        signature1: Signature,
-    ) -> Self {
-        let (peer0, signature0, peer1, signature1) = if peer0 < peer1 {
-            (peer0, signature0, peer1, signature1)
-        } else {
-            (peer1, signature1, peer0, signature0)
-        };
-
-        Self { peer0, peer1, nonce, signature0, signature1, removal_info: None }
-    }
-
-    /// Build a new edge with given information from the other party.
-    pub fn build_with_secret_key(
-        peer0: PeerId,
-        peer1: PeerId,
-        nonce: u64,
-        secret_key: &SecretKey,
-        signature1: Signature,
-    ) -> Self {
-        let hash = if peer0 < peer1 {
-            Edge::build_hash(&peer0, &peer1, nonce)
-        } else {
-            Edge::build_hash(&peer1, &peer0, nonce)
-        };
-        let signature0 = secret_key.sign(hash.as_ref());
-        Edge::new(peer0, peer1, nonce, signature0, signature1)
-    }
-
-    /// Create the remove edge change from an added edge change.
-    pub fn remove_edge(&self, me: PeerId, sk: &SecretKey) -> Self {
-        assert_eq!(self.edge_type(), EdgeType::Added);
-        let mut edge = self.clone();
-        edge.nonce += 1;
-        let me = edge.peer0 == me;
-        let hash = edge.hash();
-        let signature = sk.sign(hash.as_ref());
-        edge.removal_info = Some((me, signature));
-        edge
-    }
-
-    /// Build the hash of the edge given its content.
-    /// It is important that peer0 < peer1 at this point.
-    fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
-        let mut buffer = Vec::<u8>::new();
-        let peer0: Vec<u8> = peer0.clone().into();
-        buffer.extend_from_slice(peer0.as_slice());
-        let peer1: Vec<u8> = peer1.clone().into();
-        buffer.extend_from_slice(peer1.as_slice());
-        buffer.write_u64::<LittleEndian>(nonce).unwrap();
-        hash(buffer.as_slice())
-    }
-
-    fn hash(&self) -> CryptoHash {
-        Edge::build_hash(&self.peer0, &self.peer1, self.nonce)
-    }
-
-    fn prev_hash(&self) -> CryptoHash {
-        Edge::build_hash(&self.peer0, &self.peer1, self.nonce - 1)
-    }
-
-    pub fn verify(&self) -> bool {
-        if self.peer0 > self.peer1 {
-            return false;
-        }
-
-        match self.edge_type() {
-            EdgeType::Added => {
-                let data = self.hash();
-
-                self.removal_info.is_none()
-                    && self.signature0.verify(data.as_ref(), &self.peer0.public_key())
-                    && self.signature1.verify(data.as_ref(), &self.peer1.public_key())
-            }
-            EdgeType::Removed => {
-                // nonce should be an even positive number
-                if self.nonce == 0 {
-                    return false;
-                }
-
-                // Check referring added edge is valid.
-                let add_hash = self.prev_hash();
-                if !self.signature0.verify(add_hash.as_ref(), &self.peer0.public_key())
-                    || !self.signature1.verify(add_hash.as_ref(), &self.peer1.public_key())
-                {
-                    return false;
-                }
-
-                if let Some((party, signature)) = &self.removal_info {
-                    let peer = if *party { &self.peer0 } else { &self.peer1 };
-                    let del_hash = self.hash();
-                    signature.verify(del_hash.as_ref(), &peer.public_key())
-                } else {
-                    false
-                }
-            }
-        }
-    }
-
-    pub fn key(peer0: PeerId, peer1: PeerId) -> (PeerId, PeerId) {
-        if peer0 < peer1 {
-            (peer0, peer1)
-        } else {
-            (peer1, peer0)
-        }
-    }
-
-    /// Helper function when adding a new edge and we receive information from new potential peer
-    /// to verify the signature.
-    pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &EdgeInfo) -> bool {
-        let pk = peer1.public_key();
-        let (peer0, peer1) = Edge::key(peer0, peer1);
-        let data = Edge::build_hash(&peer0, &peer1, edge_info.nonce);
-        edge_info.signature.verify(data.as_ref(), &pk)
-    }
-
-    fn get_pair(&self) -> (PeerId, PeerId) {
-        (self.peer0.clone(), self.peer1.clone())
-    }
-
-    /// It will be considered as a new edge if the nonce is odd, otherwise it is canceling the
-    /// previous edge.
-    pub fn edge_type(&self) -> EdgeType {
-        if self.nonce % 2 == 1 {
-            EdgeType::Added
-        } else {
-            EdgeType::Removed
-        }
-    }
-
-    /// Next nonce of valid addition edge.
-    pub fn next_nonce(nonce: u64) -> u64 {
-        if nonce % 2 == 1 {
-            nonce + 2
-        } else {
-            nonce + 1
-        }
-    }
-
-    /// Next nonce of valid addition edge.
-    pub fn next(&self) -> u64 {
-        Edge::next_nonce(self.nonce)
-    }
-
-    pub fn contains_peer(&self, peer_id: &PeerId) -> bool {
-        self.peer0 == *peer_id || self.peer1 == *peer_id
-    }
-
-    /// Find a peer id in this edge different from `me`.
-    pub fn other(&self, me: &PeerId) -> Option<PeerId> {
-        if self.peer0 == *me {
-            Some(self.peer1.clone())
-        } else if self.peer1 == *me {
-            Some(self.peer0.clone())
-        } else {
-            None
-        }
-    }
-}
 
 pub struct EdgeVerifierHelper {
     /// Shared version of edges_info used by multiple threads
@@ -287,7 +77,7 @@ pub struct RoutingTable {
     /// Access to store on disk
     store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
-    raw_graph: Graph,
+    pub raw_graph: Graph,
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
@@ -494,6 +284,16 @@ impl RoutingTable {
         }
     }
 
+    #[cfg(feature = "adversarial")]
+    pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
+        for edge in edges.iter() {
+            let key = (edge.peer0.clone(), edge.peer1.clone());
+            if self.edges_info.remove(&key).is_some() {
+                self.raw_graph.remove_edge(&edge.peer0, &edge.peer1);
+            }
+        }
+    }
+
     fn add_edge(&mut self, edge: Edge) -> bool {
         let key = edge.get_pair();
 
@@ -517,17 +317,17 @@ impl RoutingTable {
     /// Add several edges to the current view of the network.
     /// These edges are assumed to be valid at this point.
     /// Return true if some of the edges contains new information to the network.
-    pub fn process_edges(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
+    pub fn process_edges(&mut self, edges: Arc<Vec<Edge>>) -> ProcessEdgeResult {
         let mut new_edge = false;
         let total = edges.len();
 
-        for edge in edges {
+        for edge in edges.iter() {
             let key = edge.get_pair();
 
             self.touch(&key.0);
             self.touch(&key.1);
 
-            if self.add_edge(edge) {
+            if self.add_edge(edge.clone()) {
                 new_edge = true;
             }
         }
@@ -550,6 +350,14 @@ impl RoutingTable {
 
     pub fn get_edges(&self) -> Vec<Edge> {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
+    }
+
+    pub fn get_edges_by_id(&self, edges: Vec<SimpleEdge>) -> Vec<Edge> {
+        edges.iter().filter_map(|k| self.edges_info.get(&k.key()).cloned()).collect()
+    }
+
+    pub fn get_edges_len(&self) -> u64 {
+        self.edges_info.len() as u64
     }
 
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
@@ -618,7 +426,7 @@ impl RoutingTable {
         RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
     }
 
-    fn try_save_edges(&mut self) {
+    fn try_save_edges(&mut self, force_pruning: bool, timeout: u64) -> Vec<Edge> {
         let now = chrono::Utc::now();
         let mut oldest_time = now;
         let to_save = self
@@ -626,9 +434,7 @@ impl RoutingTable {
             .iter()
             .filter_map(|(peer_id, last_time)| {
                 oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.signed_duration_since(*last_time).num_seconds()
-                    >= SAVE_PEERS_AFTER_TIME as i64
-                {
+                if now.signed_duration_since(*last_time).num_seconds() >= timeout as i64 {
                     Some(peer_id.clone())
                 } else {
                     None
@@ -638,9 +444,12 @@ impl RoutingTable {
 
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
-        if now.signed_duration_since(oldest_time).num_seconds() < SAVE_PEERS_MAX_TIME as i64 {
-            return;
+        if !force_pruning
+            && now.signed_duration_since(oldest_time).num_seconds() < SAVE_PEERS_MAX_TIME as i64
+        {
+            return Vec::new();
         }
+        debug!(target: "network", "try_save_edges: We are going to remove {} peers", to_save.len());
 
         let component_nonce = self.component_nonce;
         self.component_nonce += 1;
@@ -659,26 +468,37 @@ impl RoutingTable {
         }
 
         let component_nonce = index_to_bytes(component_nonce);
-        let mut edges_in_component = vec![];
+        let mut edges_to_remove = vec![];
 
         self.edges_info.retain(|(peer0, peer1), edge| {
             if to_save.contains(peer0) || to_save.contains(peer1) {
-                edges_in_component.push(edge.clone());
+                edges_to_remove.push(edge.clone());
                 false
             } else {
                 true
             }
         });
+        if force_pruning {
+            let mut edges_to_remove2 = vec![];
+            for (k, edge) in self.edges_info.iter() {
+                if !self.peer_last_time_reachable.contains_key(&k.0)
+                    || !self.peer_last_time_reachable.contains_key(&k.1)
+                {
+                    edges_to_remove2.push(edge.clone());
+                }
+            }
+        }
 
-        let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_in_component);
+        let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_to_remove);
 
         if let Err(e) = update.commit() {
             warn!(target: "network", "Error storing network component to store. {:?}", e);
         }
+        edges_to_remove
     }
 
     /// Recalculate routing table.
-    pub fn update(&mut self, can_save_edges: bool) {
+    pub fn update(&mut self, can_save_edges: bool, force_pruning: bool, timeout: u64) -> Vec<Edge> {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
@@ -693,12 +513,14 @@ impl RoutingTable {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
 
+        let mut edges_to_remove = Vec::new();
         if can_save_edges {
-            self.try_save_edges();
+            edges_to_remove = self.try_save_edges(force_pruning, timeout);
         }
 
         near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
+        edges_to_remove
     }
 
     /// Public interface for `account_peers`
@@ -711,6 +533,11 @@ impl RoutingTable {
     /// Get announce accounts on cache.
     pub fn get_announce_accounts(&mut self) -> Vec<AnnounceAccount> {
         self.account_peers.value_order().cloned().collect()
+    }
+
+    /// Get number of accounts
+    pub fn get_announce_accounts_size(&mut self) -> usize {
+        self.account_peers.cache_size()
     }
 
     /// Get account announce from
@@ -752,11 +579,11 @@ pub struct Graph {
     source_id: u32,
     p2id: HashMap<PeerId, u32>,
     id2p: Vec<PeerId>,
-    used: Vec<bool>,
-    unused: Vec<u32>,
+    pub used: Vec<bool>,
+    pub unused: Vec<u32>,
     adjacency: Vec<Vec<u32>>,
 
-    total_active_edges: u64,
+    pub total_active_edges: u64,
 }
 
 impl Graph {

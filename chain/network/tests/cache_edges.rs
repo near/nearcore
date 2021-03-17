@@ -1,14 +1,13 @@
-use chrono::{DateTime, Duration, Utc};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use borsh::de::BorshDeserialize;
+use chrono::{DateTime, Duration, Utc};
 
 use near_crypto::Signature;
-use near_network::routing::{
-    Edge, EdgeType, RoutingTable, SAVE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME,
-};
+use near_network::routing::{RoutingTable, SAVE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
 use near_network::test_utils::random_peer_id;
+use near_network_primitives::types::{Edge, EdgeType};
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use near_store::{ColComponentEdges, ColPeerComponent, Store};
@@ -157,11 +156,11 @@ impl RoutingTableTest {
         let peer0 = self.get_peer(peer0).clone();
         let peer1 = self.get_peer(peer1).clone();
         let edge = Edge::new(peer0, peer1, nonce, Signature::default(), Signature::default());
-        self.routing_table.process_edges(vec![edge]);
+        self.routing_table.process_edges(Arc::new(vec![edge]));
     }
 
     fn update(&mut self) {
-        self.routing_table.update(true);
+        self.routing_table.update(true, false, SAVE_PEERS_AFTER_TIME);
     }
 }
 

@@ -32,6 +32,7 @@ near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
+near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
 
@@ -47,7 +48,12 @@ adversarial = ["near-network-primitives/adversarial"]
 delay_detector = ["delay-detector"]
 performance_stats = ["near-performance-metrics/performance_stats"]
 sandbox = ["near-network-primitives/sandbox"]
+protocol_feature_routing_exchange_algorithm = []
 
 [[bench]]
 name = "graph"
+harness = false
+
+[[bench]]
+name = "ibf"
 harness = false

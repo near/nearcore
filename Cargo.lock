@@ -2906,6 +2906,7 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-metrics",
+ "near-network-primitives",
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
@@ -2972,6 +2973,7 @@ dependencies = [
  "near-performance-metrics-macros",
  "near-primitives",
  "near-rust-allocator-proxy",
+ "near-stable-hasher",
  "near-store",
  "rand 0.7.3",
  "strum",
@@ -2988,6 +2990,7 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "borsh 0.9.0",
+ "byteorder",
  "chrono",
  "near-crypto",
  "near-primitives",
@@ -3151,6 +3154,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-stable-hasher"
+version = "0.1.0"
+
+[[package]]
 name = "near-store"
 version = "2.2.0"
 dependencies = [
@@ -3243,6 +3250,7 @@ dependencies = [
  "borsh 0.9.0",
  "cached",
  "near-primitives",
+ "near-stable-hasher",
  "near-test-contracts",
  "near-vm-errors",
  "near-vm-logic",
