@@ -1112,6 +1112,7 @@ impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+#[serde(tag = "version")]
 pub enum ValidatorStakeView {
     V1(ValidatorStakeViewV1),
 }
