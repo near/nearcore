@@ -1,9 +1,8 @@
 use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError};
-use near_primitives::hash::hash;
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
 
-use near_primitives::borsh::BorshSerialize;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -93,11 +92,9 @@ fn test_result(result: (Option<VMOutcome>, Option<VMError>), check_gas: bool) ->
 }
 
 fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
-    let code1 = &TEST_CONTRACT_1;
-    let code2 = &TEST_CONTRACT_2;
+    let code1 = Arc::new(ContractCode::new(TEST_CONTRACT_1.to_vec(), None));
+    let code2 = Arc::new(ContractCode::new(TEST_CONTRACT_2.to_vec(), None));
     let method_name1 = "log_something";
-    let code1_hash = hash(code1);
-    let code2_hash = hash(code2);
 
     let mut fake_external = MockedExternal::new();
 
@@ -116,14 +113,12 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
         let mut caller = ContractCaller::new(4);
         for _ in 0..repeat {
             requests.push(ContractCallPrepareRequest {
-                code_hash: code1_hash,
-                code: code1.to_vec(),
+                code: Arc::clone(&code1),
                 vm_config: vm_config.clone(),
                 cache: cache.clone(),
             });
             requests.push(ContractCallPrepareRequest {
-                code_hash: code2_hash,
-                code: code2.to_vec(),
+                code: Arc::clone(&code2),
                 vm_config: vm_config.clone(),
                 cache: cache.clone(),
             });
@@ -148,8 +143,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
     } else {
         for _ in 0..repeat {
             let result1 = run_vm(
-                code1_hash.try_to_vec().unwrap(),
-                code1,
+                &code1,
                 method_name1,
                 &mut fake_external,
                 context.clone(),
@@ -165,8 +159,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
             oks += ok;
             errs += err;
             let result2 = run_vm(
-                code2_hash.try_to_vec().unwrap(),
-                code2,
+                &code2,
                 method_name1,
                 &mut fake_external,
                 context.clone(),
