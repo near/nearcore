@@ -8,9 +8,9 @@ use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::block_header::BlockHeader;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-use crate::block_header::BlockHeaderV3;
+use crate::block_header::BlockHeaderV2;
 #[cfg(feature = "protocol_feature_block_header_v3")]
-use crate::block_header::BlockHeaderV4;
+use crate::block_header::BlockHeaderV3;
 use crate::errors::{EpochError, TxExecutionError};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
@@ -253,22 +253,20 @@ impl SignedTransaction {
 
 impl BlockHeader {
     #[cfg(feature = "protocol_feature_block_header_v3")]
-    pub fn get_mut(&mut self) -> &mut BlockHeaderV4 {
-        match self {
-            BlockHeader::BlockHeaderV1(_)
-            | BlockHeader::BlockHeaderV2(_)
-            | BlockHeader::BlockHeaderV3(_) => panic!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV4(header) => header,
-        }
-    }
-
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
     pub fn get_mut(&mut self) -> &mut BlockHeaderV3 {
         match self {
             BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
                 panic!("old header should not appear in tests")
             }
             BlockHeader::BlockHeaderV3(header) => header,
+        }
+    }
+
+    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+    pub fn get_mut(&mut self) -> &mut BlockHeaderV2 {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => panic!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(header) => header,
         }
     }
 
