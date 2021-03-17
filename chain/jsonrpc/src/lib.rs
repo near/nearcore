@@ -40,7 +40,7 @@ use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, MaybeBlockId};
+use near_primitives::types::AccountId;
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum};
 use near_runtime_utils::is_valid_account_id;
 
@@ -323,7 +323,15 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_tx_status" => self.tx_status_common(request.params, true).await,
             "EXPERIMENTAL_validators_ordered" => self.validators_ordered(request.params).await,
-            "gas_price" => self.gas_price(request.params).await,
+            "gas_price" => {
+                let rpc_gas_price_request =
+                    near_jsonrpc_primitives::types::gas_price::RpcGasPriceRequest::parse(
+                        request.params,
+                    )?;
+                let gas_price = self.gas_price(rpc_gas_price_request).await?;
+                serde_json::to_value(gas_price)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "health" => self.health().await,
             "light_client_proof" => self.light_client_execution_outcome_proof(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
@@ -804,9 +812,16 @@ impl JsonRpcHandler {
         jsonify(self.client_addr.send(GetNetworkInfo {}).await)
     }
 
-    async fn gas_price(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_id,) = parse_params::<(MaybeBlockId,)>(params)?;
-        jsonify(self.view_client_addr.send(GetGasPrice { block_id }).await)
+    async fn gas_price(
+        &self,
+        request_data: near_jsonrpc_primitives::types::gas_price::RpcGasPriceRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::gas_price::RpcGasPriceResponse,
+        near_jsonrpc_primitives::types::gas_price::RpcGasPriceError,
+    > {
+        let gas_price_view =
+            self.view_client_addr.send(GetGasPrice { block_id: request_data.block_id }).await??;
+        Ok(near_jsonrpc_primitives::types::gas_price::RpcGasPriceResponse { gas_price_view })
     }
 
     pub async fn metrics(&self) -> Result<String, FromUtf8Error> {
