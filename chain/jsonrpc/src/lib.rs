@@ -212,6 +212,24 @@ fn process_query_response(
                 "block_height": block_height,
                 "block_hash": block_hash,
             })),
+            near_jsonrpc_primitives::types::query::RpcQueryError::UnknownBlock {
+                ref block_reference,
+            } => match block_reference {
+                near_primitives::types::BlockReference::BlockId(block_id) => Err(RpcError::new(
+                    -32_000,
+                    "Server error".to_string(),
+                    Some(match block_id {
+                        near_primitives::types::BlockId::Height(height) => json!(format!(
+                            "DB Not Found Error: BLOCK HEIGHT: {} \n Cause: Unknown",
+                            height
+                        )),
+                        near_primitives::types::BlockId::Hash(block_hash) => {
+                            json!(format!("DB Not Found Error: BLOCK HEADER: {}", block_hash))
+                        }
+                    }),
+                )),
+                _ => Err(err.into()),
+            },
             _ => Err(err.into()),
         },
     }

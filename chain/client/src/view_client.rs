@@ -202,17 +202,22 @@ impl ViewClientActor {
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
                 self.chain.get_block_header(&block_hash)
             }
-            BlockReference::Finality(ref finality) => {
-                let block_hash = self.get_block_hash_by_finality(&finality).map_err(|_| {
-                    QueryError::UnknownBlock { block_reference: msg.block_reference.clone() }
-                })?;
-                self.chain.get_block_header(&block_hash)
-            }
+            BlockReference::Finality(ref finality) => self
+                .get_block_hash_by_finality(&finality)
+                .and_then(|block_hash| self.chain.get_block_header(&block_hash)),
             BlockReference::SyncCheckpoint(ref synchronization_checkpoint) => {
                 if let Some(block_hash) = self
                     .get_block_hash_by_sync_checkpoint(&synchronization_checkpoint)
-                    .map_err(|_| QueryError::UnknownBlock {
-                        block_reference: msg.block_reference.clone(),
+                    .map_err(|err| match err.kind() {
+                        near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
+                            QueryError::UnknownBlock {
+                                block_reference: msg.block_reference.clone(),
+                            }
+                        }
+                        near_chain::near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                            QueryError::InternalError { error_message }
+                        }
+                        _ => QueryError::Unreachable { error_message: err.to_string() },
                     })?
                 {
                     self.chain.get_block_header(&block_hash)
@@ -222,7 +227,15 @@ impl ViewClientActor {
             }
         };
         let header = header
-            .map_err(|_| QueryError::UnknownBlock { block_reference: msg.block_reference.clone() })?
+            .map_err(|err| match err.kind() {
+                near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
+                    QueryError::UnknownBlock { block_reference: msg.block_reference.clone() }
+                }
+                near_chain::near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                    QueryError::InternalError { error_message }
+                }
+                _ => QueryError::Unreachable { error_message: err.to_string() },
+            })?
             .clone();
 
         let account_id = match &msg.request {
@@ -235,7 +248,18 @@ impl ViewClientActor {
         };
         let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
 
-        let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id)?;
+        let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id).map_err(|err| {
+            match err.kind() {
+                near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
+                    QueryError::UnavailableShard { requested_shard_id: shard_id }
+                }
+                near_chain::near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                    QueryError::InternalError { error_message }
+                }
+                _ => QueryError::Unreachable { error_message: err.to_string() },
+            }
+        })?;
+
         let state_root = chunk_extra.state_root;
         match self.runtime_adapter.query(
             shard_id,
