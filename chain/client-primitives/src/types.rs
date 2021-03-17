@@ -355,7 +355,35 @@ pub struct GetGasPrice {
 }
 
 impl Message for GetGasPrice {
-    type Result = Result<GasPriceView, String>;
+    type Result = Result<GasPriceView, GetGasPriceError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetGasPriceError {
+    #[error("Internal error: {error_message}")]
+    InternalError { error_message: String },
+    #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
+    UnknownBlock { error_message: String },
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
+    Unreachable { error_message: String },
+}
+
+impl From<near_chain_primitives::Error> for GetGasPriceError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                Self::InternalError { error_message }
+            }
+            near_chain_primitives::ErrorKind::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            _ => Self::Unreachable { error_message: error.to_string() },
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
