@@ -21,7 +21,7 @@ use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
     GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
-    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError,
+    GetGasPriceError, GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError,
     GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
     TxStatusError,
 };
@@ -1203,14 +1203,14 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 }
 
 impl Handler<GetGasPrice> for ViewClientActor {
-    type Result = Result<GasPriceView, String>;
+    type Result = Result<GasPriceView, GetGasPriceError>;
 
     #[perf]
     fn handle(&mut self, msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
         let header = self
             .maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.chain.get_block_header(&block_hash));
-        header.map(|b| GasPriceView { gas_price: b.gas_price() }).map_err(|e| e.to_string())
+        Ok(GasPriceView { gas_price: header?.gas_price() })
     }
 }
 
