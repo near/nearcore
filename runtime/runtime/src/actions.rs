@@ -16,8 +16,8 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
-    ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION, PROTOCOL_FEATURES_TO_VERSION_MAPPING,
 };
 use near_runtime_utils::{
     is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
@@ -446,7 +446,28 @@ pub(crate) fn action_delete_account(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
+    if current_protocol_version
+        >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
+    {
+        let account = account.as_ref().unwrap();
+        let mut account_storage_usage = account.storage_usage;
+        let contract_code = get_code(state_update, account_id, Some(account.code_hash))?;
+        if let Some(code) = contract_code {
+            // account storage usage should be larger than code size
+            let code_len = code.code.len() as u64;
+            debug_assert!(account_storage_usage > code_len);
+            account_storage_usage = account_storage_usage.saturating_sub(code_len);
+        }
+        if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
+            result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
+                account_id: account_id.clone(),
+            }
+            .into());
+            return Ok(());
+        }
+    }
     // We use current amount as a pay out to beneficiary.
     let account_balance = account.as_ref().unwrap().amount();
     if account_balance > 0 {
@@ -667,7 +688,11 @@ pub(crate) fn check_account_existence(
 
 #[cfg(test)]
 mod tests {
+    use near_store::test_utils::create_tries;
+
     use super::*;
+    use near_primitives::hash::hash;
+    use near_primitives::trie_key::TrieKey;
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -766,5 +791,88 @@ mod tests {
         let action_result =
             test_action_create_account(account_id.clone(), predecessor_id.clone(), 0);
         assert!(action_result.result.is_ok());
+    }
+
+    fn test_delete_large_account(
+        account_id: &AccountId,
+        code_hash: &CryptoHash,
+        storage_usage: u64,
+        state_update: &mut TrieUpdate,
+    ) -> ActionResult {
+        let mut account = Some(Account {
+            amount: 100,
+            locked: 0,
+            code_hash: *code_hash,
+            storage_usage: storage_usage,
+        });
+        let mut actor_id = account_id.clone();
+        let mut action_result = ActionResult::default();
+        let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
+        let res = action_delete_account(
+            state_update,
+            &mut account,
+            &mut actor_id,
+            &receipt,
+            &mut action_result,
+            account_id,
+            &DeleteAccountAction { beneficiary_id: "bob".to_string() },
+            PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction],
+        );
+        assert!(res.is_ok());
+        action_result
+    }
+
+    #[test]
+    fn test_delete_account_too_large() {
+        let tries = create_tries();
+        let mut state_update = tries.new_trie_update(0, CryptoHash::default());
+        let action_result = test_delete_large_account(
+            &"alice".to_string(),
+            &CryptoHash::default(),
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
+            &mut state_update,
+        );
+        assert_eq!(
+            action_result.result,
+            Err(ActionError {
+                index: None,
+                kind: ActionErrorKind::DeleteAccountWithLargeState {
+                    account_id: "alice".to_string()
+                }
+            })
+        )
+    }
+
+    fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
+        let tries = create_tries();
+        let mut state_update = tries.new_trie_update(0, CryptoHash::default());
+        let account_id = "alice".to_string();
+        let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
+        let empty_contract = [0; 10_000].to_vec();
+        let contract_hash = hash(&empty_contract);
+        state_update.set(trie_key, empty_contract);
+        test_delete_large_account(&account_id, &contract_hash, storage_usage, &mut state_update)
+    }
+
+    #[test]
+    fn test_delete_account_with_contract_and_small_state() {
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    fn test_delete_account_with_contract_and_large_state() {
+        let action_result =
+            test_delete_account_with_contract(10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE);
+        assert_eq!(
+            action_result.result,
+            Err(ActionError {
+                index: None,
+                kind: ActionErrorKind::DeleteAccountWithLargeState {
+                    account_id: "alice".to_string()
+                }
+            })
+        );
     }
 }
