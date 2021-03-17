@@ -452,8 +452,8 @@ pub(crate) fn action_delete_account(
         >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
     {
         let account = account.as_ref().unwrap();
-        let mut account_storage_usage = account.storage_usage;
-        let contract_code = get_code(state_update, account_id, Some(account.code_hash))?;
+        let mut account_storage_usage = account.storage_usage();
+        let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
         if let Some(code) = contract_code {
             // account storage usage should be larger than code size
             let code_len = code.code.len() as u64;
