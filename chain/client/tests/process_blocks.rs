@@ -37,10 +37,12 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash, Digest};
 use near_primitives::merkle::verify_hash;
-use near_primitives::sharding::{
-    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
-    ShardChunkHeaderV3,
-};
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+use near_primitives::sharding::ShardChunkHeaderV2;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
+
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
@@ -482,6 +484,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 ShardChunkHeader::V2(chunk) => {
                     chunk.signature = some_signature;
                 }
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V3(chunk) => {
                     chunk.signature = some_signature;
                 }
@@ -1005,18 +1008,30 @@ fn test_bad_orphan() {
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+                ShardChunkHeader::V2(chunk) => chunk,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V2(_) => unreachable!(),
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V3(chunk) => chunk,
             };
-            match &mut chunk.inner {
-                ShardChunkHeaderInner::V1(inner) => {
-                    inner.outcome_root = CryptoHash(Digest([1; 32]))
-                }
-                ShardChunkHeaderInner::V2(inner) => {
-                    inner.outcome_root = CryptoHash(Digest([1; 32]))
-                }
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            {
+                chunk.inner.outcome_root = CryptoHash(Digest([1; 32]));
+                chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
             }
-            chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            {
+                match &mut chunk.inner {
+                    ShardChunkHeaderInner::V1(inner) => {
+                        inner.outcome_root = CryptoHash(Digest([1; 32]))
+                    }
+                    ShardChunkHeaderInner::V2(inner) => {
+                        inner.outcome_root = CryptoHash(Digest([1; 32]))
+                    }
+                }
+                chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
+            }
         }
         block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
         block.mut_header().resign(&*signer);
@@ -1045,11 +1060,22 @@ fn test_bad_orphan() {
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+                ShardChunkHeader::V2(chunk) => chunk,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V2(_) => unreachable!(),
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V3(chunk) => chunk,
             };
             chunk.signature = some_signature;
-            chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            {
+                chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
+            }
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            {
+                chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
+            }
         }
         block.mut_header().get_mut().prev_hash = CryptoHash(Digest([4; 32]));
         block.mut_header().resign(&*signer);

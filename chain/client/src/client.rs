@@ -1691,7 +1691,9 @@ mod test {
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::block_header::ApprovalType;
     use near_primitives::network::PeerId;
-    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader, ShardChunkHeaderInner};
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    use near_primitives::sharding::ShardChunkHeaderInner;
+    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
     use near_primitives::utils::MaybeValidated;
 
     fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
@@ -1771,6 +1773,7 @@ mod test {
                 header.inner.prev_block_hash = hash(b"some_prev_block");
                 header.init();
             }
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             ShardChunkHeader::V3(header) => {
                 match &mut header.inner {
                     ShardChunkHeaderInner::V1(inner) => {

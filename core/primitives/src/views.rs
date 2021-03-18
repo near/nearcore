@@ -32,10 +32,11 @@ use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
     u128_dec_format, u64_dec_format,
 };
-use crate::sharding::{
-    ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
-    ShardChunkHeaderV3,
-};
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+use crate::sharding::ShardChunkHeaderV2;
+use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::sharding::{ShardChunkHeaderInnerV2, ShardChunkHeaderV3};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
@@ -694,6 +695,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
     }
 }
 
+#[cfg(feature = "protocol_feature_block_header_v3")]
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
         let mut header = ShardChunkHeaderV3 {
@@ -718,6 +720,34 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
         };
         header.init();
         ShardChunkHeader::V3(header)
+    }
+}
+
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+impl From<ChunkHeaderView> for ShardChunkHeader {
+    fn from(view: ChunkHeaderView) -> Self {
+        let mut header = ShardChunkHeaderV2 {
+            inner: ShardChunkHeaderInner {
+                prev_block_hash: view.prev_block_hash,
+                prev_state_root: view.prev_state_root,
+                outcome_root: view.outcome_root,
+                encoded_merkle_root: view.encoded_merkle_root,
+                encoded_length: view.encoded_length,
+                height_created: view.height_created,
+                shard_id: view.shard_id,
+                gas_used: view.gas_used,
+                gas_limit: view.gas_limit,
+                balance_burnt: view.balance_burnt,
+                outgoing_receipts_root: view.outgoing_receipts_root,
+                tx_root: view.tx_root,
+                validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
+            },
+            height_included: view.height_included,
+            signature: view.signature,
+            hash: ChunkHash::default(),
+        };
+        header.init();
+        ShardChunkHeader::V2(header)
     }
 }
 

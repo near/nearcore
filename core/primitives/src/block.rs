@@ -130,6 +130,7 @@ impl Block {
                     ShardChunkHeader::V2(_) => panic!(
                         "Attempted to include VersionedShardChunkHeaderV2 in old protocol version"
                     ),
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
                     ShardChunkHeader::V3(_) => panic!(
                         "Attempted to include VersionedShardChunkHeaderV3 in old protocol version"
                     ),

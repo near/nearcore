@@ -16,7 +16,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 19;
+pub const DB_VERSION: DbVersion = 18;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -54,9 +54,6 @@ pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
 /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
 pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
-
-/// Changes ValidatorStake and related data structures to be versioned
-pub const VALIDATOR_STAKE_UPGRADE_VERSION: ProtocolVersion = 44;
 
 pub struct ProtocolVersionRange {
     lower: ProtocolVersion,
@@ -104,7 +101,7 @@ pub enum ProtocolFeature {
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 44;
+pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
@@ -169,6 +166,14 @@ lazy_static! {
         nightly_protocol_features_to_version_mapping
     };
 }
+#[cfg(all(feature = "nightly_protocol", feature = "protocol_feature_block_header_v3"))]
+lazy_static! {
+    pub static ref BLOCK_HEADER_V3_VERSION: ProtocolVersion =
+        *PROTOCOL_FEATURES_TO_VERSION_MAPPING.get(&ProtocolFeature::BlockHeaderV3).unwrap();
+}
+
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+pub const BLOCK_HEADER_V3_VERSION: &'static ProtocolVersion = &u32::MAX;
 
 #[macro_export]
 macro_rules! checked_feature {

@@ -20,8 +20,10 @@ use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::{hash, CryptoHash};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV2,
+    ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
@@ -333,6 +335,7 @@ fn update_chunk_hash(chunk: PartialEncodedChunkV2, new_hash: ChunkHash) -> Parti
             header.hash = new_hash;
             ShardChunkHeader::V2(header)
         }
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         ShardChunkHeader::V3(mut header) => {
             header.hash = new_hash;
             ShardChunkHeader::V3(header)
@@ -354,6 +357,7 @@ fn update_chunk_height_created(
             header.inner.height_created = new_height;
             ShardChunkHeader::V2(header)
         }
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         ShardChunkHeader::V3(mut header) => {
             match &mut header.inner {
                 ShardChunkHeaderInner::V1(inner) => inner.height_created = new_height,

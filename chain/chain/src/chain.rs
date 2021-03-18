@@ -54,7 +54,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils;
 #[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::version::VALIDATOR_STAKE_UPGRADE_VERSION;
+use near_primitives::version::BLOCK_HEADER_V3_VERSION;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
@@ -379,7 +379,7 @@ impl Chain {
         #[cfg(feature = "protocol_feature_block_header_v3")]
         {
             let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-            if protocol_version < VALIDATOR_STAKE_UPGRADE_VERSION {
+            if protocol_version < *BLOCK_HEADER_V3_VERSION {
                 let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
                 Chain::compute_bp_hash_inner(validator_stakes)
             } else {
@@ -1452,7 +1452,9 @@ impl Chain {
                 let prev_chunk_header =
                     prev_chunk_header.and_then(|prev_header| match prev_header {
                         ShardChunkHeader::V1(header) => Some(header),
-                        ShardChunkHeader::V2(_) | ShardChunkHeader::V3(_) => None,
+                        ShardChunkHeader::V2(_) => None,
+                        #[cfg(feature = "protocol_feature_block_header_v3")]
+                        ShardChunkHeader::V3(_) => None,
                     });
                 ShardStateSyncResponseHeader::V1(ShardStateSyncResponseHeaderV1 {
                     chunk,
