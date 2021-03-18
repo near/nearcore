@@ -951,6 +951,7 @@ def load_config():
     return config
 
 def process_genesis_config_changes(genesis_config_changes, protocol_version):
+    print(f"Protocol version {protocol_version}")
     if protocol_version and protocol_version >= 107:
         return genesis_config_changes
     for change in genesis_config_changes:
