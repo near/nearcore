@@ -22,11 +22,11 @@ use near_store::{
 
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::VerificationResult;
+#[cfg(feature = "protocol_feature_tx_size_limit")]
+use borsh::ser::BorshSerialize;
 use near_primitives::checked_feature;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::types::BlockHeight;
-#[cfg(feature = "protocol_feature_tx_size_limit")]
-use borsh::ser::BorshSerialize;
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
@@ -59,14 +59,17 @@ pub fn validate_transaction(
 
     #[cfg(feature = "protocol_feature_tx_size_limit")]
     {
-        let transaction_size = signed_transaction.try_to_vec()
-            .expect("Borsh serializer is not expected to ever fail").len() as u64;
+        let transaction_size = signed_transaction
+            .try_to_vec()
+            .expect("Borsh serializer is not expected to ever fail")
+            .len() as u64;
         let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
         if transaction_size > max_transaction_size {
             return Err(InvalidTxError::TransactionSizeExceeded {
                 size: transaction_size,
                 limit: max_transaction_size,
-            }.into());
+            }
+            .into());
         }
     }
 
@@ -1202,12 +1205,12 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            vec![Action::DeployContract(DeployContractAction {
-                code: vec![1; 5]
-            }),],
-            CryptoHash::default());
-        let transaction_size = transaction.try_to_vec()
-            .expect("Borsh serializer is not expected to ever fail").len() as u64;
+            vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
+            CryptoHash::default(),
+        );
+        let transaction_size =
+            transaction.try_to_vec().expect("Borsh serializer is not expected to ever fail").len()
+                as u64;
 
         let mut config = RuntimeConfig::default();
         let max_transaction_size = transaction_size - 1;
@@ -1223,7 +1226,7 @@ mod tests {
                 None,
                 PROTOCOL_VERSION,
             )
-                .expect_err("expected an error"),
+            .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::TransactionSizeExceeded {
                 size: transaction_size,
                 limit: max_transaction_size
@@ -1239,7 +1242,8 @@ mod tests {
             false,
             None,
             PROTOCOL_VERSION,
-        ).expect("valid transaction");
+        )
+        .expect("valid transaction");
     }
 
     // Receipts
