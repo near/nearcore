@@ -274,12 +274,6 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
     actions.iter().try_fold(0, |acc, action| safe_add_gas(acc, action.get_prepaid_gas()))
 }
 
-/// Get the total size of given actions.
-#[cfg(feature = "protocol_feature_tx_size_limit")]
-pub fn total_size(actions: &[Action]) -> Result<usize, IntegerOverflowError> {
-    actions.iter().try_fold(0, |acc, action| safe_add_usize(acc, action.get_size()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -20,13 +20,13 @@ use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
 
-#[cfg(feature = "protocol_feature_tx_size_limit")]
-use crate::config::total_size;
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::VerificationResult;
 use near_primitives::checked_feature;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::types::BlockHeight;
+#[cfg(feature = "protocol_feature_tx_size_limit")]
+use borsh::ser::BorshSerialize;
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
@@ -55,6 +55,19 @@ pub fn validate_transaction(
             .verify(signed_transaction.get_hash().as_ref(), &transaction.public_key)
     {
         return Err(InvalidTxError::InvalidSignature.into());
+    }
+
+    #[cfg(feature = "protocol_feature_tx_size_limit")]
+    {
+        let transaction_size = signed_transaction.try_to_vec()
+            .expect("Borsh serializer is not expected to ever fail").len() as u64;
+        let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
+        if transaction_size > max_transaction_size {
+            return Err(InvalidTxError::TransactionSizeExceeded {
+                size: transaction_size,
+                limit: max_transaction_size,
+            }.into());
+        }
     }
 
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
@@ -326,18 +339,6 @@ pub(crate) fn validate_actions(
             total_prepaid_gas,
             limit: limit_config.max_total_prepaid_gas,
         });
-    }
-
-    #[cfg(feature = "protocol_feature_tx_size_limit")]
-    {
-        let total_size =
-            total_size(actions).map_err(|_| ActionsValidationError::IntegerOverflow)? as u64;
-        if total_size > limit_config.max_transaction_size {
-            return Err(ActionsValidationError::TransactionSizeExceeded {
-                size: total_size,
-                limit: limit_config.max_transaction_size,
-            });
-        }
     }
 
     Ok(())
@@ -1190,6 +1191,56 @@ mod tests {
         );
     }
 
+    #[test]
+    #[cfg(feature = "protocol_feature_tx_size_limit")]
+    fn test_validate_transaction_exceeding_tx_size_limit() {
+        let (signer, mut state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            0,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: bob_account(),
+                    method_names: vec!["not_hello".to_string(), "world".to_string()],
+                }),
+            }),
+        );
+
+        let transaction = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::DeployContract(DeployContractAction {
+                code: vec![1; 5]
+            }),],
+            CryptoHash::default());
+        let transaction_size = transaction.try_to_vec()
+            .expect("Borsh serializer is not expected to ever fail").len() as u64;
+
+        let mut config = RuntimeConfig::default();
+        let max_transaction_size = transaction_size - 1;
+        config.wasm_config.limit_config.max_transaction_size = transaction_size - 1;
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                gas_price,
+                &transaction,
+                true,
+                None,
+                PROTOCOL_VERSION,
+            )
+                .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::TransactionSizeExceeded {
+                size: transaction_size,
+                limit: max_transaction_size
+            }),
+        );
+    }
+
     // Receipts
 
     #[test]
@@ -1453,48 +1504,6 @@ mod tests {
                 &vec![
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "bob".into() }),
-                ]
-            ),
-            Ok(()),
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "protocol_feature_tx_size_limit")]
-    fn test_validate_actions_checking_tx_size_limit() {
-        let mut limit_config = VMLimitConfig::default();
-        let contract_size = 5;
-        let args_size = 3;
-
-        limit_config.max_transaction_size = 3;
-        assert_eq!(
-            validate_actions(
-                &limit_config,
-                &vec![Action::DeployContract(DeployContractAction {
-                    code: vec![1; contract_size as usize]
-                }),]
-            )
-            .expect_err("Expected an error"),
-            ActionsValidationError::TransactionSizeExceeded {
-                size: contract_size,
-                limit: limit_config.max_transaction_size
-            },
-        );
-
-        limit_config.max_transaction_size = 10;
-        assert_eq!(
-            validate_actions(
-                &limit_config,
-                &vec![
-                    Action::DeployContract(DeployContractAction {
-                        code: vec![1; contract_size as usize]
-                    }),
-                    Action::FunctionCall(FunctionCallAction {
-                        method_name: "test-method".to_string(),
-                        args: vec![0; args_size as usize],
-                        gas: 100,
-                        deposit: 0
-                    })
                 ]
             ),
             Ok(()),

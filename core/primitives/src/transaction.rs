@@ -72,14 +72,6 @@ impl Action {
             _ => 0,
         }
     }
-    #[cfg(feature = "protocol_feature_tx_size_limit")]
-    pub fn get_size(&self) -> usize {
-        match self {
-            Action::FunctionCall(a) => a.args.len(),
-            Action::DeployContract(a) => a.code.len(),
-            _ => 0,
-        }
-    }
 }
 
 /// Create account action
