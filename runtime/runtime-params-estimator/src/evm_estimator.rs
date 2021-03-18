@@ -1,9 +1,9 @@
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::{end_count, get_account_id, start_count, total_transactions, Config};
+use crate::TestContract;
 use ethabi_contract::use_contract;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
-use lazy_static_include::lazy_static_include_str;
 use near_crypto::{InMemorySigner, KeyType};
 use near_evm_runner::EvmContext;
 use near_primitives::hash::CryptoHash;
@@ -48,7 +48,7 @@ fn testbed_for_evm(
     for account_idx in 0..accounts {
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-        let code = hex::decode(&TEST).unwrap();
+        let code = hex::decode(&*TEST).unwrap();
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
 
         let block: Vec<_> = vec![SignedTransaction::from_actions(
@@ -209,10 +209,7 @@ pub fn measure_evm_deploy(
 use_contract!(soltest, "../near-evm-runner/tests/build/SolTests.abi");
 use_contract!(precompiled_function, "../near-evm-runner/tests/build/PrecompiledFunction.abi");
 
-lazy_static_include_str! {
-    TEST => "../near-evm-runner/tests/build/SolTests.bin",
-    PRECOMPILED_TEST => "../near-evm-runner/tests/build/PrecompiledFunction.bin",
-}
+static TEST: TestContract = TestContract::new("../near-evm-runner/tests/build/SolTests.bin");
 
 const CHAIN_ID: u64 = 0x99;
 
@@ -302,7 +299,7 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
     let allow_failures = false;
     let mut nonces = nonces.lock().unwrap();
     let mut accounts_deployed = HashSet::new();
-    let code = hex::decode(&TEST).unwrap();
+    let code = hex::decode(&*TEST).unwrap();
 
     let mut f = || {
         let account_idx = loop {

@@ -94,23 +94,27 @@ pub enum ProtocolFeature {
     AltBn128,
     #[cfg(feature = "protocol_feature_access_key_nonce_range")]
     AccessKeyNonceRange,
+    DeleteActionRestriction,
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    AccountVersions,
     #[cfg(feature = "protocol_feature_tx_size_limit")]
     TransactionSizeLimit,
 }
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 42;
+pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 107;
+pub const PROTOCOL_VERSION: ProtocolVersion = 108;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
         vec![
             #[cfg(feature = "protocol_feature_lower_storage_cost")]
             (ProtocolFeature::LowerStorageCost, 42),
+            (ProtocolFeature::DeleteActionRestriction, 43),
         ]
         .into_iter()
         .collect();
@@ -144,8 +148,10 @@ lazy_static! {
             (ProtocolFeature::AltBn128, 105),
             #[cfg(feature = "protocol_feature_access_key_nonce_range")]
             (ProtocolFeature::AccessKeyNonceRange, 106),
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            (ProtocolFeature::AccountVersions, 107),
             #[cfg(feature = "protocol_feature_tx_size_limit")]
-            (ProtocolFeature::TransactionSizeLimit, 107),
+            (ProtocolFeature::TransactionSizeLimit, 108),
         ]
         .into_iter()
         .collect();

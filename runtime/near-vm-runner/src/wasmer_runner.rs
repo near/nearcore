@@ -1,6 +1,7 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{
     config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
@@ -169,8 +170,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
 }
 
 pub fn run_wasmer<'a>(
-    code_hash: &[u8],
-    code: &[u8],
+    code: &ContractCode,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -203,12 +203,8 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::wasmer0_cache::compile_module_cached_wasmer0(
-        &code_hash,
-        code,
-        wasm_config,
-        cache,
-    ) {
+    let module = match cache::wasmer0_cache::compile_module_cached_wasmer0(code, wasm_config, cache)
+    {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
@@ -231,7 +227,7 @@ pub fn run_wasmer<'a>(
         current_protocol_version,
     );
 
-    if logic.add_contract_compile_fee(code.len() as u64).is_err() {
+    if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
         return (
             Some(logic.outcome()),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(

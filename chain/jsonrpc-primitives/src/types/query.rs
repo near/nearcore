@@ -14,12 +14,12 @@ pub struct RpcQueryRequest {
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcQueryError {
-    #[error("IO Error: {error_message}")]
-    IOError { error_message: String },
     #[error("There are no fully synchronized blocks on the node yet")]
     NoSyncedBlocks,
-    #[error("The node does not track the shard")]
+    #[error("The node does not track the shard ID {requested_shard_id}")]
     UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
+    #[error("Block either has never been observed on the node or has been garbage collected: {block_reference:?}")]
+    UnknownBlock { block_reference: near_primitives::types::BlockReference },
     #[error("Account ID {requested_account_id} is invalid")]
     InvalidAccount {
         requested_account_id: near_primitives::types::AccountId,
@@ -52,8 +52,6 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Block either has never been observed on the node or has been garbage collected: {block_reference:?}")]
-    UnknownBlock { block_reference: near_primitives::types::BlockReference },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle

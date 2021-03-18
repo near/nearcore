@@ -953,6 +953,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ae45936bbf9bddd6a0268c0ea5d3814a72403f4b69a1c318aae2ce90444ad55"
 
 [[package]]
+name = "conqueue"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eac4306c796b95d3964b94fa65018a57daee08b45a54b86a4f64910426427b66"
+
+[[package]]
 name = "console"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3354,6 +3360,7 @@ dependencies = [
  "bytesize",
  "cached",
  "chrono",
+ "conqueue",
  "delay-detector",
  "futures",
  "lazy_static",
@@ -4834,6 +4841,7 @@ name = "runtime-params-estimator"
 version = "3.0.0"
 dependencies = [
  "borsh",
+ "cfg-if 1.0.0",
  "clap 2.33.3",
  "csv",
  "ethabi",
@@ -4844,7 +4852,6 @@ dependencies = [
  "gnuplot",
  "hex",
  "indicatif 0.15.0",
- "lazy-static-include",
  "libc",
  "near-chain-configs",
  "near-crypto",
@@ -4857,6 +4864,7 @@ dependencies = [
  "node-runtime",
  "num-rational",
  "num-traits",
+ "once_cell",
  "rand 0.7.3",
  "rand_xorshift 0.2.0",
  "rocksdb",

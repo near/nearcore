@@ -1,7 +1,7 @@
 {
-  "protocol_version": 43, 
-  "genesis_time": "1970-01-01T00:00:00.000000000Z", 
-  "chain_id": "sample", 
+  "protocol_version": 106, 
+  "genesis_time": "2021-03-11T12:21:00.600452Z", 
+  "chain_id": "test-chain-UEUmI", 
   "genesis_height": 0, 
   "num_block_producer_seats": 50, 
   "num_block_producer_seats_per_shard": [
@@ -217,7 +217,7 @@
   "validators": [
     {
       "account_id": "test.near", 
-      "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw", 
+      "public_key": "ed25519:c1Xhe1pEEbkCSzwwC1Pvq9d15nmP8fZPpFGmvM6atUc", 
       "amount": "50000000000000000000000000000000"
     }
   ], 
@@ -235,5 +235,52 @@
   "protocol_treasury_account": "test.near", 
   "fishermen_threshold": "10000000000000000000000000", 
   "minimum_stake_divisor": 10, 
-  "records": []
+  "records": [
+    {
+      "Account": {
+        "account_id": "test.near", 
+        "account": {
+          "AccountV1": {
+            "amount": "1000000000000000000000000000000000", 
+            "locked": "50000000000000000000000000000000", 
+            "code_hash": "11111111111111111111111111111111", 
+            "storage_usage": 0
+          }
+        }
+      }
+    }, 
+    {
+      "AccessKey": {
+        "account_id": "test.near", 
+        "public_key": "ed25519:c1Xhe1pEEbkCSzwwC1Pvq9d15nmP8fZPpFGmvM6atUc", 
+        "access_key": {
+          "nonce": 0, 
+          "permission": "FullAccess"
+        }
+      }
+    }, 
+    {
+      "Account": {
+        "account_id": "near", 
+        "account": {
+          "AccountV1": {
+            "amount": "1000000000000000000000000000000000", 
+            "locked": "0", 
+            "code_hash": "11111111111111111111111111111111", 
+            "storage_usage": 0
+          }
+        }
+      }
+    }, 
+    {
+      "AccessKey": {
+        "account_id": "near", 
+        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c", 
+        "access_key": {
+          "nonce": 0, 
+          "permission": "FullAccess"
+        }
+      }
+    }
+  ]
 }
