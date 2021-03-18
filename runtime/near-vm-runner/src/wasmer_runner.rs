@@ -10,7 +10,7 @@ use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
-use wasmer_runtime::Module;
+use wasmer_runtime::{ImportObject, Module};
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
@@ -242,21 +242,29 @@ pub fn run_wasmer<'a>(
         return (None, Some(e));
     }
 
-    let instantiate = {
-        let _span = tracing::debug_span!("run_wasmer/instantiate").entered();
-        module.instantiate(&import_object)
-    };
-    match instantiate {
-        Ok(instance) => {
-            let _span = tracing::debug_span!("run_wasmer/call").entered();
+    let err = run_method(&module, &import_object, method_name).err();
+    (Some(logic.outcome()), err)
+}
 
-            match instance.call(&method_name, &[]) {
-                Ok(_) => (Some(logic.outcome()), None),
-                Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-            }
-        }
-        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
+    let _span = tracing::debug_span!("run_method").entered();
+
+    let instance = {
+        let _span = tracing::debug_span!("run_method/instantiate").entered();
+        module.instantiate(import).map_err(|err| err.into_vm_error())?
+    };
+
+    {
+        let _span = tracing::debug_span!("run_method/call").entered();
+        instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
     }
+
+    {
+        let _span = tracing::debug_span!("run_method/drop_instance").entered();
+        drop(instance)
+    }
+
+    Ok(())
 }
 
 pub(crate) fn run_wasmer0_module<'a>(
@@ -303,13 +311,8 @@ pub(crate) fn run_wasmer0_module<'a>(
         return (None, Some(e));
     }
 
-    match module.instantiate(&import_object) {
-        Ok(instance) => match instance.call(&method_name, &[]) {
-            Ok(_) => (Some(logic.outcome()), None),
-            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-        },
-        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-    }
+    let err = run_method(&module, &import_object, method_name).err();
+    (Some(logic.outcome()), err)
 }
 
 pub fn compile_wasmer0_module(code: &[u8]) -> bool {
