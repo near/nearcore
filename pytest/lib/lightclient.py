@@ -126,7 +126,8 @@ def validate_light_client_block(last_known_block,
         for i in range(3):
             serialized_next_bp.append(0)
         for bp in new_block['next_bps']:
-            serialized_next_bp.append(0) # version of ValidatorStake enum
+            # TODO: need to have the following line on nightly, but not stable
+            #  serialized_next_bp.append(0) # version of ValidatorStake enum
             serialized_next_bp.append(5)
             for i in range(3):
                 serialized_next_bp.append(0)

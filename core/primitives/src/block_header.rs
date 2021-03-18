@@ -110,7 +110,7 @@ pub struct BlockHeaderInnerRestV2 {
 /// Add `prev_height`
 /// Add `block_ordinal`
 /// Add `epoch_sync_data_hash`
-/// /// Use new `ValidatorStake` struct
+/// Use new `ValidatorStake` struct
 #[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRestV3 {
