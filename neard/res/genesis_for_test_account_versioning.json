@@ -1,5 +1,5 @@
 {
-  "protocol_version": 107,
+  "protocol_version": 106,
   "genesis_time": "2021-03-11T12:21:00.600452Z", 
   "chain_id": "test-chain-UEUmI", 
   "genesis_height": 0, 
