@@ -13,7 +13,8 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,

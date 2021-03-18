@@ -4,14 +4,16 @@ use borsh::BorshSerialize;
 use thiserror::Error;
 
 use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
+use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{
     get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,

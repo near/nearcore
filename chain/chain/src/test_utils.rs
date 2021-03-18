@@ -14,7 +14,8 @@ use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
+use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -24,9 +25,10 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
     TransferAction,
 };
+use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
-    ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStakeIter,
+    ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};

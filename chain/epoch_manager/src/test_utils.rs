@@ -4,11 +4,15 @@ use num_rational::Rational;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_manager::{BlockInfoV2, EpochConfig, EpochInfo, ValidatorWeight};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::epoch_manager::block_info::BlockInfoV2;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::{EpochConfig, ValidatorWeight};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
-    ValidatorId, ValidatorKickoutReason, ValidatorStake,
+    ValidatorId, ValidatorKickoutReason,
 };
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -305,6 +309,36 @@ pub fn record_block(
     record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
 }
 
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+pub fn block_info(
+    hash: CryptoHash,
+    height: BlockHeight,
+    last_finalized_height: BlockHeight,
+    last_final_block_hash: CryptoHash,
+    prev_hash: CryptoHash,
+    epoch_first_block: CryptoHash,
+    chunk_mask: Vec<bool>,
+    total_supply: Balance,
+) -> BlockInfo {
+    BlockInfo {
+        hash,
+        height,
+        last_finalized_height,
+        last_final_block_hash,
+        prev_hash,
+        epoch_first_block,
+        epoch_id: Default::default(),
+        proposals: vec![],
+        chunk_mask,
+        latest_protocol_version: PROTOCOL_VERSION,
+        slashed: Default::default(),
+        total_supply,
+        #[cfg(feature = "protocol_feature_rectify_inflation")]
+        timestamp_nanosec: height * NUM_NS_IN_SECOND,
+    }
+}
+
+#[cfg(feature = "protocol_feature_block_header_v3")]
 pub fn block_info(
     hash: CryptoHash,
     height: BlockHeight,

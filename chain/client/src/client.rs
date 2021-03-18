@@ -35,9 +35,10 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::chunk_extra::ChunkExtra;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::NumBlocks;
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;

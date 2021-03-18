@@ -26,12 +26,15 @@ use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
-use near_primitives::epoch_manager::{EpochInfo, EpochInfoV1};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::epoch_info::EpochInfoV1;
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::ValidatorStake;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::rc::Rc;
@@ -170,6 +173,15 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
             let chunk: ShardChunkV1 = BorshDeserialize::try_from_slice(&value)
                 .expect("Borsh deserialization should not fail");
             let ShardChunkV1 { chunk_hash, header, transactions, receipts } = chunk;
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            let proposals = header
+                .inner
+                .validator_proposals
+                .iter()
+                .map(|v| ValidatorStake::V1(v.clone()))
+                .collect();
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            let proposals = header.inner.validator_proposals.clone();
             let (encoded_chunk, merkle_paths) = EncodedShardChunk::new(
                 header.inner.prev_block_hash,
                 header.inner.prev_state_root,
@@ -181,12 +193,7 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                 header.inner.gas_limit,
                 header.inner.balance_burnt,
                 header.inner.tx_root,
-                header
-                    .inner
-                    .validator_proposals
-                    .iter()
-                    .map(|v| ValidatorStake::V1(v.clone()))
-                    .collect(),
+                proposals,
                 transactions,
                 &receipts,
                 header.inner.outgoing_receipts_root,
@@ -557,7 +564,8 @@ pub fn migrate_17_to_18(path: &String) {
     use std::convert::TryFrom;
 
     use near_primitives::challenge::SlashedValidator;
-    use near_primitives::types::{Balance, BlockHeight, EpochId, ValidatorStakeV1};
+    use near_primitives::types::validator_stake::ValidatorStakeV1;
+    use near_primitives::types::{Balance, BlockHeight, EpochId};
     use near_primitives::version::ProtocolVersion;
 
     // Migrate from OldBlockInfo to NewBlockInfo - add hash
@@ -626,9 +634,10 @@ pub fn migrate_17_to_18(path: &String) {
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 pub fn migrate_18_to_rectify_inflation(path: &String) {
-    use near_primitives::epoch_manager::BlockInfoV1;
+    use near_primitives::epoch_manager::block_info::BlockInfoV1;
     use near_primitives::epoch_manager::SlashState;
-    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStakeV1};
+    use near_primitives::types::validator_stake::ValidatorStakeV1;
+    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId};
     use near_primitives::version::ProtocolVersion;
     #[derive(BorshDeserialize)]
     struct OldBlockInfo {
@@ -668,11 +677,16 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
     .unwrap();
 }
 
-pub fn migrate_18_to_19(path: &str) {
-    use near_primitives::epoch_manager::{BlockInfo, BlockInfoV1, EpochSummary, AGGREGATOR_KEY};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+pub fn migrate_18_to_new_validator_stake(path: &str) {
+    use near_primitives::epoch_manager::block_info::{BlockInfo, BlockInfoV1};
+    use near_primitives::epoch_manager::epoch_info::EpochSummary;
+    use near_primitives::epoch_manager::AGGREGATOR_KEY;
+    use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV1};
+    use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{
-        AccountId, BlockChunkValidatorStats, ChunkExtra, ChunkExtraV1, EpochId, ProtocolVersion,
-        ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStakeV1, ValidatorStats,
+        AccountId, BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,
+        ValidatorKickoutReason, ValidatorStats,
     };
     use std::collections::BTreeMap;
 
@@ -748,6 +762,4 @@ pub fn migrate_18_to_19(path: &str) {
         }
     }
     store_update.finish().unwrap();
-
-    set_store_version(&store, 19);
 }

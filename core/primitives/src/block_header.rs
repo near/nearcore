@@ -8,10 +8,8 @@ use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
-use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ValidatorStake,
-    ValidatorStakeIter, ValidatorStakeV1,
-};
+use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks};
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -394,7 +392,10 @@ impl BlockHeader {
                 chunks_included,
                 challenges_root,
                 random_value,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 validator_proposals: validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+                validator_proposals,
                 chunk_mask,
                 gas_price,
                 total_supply,
@@ -425,6 +426,9 @@ impl BlockHeader {
                 chunk_tx_root,
                 challenges_root,
                 random_value,
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+                validator_proposals,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
                 validator_proposals: validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
                 chunk_mask,
                 gas_price,

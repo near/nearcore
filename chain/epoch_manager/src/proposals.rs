@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
 
-use near_primitives::epoch_manager::{EpochConfig, EpochInfo};
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
-use near_primitives::types::{
-    AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason, ValidatorStake,
-};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason};
 use near_primitives::version::ProtocolVersion;
 
 use crate::types::RngSeed;
@@ -373,9 +373,14 @@ mod tests {
             HashMap::default(),
             0,
         );
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         match &mut epoch_info {
             EpochInfo::V1(info) => info.validator_kickout = HashMap::default(),
             EpochInfo::V2(info) => info.validator_kickout = HashMap::default(),
+        }
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        {
+            epoch_info.validator_kickout = HashMap::default();
         }
         assert_eq!(
             proposals_to_epoch_info(

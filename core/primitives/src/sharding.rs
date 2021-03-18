@@ -8,10 +8,8 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{
-    Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake, ValidatorStakeIter,
-    ValidatorStakeV1,
-};
+use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
+use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{
     ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION,
@@ -1141,6 +1139,9 @@ impl EncodedShardChunk {
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
         if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            let validator_proposals =
+                validator_proposals.into_iter().map(|v| v.into_v1()).collect();
             let header = ShardChunkHeaderV1::new(
                 prev_block_hash,
                 prev_state_root,
@@ -1154,12 +1155,15 @@ impl EncodedShardChunk {
                 balance_burnt,
                 outgoing_receipts_root,
                 tx_root,
-                validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
+                validator_proposals,
                 signer,
             );
             let chunk = EncodedShardChunkV1 { header, content };
             (Self::V1(chunk), merkle_paths)
         } else if protocol_version < VALIDATOR_STAKE_UPGRADE_VERSION {
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            let validator_proposals =
+                validator_proposals.into_iter().map(|v| v.into_v1()).collect();
             let header = ShardChunkHeaderV2::new(
                 prev_block_hash,
                 prev_state_root,
@@ -1173,7 +1177,7 @@ impl EncodedShardChunk {
                 balance_burnt,
                 outgoing_receipts_root,
                 tx_root,
-                validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
+                validator_proposals,
                 signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V2(header), content };

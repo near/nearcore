@@ -23,8 +23,8 @@ use near_primitives::{
     },
     trie_key::TrieKey,
     types::{
-        AccountId, Balance, EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey,
-        ShardId, StateChangeCause, StateRoot, ValidatorStake,
+        validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas, MerkleHash,
+        RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
     },
     utils::{
         create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,

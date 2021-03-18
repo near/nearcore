@@ -45,9 +45,10 @@ use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
     EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
     StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason, ValidatorStake,
+    StoreValue, ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
+use validator_stake_view::ValidatorStakeView;
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -452,6 +453,15 @@ impl From<BlockHeaderView> for BlockHeader {
                 - 1,
         );
         if view.latest_protocol_version <= 29 {
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            let validator_proposals = view
+                .validator_proposals
+                .into_iter()
+                .map(|v| v.into_validator_stake().into_v1())
+                .collect();
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            let validator_proposals =
+                view.validator_proposals.into_iter().map(Into::into).collect();
             let mut header = BlockHeaderV1 {
                 prev_hash: view.prev_hash,
                 inner_lite,
@@ -462,11 +472,7 @@ impl From<BlockHeaderView> for BlockHeader {
                     chunks_included: view.chunks_included,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals: view
-                        .validator_proposals
-                        .into_iter()
-                        .map(|v| v.into_validator_stake().into_v1())
-                        .collect(),
+                    validator_proposals,
                     chunk_mask: view.chunk_mask,
                     gas_price: view.gas_price,
                     total_supply: view.total_supply,
@@ -484,6 +490,15 @@ impl From<BlockHeaderView> for BlockHeader {
         } else if last_header_v2_version.is_none()
             || view.latest_protocol_version <= last_header_v2_version.unwrap()
         {
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            let validator_proposals = view
+                .validator_proposals
+                .into_iter()
+                .map(|v| v.into_validator_stake().into_v1())
+                .collect();
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            let validator_proposals =
+                view.validator_proposals.into_iter().map(Into::into).collect();
             let mut header = BlockHeaderV2 {
                 prev_hash: view.prev_hash,
                 inner_lite,
@@ -493,11 +508,7 @@ impl From<BlockHeaderView> for BlockHeader {
                     chunk_tx_root: view.chunk_tx_root,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals: view
-                        .validator_proposals
-                        .into_iter()
-                        .map(|v| v.into_validator_stake().into_v1())
-                        .collect(),
+                    validator_proposals,
                     chunk_mask: view.chunk_mask,
                     gas_price: view.gas_price,
                     total_supply: view.total_supply,
@@ -1066,56 +1077,114 @@ impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
-#[serde(tag = "version")]
-pub enum ValidatorStakeView {
-    V1(ValidatorStakeViewV1),
-}
+#[cfg(feature = "protocol_feature_block_header_v3")]
+pub mod validator_stake_view {
+    use crate::serialize::u128_dec_format;
+    use crate::types::validator_stake::ValidatorStake;
+    use borsh::{BorshDeserialize, BorshSerialize};
+    use near_crypto::PublicKey;
+    use near_primitives_core::types::{AccountId, Balance};
+    use serde::{Deserialize, Serialize};
 
-impl ValidatorStakeView {
-    pub fn into_validator_stake(self) -> ValidatorStake {
-        self.into()
+    #[derive(
+        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
+    )]
+    #[serde(tag = "version")]
+    pub enum ValidatorStakeView {
+        V1(ValidatorStakeViewV1),
     }
 
-    #[inline]
-    pub fn take_account_id(self) -> AccountId {
-        match self {
-            Self::V1(v1) => v1.account_id,
+    impl ValidatorStakeView {
+        pub fn into_validator_stake(self) -> ValidatorStake {
+            self.into()
+        }
+
+        #[inline]
+        pub fn take_account_id(self) -> AccountId {
+            match self {
+                Self::V1(v1) => v1.account_id,
+            }
+        }
+
+        #[inline]
+        pub fn account_id(&self) -> &AccountId {
+            match self {
+                Self::V1(v1) => &v1.account_id,
+            }
         }
     }
 
-    #[inline]
-    pub fn account_id(&self) -> &AccountId {
-        match self {
-            Self::V1(v1) => &v1.account_id,
+    #[derive(
+        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
+    )]
+    pub struct ValidatorStakeViewV1 {
+        pub account_id: AccountId,
+        pub public_key: PublicKey,
+        #[serde(with = "u128_dec_format")]
+        pub stake: Balance,
+    }
+
+    impl From<ValidatorStake> for ValidatorStakeView {
+        fn from(stake: ValidatorStake) -> Self {
+            match stake {
+                ValidatorStake::V1(v1) => Self::V1(ValidatorStakeViewV1 {
+                    account_id: v1.account_id,
+                    public_key: v1.public_key,
+                    stake: v1.stake,
+                }),
+            }
+        }
+    }
+
+    impl From<ValidatorStakeView> for ValidatorStake {
+        fn from(view: ValidatorStakeView) -> Self {
+            match view {
+                ValidatorStakeView::V1(v1) => Self::new(v1.account_id, v1.public_key, v1.stake),
+            }
         }
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
-pub struct ValidatorStakeViewV1 {
-    pub account_id: AccountId,
-    pub public_key: PublicKey,
-    #[serde(with = "u128_dec_format")]
-    pub stake: Balance,
-}
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+pub mod validator_stake_view {
+    use crate::serialize::u128_dec_format;
+    use crate::types::validator_stake::ValidatorStake;
+    use borsh::{BorshDeserialize, BorshSerialize};
+    use near_crypto::PublicKey;
+    use near_primitives_core::types::{AccountId, Balance};
+    use serde::{Deserialize, Serialize};
 
-impl From<ValidatorStake> for ValidatorStakeView {
-    fn from(stake: ValidatorStake) -> Self {
-        match stake {
-            ValidatorStake::V1(v1) => Self::V1(ValidatorStakeViewV1 {
-                account_id: v1.account_id,
-                public_key: v1.public_key,
-                stake: v1.stake,
-            }),
+    #[derive(
+        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
+    )]
+    pub struct ValidatorStakeView {
+        pub account_id: AccountId,
+        pub public_key: PublicKey,
+        #[serde(with = "u128_dec_format")]
+        pub stake: Balance,
+    }
+
+    impl ValidatorStakeView {
+        #[inline]
+        pub fn take_account_id(self) -> AccountId {
+            self.account_id
+        }
+
+        #[inline]
+        pub fn account_id(&self) -> &AccountId {
+            &self.account_id
         }
     }
-}
 
-impl From<ValidatorStakeView> for ValidatorStake {
-    fn from(view: ValidatorStakeView) -> Self {
-        match view {
-            ValidatorStakeView::V1(v1) => Self::new(v1.account_id, v1.public_key, v1.stake),
+    impl From<ValidatorStake> for ValidatorStakeView {
+        fn from(stake: ValidatorStake) -> Self {
+            Self { account_id: stake.account_id, public_key: stake.public_key, stake: stake.stake }
+        }
+    }
+
+    impl From<ValidatorStakeView> for ValidatorStake {
+        fn from(view: ValidatorStakeView) -> Self {
+            Self { account_id: view.account_id, public_key: view.public_key, stake: view.stake }
         }
     }
 }

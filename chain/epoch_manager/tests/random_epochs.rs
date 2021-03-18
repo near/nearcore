@@ -8,9 +8,12 @@ use near_epoch_manager::test_utils::{
 };
 use near_epoch_manager::EpochManager;
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_manager::{BlockInfo, EpochInfo, SlashState};
+use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::SlashState;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, EpochId, ValidatorKickoutReason, ValidatorStake};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, Balance, EpochId, ValidatorKickoutReason};
 
 const DEBUG_PRINT: bool = false;
 

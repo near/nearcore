@@ -19,9 +19,8 @@ use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, ValidatorStake,
-};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId};
 use near_primitives::utils::to_timestamp;
 
 use cached::{Cached, SizedCache};

@@ -14,7 +14,9 @@ use near_primitives::sharding::{
     ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce, ValidatorStakeIter};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::validator_stake::ValidatorStakeIter;
+use near_primitives::types::{AccountId, EpochId, Nonce};
 use near_store::PartialStorage;
 
 use crate::byzantine_assert;

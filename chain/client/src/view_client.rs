@@ -47,11 +47,12 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, TransactionOrReceiptId,
 };
+use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
     LightClientBlockView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
-    StateChangesView, ValidatorStakeView,
+    StateChangesView,
 };
 
 use crate::{

@@ -26,17 +26,19 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
-use near_primitives::epoch_manager::{BlockInfo, EpochConfig, EpochInfo};
+use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake,
-    ValidatorStakeIter,
+    MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{

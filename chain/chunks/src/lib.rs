@@ -31,9 +31,9 @@ use near_primitives::sharding::{
     ShardChunkHeader, ShardProof,
 };
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
-    ValidatorStake,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;

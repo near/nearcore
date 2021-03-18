@@ -46,12 +46,14 @@ use near_primitives::syncing::{
     StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, MerkleHash,
-    NumBlocks, ShardId,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
+    ShardId,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils;
+#[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::version::VALIDATOR_STAKE_UPGRADE_VERSION;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
@@ -369,13 +371,21 @@ impl Chain {
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-        if protocol_version < VALIDATOR_STAKE_UPGRADE_VERSION {
-            let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
-            Chain::compute_bp_hash_inner(validator_stakes)
-        } else {
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        {
             let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
             Chain::compute_bp_hash_inner(validator_stakes)
+        }
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        {
+            let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+            if protocol_version < VALIDATOR_STAKE_UPGRADE_VERSION {
+                let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
+                Chain::compute_bp_hash_inner(validator_stakes)
+            } else {
+                let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
+                Chain::compute_bp_hash_inner(validator_stakes)
+            }
         }
     }
 

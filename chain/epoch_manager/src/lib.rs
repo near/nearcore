@@ -6,14 +6,15 @@ use cached::{Cached, SizedCache};
 use log::{debug, warn};
 use primitive_types::U256;
 
-use near_primitives::epoch_manager::{
-    BlockInfo, EpochConfig, EpochInfo, EpochSummary, SlashState, AGGREGATOR_KEY,
-};
+use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
+use near_primitives::epoch_manager::{EpochConfig, SlashState, AGGREGATOR_KEY};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
-    ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
+    ValidatorId, ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -2769,9 +2770,14 @@ mod tests {
             reward(vec![("near", 0)]),
             0,
         );
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         match &mut epoch_info {
             EpochInfo::V1(info) => info.validator_kickout = HashMap::default(),
             EpochInfo::V2(info) => info.validator_kickout = HashMap::default(),
+        }
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        {
+            epoch_info.validator_kickout = HashMap::default();
         }
         assert_eq!(em.get_epoch_info(&EpochId::default()).unwrap(), &epoch_info)
     }
@@ -3188,11 +3194,17 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "protocol_feature_block_header_v3")]
     fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
         match info {
             BlockInfo::V1(v1) => v1.latest_protocol_version = protocol_version,
             BlockInfo::V2(v2) => v2.latest_protocol_version = protocol_version,
         }
+    }
+
+    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+    fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
+        info.latest_protocol_version = protocol_version;
     }
 
     #[test]
