@@ -1,4 +1,5 @@
 import multiprocessing
+import re
 import threading
 import subprocess
 import json
@@ -787,6 +788,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
 
 
 def apply_genesis_changes(node_dir, genesis_config_changes):
+    genesis_config_changes = process_genesis_config_changes(genesis_config_changes)
     # apply genesis.json changes
     fname = os.path.join(node_dir, 'genesis.json')
     with open(fname) as f:
@@ -948,3 +950,19 @@ def load_config():
     else:
         print(f"Use default config {config}")
     return config
+
+def get_version():
+    output = subprocess.check_output(['neard', '--version'])
+    result = re.search('[(]protocol (\d+)[)]', output)
+    if result:
+        return int(result.group(1))
+    else:
+        return None
+
+def process_genesis_config_changes(genesis_config_changes):
+    if get_version() >= 107:
+        return genesis_config_changes
+    for change in genesis_config_changes:
+        if change[0] == 'records':
+            change.remove('AccountV1')
+    return genesis_config_changes
