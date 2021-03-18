@@ -1194,18 +1194,8 @@ mod tests {
     #[test]
     #[cfg(feature = "protocol_feature_tx_size_limit")]
     fn test_validate_transaction_exceeding_tx_size_limit() {
-        let (signer, mut state_update, gas_price) = setup_common(
-            TESTING_INIT_BALANCE,
-            0,
-            Some(AccessKey {
-                nonce: 0,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: bob_account(),
-                    method_names: vec!["not_hello".to_string(), "world".to_string()],
-                }),
-            }),
-        );
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let transaction = SignedTransaction::from_actions(
             1,
@@ -1229,7 +1219,7 @@ mod tests {
                 &mut state_update,
                 gas_price,
                 &transaction,
-                true,
+                false,
                 None,
                 PROTOCOL_VERSION,
             )
@@ -1239,6 +1229,17 @@ mod tests {
                 limit: max_transaction_size
             }),
         );
+
+        config.wasm_config.limit_config.max_transaction_size = transaction_size + 1;
+        verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            gas_price,
+            &transaction,
+            false,
+            None,
+            PROTOCOL_VERSION,
+        ).expect("valid transaction");
     }
 
     // Receipts
