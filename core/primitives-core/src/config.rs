@@ -20,6 +20,7 @@ pub struct VMConfig {
 }
 
 /// Describes limits for VM and Runtime.
+/// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 #[serde(default)]
 pub struct VMLimitConfig {
