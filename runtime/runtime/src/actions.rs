@@ -131,6 +131,7 @@ pub(crate) fn execute_function_call(
         };
 
         machine.run(
+            *action_hash,
             &code,
             &function_call.method_name,
             runtime_ext,

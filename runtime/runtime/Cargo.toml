@@ -41,6 +41,8 @@ wasmtime_vm = ["near-vm-runner/wasmtime_vm"]
 wasmer1_default = ["wasmer1_vm", "near-vm-logic/wasmer1_default"]
 wasmer0_default = ["wasmer0_vm", "near-vm-logic/wasmer0_default"]
 wasmtime_default = ["wasmtime_vm", "near-vm-logic/wasmtime_default"]
+# Enables contract preloading optimization for batch execution of contracts
+contract_preload = []
 
 no_cpu_compatibility_checks = [ "near-vm-runner/no_cpu_compatibility_checks"]
 

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -7,6 +9,8 @@ use near_primitives::{
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
+
+use crate::{ContractCallPrepareRequest, ContractCallPrepareResult, ContractCaller};
 
 /// Runs a single contract
 ///
@@ -54,16 +58,24 @@ pub fn run<'a>(
 /// Re-using the same `WasmMachine` is potentially more efficient than calling
 /// `run` repeatedly.
 pub struct WasmMachine {
-    _private: (),
+    contract_caller: Option<ContractCaller>,
+    preloaded: HashMap<CryptoHash, ContractCallPrepareResult>,
 }
 
 impl WasmMachine {
     pub fn new() -> WasmMachine {
-        WasmMachine { _private: () }
+        WasmMachine { contract_caller: None, preloaded: HashMap::new() }
+    }
+
+    pub fn preload(&mut self, preload_requests: Vec<ContractCallPrepareRequest>) {
+        let contract_caller = self.contract_caller.get_or_insert_with(|| ContractCaller::new(2));
+        let preload_results = contract_caller.preload(preload_requests, VMKind::default());
+        self.preloaded.extend(preload_results);
     }
 
     pub fn run(
         &mut self,
+        action_hash: CryptoHash,
         code: &ContractCode,
         method_name: &str,
         ext: &mut dyn External,
@@ -75,6 +87,22 @@ impl WasmMachine {
         cache: Option<&dyn CompiledContractCache>,
         profile: &ProfileData,
     ) -> (Option<VMOutcome>, Option<VMError>) {
+        if let Some(contract_caller) = &mut self.contract_caller {
+            if let Some(prepared) = self.preloaded.remove(&action_hash) {
+                return contract_caller.run_preloaded(
+                    &prepared,
+                    method_name,
+                    ext,
+                    context,
+                    vm_config,
+                    fees_config,
+                    promise_results,
+                    current_protocol_version,
+                    profile.clone(),
+                );
+            }
+        }
+
         run_vm(
             code,
             method_name,

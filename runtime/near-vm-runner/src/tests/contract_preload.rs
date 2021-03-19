@@ -1,5 +1,6 @@
 use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError};
 use near_primitives::contract::ContractCode;
+use near_primitives::hash::hash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
 
@@ -111,20 +112,22 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
     if preloaded {
         let mut requests = Vec::new();
         let mut caller = ContractCaller::new(4);
-        for _ in 0..repeat {
+        for i in 0..repeat {
             requests.push(ContractCallPrepareRequest {
+                id: hash(&(2 * i).to_le_bytes()),
                 code: Arc::clone(&code1),
                 vm_config: vm_config.clone(),
                 cache: cache.clone(),
             });
             requests.push(ContractCallPrepareRequest {
+                id: hash(&(2 * i + 1).to_le_bytes()),
                 code: Arc::clone(&code2),
                 vm_config: vm_config.clone(),
                 cache: cache.clone(),
             });
         }
         let calls = caller.preload(requests, vm_kind);
-        for prepared in &calls {
+        for prepared in calls.values() {
             let result = caller.run_preloaded(
                 prepared,
                 method_name1,

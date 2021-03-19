@@ -40,7 +40,7 @@ use near_store::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
-use near_vm_runner::WasmMachine;
+use near_vm_runner::{ContractCallPrepareRequest, WasmMachine};
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
@@ -1136,6 +1136,69 @@ impl Runtime {
         let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
 
         let mut machine = WasmMachine::new();
+
+        if cfg!(feature = "contract_preload") {
+            let mut acc = Vec::new();
+            let mut preload_receipt = |receipt: &Receipt| {
+                match &receipt.receipt {
+                    ReceiptEnum::Data(_) => {
+                        // TODO(matklad): fetch postponed receipt
+                    }
+                    ReceiptEnum::Action(action_receipt) => {
+                        for (action_index, action) in action_receipt.actions.iter().enumerate() {
+                            if let Action::FunctionCall(_) = action {
+                                if let Ok(Some(account)) =
+                                    get_account(&state_update, &receipt.receiver_id)
+                                {
+                                    let code = crate::cache::get_code(account.code_hash(), || {
+                                        near_store::get_code(
+                                            &state_update,
+                                            &receipt.receiver_id,
+                                            Some(account.code_hash()),
+                                        )
+                                    });
+
+                                    if let Ok(Some(code)) = code {
+                                        let action_hash = create_action_hash(
+                                            apply_state.current_protocol_version,
+                                            &receipt,
+                                            &apply_state.prev_block_hash,
+                                            &apply_state.block_hash,
+                                            action_index,
+                                        );
+                                        acc.push(ContractCallPrepareRequest {
+                                            id: action_hash,
+                                            code,
+                                            vm_config: apply_state.config.wasm_config.clone(),
+                                            cache: apply_state.cache.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            for receipt in local_receipts.iter() {
+                preload_receipt(receipt);
+            }
+
+            for index in
+                delayed_receipts_indices.first_index..delayed_receipts_indices.next_available_index
+            {
+                let key = TrieKey::DelayedReceipt { index };
+                if let Ok(Some(receipt)) = get::<Receipt>(&state_update, &key) {
+                    preload_receipt(&receipt);
+                }
+            }
+
+            for receipt in incoming_receipts.iter() {
+                preload_receipt(receipt);
+            }
+
+            machine.preload(acc);
+        }
 
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
