@@ -532,8 +532,7 @@ dependencies = [
 [[package]]
 name = "blake2"
 version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a5720225ef5daecf08657f23791354e1685a8c91a4c60c7f3d3b2892f978f4"
+source = "git+https://github.com/near/near-blake2.git#bc8a58ab1188f6fd4de895920f81137bf710a3be"
 dependencies = [
  "crypto-mac 0.8.0",
  "digest 0.9.0",
