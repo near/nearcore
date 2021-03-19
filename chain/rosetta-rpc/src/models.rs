@@ -1022,7 +1022,7 @@ impl From<&near_crypto::PublicKey> for PublicKey {
 }
 
 impl TryFrom<&PublicKey> for near_crypto::PublicKey {
-    type Error = near_crypto::TryFromSliceError;
+    type Error = near_crypto::ParseKeyError;
 
     fn try_from(PublicKey { curve_type, hex_bytes }: &PublicKey) -> Result<Self, Self::Error> {
         Ok(match curve_type {
