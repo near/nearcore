@@ -14,7 +14,9 @@ pub struct FixedArray<T> {
 
 impl<T> Clone for FixedArray<T> {
     fn clone(&self) -> Self {
-        Self { data: Rc::clone(&self.data) }
+        Self {
+            data: Rc::clone(&self.data),
+        }
     }
 }
 
@@ -37,8 +39,14 @@ enum Repr {
 const _ASSERT_NO_OP_IF_COUNTING_DISABLED: [(); 0] = [(); std::mem::size_of::<ProfileData>()];
 
 impl Default for ProfileData {
+    #[cfg(not(feature = "costs_counting"))]
     fn default() -> ProfileData {
         ProfileData::new_disabled()
+    }
+
+    #[cfg(feature = "costs_counting")]
+    fn default() -> ProfileData {
+        ProfileData::new_enabled()
     }
 }
 
@@ -50,7 +58,9 @@ impl ProfileData {
     #[inline]
     #[cfg(feature = "costs_counting")]
     pub fn new_enabled() -> Self {
-        let data = Rc::new(RefCell::new([0u64; 1 + ExtCosts::count() + ActionCosts::count()]));
+        let data = Rc::new(RefCell::new(
+            [0u64; 1 + ExtCosts::count() + ActionCosts::count()],
+        ));
         let data = FixedArray { data };
         let repr = Repr::Enabled { data };
         ProfileData { repr }
@@ -136,6 +146,13 @@ impl ProfileData {
 }
 
 impl fmt::Debug for ProfileData {
+    #[cfg(not(feature = "costs_counting"))]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "cost_counting feature is not enabled in near-primitives-core, cannot print profile data");
+        Ok(())
+    }
+
+    #[cfg(feature = "costs_counting")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let all_gas = self.all_gas();
         let host_gas = self.host_gas();
@@ -200,5 +217,25 @@ impl fmt::Debug for ProfileData {
         }
         writeln!(f, "------------------------------")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_profile_all_gas() {
+        let profile_data = ProfileData::default();
+        profile_data.set_burnt_gas(42);
+        #[cfg(not(feature = "costs_counting"))]
+        assert_eq!(profile_data.all_gas(), 0);
+        #[cfg(feature = "costs_counting")]
+        assert_eq!(profile_data.all_gas(), 42);
+    }
+
+    #[test]
+    fn test_profile_data_debug() {
+        #[cfg(not(feature = "costs_counting"))]
+        println!("{:#?}", ProfileData::default());
     }
 }
