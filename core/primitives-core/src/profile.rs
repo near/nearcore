@@ -14,9 +14,7 @@ pub struct FixedArray<T> {
 
 impl<T> Clone for FixedArray<T> {
     fn clone(&self) -> Self {
-        Self {
-            data: Rc::clone(&self.data),
-        }
+        Self { data: Rc::clone(&self.data) }
     }
 }
 
@@ -58,9 +56,7 @@ impl ProfileData {
     #[inline]
     #[cfg(feature = "costs_counting")]
     pub fn new_enabled() -> Self {
-        let data = Rc::new(RefCell::new(
-            [0u64; 1 + ExtCosts::count() + ActionCosts::count()],
-        ));
+        let data = Rc::new(RefCell::new([0u64; 1 + ExtCosts::count() + ActionCosts::count()]));
         let data = FixedArray { data };
         let repr = Repr::Enabled { data };
         ProfileData { repr }
