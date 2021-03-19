@@ -35,6 +35,8 @@ use near_store::db::DBCol::ColEpochValidatorInfo;
 mod proposals;
 mod reward_calculator;
 pub mod test_utils;
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
+mod shard_assignment;
 mod types;
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
 mod validator_selection;
