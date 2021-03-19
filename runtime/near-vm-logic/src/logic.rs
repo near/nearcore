@@ -23,6 +23,7 @@ use near_vm_errors::{HostError, VMLogicError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
+use std::convert::TryFrom;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
@@ -996,6 +997,25 @@ impl<'a> VMLogic<'a> {
         hasher.update(&value);
         let value_hash = hasher.finalize();
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
+    }
+
+    #[cfg(feature = "protocol_feature_evm")]
+    pub fn blake2b_f(&mut self, rounds_ptr: u64, h_ptr: u64, m_ptr: u64, t_ptr: u64, f_ptr: u64, register_id: u64) -> Result<()> {
+        use blake2;
+
+        let rounds = self.memory_get_u32(rounds_ptr)?;
+        for _ in 0..rounds {
+            self.gas_counter.pay_base(blake2b_f_base)?;
+        }
+        let h = <[u64; 8]>::try_from(self.memory_get_vec_u64(h_ptr, 8)?)?;
+        let m = <[u64; 16]>::try_from(self.memory_get_vec_u64(m_ptr, 16)?)?;
+        let t = <[u64; 2]>::try_from(self.memory_get_vec_u64(t_ptr, 2)?)?;
+        let f: bool = self.memory_get_u8(f_ptr)? != 0;
+
+        let value = blake2::blake2b_f(rounds, h, m, t, f);
+        self.internal_write_register(register_id, value.as_slice().to_vec());
+
+        Ok(())
     }
 
     /// Recovers an ECDSA signer address and returns it into `register_id`.
