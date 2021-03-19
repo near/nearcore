@@ -36,7 +36,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    /// Computes a hash of the transaction for signing
+    /// Computes a hash of the transaction for signing and size of serialized transaction
     pub fn get_hash_and_size(&self) -> (CryptoHash, u64) {
         let bytes = self.try_to_vec().expect("Failed to deserialize");
         (hash(&bytes), bytes.len() as u64)
@@ -211,20 +211,25 @@ pub struct SignedTransaction {
 
 impl SignedTransaction {
     pub fn new(signature: Signature, transaction: Transaction) -> Self {
-        let mut signed_tx = Self { signature, transaction, hash: CryptoHash::default(), size: u64::default() };
+        let mut signed_tx =
+            Self { signature, transaction, hash: CryptoHash::default(), size: u64::default() };
         signed_tx.init();
         signed_tx
     }
 
     pub fn init(&mut self) {
-        (self.hash, self.size) = self.transaction.get_hash_and_size();
+        let hash_and_size = self.transaction.get_hash_and_size();
+        self.hash = hash_and_size.0;
+        self.size = hash_and_size.1;
     }
 
     pub fn get_hash(&self) -> CryptoHash {
         self.hash
     }
 
-    pub fn get_size(&self) -> u64 { self.size }
+    pub fn get_size(&self) -> u64 {
+        self.size
+    }
 }
 
 impl Hash for SignedTransaction {
