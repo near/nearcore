@@ -1109,9 +1109,11 @@ impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 pub mod validator_stake_view {
+    use crate::serialize::u128_dec_format;
     use crate::types::validator_stake::ValidatorStake;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_primitives_core::types::AccountId;
+    use near_crypto::PublicKey;
+    use near_primitives_core::types::{AccountId, Balance};
     use serde::{Deserialize, Serialize};
 
     pub use super::ValidatorStakeViewV1;
@@ -1122,6 +1124,8 @@ pub mod validator_stake_view {
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStakeView {
         V1(ValidatorStakeViewV1),
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        V2(ValidatorStakeViewV2),
     }
 
     impl ValidatorStakeView {
@@ -1133,6 +1137,8 @@ pub mod validator_stake_view {
         pub fn take_account_id(self) -> AccountId {
             match self {
                 Self::V1(v1) => v1.account_id,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => v2.account_id,
             }
         }
 
@@ -1140,8 +1146,22 @@ pub mod validator_stake_view {
         pub fn account_id(&self) -> &AccountId {
             match self {
                 Self::V1(v1) => &v1.account_id,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => &v2.account_id,
             }
         }
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[derive(
+        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
+    )]
+    pub struct ValidatorStakeViewV2 {
+        pub account_id: AccountId,
+        pub public_key: PublicKey,
+        #[serde(with = "u128_dec_format")]
+        pub stake: Balance,
+        pub is_chunk_only: bool,
     }
 
     impl From<ValidatorStake> for ValidatorStakeView {
@@ -1152,6 +1172,13 @@ pub mod validator_stake_view {
                     public_key: v1.public_key,
                     stake: v1.stake,
                 }),
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                ValidatorStake::V2(v2) => Self::V2(ValidatorStakeViewV2 {
+                    account_id: v2.account_id,
+                    public_key: v2.public_key,
+                    stake: v2.stake,
+                    is_chunk_only: v2.is_chunk_only,
+                }),
             }
         }
     }
@@ -1159,7 +1186,9 @@ pub mod validator_stake_view {
     impl From<ValidatorStakeView> for ValidatorStake {
         fn from(view: ValidatorStakeView) -> Self {
             match view {
-                ValidatorStakeView::V1(v1) => Self::new(v1.account_id, v1.public_key, v1.stake),
+                ValidatorStakeView::V1(v1) => Self::new_v1(v1.account_id, v1.public_key, v1.stake),
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                ValidatorStakeView::V2(v2) => Self::new(v2.account_id, v2.public_key, v2.stake, v2.is_chunk_only),
             }
         }
     }

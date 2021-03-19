@@ -275,6 +275,10 @@ pub(crate) fn action_stake(
             account_id.clone(),
             stake.public_key.clone(),
             stake.stake,
+            // TODO: need a new action type to either submit with
+            // is_chunk_only is true, or to modify an existing entry
+            // to make is_chunk_only true.
+            #[cfg(feature = "protocol_feature_chunk_only_producers")] false,
         ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
