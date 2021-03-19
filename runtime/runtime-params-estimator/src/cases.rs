@@ -621,10 +621,17 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         data_receipt_100kib_1000 => data_receipt_100kib_1000
     };
 
+    #[cfg(feature = "protocol_feature_evm")]
+    {
+        let mut ripemd_v = calls_helper! {
+            ripemd160_10b_10k => ripemd160_10b_10k,
+            ripemd160_10kib_10k => ripemd160_10kib_10k
+        };
+
         v.append(&mut ripemd_v);
     }
 
-    #[cfg(feature = "protocol_feature_blake2b")]
+    #[cfg(feature = "protocol_feature_evm")]
     {
         let mut blake2b_v = calls_helper! {
             blake2b_10b_10k => blake2b_10b_10k,
@@ -634,7 +641,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         v.append(&mut blake2b_v);
     }
 
-    #[cfg(feature = "protocol_feature_ecrecover")]
+    #[cfg(feature = "protocol_feature_evm")]
     {
         let mut ecrecover_v = calls_helper! {
            ecrecover_10k => ecrecover_10k
@@ -796,15 +803,15 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
         keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
         keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
-        #[cfg(feature = "protocol_feature_ripemd160")]
+        #[cfg(feature = "protocol_feature_evm")]
         ripemd160_base: measured_to_gas(metric, &measured, ripemd160_base),
-        #[cfg(feature = "protocol_feature_ripemd160")]
+        #[cfg(feature = "protocol_feature_evm")]
         ripemd160_byte: measured_to_gas(metric, &measured, ripemd160_byte),
-        #[cfg(feature = "protocol_feature_blake2b")]
+        #[cfg(feature = "protocol_feature_evm")]
         blake2b_base: measured_to_gas(metric, &measured, blake2b_base),
-        #[cfg(feature = "protocol_feature_blake2b")]
+        #[cfg(feature = "protocol_feature_evm")]
         blake2b_byte: measured_to_gas(metric, &measured, blake2b_byte),
-        #[cfg(feature = "protocol_feature_ecrecover")]
+        #[cfg(feature = "protocol_feature_evm")]
         ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
         log_base: measured_to_gas(metric, &measured, log_base),
         log_byte: measured_to_gas(metric, &measured, log_byte),

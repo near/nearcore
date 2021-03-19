@@ -56,12 +56,7 @@ wasmer1_default = []
 
 lightbeam = ["wasmtime/lightbeam"]
 no_cpu_compatibility_checks = []
-protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-evm-runner/protocol_feature_evm", "protocol_feature_crypto_extras"]
-protocol_feature_crypto_extras = ["protocol_feature_ripemd160", "protocol_feature_blake2b", "protocol_feature_ecrecover"]
-# cryptography extras
-protocol_feature_ripemd160 = []
-protocol_feature_blake2b = []
-protocol_feature_ecrecover = []
+protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
 
 no_cache = []
 
