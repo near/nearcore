@@ -655,7 +655,7 @@ async fn construction_payloads(
         actions,
     };
 
-    let transaction_hash = unsigned_transaction.get_hash().clone();
+    let (transaction_hash, _) = unsigned_transaction.get_hash_and_size().clone();
 
     Ok(Json(models::ConstructionPayloadsResponse {
         unsigned_transaction: unsigned_transaction.into(),

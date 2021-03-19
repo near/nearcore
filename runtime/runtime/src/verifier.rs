@@ -59,12 +59,8 @@ pub fn validate_transaction(
 
     #[cfg(feature = "protocol_feature_tx_size_limit")]
     {
-        let transaction_size = signed_transaction
-            .try_to_vec()
-            .expect("Borsh serializer is not expected to ever fail")
-            .len() as u64;
         let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
-        if transaction_size > max_transaction_size {
+        if signed_transaction.get_size() > max_transaction_size {
             return Err(InvalidTxError::TransactionSizeExceeded {
                 size: transaction_size,
                 limit: max_transaction_size,
