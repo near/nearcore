@@ -666,9 +666,9 @@ impl RoutingTable {
         self.edges_info.retain(|(peer0, peer1), edge| {
             if to_save.contains(peer0) || to_save.contains(peer1) {
                 edges_in_component.push(edge.clone());
-                false
-            } else {
                 true
+            } else {
+                false
             }
         });
 
