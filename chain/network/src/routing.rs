@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::ops::Sub;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use serde::Serialize;
@@ -28,7 +28,6 @@ use crate::{
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
-use conqueue::{QueueReceiver, QueueSender};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 
@@ -72,7 +71,7 @@ pub enum EdgeType {
 }
 
 /// Edge object. Contains information relative to a new edge that is being added or removed
-/// from the network. This is the information that is required.
+/// from the network. This is the information that is required
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
@@ -252,25 +251,6 @@ impl Edge {
             Some(self.peer0.clone())
         } else {
             None
-        }
-    }
-}
-
-pub struct EdgeVerifierHelper {
-    /// Shared version of edges_info used by multiple threads
-    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// Queue of edges verified, but not added yes
-    pub edges_to_add_receiver: QueueReceiver<Edge>,
-    pub edges_to_add_sender: QueueSender<Edge>,
-}
-
-impl Default for EdgeVerifierHelper {
-    fn default() -> Self {
-        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
-        Self {
-            edges_info_shared: Default::default(),
-            edges_to_add_sender: tx,
-            edges_to_add_receiver: rx,
         }
     }
 }
