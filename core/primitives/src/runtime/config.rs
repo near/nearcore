@@ -31,7 +31,7 @@ impl Default for RuntimeConfig {
     fn default() -> Self {
         RuntimeConfig {
             // See https://nomicon.io/Economics/README.html#general-variables for how it was calculated.
-            storage_amount_per_byte: 909 * 100_000_000_000_000_000,
+            storage_amount_per_byte: 10_000_000_000_000_000_000, // 1e19 yN
             transaction_costs: RuntimeFeesConfig::default(),
             wasm_config: VMConfig::default(),
             account_creation_config: AccountCreationConfig::default(),
