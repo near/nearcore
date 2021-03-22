@@ -23,6 +23,14 @@ mod test {
         {
             println!("nightly features");
         }
+        #[cfg(not(feature = "nightly_protocol"))]
+        {
+            println!("no nightly");
+        }
+        #[cfg(not(feature = "nightly_protocol_features"))]
+        {
+            println!("no nightly features");
+        }
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
             let mut args = vec!["build", "-p", "neard"];
             #[cfg(feature = "nightly_protocol")]
