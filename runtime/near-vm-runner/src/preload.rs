@@ -96,8 +96,8 @@ impl ContractCaller {
                         None
                     }),
                 )
-            }
-            _ => panic!("Not currently supported"),
+            },
+            VMKind::Wasmtime => panic!("Not currently supported"),
         };
         ContractCaller {
             pool: ThreadPool::new(num_threads),
@@ -156,7 +156,7 @@ impl ContractCaller {
                                 let mut new_memory;
                                 run_wasmer0_module(
                                     module.clone(),
-                                    if SHARE_MEMORY_INSTANCE {
+                                    if memory.is_some() {
                                         memory.as_mut().unwrap()
                                     } else {
                                         new_memory = WasmerMemory::new(
@@ -185,7 +185,7 @@ impl ContractCaller {
                                 run_wasmer1_module(
                                     &module,
                                     store,
-                                    if SHARE_MEMORY_INSTANCE {
+                                    if memory.is_some() {
                                         memory.as_mut().unwrap()
                                     } else {
                                         new_memory = Wasmer1Memory::new(
