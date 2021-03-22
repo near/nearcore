@@ -1,0 +1,150 @@
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+pytest --timeout=800 sanity/epoch_sync_then_epoch_sync.py
+
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+
+# python sanity tests
+pytest sanity/block_production.py
+pytest sanity/transactions.py
+pytest sanity/staking1.py
+pytest --timeout=800 sanity/staking2.py
+pytest --timeout=800 sanity/staking_repro1.py
+pytest --timeout=800 sanity/staking_repro2.py
+pytest sanity/epoch_switches.py
+pytest sanity/state_sync.py manytx 30
+pytest --timeout=600 sanity/state_sync.py manytx 265
+pytest sanity/state_sync.py onetx 30
+pytest --timeout=600 sanity/state_sync.py onetx 265
+pytest --timeout=240 sanity/state_sync1.py
+pytest --timeout=900 sanity/state_sync2.py
+pytest --timeout=900 sanity/state_sync3.py
+pytest --timeout=240 sanity/state_sync4.py
+pytest --timeout=600 sanity/state_sync_routed.py manytx 115
+pytest --timeout=300 sanity/state_sync_late.py notx
+pytest --timeout=1500 sanity/state_sync_massive.py
+pytest sanity/rpc_tx_forwarding.py
+pytest --timeout=240 sanity/skip_epoch.py
+pytest --timeout=240 sanity/one_val.py
+pytest --timeout=240 sanity/lightclnt.py
+pytest sanity/rpc_light_client_execution_outcome_proof.py
+pytest --timeout=240 sanity/block_sync.py
+pytest --timeout=240 sanity/validator_switch.py
+pytest --timeout=240 sanity/restaked.py
+pytest --timeout=240 sanity/rpc_state_changes.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_after_sync1.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/large_messages.py
+pytest --timeout=120 sanity/handshake_tie_resolution.py
+pytest sanity/controlled_edge_nonce.py
+pytest sanity/repro_2916.py
+pytest --timeout=240 sanity/switch_node_key.py
+pytest --timeout=300 sanity/saturate_routing_table.py
+# TODO: re-enable after #2949 is fixed
+# pytest --timeout=240 sanity/validator_switch_key.py
+pytest sanity/proxy_simple.py
+pytest sanity/proxy_restart.py
+pytest sanity/network_drop_package.py
+# TODO: enable them when we fix the issue with proxy shutdown (#2942)
+# pytest --timeout=900 sanity/sync_ban.py true
+# pytest --timeout=900 sanity/sync_ban.py false
+
+# state sync tests
+expensive neard sync_state_nodes sync_state_nodes_multishard
+
+# GC tests
+expensive --timeout=900 near-chain gc tests::test_gc_remove_fork_large
+expensive --timeout=1200 near-chain gc tests::test_gc_not_remove_fork_large
+expensive --timeout=1200 near-chain gc tests::test_gc_boundaries_large
+expensive --timeout=900 near-chain gc tests::test_gc_random_large
+expensive --timeout=600 near-chain gc tests::test_gc_pine
+expensive --timeout=600 near-chain gc tests::test_gc_star_large
+expensive --timeout=600 near-client process_blocks test_gc_after_state_sync
+
