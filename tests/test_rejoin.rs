@@ -15,6 +15,14 @@ mod test {
     use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
     fn warmup() {
+        #[cfg(feature = "nightly_protocol")]
+        {
+            println!("nightly");
+        }
+        #[cfg(feature = "nightly_protocol_features")]
+        {
+            println!("nightly features");
+        }
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
             let mut args = vec!["build", "-p", "neard"];
             #[cfg(feature = "nightly_protocol")]
