@@ -714,7 +714,7 @@ pub enum EpochError {
     /// Given account ID is not a validator in the given epoch ID.
     NotAValidator(AccountId, EpochId),
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    NotEnoughValidators{ num_validators: u64, num_shards: u64 },
+    NotEnoughValidators { num_validators: u64, num_shards: u64 },
 }
 
 impl std::error::Error for EpochError {}
@@ -756,7 +756,7 @@ impl Debug for EpochError {
                 write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
             }
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            EpochError::NotEnoughValidators{num_shards, num_validators} => {
+            EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "NotEnoughValidators({}, {})", num_validators, num_shards)
             }
         }

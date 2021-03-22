@@ -602,7 +602,8 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                         "test1".to_string(),
                                         PublicKey::empty(KeyType::ED25519),
                                         0,
-                                        #[cfg(feature = "protocol_feature_chunk_only_producers")] false,
+                                        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                                        false,
                                     )];
 
                                     block_mut
@@ -1871,7 +1872,8 @@ fn test_not_process_height_twice() {
         "test1".to_string(),
         PublicKey::empty(KeyType::ED25519),
         0,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")] false,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        false,
     )];
     invalid_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
     invalid_block.mut_header().resign(&validator_signer);

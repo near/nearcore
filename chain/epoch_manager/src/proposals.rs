@@ -44,11 +44,13 @@ mod validator_selection {
     use near_primitives::epoch_manager::EpochConfig;
     use near_primitives::errors::EpochError;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason};
+    use near_primitives::types::{
+        AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason,
+    };
     use near_primitives::version::ProtocolVersion;
 
-    use crate::types::RngSeed;
     use crate::proposals::find_threshold;
+    use crate::types::RngSeed;
 
     pub fn proposals_to_epoch_info(
         epoch_config: &EpochConfig,
@@ -236,8 +238,8 @@ mod tests {
     use num_rational::Rational;
     use std::collections::HashMap;
 
-    use near_primitives::epoch_manager::EpochConfig;
     use near_primitives::epoch_manager::epoch_info::EpochInfo;
+    use near_primitives::epoch_manager::EpochConfig;
     use near_primitives::version::PROTOCOL_VERSION;
 
     use crate::test_utils::{

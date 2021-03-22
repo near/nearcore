@@ -79,7 +79,8 @@ fn add_blocks(
                 "other".to_string(),
                 signer.public_key(),
                 TESTING_INIT_STAKE,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")] false,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                false,
             )])
             .unwrap(),
             block_merkle_tree.root(),

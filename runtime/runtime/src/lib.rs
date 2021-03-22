@@ -391,7 +391,8 @@ impl Runtime {
                     stake,
                     &apply_state.prev_block_hash,
                     epoch_info_provider,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")] false,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )?;
             }
             Action::AddKey(add_key) => {
@@ -440,7 +441,8 @@ impl Runtime {
                     stake,
                     &apply_state.prev_block_hash,
                     epoch_info_provider,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")] true,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    true,
                 )?;
             }
         };

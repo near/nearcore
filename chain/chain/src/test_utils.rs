@@ -173,7 +173,8 @@ impl KeyValueRuntime {
                                 account_id.clone(),
                                 SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
                                 1_000_000,
-                                #[cfg(feature = "protocol_feature_chunk_only_producers")] false,
+                                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                                false,
                             )
                         })
                         .collect()

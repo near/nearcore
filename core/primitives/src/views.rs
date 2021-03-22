@@ -832,7 +832,7 @@ pub enum ActionView {
         #[serde(with = "u128_dec_format")]
         stake: Balance,
         public_key: PublicKey,
-    }
+    },
 }
 
 impl From<Action> for ActionView {
@@ -1207,7 +1207,9 @@ pub mod validator_stake_view {
             match view {
                 ValidatorStakeView::V1(v1) => Self::new_v1(v1.account_id, v1.public_key, v1.stake),
                 #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                ValidatorStakeView::V2(v2) => Self::new(v2.account_id, v2.public_key, v2.stake, v2.is_chunk_only),
+                ValidatorStakeView::V2(v2) => {
+                    Self::new(v2.account_id, v2.public_key, v2.stake, v2.is_chunk_only)
+                }
             }
         }
     }

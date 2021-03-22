@@ -247,8 +247,7 @@ pub(crate) fn action_stake(
     stake: &StakeAction,
     last_block_hash: &CryptoHash,
     epoch_info_provider: &dyn EpochInfoProvider,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    is_chunk_only: bool,
+    #[cfg(feature = "protocol_feature_chunk_only_producers")] is_chunk_only: bool,
 ) -> Result<(), RuntimeError> {
     let increment = stake.stake.saturating_sub(account.locked());
 
@@ -277,7 +276,8 @@ pub(crate) fn action_stake(
             account_id.clone(),
             stake.public_key.clone(),
             stake.stake,
-            #[cfg(feature = "protocol_feature_chunk_only_producers")] is_chunk_only,
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            is_chunk_only,
         ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
@@ -602,7 +602,7 @@ pub(crate) fn check_actor_permissions(
                     account_id: account_id.clone(),
                     actor_id: actor_id.clone(),
                 }
-                    .into());
+                .into());
             }
         }
         Action::DeleteAccount(_) => {
@@ -702,7 +702,7 @@ pub(crate) fn check_account_existence(
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
                 }
-                    .into());
+                .into());
             }
         }
     };

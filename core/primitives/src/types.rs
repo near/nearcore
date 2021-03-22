@@ -510,7 +510,12 @@ pub mod validator_stake {
         }
 
         #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance, is_chunk_only: bool) -> Self {
+        pub fn new(
+            account_id: AccountId,
+            public_key: PublicKey,
+            stake: Balance,
+            is_chunk_only: bool,
+        ) -> Self {
             Self::V2(ValidatorStakeV2 { account_id, public_key, stake, is_chunk_only })
         }
 
@@ -531,7 +536,7 @@ pub mod validator_stake {
             }
         }
 
-	#[cfg(feature = "protocol_feature_chunk_only_producers")]
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         #[inline]
         pub fn is_chunk_only(&self) -> bool {
             match self {

@@ -207,7 +207,8 @@ impl NightshadeRuntime {
                                 .expect("Failed to deserialize validator public key"),
                             account_info.amount,
                             // TODO: Do I need to add is_chunk_only to account_info?
-                            #[cfg(feature = "protocol_feature_chunk_only_producers")] false,
+                            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                            false,
                         )
                     })
                     .collect(),
@@ -2287,7 +2288,8 @@ mod test {
                     block_producers[0].validator_id().clone(),
                     block_producers[0].public_key(),
                     TESTING_INIT_STAKE + 1,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")] false,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )]
             } else {
                 vec![]
@@ -2469,7 +2471,8 @@ mod test {
                     "test1".to_string(),
                     block_producers[0].public_key(),
                     0,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")] false,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )
                 .into()],
                 prev_epoch_kickout: Default::default(),

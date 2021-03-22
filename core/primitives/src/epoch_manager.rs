@@ -446,10 +446,7 @@ pub mod epoch_info {
     use std::collections::{BTreeMap, HashMap};
 
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    use crate::{
-        epoch_manager::RngSeed,
-        rand::WeightedIndex,
-    };
+    use crate::{epoch_manager::RngSeed, rand::WeightedIndex};
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     use near_primitives_core::{
         hash::hash,
@@ -592,11 +589,15 @@ pub mod epoch_info {
         ) -> Self {
             let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {
                 WeightedIndex::new(
-                    ids.iter().copied().map(|validator_id| validators[validator_id as usize].stake()).collect()
+                    ids.iter()
+                        .copied()
+                        .map(|validator_id| validators[validator_id as usize].stake())
+                        .collect(),
                 )
             };
             let block_producers_sampler = stake_weights(&block_producers_settlement);
-            let chunk_producers_sampler = chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
+            let chunk_producers_sampler =
+                chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
             Self::V3(EpochInfoV3 {
                 epoch_height,
                 validators,
@@ -617,7 +618,6 @@ pub mod epoch_info {
                 chunk_producers_sampler,
             })
         }
-
 
         #[inline]
         pub fn epoch_height_mut(&mut self) -> &mut EpochHeight {

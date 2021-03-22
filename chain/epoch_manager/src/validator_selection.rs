@@ -1,20 +1,22 @@
+use crate::shard_assignment::assign_shards;
 use lazy_static::lazy_static;
-use near_primitives::epoch_manager::{EpochConfig, RngSeed};
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::{EpochConfig, RngSeed};
 use near_primitives::errors::EpochError;
-use near_primitives::types::{AccountId, Balance, ProtocolVersion, ValidatorKickoutReason, ValidatorId};
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{
+    AccountId, Balance, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
+};
 use num_rational::Ratio;
 use std::cmp::{self, Ordering};
-use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet, hash_map};
-use crate::shard_assignment::assign_shards;
+use std::collections::{hash_map, BTreeMap, BinaryHeap, HashMap, HashSet};
 
 const MAX_NUM_BP: usize = 100;
 const MAX_NUM_CP: usize = 300;
 const MIN_VALIDATORS_PER_SHARD: usize = 1; // TODO: what should this value be?
-// Derived from PROBABILITY_NEVER_SELECTED = 0.001 and
-// epoch_length = 43200
-// TODO setup like neard/res/genesis_config.json:  "minimum_stake_divisor": 10
+                                           // Derived from PROBABILITY_NEVER_SELECTED = 0.001 and
+                                           // epoch_length = 43200
+                                           // TODO setup like neard/res/genesis_config.json:  "minimum_stake_divisor": 10
 lazy_static! {
     static ref MIN_STAKE_RATIO: Ratio<u128> = Ratio::new(160, 1_000_000);
 }
@@ -46,21 +48,18 @@ pub fn proposals_to_epoch_info(
         &mut stake_change,
         &mut fishermen,
     );
-    let mut block_producer_proposals = order_proposals(
-        proposals
-            .values()
-            .filter(|p| !p.is_chunk_only())
-            .cloned()
-    );
-    let (block_producers, bp_stake_threshold) = select_block_producers(&mut block_producer_proposals);
-    let mut chunk_producer_proposals = order_proposals(
-        proposals.into_iter().map(|(_, p)| p)
-    );
-    let (chunk_producers, cp_stake_threshold) = select_chunk_producers(&mut chunk_producer_proposals, num_shards);
+    let mut block_producer_proposals =
+        order_proposals(proposals.values().filter(|p| !p.is_chunk_only()).cloned());
+    let (block_producers, bp_stake_threshold) =
+        select_block_producers(&mut block_producer_proposals);
+    let mut chunk_producer_proposals = order_proposals(proposals.into_iter().map(|(_, p)| p));
+    let (chunk_producers, cp_stake_threshold) =
+        select_chunk_producers(&mut chunk_producer_proposals, num_shards);
 
     // since block producer proposals could become chunk producers, their actual stake threshold
     // is the smaller of the two thresholds
-    let bp_stake_threshold = bp_stake_threshold.and_then(|x| cp_stake_threshold.map(|y| cmp::min(x, y)));
+    let bp_stake_threshold =
+        bp_stake_threshold.and_then(|x| cp_stake_threshold.map(|y| cmp::min(x, y)));
 
     // proposals remaining chunk_producer_proposals were not selected for either role
     for OrderedValidatorStake(p) in chunk_producer_proposals {
@@ -104,16 +103,20 @@ pub fn proposals_to_epoch_info(
         all_validators.push(bp);
     }
 
-    let shard_assignment = assign_shards(
-        chunk_producers,
-        num_shards as usize,
-        MIN_VALIDATORS_PER_SHARD
-    ).map_err(|_| EpochError::NotEnoughValidators { num_validators: num_chunk_producers as u64, num_shards})?;
+    let shard_assignment =
+        assign_shards(chunk_producers, num_shards as usize, MIN_VALIDATORS_PER_SHARD).map_err(
+            |_| EpochError::NotEnoughValidators {
+                num_validators: num_chunk_producers as u64,
+                num_shards,
+            },
+        )?;
 
     let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> =
         shard_assignment.iter().map(|vs| Vec::with_capacity(vs.len())).collect();
     let mut i = all_validators.len();
-    for (shard_validators, shard_validator_ids) in shard_assignment.into_iter().zip(chunk_producers_settlement.iter_mut()) {
+    for (shard_validators, shard_validator_ids) in
+        shard_assignment.into_iter().zip(chunk_producers_settlement.iter_mut())
+    {
         for validator in shard_validators {
             debug_assert_eq!(i, all_validators.len());
             match validator_to_index.entry(validator.account_id().clone()) {
@@ -167,7 +170,7 @@ fn proposals_with_rollover(
     validator_reward: &HashMap<AccountId, Balance>,
     validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     stake_change: &mut BTreeMap<AccountId, Balance>,
-    fishermen: &mut Vec<ValidatorStake>
+    fishermen: &mut Vec<ValidatorStake>,
 ) -> HashMap<AccountId, ValidatorStake> {
     let mut proposals_by_account = HashMap::new();
     for p in proposals {
