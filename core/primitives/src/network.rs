@@ -1,6 +1,6 @@
 use std::convert::{From, TryFrom};
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,9 @@ use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, EpochId};
 
 /// Peer id is the public key.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
+)]
 pub struct PeerId(pub PublicKey);
 
 impl PeerId {
@@ -47,12 +49,6 @@ impl TryFrom<Vec<u8>> for PeerId {
 
     fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
         Ok(PeerId(PublicKey::try_from_slice(&bytes)?))
-    }
-}
-
-impl Hash for PeerId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&self.0.try_to_vec().unwrap());
     }
 }
 
