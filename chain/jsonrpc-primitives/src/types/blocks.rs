@@ -11,20 +11,18 @@ pub enum BlockReference {
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcBlockError {
-    #[error("Block `{0}` is missing")]
-    BlockMissing(near_primitives::hash::CryptoHash),
-    #[error("Block not found")]
-    BlockNotFound(String),
+    #[error("Block not found: {error_message}")]
+    UnknownBlock { error_message: String },
     #[error("There are no fully synchronized blocks yet")]
     NotSyncedYet,
-    #[error("The node reached its limits. Try again later. More details: {0}")]
-    InternalError(String),
+    #[error("The node reached its limits. Try again later. More details: {error_message}")]
+    InternalError { error_message: String },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
     // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
-    Unreachable(String),
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
+    Unreachable { error_message: String },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -56,20 +54,20 @@ impl From<BlockReference> for near_primitives::types::BlockReference {
 impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
     fn from(error: near_client_primitives::types::GetBlockError) -> Self {
         match error {
-            near_client_primitives::types::GetBlockError::BlockMissing(block_hash) => {
-                Self::BlockMissing(block_hash)
-            }
-            near_client_primitives::types::GetBlockError::BlockNotFound(s) => {
-                Self::BlockNotFound(s)
+            near_client_primitives::types::GetBlockError::UnknownBlock { error_message } => {
+                Self::UnknownBlock { error_message }
             }
             near_client_primitives::types::GetBlockError::NotSyncedYet => Self::NotSyncedYet,
-            near_client_primitives::types::GetBlockError::IOError(s) => Self::InternalError(s),
-            near_client_primitives::types::GetBlockError::Unreachable(s) => {
+            near_client_primitives::types::GetBlockError::IOError { error_message } => {
+                Self::InternalError { error_message }
+            }
+            near_client_primitives::types::GetBlockError::Unreachable { error_message } => {
+                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcBlockError", &s],
+                    &["RpcBlockError"],
                 );
-                Self::Unreachable(s)
+                Self::Unreachable { error_message }
             }
         }
     }
@@ -77,22 +75,19 @@ impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
 
 impl From<actix::MailboxError> for RpcBlockError {
     fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError(error.to_string())
+        Self::InternalError { error_message: error.to_string() }
     }
 }
 
 impl From<RpcBlockError> for crate::errors::RpcError {
     fn from(error: RpcBlockError) -> Self {
         let error_data = match error {
-            RpcBlockError::BlockMissing(hash) => Some(Value::String(format!(
-                "Block Missing (unavailable on the node): {} \n Cause: Unknown",
-                hash.to_string()
+            RpcBlockError::UnknownBlock { error_message } => Some(Value::String(format!(
+                "DB Not Found Error: {} \n Cause: Unknown",
+                error_message
             ))),
-            RpcBlockError::BlockNotFound(s) => {
-                Some(Value::String(format!("DB Not Found Error: {} \n Cause: Unknown", s)))
-            }
-            RpcBlockError::Unreachable(s) => Some(Value::String(s)),
-            RpcBlockError::NotSyncedYet | RpcBlockError::InternalError(_) => {
+            RpcBlockError::Unreachable { error_message } => Some(Value::String(error_message)),
+            RpcBlockError::NotSyncedYet | RpcBlockError::InternalError { .. } => {
                 Some(Value::String(error.to_string()))
             }
         };

@@ -9,9 +9,9 @@ use std::time::Duration;
 use actix;
 use actix_web;
 use chrono::Utc;
-use log::info;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use lazy_static::lazy_static;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
@@ -722,7 +722,7 @@ fn add_account_with_key(
 ) {
     records.push(StateRecord::Account {
         account_id: account_id.to_string(),
-        account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
+        account: Account::new(amount, staked, code_hash, 0),
     });
     records.push(StateRecord::AccessKey {
         account_id: account_id.to_string(),
@@ -736,6 +736,10 @@ fn generate_validator_key(account_id: &str, path: &Path) {
     let signer = InMemoryValidatorSigner::from_random(account_id.to_string(), KeyType::ED25519);
     info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
     signer.write_to_file(path);
+}
+
+lazy_static_include::lazy_static_include_bytes! {
+    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -770,11 +774,8 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // TODO: add download genesis for mainnet
-            let genesis: Genesis = serde_json::from_str(
-                &std::str::from_utf8(include_bytes!("../res/mainnet_genesis.json"))
-                    .expect("Failed to convert genesis file into string"),
-            )
-            .expect("Failed to deserialize MainNet genesis");
+            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
+                .expect("Failed to deserialize MainNet genesis");
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }

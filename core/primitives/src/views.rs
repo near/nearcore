@@ -97,10 +97,10 @@ pub struct ViewApplyState {
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
         AccountView {
-            amount: account.amount,
-            locked: account.locked,
-            code_hash: account.code_hash,
-            storage_usage: account.storage_usage,
+            amount: account.amount(),
+            locked: account.locked(),
+            code_hash: account.code_hash(),
+            storage_usage: account.storage_usage(),
             storage_paid_at: 0,
         }
     }
@@ -114,12 +114,7 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        Self {
-            amount: view.amount,
-            locked: view.locked,
-            code_hash: view.code_hash,
-            storage_usage: view.storage_usage,
-        }
+        Account::new(view.amount, view.locked, view.code_hash, view.storage_usage)
     }
 }
 
@@ -246,14 +241,12 @@ impl std::iter::FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-#[serde(untagged)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
     ViewCode(ContractCodeView),
     ViewState(ViewStateResult),
     CallResult(CallResult),
-    Error(QueryError),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
 }
@@ -287,9 +280,8 @@ pub enum QueryRequest {
     },
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
 pub struct QueryResponse {
-    #[serde(flatten)]
     pub kind: QueryResponseKind,
     pub block_height: BlockHeight,
     pub block_hash: CryptoHash,
@@ -330,61 +322,6 @@ pub struct StatusResponse {
     pub sync_info: StatusSyncInfo,
     /// Validator id of the node
     pub validator_account_id: Option<AccountId>,
-}
-
-impl TryFrom<QueryResponse> for AccountView {
-    type Error = String;
-
-    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response.kind {
-            QueryResponseKind::ViewAccount(acc) => Ok(acc),
-            _ => Err("Invalid type of response".into()),
-        }
-    }
-}
-
-impl TryFrom<QueryResponse> for CallResult {
-    type Error = String;
-
-    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response.kind {
-            QueryResponseKind::CallResult(res) => Ok(res),
-            _ => Err("Invalid type of response".into()),
-        }
-    }
-}
-
-impl TryFrom<QueryResponse> for ViewStateResult {
-    type Error = String;
-
-    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response.kind {
-            QueryResponseKind::ViewState(vs) => Ok(vs),
-            _ => Err("Invalid type of response".into()),
-        }
-    }
-}
-
-impl TryFrom<QueryResponse> for AccessKeyView {
-    type Error = String;
-
-    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response.kind {
-            QueryResponseKind::AccessKey(access_key) => Ok(access_key),
-            _ => Err("Invalid type of response".into()),
-        }
-    }
-}
-
-impl TryFrom<QueryResponse> for ContractCodeView {
-    type Error = String;
-
-    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response.kind {
-            QueryResponseKind::ViewCode(contract_code) => Ok(contract_code),
-            _ => Err("Invalid type of response".into()),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

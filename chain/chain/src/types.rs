@@ -29,7 +29,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
@@ -279,6 +279,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         shard_id: ShardId,
         state_root: StateRoot,
+        next_block_height: BlockHeight,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
@@ -490,7 +491,10 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(), Error>;
 
     /// Add proposals for validators.
-    fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error>;
+    fn add_validator_proposals(
+        &self,
+        block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
@@ -575,7 +579,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
+    ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
 
     fn get_validator_info(
         &self,

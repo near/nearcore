@@ -15,13 +15,29 @@ from transaction import sign_payment_tx
 TIMEOUT = 240
 
 nodes = start_cluster(
-    4, 0, 4, None,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 70]], {})
+    num_nodes=4,
+    num_observers=1,
+    num_shards=4,
+    config=None,
+    genesis_config_changes=[
+        ["min_gas_price", 0],
+        ["max_inflation_rate", [0, 1]],
+        ["epoch_length", 10],
+        ["block_producer_kickout_threshold", 70]
+    ],
+    client_config_changes={
+                                  0: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+                                  1: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+                                  2: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+                                  3: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+                                  4: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}},
+                                      "tracked_shards": [0, 1, 2, 3]}
+    }
+)
 
 started = time.time()
 
-act_to_val = [3, 2, 0, 3]
+act_to_val = [4, 4, 4, 4, 4]
 
 ctx = TxContext(act_to_val, nodes)
 
@@ -32,7 +48,7 @@ sent_height = -1
 
 while True:
     assert time.time() - started < TIMEOUT
-    status = nodes[3].get_status()
+    status = nodes[4].get_status(check_storage=False)
 
     height = status['sync_info']['latest_block_height']
     hash_ = status['sync_info']['latest_block_hash']
@@ -41,7 +57,7 @@ while True:
         if height >= 1:
             tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
                                  base58.b58decode(hash_.encode('utf8')))
-            nodes[3].send_tx(tx)
+            nodes[4].send_tx(tx)
             ctx.expected_balances[0] -= 100
             ctx.expected_balances[1] += 100
             print('Sent tx at height %s' % height)

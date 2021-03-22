@@ -5,9 +5,9 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
-use log::debug;
 use num_rational::Rational;
 use serde::Serialize;
+use tracing::debug;
 
 use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
@@ -36,7 +36,8 @@ use near_primitives::views::{
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
-    ColBlockHeader, PartialStorage, ShardTries, Store, Trie, TrieChanges, WrappedTrieChanges,
+    ColBlockHeader, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges,
+    WrappedTrieChanges,
 };
 
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
@@ -549,6 +550,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_limit: Gas,
         _shard_id: ShardId,
         _state_root: StateRoot,
+        _next_block_height: BlockHeight,
         transactions: &mut dyn PoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
@@ -575,8 +577,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn add_validator_proposals(&self, _block_header_info: BlockHeaderInfo) -> Result<(), Error> {
-        Ok(())
+    fn add_validator_proposals(
+        &self,
+        _block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, Error> {
+        Ok(self.store.store_update())
     }
 
     fn apply_transactions_with_optional_storage_proof(
@@ -787,19 +792,19 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_hash: &CryptoHash,
         _epoch_id: &EpochId,
         request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
+    ) -> Result<QueryResponse, near_chain_primitives::error::QueryError> {
         match request {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewAccount(
-                    Account {
-                        amount: self.state.read().unwrap().get(&state_root).map_or_else(
+                    Account::new(
+                        self.state.read().unwrap().get(&state_root).map_or_else(
                             || 0,
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
-                        locked: 0,
-                        code_hash: CryptoHash::default(),
-                        storage_usage: 0,
-                    }
+                        0,
+                        CryptoHash::default(),
+                        0,
+                    )
                     .into(),
                 ),
                 block_height,

@@ -23,6 +23,7 @@ borsh = "0.8.1"
 reed-solomon-erasure = "4"
 num-rational = "0.3"
 linked-hash-map = "0.5.3"
+thiserror = "1.0"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
@@ -45,6 +46,7 @@ near-logger-utils = { path = "../../test-utils/logger" }
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 testlib = { path = "../../test-utils/testlib" }
 neard = { path = "../../neard" }
+lazy-static-include = "3"
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
@@ -55,5 +57,7 @@ metric_recorder = ["near-client-primitives/metric_recorder"]
 delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "delay-detector"]
 protocol_feature_forward_chunk_parts = ["near-primitives/protocol_feature_forward_chunk_parts", "near-network/protocol_feature_forward_chunk_parts", "near-chunks/protocol_feature_forward_chunk_parts"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3"]
+protocol_feature_access_key_nonce_range = ["near-chain/protocol_feature_access_key_nonce_range"]
+protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_block_header_v3"]
+nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_forward_chunk_parts", "protocol_feature_block_header_v3", "protocol_feature_access_key_nonce_range", "protocol_feature_add_account_versions"]

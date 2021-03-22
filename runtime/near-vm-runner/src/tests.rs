@@ -1,11 +1,10 @@
+mod contract_preload;
 mod error_cases;
 mod invalid_contracts;
 mod rs_contract;
 mod ts_contract;
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
+use near_primitives::contract::ContractCode;
 use near_primitives::profile::ProfileData;
 use wabt::Wat2Wasm;
 
@@ -70,12 +69,9 @@ fn make_simple_contract_call_with_gas_vm(
 
     let promise_results = vec![];
 
-    let mut hash = DefaultHasher::new();
-    code.hash(&mut hash);
-    let code_hash = hash.finish().to_le_bytes().to_vec();
+    let code = ContractCode::new(code.to_vec(), None);
     run_vm(
-        code_hash,
-        code,
+        &code,
         method_name,
         &mut fake_external,
         context,
@@ -114,12 +110,9 @@ fn make_cached_contract_call_vm(
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
-    let mut hash = DefaultHasher::new();
-    code.hash(&mut hash);
-    let code_hash = hash.finish().to_le_bytes().to_vec();
+    let code = ContractCode::new(code.to_vec(), None);
 
     run_vm(
-        code_hash,
         &code,
         method_name,
         &mut fake_external,

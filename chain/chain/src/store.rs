@@ -323,6 +323,14 @@ pub trait ChainStoreAccess {
     }
 
     fn is_height_processed(&mut self, height: BlockHeight) -> Result<bool, Error>;
+
+    fn get_block_height(&mut self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        if hash == &CryptoHash::default() {
+            Ok(self.get_genesis_height())
+        } else {
+            Ok(self.get_block_header(hash)?.height())
+        }
+    }
 }
 
 /// All chain-related database operations.
@@ -536,14 +544,6 @@ impl ChainStore {
             } else {
                 Err(InvalidTxError::InvalidChain)
             }
-        }
-    }
-
-    pub fn get_block_height(&mut self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        if hash == &CryptoHash::default() {
-            Ok(self.genesis_height)
-        } else {
-            Ok(self.get_block_header(hash)?.height())
         }
     }
 }
@@ -2309,7 +2309,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         // The invariant is that ColOutgoingReceipts has same receipts as ColReceiptIdToShardId.
                     }
                     _ => {
-                        log::error!(target: "chain", "Error getting outgoing receipts for block {}, shard {}: {:?}", block_hash, shard_id, error);
+                        tracing::error!(target: "chain", "Error getting outgoing receipts for block {}, shard {}: {:?}", block_hash, shard_id, error);
                     }
                 }
             }
