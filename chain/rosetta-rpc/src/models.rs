@@ -868,7 +868,7 @@ impl TryFrom<PartialBlockIdentifier> for near_primitives::types::BlockReference 
                 .into()
             }
             (_, Some(hash)) => {
-                near_primitives::types::BlockId::Hash(hash.try_into().map_err(|err| {
+                near_primitives::types::BlockId::Hash(hash.parse().map_err(|err| {
                     Self::Error::InvalidInput(format!("Failed to parse Block Hash: {}", err))
                 })?)
                 .into()
