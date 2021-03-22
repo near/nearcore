@@ -361,8 +361,8 @@ impl Chain {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
 
-    pub fn compute_bp_hash_inner<T: BorshSerialize>(bps: Vec<T>) -> Result<CryptoHash, Error> {
-        Ok(hash(&bps.try_to_vec()?))
+    pub fn compute_collection_hash<T: BorshSerialize>(elems: Vec<T>) -> Result<CryptoHash, Error> {
+        Ok(hash(&elems.try_to_vec()?))
     }
 
     pub fn compute_bp_hash(
@@ -374,17 +374,17 @@ impl Chain {
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         {
             let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
-            Chain::compute_bp_hash_inner(validator_stakes)
+            Chain::compute_collection_hash(validator_stakes)
         }
         #[cfg(feature = "protocol_feature_block_header_v3")]
         {
             let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
             if protocol_version < *BLOCK_HEADER_V3_VERSION {
                 let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
-                Chain::compute_bp_hash_inner(validator_stakes)
+                Chain::compute_collection_hash(validator_stakes)
             } else {
                 let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
-                Chain::compute_bp_hash_inner(validator_stakes)
+                Chain::compute_collection_hash(validator_stakes)
             }
         }
     }
