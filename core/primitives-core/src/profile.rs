@@ -1,6 +1,5 @@
 use crate::config::{ActionCosts, ExtCosts};
 use crate::types::Gas;
-use num_rational::Ratio;
 use std::{cell::RefCell, fmt, rc::Rc};
 
 const PROFILE_DATA_LEN: usize = 1 + ActionCosts::count() + ExtCosts::count();
@@ -144,12 +143,13 @@ impl ProfileData {
 impl fmt::Debug for ProfileData {
     #[cfg(not(feature = "costs_counting"))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "cost_counting feature is not enabled in near-primitives-core, cannot print profile data");
+        writeln!(f, "cost_counting feature is not enabled in near-primitives-core, cannot print profile data")?;
         Ok(())
     }
 
     #[cfg(feature = "costs_counting")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use num_rational::Ratio;
         let all_gas = self.all_gas();
         let host_gas = self.host_gas();
         let action_gas = self.action_gas();
