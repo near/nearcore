@@ -96,7 +96,7 @@ impl ContractCaller {
                         None
                     }),
                 )
-            },
+            }
             VMKind::Wasmtime => panic!("Not currently supported"),
         };
         ContractCaller {
