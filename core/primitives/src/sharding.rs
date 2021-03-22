@@ -243,6 +243,7 @@ impl ShardChunkHeaderV2 {
     }
 }
 
+// V2 -> V3: Use versioned ShardChunkHeaderInner structure
 #[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
 #[borsh_init(init)]

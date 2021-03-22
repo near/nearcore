@@ -143,6 +143,7 @@ pub struct ShardChunkHeaderInnerV1 {
     pub validator_proposals: Vec<ValidatorStakeV1>,
 }
 
+// V1 -> V2: Use versioned ValidatorStake structure in proposals
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
 pub struct ShardChunkHeaderInnerV2 {
     /// Previous block hash.

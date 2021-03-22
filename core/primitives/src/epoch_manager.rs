@@ -235,6 +235,7 @@ pub mod block_info {
         }
     }
 
+    // V1 -> V2: Use versioned ValidatorStake structure in proposals
     #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Clone, Debug)]
     pub struct BlockInfoV2 {
         pub hash: CryptoHash,
@@ -545,6 +546,7 @@ pub mod epoch_info {
         pub protocol_version: ProtocolVersion,
     }
 
+    // V1 -> V2: Use versioned ValidatorStake structure in validators and fishermen
     #[derive(
         SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq,
     )]
