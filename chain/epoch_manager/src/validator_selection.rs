@@ -29,7 +29,6 @@ pub fn proposals_to_epoch_info(
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
     next_version: ProtocolVersion,
-    num_shards: u64,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
         proposals.iter().map(|stake| stake.account_id()).collect::<HashSet<_>>().len()
@@ -37,6 +36,7 @@ pub fn proposals_to_epoch_info(
         "Proposals should not have duplicates"
     );
 
+    let num_shards = epoch_config.num_shards;
     let mut stake_change = BTreeMap::new();
     let mut fishermen = vec![];
     let proposals = proposals_with_rollover(
