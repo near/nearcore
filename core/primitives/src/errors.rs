@@ -755,6 +755,7 @@ impl Debug for EpochError {
             EpochError::NotAValidator(account_id, epoch_id) => {
                 write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
             }
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
             EpochError::NotEnoughValidators{num_shards, num_validators} => {
                 write!(f, "NotEnoughValidators({}, {})", num_validators, num_shards)
             }

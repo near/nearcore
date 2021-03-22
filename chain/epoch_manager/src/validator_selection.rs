@@ -2,7 +2,6 @@ use lazy_static::lazy_static;
 use near_primitives::epoch_manager::{EpochConfig, RngSeed};
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::EpochError;
-use near_primitives::rand::WeightedIndex;
 use near_primitives::types::{AccountId, Balance, ProtocolVersion, ValidatorKickoutReason, ValidatorId};
 use near_primitives::types::validator_stake::ValidatorStake;
 use num_rational::Ratio;
@@ -53,7 +52,7 @@ pub fn proposals_to_epoch_info(
             .filter(|p| !p.is_chunk_only())
             .cloned()
     );
-    let (block_producers, bp_sampler, bp_stake_threshold) = select_block_producers(&mut block_producer_proposals);
+    let (block_producers, bp_stake_threshold) = select_block_producers(&mut block_producer_proposals);
     let mut chunk_producer_proposals = order_proposals(
         proposals.into_iter().map(|(_, p)| p)
     );
@@ -141,12 +140,7 @@ pub fn proposals_to_epoch_info(
         .map(|(index, s)| (s.account_id().clone(), index as ValidatorId))
         .collect::<HashMap<_, _>>();
 
-    let threshold = match (bp_stake_threshold, cp_stake_threshold) {
-        (Some(x), Some(y)) => cmp::max(x, y),
-        (None, Some(y)) => y,
-        (Some(x), None) => x,
-        (None, None) => 0,
-    };
+    let threshold = bp_stake_threshold.unwrap_or(0);
 
     Ok(EpochInfo::new(
         prev_epoch_info.epoch_height() + 1,
@@ -163,6 +157,7 @@ pub fn proposals_to_epoch_info(
         minted_amount,
         threshold,
         next_version,
+        rng_seed,
     ))
 }
 
@@ -228,11 +223,8 @@ fn order_proposals<I: IntoIterator<Item = ValidatorStake>>(
 
 fn select_block_producers(
     block_producer_proposals: &mut BinaryHeap<OrderedValidatorStake>,
-) -> (Vec<ValidatorStake>, WeightedIndex, Option<Balance>) {
-    let (block_producers, stake_threshold) = select_validators(block_producer_proposals, MAX_NUM_BP, *MIN_STAKE_RATIO);
-    let weights = block_producers.iter().map(|bp| bp.stake()).collect();
-    let block_producer_sampler = WeightedIndex::new(weights);
-    (block_producers, block_producer_sampler, stake_threshold)
+) -> (Vec<ValidatorStake>, Option<Balance>) {
+    select_validators(block_producer_proposals, MAX_NUM_BP, *MIN_STAKE_RATIO)
 }
 
 fn select_chunk_producers(

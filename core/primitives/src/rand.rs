@@ -1,9 +1,12 @@
 use crate::types::Balance;
 use aliases::Aliases;
+use borsh::{BorshDeserialize, BorshSerialize};
+use serde::Serialize;
 
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct WeightedIndex {
     weight_sum: Balance,
-    aliases: Vec<usize>,
+    aliases: Vec<u64>,
     no_alias_odds: Vec<Balance>,
 }
 
@@ -61,11 +64,11 @@ impl WeightedIndex {
         if uniform_weight < self.no_alias_odds[uniform_index] {
             uniform_index
         } else {
-            self.aliases[uniform_index]
+            self.aliases[uniform_index] as usize
         }
     }
 
-    pub fn get_aliases(&self) -> &[usize] {
+    pub fn get_aliases(&self) -> &[u64] {
         &self.aliases
     }
 
@@ -131,8 +134,8 @@ mod aliases {
             self.aliases[index] = alias;
         }
 
-        pub fn get_aliases(self) -> Vec<usize> {
-            self.aliases
+        pub fn get_aliases(self) -> Vec<u64> {
+            self.aliases.into_iter().map(|a| a as u64).collect()
         }
     }
 }

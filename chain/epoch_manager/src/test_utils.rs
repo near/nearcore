@@ -123,6 +123,7 @@ pub fn epoch_info_with_num_seats(
         minted_amount,
         seat_price,
         PROTOCOL_VERSION,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")] [0; 32],
     )
 }
 
