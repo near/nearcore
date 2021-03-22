@@ -15,13 +15,19 @@ mod test {
     use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
     fn warmup() {
+        let mut args = vec!["build", "-p", "neard"];
+        #[cfg(feature = "nightly_protocol")]
+        {
+            args.push("--features");
+            args.push("nightly_protocol");
+        }
+        #[cfg(feature = "nightly_protocol_features")]
+        {
+            args.push("--features");
+            args.push("nightly_protocol_features");
+        }
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
-            Command::new("cargo")
-                .args(&["build", "-p", "neard"])
-                .spawn()
-                .expect("warmup failed")
-                .wait()
-                .unwrap();
+            Command::new("cargo").args(&args[..]).spawn().expect("warmup failed").wait().unwrap();
         }
     }
 
