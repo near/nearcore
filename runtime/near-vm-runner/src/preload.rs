@@ -153,20 +153,17 @@ impl ContractCaller {
                                 VMDataPrivate::Wasmer0(memory),
                                 VMDataShared::Wasmer0,
                             ) => {
-                                assert!(
-                                    !SHARE_MEMORY_INSTANCE,
-                                    "Remove new_memory once get will start to reuse memory"
-                                );
-                                let mut new_memory = WasmerMemory::new(
-                                    self.vm_config.limit_config.initial_memory_pages,
-                                    self.vm_config.limit_config.max_memory_pages,
-                                )
-                                .unwrap();
+                                let mut new_memory;
                                 run_wasmer0_module(
                                     module.clone(),
                                     if SHARE_MEMORY_INSTANCE {
                                         memory.as_mut().unwrap()
                                     } else {
+                                        new_memory = WasmerMemory::new(
+                                            self.vm_config.limit_config.initial_memory_pages,
+                                            self.vm_config.limit_config.max_memory_pages,
+                                        )
+                                        .unwrap();
                                         &mut new_memory
                                     },
                                     method_name,
@@ -184,22 +181,19 @@ impl ContractCaller {
                                 VMDataPrivate::Wasmer1(memory),
                                 VMDataShared::Wasmer1(store),
                             ) => {
-                                assert!(
-                                    !SHARE_MEMORY_INSTANCE,
-                                    "Remove new_memory once get will start to reuse memory"
-                                );
-                                let mut new_memory = Wasmer1Memory::new(
-                                    store,
-                                    self.vm_config.limit_config.initial_memory_pages,
-                                    self.vm_config.limit_config.max_memory_pages,
-                                )
-                                .unwrap();
+                                let mut new_memory;
                                 run_wasmer1_module(
                                     &module,
                                     store,
                                     if SHARE_MEMORY_INSTANCE {
                                         memory.as_mut().unwrap()
                                     } else {
+                                        new_memory = Wasmer1Memory::new(
+                                            store,
+                                            self.vm_config.limit_config.initial_memory_pages,
+                                            self.vm_config.limit_config.max_memory_pages,
+                                        )
+                                        .unwrap();
                                         &mut new_memory
                                     },
                                     method_name,
