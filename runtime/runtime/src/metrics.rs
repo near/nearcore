@@ -24,6 +24,10 @@ lazy_static::lazy_static! {
         "near_action_stake_total",
         "The number of stake actions called since starting this node"
     );
+    pub static ref ACTION_STAKE_CHUNK_ONLY_TOTAL: near_metrics::Result<IntCounter> = try_create_int_counter(
+        "near_action_stake_chunk_only_total",
+        "The number of chunk-only stake actions called since starting this node"
+    );
     pub static ref ACTION_ADD_KEY_TOTAL: near_metrics::Result<IntCounter> = try_create_int_counter(
         "near_action_add_key_total",
         "The number of AddKey actions called since starting this node"

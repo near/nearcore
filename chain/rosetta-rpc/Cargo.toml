@@ -33,3 +33,6 @@ near-network = { path = "../network" }
 
 [dev-dependencies]
 insta = "1"
+
+[features]
+protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers", "near-client/protocol_feature_chunk_only_producers"]
