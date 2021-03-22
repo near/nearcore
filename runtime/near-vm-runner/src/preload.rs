@@ -58,7 +58,7 @@ pub struct ContractCaller {
     vm_config: VMConfig,
     vm_data_private: VMDataPrivate,
     vm_data_shared: VMDataShared,
-    prepared: Vec<CallInner>,
+    preloaded: Vec<CallInner>,
 }
 
 impl ContractCaller {
@@ -105,7 +105,7 @@ impl ContractCaller {
             vm_config,
             vm_data_private: private,
             vm_data_shared: shared,
-            prepared: Vec::new(),
+            preloaded: Vec::new(),
         }
     }
 
@@ -115,15 +115,15 @@ impl ContractCaller {
     ) -> Vec<ContractCallPrepareResult> {
         let mut result: Vec<ContractCallPrepareResult> = Vec::new();
         for request in requests {
-            let index = self.prepared.len();
+            let index = self.preloaded.len();
             let (tx, rx) = channel();
-            self.prepared.push(CallInner { rx });
+            self.preloaded.push(CallInner { rx });
             self.pool.execute({
                 let tx = tx.clone();
                 let vm_config = self.vm_config.clone();
                 let vm_data_shared = self.vm_data_shared.clone();
                 let vm_kind = self.vm_kind.clone();
-                move || prepare_in_thread(request, vm_kind, vm_config, vm_data_shared, tx)
+                move || preload_in_thread(request, vm_kind, vm_config, vm_data_shared, tx)
             });
             result.push(ContractCallPrepareResult { handle: index });
         }
@@ -132,7 +132,7 @@ impl ContractCaller {
 
     pub fn run_preloaded<'a>(
         self: &mut ContractCaller,
-        prepared: &ContractCallPrepareResult,
+        preloaded: &ContractCallPrepareResult,
         method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
@@ -141,7 +141,7 @@ impl ContractCaller {
         current_protocol_version: ProtocolVersion,
         profile: ProfileData,
     ) -> (Option<VMOutcome>, Option<VMError>) {
-        match self.prepared.get(prepared.handle) {
+        match self.preloaded.get(preloaded.handle) {
             Some(call) => {
                 let call_data = call.rx.recv().unwrap();
                 match call_data.result {
@@ -222,7 +222,7 @@ impl Drop for ContractCaller {
     }
 }
 
-fn prepare_in_thread(
+fn preload_in_thread(
     request: ContractCallPrepareRequest,
     vm_kind: VMKind,
     vm_config: VMConfig,
