@@ -55,16 +55,16 @@ impl WeightedIndex {
         Self { weight_sum, no_alias_odds, aliases: aliases.get_aliases() }
     }
 
-    pub fn sample(&self, seed: [u8; 32]) -> usize {
+    pub fn sample(&self, seed: [u8; 32]) -> u64 {
         let usize_seed = Self::copy_8_bytes(&seed[0..8]);
         let balance_seed = Self::copy_16_bytes(&seed[8..24]);
         let uniform_index = usize::from_le_bytes(usize_seed) % self.aliases.len();
         let uniform_weight = Balance::from_le_bytes(balance_seed) % self.weight_sum;
 
         if uniform_weight < self.no_alias_odds[uniform_index] {
-            uniform_index
+            uniform_index as u64
         } else {
-            self.aliases[uniform_index] as usize
+            self.aliases[uniform_index]
         }
     }
 
@@ -166,7 +166,7 @@ mod test {
         let mut counts: [i32; 3] = [0, 0, 0];
         for _ in 0..n_samples {
             let index = weighted_index.sample(seed);
-            counts[index] += 1;
+            counts[index as usize] += 1;
             seed = hash(&seed);
         }
 

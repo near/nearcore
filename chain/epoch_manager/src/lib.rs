@@ -1106,6 +1106,7 @@ impl EpochManager {
         Ok(false)
     }
 
+    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
     pub(crate) fn block_producer_from_info(
         epoch_info: &EpochInfo,
         height: BlockHeight,
@@ -1114,6 +1115,7 @@ impl EpochManager {
         bp_settlement[(height as u64 % (bp_settlement.len() as u64)) as usize]
     }
 
+    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
     pub(crate) fn chunk_producer_from_info(
         epoch_info: &EpochInfo,
         height: BlockHeight,
@@ -1122,6 +1124,25 @@ impl EpochManager {
         let cp_settlement = epoch_info.chunk_producers_settlement();
         let shard_cps = &cp_settlement[shard_id as usize];
         shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[inline]
+    pub(crate) fn block_producer_from_info(
+        epoch_info: &EpochInfo,
+        height: BlockHeight,
+    ) -> ValidatorId {
+        epoch_info.sample_block_producer(height)
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[inline]
+    pub(crate) fn chunk_producer_from_info(
+        epoch_info: &EpochInfo,
+        height: BlockHeight,
+        shard_id: ShardId,
+    ) -> ValidatorId {
+        epoch_info.sample_chunk_producer(height, shard_id)
     }
 
     /// Returns true, if given current block info, next block supposed to be in the next epoch.

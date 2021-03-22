@@ -1109,12 +1109,17 @@ impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 pub mod validator_stake_view {
-    use crate::serialize::u128_dec_format;
     use crate::types::validator_stake::ValidatorStake;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_crypto::PublicKey;
-    use near_primitives_core::types::{AccountId, Balance};
+    use near_primitives_core::types::AccountId;
     use serde::{Deserialize, Serialize};
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use crate::serialize::u128_dec_format;
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use near_crypto::PublicKey;
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use near_primitives_core::types::Balance;
 
     pub use super::ValidatorStakeViewV1;
 

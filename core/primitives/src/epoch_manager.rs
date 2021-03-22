@@ -434,10 +434,6 @@ pub struct ValidatorWeight(ValidatorId, u64);
 #[cfg(feature = "protocol_feature_block_header_v3")]
 pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    use crate::epoch_manager::RngSeed;
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    use crate::rand::WeightedIndex;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
     use crate::version::PROTOCOL_VERSION;
@@ -448,6 +444,17 @@ pub mod epoch_info {
     };
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use crate::{
+        epoch_manager::RngSeed,
+        rand::WeightedIndex,
+    };
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use near_primitives_core::{
+        hash::hash,
+        types::{BlockHeight, ShardId},
+    };
 
     pub use super::EpochInfoV1;
 
@@ -842,6 +849,56 @@ pub mod epoch_info {
                 Self::V2(v2) => v2.validators.len(),
                 #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 Self::V3(v3) => v3.validators.len(),
+            }
+        }
+
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        pub fn sample_block_producer(&self, height: BlockHeight) -> ValidatorId {
+            match &self {
+                Self::V1(v1) => {
+                    let bp_settlement = &v1.block_producers_settlement;
+                    bp_settlement[(height % (bp_settlement.len() as u64)) as usize]
+                }
+                Self::V2(v2) => {
+                    let bp_settlement = &v2.block_producers_settlement;
+                    bp_settlement[(height % (bp_settlement.len() as u64)) as usize]
+                }
+                Self::V3(v3) => {
+                    let seed = {
+                        let mut buffer = [0u8; 40]; // 32 bytes from epoch_seed, 8 bytes from height
+                        buffer[0..32].copy_from_slice(&v3.rng_seed);
+                        buffer[32..40].copy_from_slice(&height.to_le_bytes());
+                        (hash(&buffer).0).0
+                    };
+                    v3.block_producers_sampler.sample(seed)
+                }
+            }
+        }
+
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        pub fn sample_chunk_producer(&self, height: BlockHeight, shard_id: ShardId) -> ValidatorId {
+            match &self {
+                Self::V1(v1) => {
+                    let cp_settlement = &v1.chunk_producers_settlement;
+                    let shard_cps = &cp_settlement[shard_id as usize];
+                    shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+                }
+                Self::V2(v2) => {
+                    let cp_settlement = &v2.chunk_producers_settlement;
+                    let shard_cps = &cp_settlement[shard_id as usize];
+                    shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+                }
+                Self::V3(v3) => {
+                    let seed = {
+                        // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
+                        let mut buffer = [0u8; 48];
+                        buffer[0..32].copy_from_slice(&v3.rng_seed);
+                        buffer[32..40].copy_from_slice(&height.to_le_bytes());
+                        buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
+                        (hash(&buffer).0).0
+                    };
+                    v3.chunk_producers_sampler[shard_id as usize].sample(seed)
+                }
             }
         }
     }
