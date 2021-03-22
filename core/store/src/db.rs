@@ -191,8 +191,6 @@ lazy_static! {
         let mut col_gc = vec![true; NUM_COLS];
         col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
         col_gc[DBCol::ColBlockMisc as usize] = false;
-        // TODO #3488 remove
-        col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
         col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
         col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
         col_gc[DBCol::ColPeers as usize] = false; // Peers is unrelated to GC

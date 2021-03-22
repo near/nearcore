@@ -839,9 +839,11 @@ impl Chain {
 
         let mut chain_update = self.chain_update();
 
-        if let Some(header) = headers.last() {
-            // Update header_head if it's the new tip
-            chain_update.update_header_head_if_not_challenged(header)?;
+        if !is_epoch_sync {
+            if let Some(header) = headers.last() {
+                // Update header_head if it's the new tip
+                chain_update.update_header_head_if_not_challenged(header)?;
+            }
         }
 
         chain_update.commit()
