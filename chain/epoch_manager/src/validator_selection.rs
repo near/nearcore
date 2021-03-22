@@ -7,10 +7,12 @@ use near_primitives::types::{AccountId, Balance, ProtocolVersion, ValidatorKicko
 use near_primitives::types::validator_stake::ValidatorStake;
 use num_rational::Ratio;
 use std::cmp::{self, Ordering};
-use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet, hash_map};
+use crate::shard_assignment::assign_shards;
 
 const MAX_NUM_BP: usize = 100;
 const MAX_NUM_CP: usize = 300;
+const MIN_VALIDATORS_PER_SHARD: usize = 1; // TODO: what should this value be?
 // Derived from PROBABILITY_NEVER_SELECTED = 0.001 and
 // epoch_length = 43200
 // TODO setup like neard/res/genesis_config.json:  "minimum_stake_divisor": 10
@@ -40,7 +42,7 @@ pub fn proposals_to_epoch_info(
     let proposals = proposals_with_rollover(
         proposals,
         prev_epoch_info,
-        validator_reward,
+        &validator_reward,
         &validator_kickout,
         &mut stake_change,
         &mut fishermen,
@@ -91,7 +93,8 @@ pub fn proposals_to_epoch_info(
         }
     }
 
-    let mut all_validators: Vec<ValidatorStake> = Vec::with_capacity(chunk_producers.len());
+    let num_chunk_producers = chunk_producers.len();
+    let mut all_validators: Vec<ValidatorStake> = Vec::with_capacity(num_chunk_producers);
     let mut validator_to_index = HashMap::new();
     let mut block_producers_settlement = Vec::with_capacity(block_producers.len());
 
@@ -102,15 +105,71 @@ pub fn proposals_to_epoch_info(
         all_validators.push(bp);
     }
 
-    // TODO: chunk producer assignment
+    let shard_assignment = assign_shards(
+        chunk_producers,
+        num_shards as usize,
+        MIN_VALIDATORS_PER_SHARD
+    ).map_err(|_| EpochError::NotEnoughValidators { num_validators: num_chunk_producers as u64, num_shards})?;
 
-    Err(EpochError::IOErr("TODO".to_string()))
+    let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> =
+        shard_assignment.iter().map(|vs| Vec::with_capacity(vs.len())).collect();
+    let mut i = all_validators.len();
+    for (shard_validators, shard_validator_ids) in shard_assignment.into_iter().zip(chunk_producers_settlement.iter_mut()) {
+        for validator in shard_validators {
+            debug_assert_eq!(i, all_validators.len());
+            match validator_to_index.entry(validator.account_id().clone()) {
+                hash_map::Entry::Vacant(entry) => {
+                    let validator_id = i as ValidatorId;
+                    entry.insert(validator_id);
+                    shard_validator_ids.push(validator_id);
+                    all_validators.push(validator);
+                    i += 1;
+                }
+                // Validators which have an entry in the validator_to_index map
+                // have already been inserted into `all_validators`.
+                hash_map::Entry::Occupied(entry) => {
+                    let validator_id = *entry.get();
+                    shard_validator_ids.push(validator_id);
+                }
+            }
+        }
+    }
+
+    let fishermen_to_index = fishermen
+        .iter()
+        .enumerate()
+        .map(|(index, s)| (s.account_id().clone(), index as ValidatorId))
+        .collect::<HashMap<_, _>>();
+
+    let threshold = match (bp_stake_threshold, cp_stake_threshold) {
+        (Some(x), Some(y)) => cmp::max(x, y),
+        (None, Some(y)) => y,
+        (Some(x), None) => x,
+        (None, None) => 0,
+    };
+
+    Ok(EpochInfo::new(
+        prev_epoch_info.epoch_height() + 1,
+        all_validators,
+        validator_to_index,
+        block_producers_settlement,
+        chunk_producers_settlement,
+        vec![],
+        fishermen,
+        fishermen_to_index,
+        stake_change,
+        validator_reward,
+        validator_kickout,
+        minted_amount,
+        threshold,
+        next_version,
+    ))
 }
 
 fn proposals_with_rollover(
     proposals: Vec<ValidatorStake>,
     prev_epoch_info: &EpochInfo,
-    validator_reward: HashMap<AccountId, Balance>,
+    validator_reward: &HashMap<AccountId, Balance>,
     validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     stake_change: &mut BTreeMap<AccountId, Balance>,
     fishermen: &mut Vec<ValidatorStake>
