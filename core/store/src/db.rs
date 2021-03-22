@@ -317,7 +317,7 @@ unsafe impl Sync for RocksDB {}
 ///
 /// let rocksdb = RocksDBOptions::default()
 ///     .check_free_space_interval(256)
-///     .free_space_threshold(bytesize::ByteSize::mb(10))
+///     .free_disk_space_threshold(bytesize::ByteSize::mb(10))
 ///     .read_only("/db/path");
 /// ```
 pub struct RocksDBOptions {
@@ -331,7 +331,7 @@ pub struct RocksDBOptions {
 }
 
 /// Sets [`check_free_space_interval`](RocksDBOptions::check_free_space_interval) to 256,
-/// [`free_space_threshold`](RocksDBOptions::free_space_threshold) to 16 Mb and 
+/// [`free_space_threshold`](RocksDBOptions::free_space_threshold) to 16 Mb and
 /// [`free_disk_space_warn_threshold`](RocksDBOptions::free_disk_space_warn_threshold) to 256 Mb
 impl Default for RocksDBOptions {
     fn default() -> Self {
@@ -517,7 +517,14 @@ impl Database for RocksDB {
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
-        self.pre_write_check().unwrap();
+        if let Err(check) = self.pre_write_check() {
+            if check.is_io() {
+                warn!("unable to verify remaing disk space: {}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
+            } else {
+                panic!(check)
+            }
+        }
+
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
@@ -700,7 +707,7 @@ impl RocksDB {
     /// unrecoverable in most cases.
     fn pre_write_check(&self) -> Result<(), PreWriteCheckErr> {
         let counter = self.check_free_space_counter.fetch_add(1, Ordering::Relaxed);
-        if self.check_free_space_interval <= counter {
+        if self.check_free_space_interval >= counter {
             return Ok(());
         }
         self.check_free_space_counter.swap(0, Ordering::Relaxed);
@@ -719,8 +726,10 @@ impl RocksDB {
     }
 }
 
-fn available_space<P: AsRef<Path>>(path: P) -> std::io::Result<bytesize::ByteSize> {
-    let available = fs2::available_space(path)?;
+fn available_space<P: AsRef<Path> + std::fmt::Debug>(
+    path: P,
+) -> std::io::Result<bytesize::ByteSize> {
+    let available = fs2::available_space(dbg!(path))?;
     Ok(bytesize::ByteSize::b(available))
 }
 
@@ -730,6 +739,16 @@ pub enum PreWriteCheckErr {
     IO(#[from] std::io::Error),
     #[error("low disk memory ({0} available)")]
     LowDiskSpace(bytesize::ByteSize),
+}
+
+impl PreWriteCheckErr {
+    pub fn is_io(&self) -> bool {
+        matches!(self, PreWriteCheckErr::IO(_))
+    }
+
+    pub fn is_low_disk_space(&self) -> bool {
+        matches!(self, PreWriteCheckErr::LowDiskSpace(_))
+    }
 }
 
 #[cfg(feature = "single_thread_rocksdb")]
@@ -775,6 +794,13 @@ mod tests {
                 self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
             Ok(result)
         }
+    }
+
+    #[test]
+    fn test_prewrite_check() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
+        let store = RocksDB::new(tmp_dir.path().to_str().unwrap()).unwrap();
+        store.pre_write_check().unwrap()
     }
 
     #[test]
