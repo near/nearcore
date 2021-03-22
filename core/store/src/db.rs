@@ -19,7 +19,6 @@ use near_primitives::version::DbVersion;
 
 use crate::db::refcount::merge_refcounted_records;
 
-use std::fmt::Formatter;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
@@ -328,10 +327,12 @@ pub struct RocksDBOptions {
     rocksdb_options: Option<Options>,
     check_free_space_interval: u16,
     free_space_threshold: bytesize::ByteSize,
+    warn_treshold: bytesize::ByteSize,
 }
 
-/// Sets [`check_free_space_interval`](RocksDBOptions::check_free_space_interval) to 256, and
-/// [`free_space_threshold`](RocksDBOptions::free_space_threshold) to 10 MB
+/// Sets [`check_free_space_interval`](RocksDBOptions::check_free_space_interval) to 256,
+/// [`free_space_threshold`](RocksDBOptions::free_space_threshold) to 16 Mb and 
+/// [`free_disk_space_warn_threshold`](RocksDBOptions::free_disk_space_warn_threshold) to 256 Mb
 impl Default for RocksDBOptions {
     fn default() -> Self {
         RocksDBOptions {
@@ -339,12 +340,19 @@ impl Default for RocksDBOptions {
             cf_descriptors: None,
             rocksdb_options: None,
             check_free_space_interval: 256,
-            free_space_threshold: bytesize::ByteSize::mb(10),
+            free_space_threshold: bytesize::ByteSize::mb(16),
+            warn_treshold: bytesize::ByteSize::mb(256),
         }
     }
 }
 
 impl RocksDBOptions {
+    /// Once the disk space is below the `free_disk_space_warn_threshold`, RocksDB will emit an warning message every [`interval`](RocksDBOptions::check_free_space_interval) write.
+    pub fn free_disk_space_warn_threshold(mut self, warn_treshold: bytesize::ByteSize) -> Self {
+        self.warn_treshold = warn_treshold;
+        self
+    }
+
     pub fn cf_names(mut self, cf_names: Vec<String>) -> Self {
         self.cf_names = Some(cf_names);
         self
@@ -359,7 +367,7 @@ impl RocksDBOptions {
         self
     }
 
-    /// After interval writes, the free memory in the database's data directory is checked.
+    /// After n writes, the free memory in the database's data directory is checked.
     pub fn check_free_space_interval(mut self, interval: u16) -> Self {
         self.check_free_space_interval = interval;
         self
@@ -367,7 +375,7 @@ impl RocksDBOptions {
 
     /// Free space threshold. If the directory has fewer available bytes left, writing will not be
     /// allowed to ensure recoverability.
-    pub fn free_space_threshold(mut self, threshold: bytesize::ByteSize) -> Self {
+    pub fn free_disk_space_threshold(mut self, threshold: bytesize::ByteSize) -> Self {
         self.free_space_threshold = threshold;
         self
     }
@@ -704,7 +712,7 @@ impl RocksDB {
         }
 
         if available < self.free_space_threshold {
-            Err(PreWriteCheckErr::LowMemory(available))
+            Err(PreWriteCheckErr::LowDiskSpace(available))
         } else {
             Ok(())
         }
@@ -716,27 +724,12 @@ fn available_space<P: AsRef<Path>>(path: P) -> std::io::Result<bytesize::ByteSiz
     Ok(bytesize::ByteSize::b(available))
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum PreWriteCheckErr {
-    IO(std::io::Error),
-    LowMemory(bytesize::ByteSize),
-}
-
-impl std::fmt::Display for PreWriteCheckErr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PreWriteCheckErr::IO(err) => err.fmt(f),
-            PreWriteCheckErr::LowMemory(available) => {
-                write!(f, "Low memory: {} available", available)
-            }
-        }
-    }
-}
-
-impl From<std::io::Error> for PreWriteCheckErr {
-    fn from(err: std::io::Error) -> Self {
-        PreWriteCheckErr::IO(err)
-    }
+    #[error("error checking filesystem: {0}")]
+    IO(#[from] std::io::Error),
+    #[error("low disk memory ({0} available)")]
+    LowDiskSpace(bytesize::ByteSize),
 }
 
 #[cfg(feature = "single_thread_rocksdb")]

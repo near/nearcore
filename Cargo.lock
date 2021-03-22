@@ -3549,6 +3549,7 @@ dependencies = [
  "serde_json",
  "strum",
  "tempfile",
+ "thiserror",
  "tracing",
 ]
 

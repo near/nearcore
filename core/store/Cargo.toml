@@ -20,6 +20,7 @@ strum = { version = "0.20", features = ["derive"] }
 fs2 = "0.4"
 tracing = "0.1"
 borsh = "0.8.1"
+thiserror = "1"
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
