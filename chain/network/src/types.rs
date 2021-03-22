@@ -3,7 +3,7 @@ use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -46,7 +46,6 @@ use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use std::fmt::{Debug, Error, Formatter};
 use std::io;
 
-use conqueue::QueueSender;
 #[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_primitives::merkle::combine_hash;
 
@@ -1283,11 +1282,7 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-pub struct EdgeList {
-    pub edges: Vec<Edge>,
-    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    pub sender: QueueSender<Edge>,
-}
+pub struct EdgeList(pub Vec<Edge>);
 
 impl Message for EdgeList {
     type Result = bool;

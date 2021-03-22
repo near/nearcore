@@ -25,7 +25,14 @@ nodes = start_cluster(
         ["epoch_length", 10],
         ["block_producer_kickout_threshold", 70]
     ],
-    client_config_changes={ 4: {"tracked_shards": [0, 1, 2, 3]}}
+    client_config_changes={
+                                  0: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+                                  1: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+                                  2: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+                                  3: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+                                  4: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}},
+                                      "tracked_shards": [0, 1, 2, 3]}
+    }
 )
 
 started = time.time()
@@ -41,7 +48,7 @@ sent_height = -1
 
 while True:
     assert time.time() - started < TIMEOUT
-    status = nodes[3].get_status()
+    status = nodes[4].get_status(check_storage=False)
 
     height = status['sync_info']['latest_block_height']
     hash_ = status['sync_info']['latest_block_hash']
