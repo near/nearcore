@@ -985,7 +985,7 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes + blake2b_base + blake2b_byte * num_bytes`
     #[cfg(feature = "protocol_feature_evm")]
     pub fn blake2b(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        use blake2::{Blake2b, Digest, crypto_mac::Mac};
+        use blake2::{crypto_mac::Mac, Blake2b, Digest};
 
         self.gas_counter.pay_base(blake2b_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -998,7 +998,15 @@ impl<'a> VMLogic<'a> {
     }
 
     #[cfg(feature = "protocol_feature_evm")]
-    pub fn blake2b_f(&mut self, rounds_ptr: u64, h_ptr: u64, m_ptr: u64, t_ptr: u64, f_ptr: u64, register_id: u64) -> Result<()> {
+    pub fn blake2b_f(
+        &mut self,
+        rounds_ptr: u64,
+        h_ptr: u64,
+        m_ptr: u64,
+        t_ptr: u64,
+        f_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
         use blake2;
 
         let rounds = self.memory_get_u32(rounds_ptr)?;
