@@ -226,16 +226,25 @@ pub fn run_wasmer1(
 }
 
 fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
+    let _span = tracing::debug_span!("run_method").entered();
+
     let instance = {
         let _span = tracing::debug_span!("run_method/instantiate").entered();
         Instance::new(&module, &import).map_err(|err| err.into_vm_error())?
     };
     let f = instance.exports.get_function(method_name).map_err(|err| err.into_vm_error())?;
     let f = f.native::<(), ()>().map_err(|err| err.into_vm_error())?;
-    let () = {
+
+    {
         let _span = tracing::debug_span!("run_method/call").entered();
         f.call().map_err(|err| err.into_vm_error())?
-    };
+    }
+
+    {
+        let _span = tracing::debug_span!("run_method/drop_instance").entered();
+        drop(instance)
+    }
+
     Ok(())
 }
 
@@ -285,6 +294,7 @@ pub(crate) fn default_wasmer1_store() -> Store {
 pub(crate) fn run_wasmer1_module<'a>(
     module: &Module,
     store: &Store,
+    memory: &mut Wasmer1Memory,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -303,12 +313,6 @@ pub(crate) fn run_wasmer1_module<'a>(
             ))),
         );
     }
-    let mut memory = Wasmer1Memory::new(
-        store,
-        wasm_config.limit_config.initial_memory_pages,
-        wasm_config.limit_config.max_memory_pages,
-    )
-    .unwrap();
 
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
@@ -319,7 +323,7 @@ pub(crate) fn run_wasmer1_module<'a>(
         wasm_config,
         fees_config,
         promise_results,
-        &mut memory,
+        memory,
         profile,
         current_protocol_version,
     );

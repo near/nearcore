@@ -79,6 +79,10 @@ const EXPONENTIAL_BACKOFF_LIMIT: u64 = 91;
 const WAIT_BEFORE_PING: u64 = 20_000;
 /// Limit number of pending Peer actors to avoid OOM.
 const LIMIT_PENDING_PEERS: usize = 60;
+/// How ofter should we broadcast edges.
+const BROADCAST_EDGES_INTERVAL: Duration = Duration::from_millis(50);
+/// Maximum amount of time spend processing edges.
+const BROAD_CAST_EDGES_MAX_WORK_ALLOVED: Duration = Duration::from_millis(50);
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -176,6 +180,7 @@ pub struct PeerManagerActor {
     pending_incoming_connections_counter: Arc<AtomicUsize>,
     peer_counter: Arc<AtomicUsize>,
     scheduled_routing_table_update: bool,
+    edge_verifier_requests_in_progress: u64,
 }
 
 impl PeerManagerActor {
@@ -224,6 +229,7 @@ impl PeerManagerActor {
             pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
             peer_counter: Arc::new(AtomicUsize::new(0)),
             scheduled_routing_table_update: false,
+            edge_verifier_requests_in_progress: 0,
         })
     }
 
@@ -288,7 +294,7 @@ impl PeerManagerActor {
                 }
             }
             new_edges.push(edge);
-            if start.elapsed() >= Duration::from_millis(50) {
+            if start.elapsed() >= BROAD_CAST_EDGES_MAX_WORK_ALLOVED {
                 break;
             }
         }
@@ -306,7 +312,7 @@ impl PeerManagerActor {
             ctx,
             file!(),
             line!(),
-            Duration::from_millis(50),
+            BROADCAST_EDGES_INTERVAL,
             move |act, ctx| {
                 act.broadcast_edges(ctx);
             },
@@ -692,7 +698,8 @@ impl PeerManagerActor {
                 Duration::from_millis(1000),
                 |act, _ctx| {
                     act.scheduled_routing_table_update = false;
-                    act.routing_table.update();
+                    // We only want to save prune edges if there are no pending requests to EdgeVerifier
+                    act.routing_table.update(act.edge_verifier_requests_in_progress == 0);
                     #[cfg(feature = "metric_recorder")]
                     act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
                 },
@@ -1618,6 +1625,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     }).spawn(ctx);
 
                 // Broadcast edges once EdgeVerifier finishes
+                self.edge_verifier_requests_in_progress += 1;
                 self.edge_verifier_pool
                     .send(EdgeList {
                         edges,
@@ -1629,6 +1637,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     })
                     .into_actor(self)
                     .then(move |response, act, ctx| {
+                        act.edge_verifier_requests_in_progress -= 1;
                         match response {
                             Ok(false) => act.try_ban_peer(ctx, &peer_id, ReasonForBan::InvalidEdge),
                             Ok(true) => {}

@@ -680,7 +680,7 @@ impl RoutingTable {
     }
 
     /// Recalculate routing table.
-    pub fn update(&mut self) {
+    pub fn update(&mut self, can_save_edges: bool) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
@@ -695,7 +695,9 @@ impl RoutingTable {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
 
-        self.try_save_edges();
+        if can_save_edges {
+            self.try_save_edges();
+        }
 
         near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
