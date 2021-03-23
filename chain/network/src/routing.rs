@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::ops::Sub;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use serde::Serialize;
@@ -28,6 +28,7 @@ use crate::{
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
+use conqueue::{QueueReceiver, QueueSender};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 
@@ -71,7 +72,7 @@ pub enum EdgeType {
 }
 
 /// Edge object. Contains information relative to a new edge that is being added or removed
-/// from the network. This is the information that is required
+/// from the network. This is the information that is required.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
@@ -251,6 +252,25 @@ impl Edge {
             Some(self.peer0.clone())
         } else {
             None
+        }
+    }
+}
+
+pub struct EdgeVerifierHelper {
+    /// Shared version of edges_info used by multiple threads
+    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    /// Queue of edges verified, but not added yes
+    pub edges_to_add_receiver: QueueReceiver<Edge>,
+    pub edges_to_add_sender: QueueSender<Edge>,
+}
+
+impl Default for EdgeVerifierHelper {
+    fn default() -> Self {
+        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
+        Self {
+            edges_info_shared: Default::default(),
+            edges_to_add_sender: tx,
+            edges_to_add_receiver: rx,
         }
     }
 }
@@ -660,7 +680,7 @@ impl RoutingTable {
     }
 
     /// Recalculate routing table.
-    pub fn update(&mut self) {
+    pub fn update(&mut self, can_save_edges: bool) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
@@ -675,7 +695,9 @@ impl RoutingTable {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
 
-        self.try_save_edges();
+        if can_save_edges {
+            self.try_save_edges();
+        }
 
         near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
