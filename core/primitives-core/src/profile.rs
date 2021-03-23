@@ -1,6 +1,5 @@
 use crate::config::{ActionCosts, ExtCosts};
 use crate::types::Gas;
-use num_rational::Ratio;
 use std::{cell::RefCell, fmt, rc::Rc};
 
 const PROFILE_DATA_LEN: usize = 1 + ActionCosts::count() + ExtCosts::count();
@@ -37,8 +36,14 @@ enum Repr {
 const _ASSERT_NO_OP_IF_COUNTING_DISABLED: [(); 0] = [(); std::mem::size_of::<ProfileData>()];
 
 impl Default for ProfileData {
+    #[cfg(not(feature = "costs_counting"))]
     fn default() -> ProfileData {
         ProfileData::new_disabled()
+    }
+
+    #[cfg(feature = "costs_counting")]
+    fn default() -> ProfileData {
+        ProfileData::new_enabled()
     }
 }
 
@@ -136,7 +141,15 @@ impl ProfileData {
 }
 
 impl fmt::Debug for ProfileData {
+    #[cfg(not(feature = "costs_counting"))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "cost_counting feature is not enabled in near-primitives-core, cannot print profile data")?;
+        Ok(())
+    }
+
+    #[cfg(feature = "costs_counting")]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use num_rational::Ratio;
         let all_gas = self.all_gas();
         let host_gas = self.host_gas();
         let action_gas = self.action_gas();
@@ -200,5 +213,25 @@ impl fmt::Debug for ProfileData {
         }
         writeln!(f, "------------------------------")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_profile_all_gas() {
+        let profile_data = ProfileData::default();
+        profile_data.set_burnt_gas(42);
+        #[cfg(not(feature = "costs_counting"))]
+        assert_eq!(profile_data.all_gas(), 0);
+        #[cfg(feature = "costs_counting")]
+        assert_eq!(profile_data.all_gas(), 42);
+    }
+
+    #[test]
+    fn test_profile_data_debug() {
+        #[cfg(not(feature = "costs_counting"))]
+        println!("{:#?}", ProfileData::default());
     }
 }

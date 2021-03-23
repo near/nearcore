@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 byteorder = "1.2"
+bytesize = "1"
 derive_more = "0.99.3"
 elastic-array = "0.11"
 lazy_static = "1.4"
@@ -16,8 +17,10 @@ cached = "0.23"
 num_cpus = "1.11"
 rand = "0.7"
 strum = { version = "0.20", features = ["derive"] }
-
+fs2 = "0.4"
+tracing = "0.1"
 borsh = "0.8.1"
+thiserror = "1"
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
