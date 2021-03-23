@@ -3097,16 +3097,16 @@ impl<'a> ChainUpdate<'a> {
                 .flat_map(|chunk| chunk.validator_proposals()),
         ) {
             match (hp, cp) {
-                (None, Some(_)) | (Some(_), None) | (None, None) => {
-                    // Can only occur if there were a different number of proposals in the header
-                    // and chunks
-                    return Err(ErrorKind::InvalidValidatorProposals.into());
-                }
                 (Some(hp), Some(cp)) => {
                     if hp != cp {
                         // Proposals differed!
                         return Err(ErrorKind::InvalidValidatorProposals.into());
                     }
+                }
+                _ => {
+                    // Can only occur if there were a different number of proposals in the header
+                    // and chunks
+                    return Err(ErrorKind::InvalidValidatorProposals.into());
                 }
             }
         }
