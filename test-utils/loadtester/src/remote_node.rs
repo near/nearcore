@@ -1,4 +1,3 @@
-use reqwest::Client as AsyncClient;
 use std::format;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
@@ -7,6 +6,10 @@ use std::time::{Duration, Instant};
 
 use borsh::BorshSerialize;
 use futures::{future, future::BoxFuture, FutureExt, TryFutureExt};
+use log::{debug, info};
+use reqwest::blocking::Client as SyncClient;
+use reqwest::Client as AsyncClient;
+
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc_primitives::message::Message;
 use near_primitives::hash::CryptoHash;
@@ -14,12 +17,8 @@ use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;
-use reqwest::blocking::Client as SyncClient;
-use std::convert::TryInto;
 use testlib::user::rpc_user::RpcUser;
 use testlib::user::User;
-
-use log::{debug, info};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.
@@ -268,7 +267,7 @@ impl RemoteNode {
             .as_str()
             .ok_or(VALUE_NOT_STR_ERR)?
             .to_string()
-            .try_into()?)
+            .parse()?)
     }
 
     pub fn get_transactions(&self, height: u64) -> Result<u64, Box<dyn std::error::Error>> {

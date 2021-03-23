@@ -868,7 +868,7 @@ impl TryFrom<PartialBlockIdentifier> for near_primitives::types::BlockReference 
                 .into()
             }
             (_, Some(hash)) => {
-                near_primitives::types::BlockId::Hash(hash.try_into().map_err(|err| {
+                near_primitives::types::BlockId::Hash(hash.parse().map_err(|err| {
                     Self::Error::InvalidInput(format!("Failed to parse Block Hash: {}", err))
                 })?)
                 .into()
@@ -1022,7 +1022,7 @@ impl From<&near_crypto::PublicKey> for PublicKey {
 }
 
 impl TryFrom<&PublicKey> for near_crypto::PublicKey {
-    type Error = near_crypto::TryFromSliceError;
+    type Error = near_crypto::ParseKeyError;
 
     fn try_from(PublicKey { curve_type, hex_bytes }: &PublicKey) -> Result<Self, Self::Error> {
         Ok(match curve_type {

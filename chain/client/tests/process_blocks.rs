@@ -1,7 +1,7 @@
 use std::collections::HashSet;
-use std::convert::TryFrom;
 use std::iter::FromIterator;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -1802,7 +1802,7 @@ fn test_sync_hash_validity() {
             assert!(!res.unwrap())
         }
     }
-    let bad_hash = CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
+    let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
     println!("bad hash -> {:?}", res.is_ok());
     match res {
