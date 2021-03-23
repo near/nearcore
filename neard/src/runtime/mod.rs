@@ -170,6 +170,12 @@ impl NightshadeRuntime {
             protocol_upgrade_num_epochs: genesis.config.protocol_upgrade_num_epochs,
             protocol_upgrade_stake_threshold: genesis.config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: genesis.config.minimum_stake_divisor,
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
+                num_chunk_only_producer_seats: genesis.config.num_chunk_only_producer_seats,
+                minimum_validators_per_shard: genesis.config.minimum_validators_per_shard,
+                minimum_stake_ratio: genesis.config.minimum_stake_ratio,
+            },
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: genesis.config.max_inflation_rate,
@@ -1989,7 +1995,25 @@ mod test {
             &signer,
             CryptoHash::default(),
         );
-        env.step_default(vec![staking_transaction, create_account_transaction]);
+        let test2_stake_amount = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            3600 * crate::NEAR_BASE
+        } else {
+            TESTING_INIT_STAKE
+        };
+        let transactions = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            // With the new validator selection algorithm, test2 needs to have less stake to
+            // become a fisherman.
+            let signer =
+                InMemorySigner::from_seed(&validators[1], KeyType::ED25519, &validators[1]);
+            vec![
+                staking_transaction,
+                create_account_transaction,
+                stake(1, &signer, &block_producers[1], test2_stake_amount),
+            ]
+        } else {
+            vec![staking_transaction, create_account_transaction]
+        };
+        env.step_default(transactions);
         env.step_default(vec![]);
         let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.locked, 2 * TESTING_INIT_STAKE);
@@ -2028,7 +2052,7 @@ mod test {
         // Become fishermen instead
         assert_eq!(
             (test2_acc.amount, test2_acc.locked),
-            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
+            (TESTING_INIT_BALANCE - test2_stake_amount, test2_stake_amount)
         );
         let test3_acc = env.view_account("test3");
         // Got 3 * X, staking 2 * X of them.
@@ -2377,6 +2401,7 @@ mod test {
         } else {
             vec![vec![], vec![staking_transaction]]
         };
+        // a validator from the first shard does not produce their chunk
         env.step(transactions, vec![false, true], ChallengesResult::default());
         for _ in 2..10 {
             env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
@@ -2391,7 +2416,12 @@ mod test {
         for _ in 10..14 {
             env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
         }
-        let account = env.view_account(&block_producers[3].validator_id());
+        // which validator is kicked out depends on which validator selection is used
+        let account = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            env.view_account(&block_producers[1].validator_id())
+        } else {
+            env.view_account(&block_producers[3].validator_id())
+        };
         assert_eq!(account.locked, 0);
 
         let account = env.view_account(&block_producers[0].validator_id());
@@ -2416,12 +2446,28 @@ mod test {
             .collect();
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
+        let mut expected_blocks = [0, 0];
+        let update_expected_blocks = |env: &mut TestEnv, expected_blocks: &mut [u64]| {
+            let bp = {
+                let epoch_id = env.head.epoch_id.clone();
+                let height = env.head.height;
+                let mut em = env.runtime.epoch_manager.0.write().unwrap();
+                em.get_block_producer_info(&epoch_id, height).unwrap()
+            };
+            if bp.account_id() == "test1" {
+                expected_blocks[0] += 1;
+            } else {
+                expected_blocks[1] += 1;
+            }
+        };
         env.step_default(vec![staking_transaction]);
+        update_expected_blocks(&mut env, &mut expected_blocks);
         assert!(env
             .runtime
             .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id.clone()))
             .is_err());
         env.step_default(vec![]);
+        update_expected_blocks(&mut env, &mut expected_blocks);
         let mut current_epoch_validator_info = vec![
             CurrentEpochValidatorInfo {
                 account_id: "test1".to_string(),
@@ -2429,8 +2475,8 @@ mod test {
                 is_slashed: false,
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
-                num_produced_blocks: 1,
-                num_expected_blocks: 1,
+                num_produced_blocks: expected_blocks[0],
+                num_expected_blocks: expected_blocks[0],
             },
             CurrentEpochValidatorInfo {
                 account_id: "test2".to_string(),
@@ -2438,8 +2484,8 @@ mod test {
                 is_slashed: false,
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
-                num_produced_blocks: 1,
-                num_expected_blocks: 1,
+                num_produced_blocks: expected_blocks[1],
+                num_expected_blocks: expected_blocks[1],
             },
         ];
         let next_epoch_validator_info = vec![
@@ -2479,14 +2525,18 @@ mod test {
                 epoch_start_height: 1
             }
         );
+        expected_blocks = [0, 0];
         env.step_default(vec![]);
+        update_expected_blocks(&mut env, &mut expected_blocks);
         let response = env
             .runtime
             .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
             .unwrap();
 
-        current_epoch_validator_info[1].num_produced_blocks = 0;
-        current_epoch_validator_info[1].num_expected_blocks = 0;
+        current_epoch_validator_info[0].num_produced_blocks = expected_blocks[0];
+        current_epoch_validator_info[0].num_expected_blocks = expected_blocks[0];
+        current_epoch_validator_info[1].num_produced_blocks = expected_blocks[1];
+        current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
         assert_eq!(response.current_validators, current_epoch_validator_info);
         assert_eq!(
             response.next_validators,
@@ -2596,15 +2646,15 @@ mod test {
         );
         env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".to_string(), false)]);
         assert_eq!(env.view_account("test2").locked, 0);
-        assert_eq!(
-            env.runtime
-                .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
-                .unwrap()
-                .iter()
-                .map(|x| (x.0.account_id().clone(), x.1))
-                .collect::<Vec<_>>(),
-            vec![("test2".to_string(), true), ("test1".to_string(), false)]
-        );
+        let mut bps = env
+            .runtime
+            .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
+            .unwrap()
+            .iter()
+            .map(|x| (x.0.account_id().clone(), x.1))
+            .collect::<Vec<_>>();
+        bps.sort_unstable();
+        assert_eq!(bps, vec![("test1".to_string(), false), ("test2".to_string(), true)]);
         let msg = vec![0, 1, 2];
         let signer = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
         let signature = signer.sign(&msg);
@@ -2646,17 +2696,20 @@ mod test {
             vec![SlashedValidator::new("test2".to_string(), true)],
         );
         assert_eq!(env.view_account("test2").locked, TESTING_INIT_STAKE);
+        let mut bps = env
+            .runtime
+            .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
+            .unwrap()
+            .iter()
+            .map(|x| (x.0.account_id().clone(), x.1))
+            .collect::<Vec<_>>();
+        bps.sort_unstable();
         assert_eq!(
-            env.runtime
-                .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
-                .unwrap()
-                .iter()
-                .map(|x| (x.0.account_id().clone(), x.1))
-                .collect::<Vec<_>>(),
+            bps,
             vec![
-                ("test3".to_string(), false),
+                ("test1".to_string(), false),
                 ("test2".to_string(), true),
-                ("test1".to_string(), false)
+                ("test3".to_string(), false)
             ]
         );
         let msg = vec![0, 1, 2];
@@ -2807,7 +2860,11 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
             .collect();
-        let fishermen_stake = TESTING_INIT_STAKE / 10 + 1;
+        let fishermen_stake = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            3200 * crate::NEAR_BASE + 1
+        } else {
+            TESTING_INIT_STAKE / 10 + 1
+        };
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
@@ -2877,7 +2934,11 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
             .collect();
-        let fishermen_stake = TESTING_INIT_STAKE / 10 + 1;
+        let fishermen_stake = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            3200 * crate::NEAR_BASE + 1
+        } else {
+            TESTING_INIT_STAKE / 10 + 1
+        };
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         env.step_default(vec![staking_transaction]);
@@ -2921,7 +2982,7 @@ mod test {
     fn test_validator_reward() {
         init_test_logger();
         let num_nodes = 4;
-        let epoch_length = 4;
+        let epoch_length = 40;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new(
             "test_validator_reward",
@@ -2936,7 +2997,7 @@ mod test {
             .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
 
-        for _ in 0..5 {
+        for _ in 0..(epoch_length + 1) {
             env.step_default(vec![]);
         }
 
@@ -3065,8 +3126,11 @@ mod test {
             .collect();
 
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
-        let staking_transaction2 =
-            stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE / 10 - 1);
+        let staking_transaction2 = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            stake(2, &signers[1], &block_producers[1], 100 * crate::NEAR_BASE)
+        } else {
+            stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE / 10 - 1)
+        };
         env.step_default(vec![staking_transaction1, staking_transaction2]);
         assert!(env.last_proposals.is_empty());
         let staking_transaction3 = stake(3, &signers[1], &block_producers[1], 0);

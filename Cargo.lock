@@ -3163,7 +3163,6 @@ dependencies = [
  "borsh",
  "cached",
  "chrono",
- "lazy_static",
  "log",
  "near-chain",
  "near-crypto",

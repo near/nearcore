@@ -1,5 +1,4 @@
 use crate::shard_assignment::assign_shards;
-use lazy_static::lazy_static;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, RngSeed};
 use near_primitives::errors::EpochError;
@@ -10,16 +9,6 @@ use near_primitives::types::{
 use num_rational::Ratio;
 use std::cmp::{self, Ordering};
 use std::collections::{hash_map, BTreeMap, BinaryHeap, HashMap, HashSet};
-
-const MAX_NUM_BP: usize = 100;
-const MAX_NUM_CP: usize = 300;
-const MIN_VALIDATORS_PER_SHARD: usize = 1; // TODO: what should this value be?
-                                           // Derived from PROBABILITY_NEVER_SELECTED = 0.001 and
-                                           // epoch_length = 43200
-                                           // TODO setup like neard/res/genesis_config.json:  "minimum_stake_divisor": 10
-lazy_static! {
-    static ref MIN_STAKE_RATIO: Ratio<u128> = Ratio::new(160, 1_000_000);
-}
 
 pub fn proposals_to_epoch_info(
     epoch_config: &EpochConfig,
@@ -38,6 +27,15 @@ pub fn proposals_to_epoch_info(
     );
 
     let num_shards = epoch_config.num_shards;
+    let min_stake_ratio = {
+        let rational = epoch_config.validator_selection_config.minimum_stake_ratio;
+        Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
+    };
+    let max_bp_selected = epoch_config.num_block_producer_seats as usize;
+    let max_cp_selected = max_bp_selected
+        + (epoch_config.validator_selection_config.num_chunk_only_producer_seats as usize);
+    let minimum_validators_per_shard =
+        epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
     let mut stake_change = BTreeMap::new();
     let mut fishermen = vec![];
     let proposals = proposals_with_rollover(
@@ -51,36 +49,32 @@ pub fn proposals_to_epoch_info(
     let mut block_producer_proposals =
         order_proposals(proposals.values().filter(|p| !p.is_chunk_only()).cloned());
     let (block_producers, bp_stake_threshold) =
-        select_block_producers(&mut block_producer_proposals);
+        select_block_producers(&mut block_producer_proposals, max_bp_selected, min_stake_ratio);
     let mut chunk_producer_proposals = order_proposals(proposals.into_iter().map(|(_, p)| p));
-    let (chunk_producers, cp_stake_threshold) =
-        select_chunk_producers(&mut chunk_producer_proposals, num_shards);
+    let (chunk_producers, cp_stake_threshold) = select_chunk_producers(
+        &mut chunk_producer_proposals,
+        max_cp_selected,
+        min_stake_ratio,
+        num_shards,
+    );
 
     // since block producer proposals could become chunk producers, their actual stake threshold
     // is the smaller of the two thresholds
-    let bp_stake_threshold =
-        bp_stake_threshold.and_then(|x| cp_stake_threshold.map(|y| cmp::min(x, y)));
+    let bp_stake_threshold = cmp::min(bp_stake_threshold, cp_stake_threshold);
 
     // proposals remaining chunk_producer_proposals were not selected for either role
     for OrderedValidatorStake(p) in chunk_producer_proposals {
         let stake = p.stake();
         let account_id = p.account_id();
-        if stake > epoch_config.fishermen_threshold {
+        if stake >= epoch_config.fishermen_threshold {
             fishermen.push(p);
         } else {
             *stake_change.get_mut(account_id).unwrap() = 0;
             if prev_epoch_info.account_is_validator(account_id)
                 || prev_epoch_info.account_is_fisherman(account_id)
             {
-                let threshold = if p.is_chunk_only() {
-                    // the stake threshold must be some value since
-                    // a proposal was not chosen
-                    debug_assert!(cp_stake_threshold.is_some());
-                    cp_stake_threshold.unwrap_or_default()
-                } else {
-                    debug_assert!(bp_stake_threshold.is_some());
-                    bp_stake_threshold.unwrap_or_default()
-                };
+                let threshold =
+                    if p.is_chunk_only() { cp_stake_threshold } else { bp_stake_threshold };
                 debug_assert!(stake < threshold);
                 let account_id = p.take_account_id();
                 validator_kickout.insert(
@@ -104,7 +98,7 @@ pub fn proposals_to_epoch_info(
     }
 
     let shard_assignment =
-        assign_shards(chunk_producers, num_shards as usize, MIN_VALIDATORS_PER_SHARD).map_err(
+        assign_shards(chunk_producers, num_shards as usize, minimum_validators_per_shard).map_err(
             |_| EpochError::NotEnoughValidators {
                 num_validators: num_chunk_producers as u64,
                 num_shards,
@@ -143,8 +137,6 @@ pub fn proposals_to_epoch_info(
         .map(|(index, s)| (s.account_id().clone(), index as ValidatorId))
         .collect::<HashMap<_, _>>();
 
-    let threshold = bp_stake_threshold.unwrap_or(0);
-
     Ok(EpochInfo::new(
         prev_epoch_info.epoch_height() + 1,
         all_validators,
@@ -158,7 +150,7 @@ pub fn proposals_to_epoch_info(
         validator_reward,
         validator_kickout,
         minted_amount,
-        threshold,
+        bp_stake_threshold,
         next_version,
         rng_seed,
     ))
@@ -226,18 +218,22 @@ fn order_proposals<I: IntoIterator<Item = ValidatorStake>>(
 
 fn select_block_producers(
     block_producer_proposals: &mut BinaryHeap<OrderedValidatorStake>,
-) -> (Vec<ValidatorStake>, Option<Balance>) {
-    select_validators(block_producer_proposals, MAX_NUM_BP, *MIN_STAKE_RATIO)
+    max_num_selected: usize,
+    min_stake_ratio: Ratio<u128>,
+) -> (Vec<ValidatorStake>, Balance) {
+    select_validators(block_producer_proposals, max_num_selected, min_stake_ratio)
 }
 
 fn select_chunk_producers(
     all_proposals: &mut BinaryHeap<OrderedValidatorStake>,
+    max_num_selected: usize,
+    min_stake_ratio: Ratio<u128>,
     num_shards: u64,
-) -> (Vec<ValidatorStake>, Option<Balance>) {
+) -> (Vec<ValidatorStake>, Balance) {
     select_validators(
         all_proposals,
-        MAX_NUM_BP + MAX_NUM_CP,
-        *MIN_STAKE_RATIO * Ratio::new(1, num_shards as u128),
+        max_num_selected,
+        min_stake_ratio * Ratio::new(1, num_shards as u128),
     )
 }
 
@@ -249,7 +245,7 @@ fn select_validators(
     proposals: &mut BinaryHeap<OrderedValidatorStake>,
     max_number_selected: usize,
     min_stake_ratio: Ratio<u128>,
-) -> (Vec<ValidatorStake>, Option<Balance>) {
+) -> (Vec<ValidatorStake>, Balance) {
     let mut total_stake = 0;
     let n = cmp::min(max_number_selected, proposals.len());
     let mut validators = Vec::with_capacity(n);
@@ -261,22 +257,22 @@ fn select_validators(
             validators.push(p);
             total_stake = total_stake_with_p;
         } else {
+            // p was not included, return it to the list of proposals
+            proposals.push(OrderedValidatorStake(p));
             break;
         }
     }
-    if n < max_number_selected {
-        // there were fewer proposals than the maximum allowed, so there is no threshold stake
-        (validators, None)
-    } else if validators.len() == n {
-        // all n slots were filled, so the threshold stake is 1 more than the current
+    if validators.len() == max_number_selected {
+        // all slots were filled, so the threshold stake is 1 more than the current
         // smallest stake
         let threshold = validators.last().unwrap().stake() + 1;
-        (validators, Some(threshold))
+        (validators, threshold)
     } else {
         // the stake ratio condition prevented all slots from being filled,
-        // so the threshold stake is whatever amount would have passed this check
+        // or there were fewer proposals than available slots,
+        // so the threshold stake is whatever amount pass the stake ratio condition
         let threshold = (min_stake_ratio * Ratio::new(total_stake, 1)).ceil().to_integer();
-        (validators, Some(threshold))
+        (validators, threshold)
     }
 }
 
@@ -286,7 +282,7 @@ impl PartialOrd for OrderedValidatorStake {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let stake_order = self.0.stake().partial_cmp(&other.0.stake())?;
         match stake_order {
-            Ordering::Equal => self.0.account_id().partial_cmp(other.0.account_id()),
+            Ordering::Equal => other.0.account_id().partial_cmp(self.0.account_id()),
             Ordering::Less | Ordering::Greater => Some(stake_order),
         }
     }
@@ -295,7 +291,7 @@ impl Ord for OrderedValidatorStake {
     fn cmp(&self, other: &Self) -> Ordering {
         let stake_order = self.0.stake().cmp(&other.0.stake());
         match stake_order {
-            Ordering::Equal => self.0.account_id().cmp(other.0.account_id()),
+            Ordering::Equal => other.0.account_id().cmp(self.0.account_id()),
             Ordering::Less | Ordering::Greater => stake_order,
         }
     }

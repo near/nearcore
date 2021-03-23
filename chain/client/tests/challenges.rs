@@ -638,7 +638,7 @@ fn test_fishermen_challenge() {
 fn test_challenge_in_different_epoch() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 2);
-    genesis.config.epoch_length = 2;
+    genesis.config.epoch_length = 3;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let runtime1 = Arc::new(neard::NightshadeRuntime::new(
@@ -658,22 +658,23 @@ fn test_challenge_in_different_epoch() {
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![runtime1, runtime2];
     let networks = vec![network_adapter.clone(), network_adapter.clone()];
     let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = 2;
+    chain_genesis.epoch_length = 3;
     let mut env =
         TestEnv::new_with_runtime_and_network_adapter(chain_genesis, 2, 2, runtimes, networks);
     let mut fork_blocks = vec![];
-    for i in 1..5 {
-        let block1 = env.clients[0].produce_block(2 * i - 1).unwrap().unwrap();
-        env.process_block(0, block1, Provenance::PRODUCED);
-
-        let block2 = env.clients[1].produce_block(2 * i).unwrap().unwrap();
-        env.process_block(1, block2.clone(), Provenance::PRODUCED);
-        fork_blocks.push(block2);
+    for h in 1..13 {
+        if let Some(block) = env.clients[0].produce_block(h).unwrap() {
+            env.process_block(0, block, Provenance::PRODUCED);
+        }
+        if let Some(block) = env.clients[1].produce_block(h).unwrap() {
+            env.process_block(1, block.clone(), Provenance::PRODUCED);
+            fork_blocks.push(block);
+        }
     }
 
-    let fork1_block = env.clients[0].produce_block(9).unwrap().unwrap();
+    let fork1_block = env.clients[0].produce_block(13).unwrap().unwrap();
     env.process_block(0, fork1_block, Provenance::PRODUCED);
-    let fork2_block = env.clients[1].produce_block(9).unwrap().unwrap();
+    let fork2_block = env.clients[1].produce_block(13).unwrap().unwrap();
     fork_blocks.push(fork2_block);
     for block in fork_blocks {
         let height = block.header().height();

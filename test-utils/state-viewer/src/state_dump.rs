@@ -75,7 +75,7 @@ mod test {
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::NumBlocks;
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks};
     use near_store::test_utils::create_test_store;
     use near_store::Store;
     use neard::config::GenesisExt;
@@ -101,6 +101,27 @@ mod test {
         (store, genesis, env)
     }
 
+    /// Produces blocks, avoiding the potential failure where the client is not the
+    /// block producer for each subsequent height (this can happen when a new validator
+    /// is staked since they will also have heights where they should produce the block instead).
+    fn safe_produce_blocks(
+        env: &mut TestEnv,
+        initial_height: BlockHeight,
+        num_blocks: BlockHeightDelta,
+    ) {
+        let mut h = initial_height;
+        for _ in 1..=num_blocks {
+            let mut block = None;
+            // `env.clients[0]` may not be the block producer at `h`,
+            // loop until we find a height env.clients[0] should produce.
+            while block.is_none() {
+                block = env.clients[0].produce_block(h).unwrap();
+                h += 1;
+            }
+            env.process_block(0, block.unwrap(), Provenance::PRODUCED);
+        }
+    }
+
     /// Test that we preserve the validators from the epoch of the state dump.
     #[test]
     fn test_dump_state_preserve_validators() {
@@ -117,9 +138,9 @@ mod test {
             genesis_hash,
         );
         env.clients[0].process_tx(tx, false, false);
-        for i in 1..=epoch_length * 2 + 1 {
-            env.produce_block(0, i);
-        }
+
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
+
         let head = env.clients[0].chain.head().unwrap();
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
@@ -257,9 +278,9 @@ mod test {
             genesis_hash,
         );
         env.clients[0].process_tx(tx, false, false);
-        for i in 1..=epoch_length * 2 + 1 {
-            env.produce_block(0, i);
-        }
+
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
+
         let head = env.clients[0].chain.head().unwrap();
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;

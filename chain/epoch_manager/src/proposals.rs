@@ -233,6 +233,7 @@ mod validator_selection {
     }
 }
 
+#[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
 #[cfg(test)]
 mod tests {
     use num_rational::Rational;
@@ -301,6 +302,8 @@ mod tests {
                     minimum_stake_divisor: 1,
                     protocol_upgrade_stake_threshold: Rational::new(80, 100),
                     protocol_upgrade_num_epochs: 2,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    validator_selection_config: Default::default(),
                 },
                 [0; 32],
                 &EpochInfo::default(),
@@ -391,17 +394,7 @@ mod tests {
             HashMap::default(),
             0,
         );
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        match &mut epoch_info {
-            EpochInfo::V1(info) => info.validator_kickout = HashMap::default(),
-            EpochInfo::V2(info) => info.validator_kickout = HashMap::default(),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            EpochInfo::V3(info) => info.validator_kickout = HashMap::default(),
-        }
-        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        {
-            epoch_info.validator_kickout = HashMap::default();
-        }
+        epoch_info.validator_kickout = HashMap::default();
         assert_eq!(
             proposals_to_epoch_info(
                 &epoch_config(2, 2, 1, 0, 90, 60, 10),

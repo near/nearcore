@@ -136,14 +136,16 @@ fn test_stake_nodes() {
                             if res.is_err() {
                                 return future::ready(());
                             }
-                            if res.unwrap().validators
+                            let mut validators = res.unwrap().validators;
+                            validators.sort_unstable_by(|a, b| a.account_id.cmp(&b.account_id));
+                            if validators
                                 == vec![
                                     ValidatorInfo {
-                                        account_id: "near.1".to_string(),
+                                        account_id: "near.0".to_string(),
                                         is_slashed: false,
                                     },
                                     ValidatorInfo {
-                                        account_id: "near.0".to_string(),
+                                        account_id: "near.1".to_string(),
                                         is_slashed: false,
                                     },
                                 ]
@@ -179,7 +181,7 @@ fn test_validator_kickout() {
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
                 4,
-                8,
+                15,
                 false,
                 (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
             );

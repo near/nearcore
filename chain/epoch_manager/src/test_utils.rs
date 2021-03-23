@@ -157,6 +157,8 @@ pub fn epoch_config(
         protocol_upgrade_stake_threshold: Rational::new(80, 100),
         protocol_upgrade_num_epochs: 2,
         minimum_stake_divisor: 1,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        validator_selection_config: Default::default(),
     }
 }
 

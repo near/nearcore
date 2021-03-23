@@ -57,6 +57,26 @@ pub fn start_nodes(
     epoch_length: BlockHeightDelta,
     genesis_height: BlockHeight,
 ) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>)>) {
+    start_nodes_with_validator_selection_config(
+        num_shards,
+        dirs,
+        num_validator_seats,
+        num_lightclient,
+        epoch_length,
+        genesis_height,
+        Default::default(),
+    )
+}
+
+pub fn start_nodes_with_validator_selection_config(
+    num_shards: NumShards,
+    dirs: &[TempDir],
+    num_validator_seats: NumSeats,
+    num_lightclient: usize,
+    epoch_length: BlockHeightDelta,
+    genesis_height: BlockHeight,
+    vs_config: near_primitives::epoch_manager::ValidatorSelectionConfig,
+) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>)>) {
     init_integration_logger();
 
     let num_nodes = dirs.len();
@@ -69,6 +89,10 @@ pub fn start_nodes(
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.genesis_height = genesis_height;
+
+    genesis.config.minimum_validators_per_shard = vs_config.minimum_validators_per_shard;
+    genesis.config.minimum_stake_ratio = vs_config.minimum_stake_ratio;
+    genesis.config.num_chunk_only_producer_seats = vs_config.num_chunk_only_producer_seats;
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut near_configs = vec![];

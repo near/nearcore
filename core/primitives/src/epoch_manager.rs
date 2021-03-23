@@ -48,6 +48,20 @@ pub struct EpochConfig {
     pub protocol_upgrade_stake_threshold: Rational,
     /// Number of epochs after stake threshold was achieved to start next prtocol version.
     pub protocol_upgrade_num_epochs: EpochHeight,
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    pub validator_selection_config: ValidatorSelectionConfig,
+}
+
+/// Additional configuration parameters for the new validator selection algorithm.
+/// See https://github.com/near/NEPs/pull/167 for details
+#[derive(Debug, Clone, SmartDefault)]
+pub struct ValidatorSelectionConfig {
+    #[default(300)]
+    pub num_chunk_only_producer_seats: NumSeats,
+    #[default(1)]
+    pub minimum_validators_per_shard: NumSeats,
+    #[default(Rational::new(160, 1_000_000))]
+    pub minimum_stake_ratio: Rational,
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -508,9 +522,7 @@ pub mod epoch_info {
     // V2 -> V3: Structures for randomly selecting validators at each height based on new
     // block producer and chunk producer selection algorithm.
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    #[derive(
-        SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq,
-    )]
+    #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
     pub struct EpochInfoV3 {
         pub epoch_height: EpochHeight,
         pub validators: Vec<ValidatorStake>,
