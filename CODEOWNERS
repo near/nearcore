@@ -3,7 +3,8 @@
 /chain/ @SkidanovAlex @bowenwang1996
 /chain/client/src/view_client.rs @frol @khorolets @chefsale
 /chain/client-primitives/ @frol @khorolets @chefsale
-/chain/network/ @mfornet @bowenwang1996
+/chain/network/ @mfornet @bowenwang1996 @pmnoxx
+/chain/epoch_manager/ @bowenwang1996 @mikhailOK
 /chain/jsonrpc/ @frol @khorolets @chefsale
 /chain/jsonrpc-primitives/ @frol @khorolets @chefsale
 /chain/indexer/ @khorolets @frol
@@ -20,6 +21,7 @@
 /tools/indexer/ @khorolets @frol
 
 /core/  @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
+/core/store/trie @mikhailOK
 /neard/ @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
 
 /.buildkite/ @chefsale @mhalambek
