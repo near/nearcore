@@ -52,6 +52,8 @@ extern "C" {
     #[cfg(feature = "protocol_feature_evm")]
     fn blake2b(value_len: u64, value_ptr: u64, register_id: u64);
     #[cfg(feature = "protocol_feature_evm")]
+    fn blake2b_f(rounds_ptr: u64, h_ptr: u64, m_ptr: u64, t_ptr: u64, f_ptr: u64, register_id: u64);
+    #[cfg(feature = "protocol_feature_evm")]
     fn ecrecover(hash_ptr: u64, v: u32, r_ptr: u64, s_ptr: u64, register_id: u64);
     // #####################
     // # Miscellaneous API #
@@ -477,6 +479,49 @@ pub unsafe fn blake2b_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
         blake2b(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+/// Function to measure the `blake2b_f_base` and `blake2b_byte`. Also measures `base`,
+/// `write_register_base`, and `write_register_byte`. This is done at cost per
+/// round.
+#[no_mangle]
+#[cfg(feature = "protocol_feature_evm")]
+pub unsafe fn blake2b_f_1r_10k() {
+    let rounds: u32 = 1;
+    let hash: [u64; 8] = [
+        0x6a09e667f2bdc948,
+        0xbb67ae8584caa73b,
+        0x3c6ef372fe94f82b,
+        0xa54ff53a5f1d36f1,
+        0x510e527fade682d1,
+        0x9b05688c2b3e6c1f,
+        0x1f83d9abfb41bd6b,
+        0x5be0cd19137e2179,
+    ];
+    let m: [u64; 16] = [
+        0x0000000000636261,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+    ];
+    let t: [u64; 2] = [3, 0];
+    let f = true;
+
+    for _ in 0..10_000 {
+        blake2b_f(rounds.as_ptr(), hash.as_ptr() as u64, m.as_ptr() as u64, t.as_ptr() as u64, f.as_ptr() as u64, 0);
     }
 }
 
