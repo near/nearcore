@@ -138,19 +138,12 @@ impl ProcessNode {
     pub fn get_start_node_command(&self) -> Command {
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
             let mut command = Command::new("cargo");
-            let mut args = vec!["run", "-p", "neard"];
+            command.args(&["run", "-p", "neard"]);
             #[cfg(feature = "nightly_protocol")]
-            {
-                args.push("--features");
-                args.push("nightly_protocol");
-            }
+            command.args(&["--features", "nightly_protocol"]);
             #[cfg(feature = "nightly_protocol_features")]
-            {
-                args.push("--features");
-                args.push("nightly_protocol_features");
-            }
-            args.append(&mut vec!["--bin", "neard", "--", "--home", &self.work_dir, "run"]);
-            command.args(&args[..]);
+            command.args(&["--features", "nightly_protocol_features"]);
+            command.args(&["--bin", "neard", "--", "--home", &self.work_dir, "run"]);
             command
         } else {
             let mut command = Command::new("target/debug/neard");
