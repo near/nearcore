@@ -13,10 +13,14 @@ use rocksdb::{
     Options, ReadOptions, WriteBatch, DB,
 };
 use strum::EnumIter;
+use tracing::warn;
 
 use near_primitives::version::DbVersion;
 
 use crate::db::refcount::merge_refcounted_records;
+
+use std::path::Path;
+use std::sync::atomic::Ordering;
 
 pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
@@ -293,6 +297,11 @@ impl DBTransaction {
 pub struct RocksDB {
     db: DB,
     cfs: Vec<*const ColumnFamily>,
+
+    check_free_space_counter: std::sync::atomic::AtomicU16,
+    check_free_space_interval: u16,
+    free_space_threshold: bytesize::ByteSize,
+
     _pin: PhantomPinned,
 }
 
@@ -300,6 +309,134 @@ pub struct RocksDB {
 // this file and safe to share across threads.
 unsafe impl Send for RocksDB {}
 unsafe impl Sync for RocksDB {}
+
+/// Options for configuring [`RocksDB`](RocksDB).
+///
+/// ```rust
+/// use near_store::db::RocksDBOptions;
+///
+/// let rocksdb = RocksDBOptions::default()
+///     .check_free_space_interval(256)
+///     .free_disk_space_threshold(bytesize::ByteSize::mb(10))
+///     .read_only("/db/path");
+/// ```
+pub struct RocksDBOptions {
+    cf_names: Option<Vec<String>>,
+    cf_descriptors: Option<Vec<ColumnFamilyDescriptor>>,
+
+    rocksdb_options: Option<Options>,
+    check_free_space_interval: u16,
+    free_space_threshold: bytesize::ByteSize,
+    warn_treshold: bytesize::ByteSize,
+}
+
+/// Sets [`check_free_space_interval`](RocksDBOptions::check_free_space_interval) to 256,
+/// [`free_space_threshold`](RocksDBOptions::free_space_threshold) to 16 Mb and
+/// [`free_disk_space_warn_threshold`](RocksDBOptions::free_disk_space_warn_threshold) to 256 Mb
+impl Default for RocksDBOptions {
+    fn default() -> Self {
+        RocksDBOptions {
+            cf_names: None,
+            cf_descriptors: None,
+            rocksdb_options: None,
+            check_free_space_interval: 256,
+            free_space_threshold: bytesize::ByteSize::mb(16),
+            warn_treshold: bytesize::ByteSize::mb(256),
+        }
+    }
+}
+
+impl RocksDBOptions {
+    /// Once the disk space is below the `free_disk_space_warn_threshold`, RocksDB will emit an warning message every [`interval`](RocksDBOptions::check_free_space_interval) write.
+    pub fn free_disk_space_warn_threshold(mut self, warn_treshold: bytesize::ByteSize) -> Self {
+        self.warn_treshold = warn_treshold;
+        self
+    }
+
+    pub fn cf_names(mut self, cf_names: Vec<String>) -> Self {
+        self.cf_names = Some(cf_names);
+        self
+    }
+    pub fn cf_descriptors(mut self, cf_descriptors: Vec<ColumnFamilyDescriptor>) -> Self {
+        self.cf_descriptors = Some(cf_descriptors);
+        self
+    }
+
+    pub fn rocksdb_options(mut self, rocksdb_options: Options) -> Self {
+        self.rocksdb_options = Some(rocksdb_options);
+        self
+    }
+
+    /// After n writes, the free memory in the database's data directory is checked.
+    pub fn check_free_space_interval(mut self, interval: u16) -> Self {
+        self.check_free_space_interval = interval;
+        self
+    }
+
+    /// Free space threshold. If the directory has fewer available bytes left, writing will not be
+    /// allowed to ensure recoverability.
+    pub fn free_disk_space_threshold(mut self, threshold: bytesize::ByteSize) -> Self {
+        self.free_space_threshold = threshold;
+        self
+    }
+
+    /// Opens a read only database.
+    pub fn read_only<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
+        let options = self.rocksdb_options.unwrap_or_default();
+        let cf_names: Vec<_> = self.cf_names.unwrap_or_else(|| vec!["col0".to_string()]);
+        let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
+        let cfs =
+            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
+        Ok(RocksDB {
+            db,
+            cfs,
+            _pin: PhantomPinned,
+            check_free_space_interval: self.check_free_space_interval,
+            check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
+            free_space_threshold: self.free_space_threshold,
+        })
+    }
+
+    /// Opens the database in read/write mode.
+    pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
+        use strum::IntoEnumIterator;
+        let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options());
+        let cf_names = self
+            .cf_names
+            .unwrap_or_else(|| DBCol::iter().map(|col| format!("col{}", col as usize)).collect());
+        let cf_descriptors = self.cf_descriptors.unwrap_or_else(|| {
+            DBCol::iter()
+                .map(|col| {
+                    ColumnFamilyDescriptor::new(
+                        format!("col{}", col as usize),
+                        rocksdb_column_options(col),
+                    )
+                })
+                .collect()
+        });
+        let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
+        #[cfg(feature = "single_thread_rocksdb")]
+        {
+            // These have to be set after open db
+            let mut env = Env::default().unwrap();
+            env.set_bottom_priority_background_threads(0);
+            env.set_high_priority_background_threads(0);
+            env.set_low_priority_background_threads(0);
+            env.set_background_threads(0);
+            println!("Disabled all background threads in rocksdb");
+        }
+        let cfs =
+            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
+        Ok(RocksDB {
+            db,
+            cfs,
+            _pin: PhantomPinned,
+            check_free_space_interval: self.check_free_space_interval,
+            check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
+            free_space_threshold: self.free_space_threshold,
+        })
+    }
+}
 
 pub struct TestDB {
     db: RwLock<Vec<HashMap<Vec<u8>, Vec<u8>>>>,
@@ -380,6 +517,14 @@ impl Database for RocksDB {
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
+        if let Err(check) = self.pre_write_check() {
+            if check.is_io() {
+                warn!("unable to verify remaing disk space: {}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
+            } else {
+                panic!(check)
+            }
+        }
+
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
@@ -473,12 +618,6 @@ impl Database for TestDB {
     }
 }
 
-fn rocksdb_read_options() -> ReadOptions {
-    let mut read_options = ReadOptions::default();
-    read_options.set_verify_checksums(false);
-    read_options
-}
-
 /// DB level options
 fn rocksdb_options() -> Options {
     let mut opts = Options::default();
@@ -508,6 +647,12 @@ fn rocksdb_options() -> Options {
     }
 
     return opts;
+}
+
+fn rocksdb_read_options() -> ReadOptions {
+    let mut read_options = ReadOptions::default();
+    read_options.set_verify_checksums(false);
+    read_options
 }
 
 fn rocksdb_block_based_options() -> BlockBasedOptions {
@@ -550,35 +695,59 @@ impl RocksDB {
     }
 
     fn new_read_only<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
-        let options = Options::default();
-        let cf_names: Vec<_> = vec!["col0".to_string()];
-        let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
-        let cfs =
-            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs, _pin: PhantomPinned })
+        RocksDBOptions::default().read_only(path)
     }
 
     pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
-        use strum::IntoEnumIterator;
-        let options = rocksdb_options();
-        let cf_names: Vec<_> = DBCol::iter().map(|col| format!("col{}", col as usize)).collect();
-        let cf_descriptors = DBCol::iter().map(|col| {
-            ColumnFamilyDescriptor::new(format!("col{}", col as usize), rocksdb_column_options(col))
-        });
-        let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
-        #[cfg(feature = "single_thread_rocksdb")]
-        {
-            // These have to be set after open db
-            let mut env = Env::default().unwrap();
-            env.set_bottom_priority_background_threads(0);
-            env.set_high_priority_background_threads(0);
-            env.set_low_priority_background_threads(0);
-            env.set_background_threads(0);
-            println!("Disabled all background threads in rocksdb");
+        RocksDBOptions::default().read_write(path)
+    }
+
+    /// Checks if there is enough memory left to perform a write. Not having enough memory left can
+    /// lead to difficult to recover from state, thus a PreWriteCheckErr is pretty much
+    /// unrecoverable in most cases.
+    fn pre_write_check(&self) -> Result<(), PreWriteCheckErr> {
+        let counter = self.check_free_space_counter.fetch_add(1, Ordering::Relaxed);
+        if self.check_free_space_interval >= counter {
+            return Ok(());
         }
-        let cfs =
-            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs, _pin: PhantomPinned })
+        self.check_free_space_counter.swap(0, Ordering::Relaxed);
+
+        let available = available_space(self.db.path())?;
+
+        if available < 16_u64 * self.free_space_threshold {
+            warn!("remaining disk space is running low ({} left)", available);
+        }
+
+        if available < self.free_space_threshold {
+            Err(PreWriteCheckErr::LowDiskSpace(available))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn available_space<P: AsRef<Path> + std::fmt::Debug>(
+    path: P,
+) -> std::io::Result<bytesize::ByteSize> {
+    let available = fs2::available_space(dbg!(path))?;
+    Ok(bytesize::ByteSize::b(available))
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PreWriteCheckErr {
+    #[error("error checking filesystem: {0}")]
+    IO(#[from] std::io::Error),
+    #[error("low disk memory ({0} available)")]
+    LowDiskSpace(bytesize::ByteSize),
+}
+
+impl PreWriteCheckErr {
+    pub fn is_io(&self) -> bool {
+        matches!(self, PreWriteCheckErr::IO(_))
+    }
+
+    pub fn is_low_disk_space(&self) -> bool {
+        matches!(self, PreWriteCheckErr::LowDiskSpace(_))
     }
 }
 
@@ -625,6 +794,13 @@ mod tests {
                 self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
             Ok(result)
         }
+    }
+
+    #[test]
+    fn test_prewrite_check() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
+        let store = RocksDB::new(tmp_dir.path().to_str().unwrap()).unwrap();
+        store.pre_write_check().unwrap()
     }
 
     #[test]
