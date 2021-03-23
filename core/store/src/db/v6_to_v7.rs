@@ -1,11 +1,10 @@
 use std::io::Cursor;
-use std::marker::PhantomPinned;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
+use rocksdb::{ColumnFamilyDescriptor, MergeOperands, Options};
 use strum::IntoEnumIterator;
 
-use crate::db::{rocksdb_column_options, rocksdb_options, DBError, RocksDB};
+use crate::db::{rocksdb_column_options, DBError, RocksDB, RocksDBOptions};
 use crate::DBCol;
 
 fn refcount_merge_v6(
@@ -59,18 +58,18 @@ fn rocksdb_column_options_v6(col: DBCol) -> Options {
 
 impl RocksDB {
     pub(crate) fn new_v6<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
-        let options = rocksdb_options();
-        let cf_names: Vec<_> = DBCol::iter().map(|col| format!("col{}", col as usize)).collect();
-        let cf_descriptors = DBCol::iter().map(|col| {
-            ColumnFamilyDescriptor::new(
-                format!("col{}", col as usize),
-                rocksdb_column_options_v6(col),
+        RocksDBOptions::default()
+            .cf_names(DBCol::iter().map(|col| format!("col{}", col as usize)).collect())
+            .cf_descriptors(
+                DBCol::iter()
+                    .map(|col| {
+                        ColumnFamilyDescriptor::new(
+                            format!("col{}", col as usize),
+                            rocksdb_column_options_v6(col),
+                        )
+                    })
+                    .collect(),
             )
-        });
-        let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
-
-        let cfs =
-            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs, _pin: PhantomPinned })
+            .read_write(path)
     }
 }

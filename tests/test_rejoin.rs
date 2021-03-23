@@ -16,12 +16,18 @@ mod test {
 
     fn warmup() {
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
-            Command::new("cargo")
-                .args(&["build", "-p", "neard"])
-                .spawn()
-                .expect("warmup failed")
-                .wait()
-                .unwrap();
+            let mut args = vec!["build", "-p", "neard"];
+            #[cfg(feature = "nightly_protocol")]
+            {
+                args.push("--features");
+                args.push("nightly_protocol");
+            }
+            #[cfg(feature = "nightly_protocol_features")]
+            {
+                args.push("--features");
+                args.push("nightly_protocol_features");
+            }
+            Command::new("cargo").args(&args[..]).spawn().expect("warmup failed").wait().unwrap();
         }
     }
 
