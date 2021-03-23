@@ -131,32 +131,12 @@ impl EpochManager {
         next_epoch_info: EpochInfo,
     ) -> Result<StoreUpdate, EpochError> {
         let mut store_update = self.store.store_update();
-        println!("PREV EPOCH FIRST BLOCK INFO! {:?}", prev_epoch_first_block_info);
         self.save_block_info(&mut store_update, prev_epoch_first_block_info)?;
-        println!("PREV EPOCH PREV LAST BLOCK INFO! {:?}", prev_epoch_prev_last_block_info);
         self.save_block_info(&mut store_update, prev_epoch_prev_last_block_info)?;
-        println!("PREV EPOCH LAST BLOCK INFO! {:?}", prev_epoch_last_block_info);
         self.save_block_info(&mut store_update, prev_epoch_last_block_info)?;
-        println!("PREV EPOCH INFO! {:?}, {:?}", prev_epoch_id, prev_epoch_info);
         self.save_epoch_info(&mut store_update, &prev_epoch_id, prev_epoch_info)?;
-        println!("CUR EPOCH INFO! {:?}, {:?}", epoch_id, epoch_info);
         self.save_epoch_info(&mut store_update, &epoch_id, epoch_info)?;
-        println!("NEXT EPOCH INFO! {:?}, {:?}", next_epoch_id, next_epoch_info);
         self.save_epoch_info(&mut store_update, &next_epoch_id, next_epoch_info)?;
-        /*let genesis_epoch_id = EpochId::default();
-        if !self.has_epoch_info(&epoch_id)? {
-            println!("EPOCH! {:?}", epoch_id);
-            debug_assert!(self.has_epoch_info(&genesis_epoch_id)?);
-            let genesis_epoch_info = self.get_epoch_info(&genesis_epoch_id)?.clone();
-            self.save_epoch_info(&mut store_update, &epoch_id, genesis_epoch_info)?;
-        }
-        if !self.has_epoch_info(&next_epoch_id)? {
-            println!("NEXT EPOCH! {:?}", next_epoch_id);
-            debug_assert!(self.has_epoch_info(&genesis_epoch_id)?);
-            let genesis_epoch_info = self.get_epoch_info(&genesis_epoch_id)?.clone();
-            self.save_epoch_info(&mut store_update, &next_epoch_id, genesis_epoch_info)?;
-        }*/
-
         Ok(store_update)
     }
 

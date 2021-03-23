@@ -97,7 +97,7 @@ pub struct EpochSync {
 
     received_epoch: bool,
 
-    is_just_started: bool,
+    pub reset_data_done: bool,
 }
 
 impl EpochSync {
@@ -125,12 +125,12 @@ impl EpochSync {
             have_all_epochs: false,
             done: false,
             sync_hash: CryptoHash::default(),
-            is_just_started: true,
+            reset_data_done: false,
         }
     }
 
-    pub fn just_started(&self) -> bool {
-        return self.is_just_started;
+    pub fn ready_reset_data(&self) -> bool {
+        return self.have_all_epochs && !self.reset_data_done;
     }
 
     // Returns whether the Epoch Sync is done
@@ -140,7 +140,6 @@ impl EpochSync {
         all_peers: &Vec<FullPeerInfo>,
         cur_time: DateTime<Utc>,
     ) -> bool {
-        self.is_just_started = false;
         println!(
             "Epoch Sync: done {:?}, have_all_epochs {:?}, peers {:?}, up-to-date {:?} epoch {:?} last request time {:?}",
             self.done,
@@ -155,6 +154,9 @@ impl EpochSync {
         }
 
         if self.have_all_epochs {
+            if !self.reset_data_done {
+                return false;
+            }
             if cur_time > self.last_request_time.add(self.peer_timeout) {
                 self.last_request_time = cur_time;
                 for peer in all_peers {

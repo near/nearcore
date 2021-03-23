@@ -438,7 +438,36 @@ impl ChainStore {
             block_merkle_tree: SizedCache::with_size(CACHE_SIZE),
             block_ordinal_to_hash: SizedCache::with_size(CACHE_SIZE),
             processed_block_heights: SizedCache::with_size(CACHE_SIZE),
+            // update cache_reset() after adding new cache field
         }
+    }
+
+    pub fn cache_reset(&mut self) {
+        self.blocks.cache_reset();
+        self.headers.cache_reset();
+        self.chunks.cache_reset();
+        self.partial_chunks.cache_reset();
+        self.block_extras.cache_reset();
+        self.chunk_extras.cache_reset();
+        self.height.cache_reset();
+        self.block_hash_per_height.cache_reset();
+        self.block_refcounts.cache_reset();
+        self.chunk_hash_per_height_shard.cache_reset();
+        self.next_block_hashes.cache_reset();
+        self.epoch_light_client_blocks.cache_reset();
+        self.my_last_approvals.cache_reset();
+        self.last_approvals_per_account.cache_reset();
+        self.outgoing_receipts.cache_reset();
+        self.incoming_receipts.cache_reset();
+        self.invalid_chunks.cache_reset();
+        self.receipt_id_to_shard_id.cache_reset();
+        self.next_block_with_new_chunk.cache_reset();
+        self.last_block_with_new_chunk.cache_reset();
+        self.transactions.cache_reset();
+        self.receipts.cache_reset();
+        self.block_merkle_tree.cache_reset();
+        self.block_ordinal_to_hash.cache_reset();
+        self.processed_block_heights.cache_reset();
     }
 
     pub fn owned_store(&self) -> Arc<Store> {
@@ -2052,10 +2081,13 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chunk_tail = Some(height);
     }
 
+    pub fn cache_reset(&mut self) {
+        self.chain_store.cache_reset();
+    }
+
     pub fn clear_chunk_data_and_headers(
         &mut self,
         min_chunk_height: BlockHeight,
-        clear_headers: bool,
     ) -> Result<(), Error> {
         let chunk_tail = self.chunk_tail()?;
         for height in chunk_tail..min_chunk_height {
@@ -2079,12 +2111,10 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             let header_hashes = self.get_all_header_hashes_by_height(height)?;
-            for header_hash in header_hashes {
+            for _header_hash in header_hashes {
                 // 3. Delete header_hash-indexed data
                 // TODO #3488: enable
-                if clear_headers {
-                    self.gc_col(ColBlockHeader, &header_hash.into());
-                }
+                //self.gc_col(ColBlockHeader, &header_hash.into());
             }
 
             // 4. Delete chunks_tail-related data
@@ -2232,7 +2262,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         min_chunk_height = chunk_header.height_created();
                     }
                 }
-                self.clear_chunk_data_and_headers(min_chunk_height, false)?;
+                self.clear_chunk_data_and_headers(min_chunk_height)?;
             }
             GCMode::StateSync { .. } => {
                 // 7. State Sync clearing

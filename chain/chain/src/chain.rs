@@ -836,17 +836,20 @@ impl Chain {
                 chain_update.commit()?;
             }
         }
-
-        let mut chain_update = self.chain_update();
-
         if !is_epoch_sync {
+            debug!(target: "chain", "Sync block headers: done, updating header_head if possible");
+
+            let mut chain_update = self.chain_update();
+
             if let Some(header) = headers.last() {
                 // Update header_head if it's the new tip
                 chain_update.update_header_head_if_not_challenged(header)?;
             }
-        }
 
-        chain_update.commit()
+            chain_update.commit()
+        } else {
+            Ok(())
+        }
     }
 
     /// Returns if given block header is on the current chain.
@@ -895,29 +898,12 @@ impl Chain {
         }
     }
 
-    pub fn reset_data_pre_state_sync(
-        &mut self,
-        sync_hash: Option<CryptoHash>,
-    ) -> Result<(), Error> {
+    pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
         let head = self.head()?;
-        // Get header we were syncing into and do we need to clear headers.
-        let (prev_hash, sync_height, clear_headers) = match sync_hash {
-            Some(block_hash) => {
-                let header = self.get_block_header(&block_hash)?;
-                // Don't clear headers - Epoch Sync is disabled
-                (*header.prev_hash(), header.height(), false)
-            }
-            // Case for Epoch Sync - clear all data including headers
-            None => {
-                // This case is possible if the node starts building blocks from Genesis
-                debug!(target:"sync", "Epoch Sync in reset_data_pre_state_sync, clear data up to {:?} inclusively", head.height);
-                if head.height == 0 {
-                    // Nothing to clear
-                    return Ok(());
-                }
-                (head.last_block_hash, head.height + 1, true)
-            }
-        };
+        // Get header we were syncing into.
+        let header = self.get_block_header(&sync_hash)?;
+        let prev_hash = *header.prev_hash();
+        let sync_height = header.height();
         let gc_height = std::cmp::min(head.height + 1, sync_height);
 
         // GC all the data from current tail up to `gc_height`. In case tail points to a height where
@@ -954,7 +940,7 @@ impl Chain {
         let mut chain_store_update = self.mut_store().store_update();
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
-        chain_store_update.clear_chunk_data_and_headers(chunk_height, clear_headers)?;
+        chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
 
         // clear all trie data
@@ -966,6 +952,27 @@ impl Chain {
         chain_store_update.merge(store_update);
 
         // The reason to reset tail here is not to allow Tail be greater than Head
+        chain_store_update.reset_tail();
+        chain_store_update.commit()?;
+        Ok(())
+    }
+
+    pub fn reset_data(&mut self) -> Result<(), Error> {
+        let tries = self.runtime_adapter.get_tries();
+        let mut chain_store_update = self.mut_store().store_update();
+        let mut store_update = StoreUpdate::new_with_tries(tries);
+
+        for col in DBCol::iter() {
+            if SHOULD_COL_GC[col as usize] {
+                store_update.delete_all(col);
+
+                // clear caches here
+            }
+        }
+        chain_store_update.merge(store_update);
+
+        chain_store_update.cache_reset();
+
         chain_store_update.reset_tail();
         chain_store_update.commit()?;
         Ok(())

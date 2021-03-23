@@ -1258,16 +1258,6 @@ impl ClientActor {
             return;
         }
 
-        if self.client.epoch_sync.just_started() {
-            match self.client.chain.reset_data_pre_state_sync(None) {
-                Err(e) => {
-                    error!(target:"client","Epoch Sync: cannot clear data in reset_data_pre_state_sync, {}", e);
-                    return;
-                }
-                Ok(_) => {}
-            }
-        }
-
         let now = Utc::now();
 
         let epoch_sync_done = self.client.epoch_sync.run(
@@ -1276,12 +1266,22 @@ impl ClientActor {
             now,
         );
         if !epoch_sync_done {
+            if self.client.epoch_sync.ready_reset_data() {
+                debug!(target: "client", "Epoch Sync: resetting data");
+                match self.client.chain.reset_data() {
+                    Err(e) => {
+                        error!(target:"client","Epoch Sync: cannot clear data in reset_data, {}", e);
+                        return;
+                    }
+                    Ok(_) => self.client.epoch_sync.reset_data_done = true,
+                }
+            }
             run_later!();
         }
 
         // Init Sync in completed, transition to regular Sync, starting with StateSync
-        debug!(target: "client", "Epoch Sync is finished, transition to State Sync, sync_hash {:?}", self.client.epoch_sync.sync_hash);
         if self.client.epoch_sync.sync_hash != CryptoHash::default() {
+            debug!(target: "client", "Epoch Sync is finished, transition to State Sync, sync_hash {:?}", self.client.epoch_sync.sync_hash);
             self.client.sync_status =
                 SyncStatus::StateSync(self.client.epoch_sync.sync_hash, HashMap::default());
         }
@@ -1391,10 +1391,7 @@ impl ClientActor {
                     .collect();
 
                 if !self.client.config.archive && just_enter_state_sync {
-                    unwrap_or_run_later!(self
-                        .client
-                        .chain
-                        .reset_data_pre_state_sync(Some(sync_hash)));
+                    unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
                 }
 
                 match unwrap_or_run_later!(self.client.state_sync.run(
