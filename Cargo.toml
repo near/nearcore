@@ -58,7 +58,6 @@ near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
-runtime-params-estimator = { path = "./runtime/runtime-params-estimator", default_features = false }
 near-chain = { path = "./chain/chain" }
 
 node-runtime = { path = "./runtime/runtime" }
@@ -110,8 +109,8 @@ rosetta_rpc = ["neard/rosetta_rpc"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol", "testlib/nightly_protocol"]
 nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_access_key_nonce_range", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "testlib/nightly_protocol_features"]
 protocol_feature_forward_chunk_parts = ["neard/protocol_feature_forward_chunk_parts"]
-protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
-protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128", "testlib/protocol_feature_alt_bn128", "runtime-params-estimator/protocol_feature_alt_bn128"]
+protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm"]
+protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128", "testlib/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
 protocol_feature_access_key_nonce_range = ["neard/protocol_feature_access_key_nonce_range"]
 protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limit", "node-runtime/protocol_feature_tx_size_limit", "neard/protocol_feature_tx_size_limit"]

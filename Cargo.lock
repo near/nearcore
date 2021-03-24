@@ -3688,7 +3688,6 @@ dependencies = [
  "neard",
  "node-runtime",
  "rand 0.7.3",
- "runtime-params-estimator",
  "testlib",
 ]
 
