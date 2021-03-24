@@ -36,14 +36,8 @@ enum Repr {
 const _ASSERT_NO_OP_IF_COUNTING_DISABLED: [(); 0] = [(); std::mem::size_of::<ProfileData>()];
 
 impl Default for ProfileData {
-    #[cfg(not(feature = "costs_counting"))]
     fn default() -> ProfileData {
         ProfileData::new_disabled()
-    }
-
-    #[cfg(feature = "costs_counting")]
-    fn default() -> ProfileData {
-        ProfileData::new_enabled()
     }
 }
 
@@ -232,6 +226,6 @@ mod test {
     #[test]
     fn test_profile_data_debug() {
         #[cfg(not(feature = "costs_counting"))]
-        println!("{:#?}", ProfileData::default());
+        println!("{:#?}", ProfileData::new_enabled());
     }
 }
