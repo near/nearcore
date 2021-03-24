@@ -97,6 +97,8 @@ pub enum ProtocolFeature {
     DeleteActionRestriction,
     #[cfg(feature = "protocol_feature_add_account_versions")]
     AccountVersions,
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+    AllowCreateAccountOnDelete,
 }
 
 /// Current latest stable version of the protocol.
@@ -105,7 +107,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 107;
+pub const PROTOCOL_VERSION: ProtocolVersion = 999;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
@@ -148,6 +150,8 @@ lazy_static! {
             (ProtocolFeature::AccessKeyNonceRange, 106),
             #[cfg(feature = "protocol_feature_add_account_versions")]
             (ProtocolFeature::AccountVersions, 107),
+            #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+            (ProtocolFeature::AccountVersions, 999),
         ]
         .into_iter()
         .collect();
