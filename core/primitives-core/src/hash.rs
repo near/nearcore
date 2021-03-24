@@ -74,20 +74,12 @@ impl<'de> Deserialize<'de> for CryptoHash {
     }
 }
 
-impl TryFrom<&str> for CryptoHash {
-    type Error = Box<dyn std::error::Error>;
+impl std::str::FromStr for CryptoHash {
+    type Err = Box<dyn std::error::Error>;
 
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let bytes = from_base(s).map_err::<Self::Error, _>(|e| format!("{}", e).into())?;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = from_base(s).map_err::<Self::Err, _>(|e| e.to_string().into())?;
         Self::try_from(bytes)
-    }
-}
-
-impl TryFrom<String> for CryptoHash {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(s: String) -> Result<Self, Self::Error> {
-        <Self as TryFrom<&str>>::try_from(&s.as_str())
     }
 }
 
