@@ -565,7 +565,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     config.block_sizes = vec![2];
 
     // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
-    let mut v = calls_helper! {
+    let v = calls_helper! {
         cpu_ram_soak_test => cpu_ram_soak_test,
         base_1M => base_1M,
         read_memory_10b_10k => read_memory_10b_10k,
@@ -590,6 +590,12 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         keccak256_10kib_10k => keccak256_10kib_10k,
         keccak512_10b_10k => keccak512_10b_10k,
         keccak512_10kib_10k => keccak512_10kib_10k,
+        #["protocol_feature_evm"] ripemd160_10b_10k => ripemd160_10b_10k,
+        #["protocol_feature_evm"] ripemd160_10kib_10k => ripemd160_10kib_10k,
+        #["protocol_feature_evm"] blake2b_10b_10k => blake2b_10b_10k,
+        #["protocol_feature_evm"] blake2b_10kib_10k => blake2b_10kib_10k,
+        #["protocol_feature_evm"] blake2b_f_1r_10k => blake2b_f_1r_10k,
+        #["protocol_feature_evm"] ecrecover_10k => ecrecover_10k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
@@ -618,35 +624,6 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         data_receipt_10b_1000 => data_receipt_10b_1000,
         data_receipt_100kib_1000 => data_receipt_100kib_1000
     };
-
-    #[cfg(feature = "protocol_feature_evm")]
-    {
-        let mut ripemd_v = calls_helper! {
-            ripemd160_10b_10k => ripemd160_10b_10k,
-            ripemd160_10kib_10k => ripemd160_10kib_10k
-        };
-
-        v.append(&mut ripemd_v);
-    }
-
-    #[cfg(feature = "protocol_feature_evm")]
-    {
-        let mut blake2b_v = calls_helper! {
-            blake2b_10b_10k => blake2b_10b_10k,
-            blake2b_10kib_10k => blake2b_10kib_10k
-        };
-
-        v.append(&mut blake2b_v);
-    }
-
-    #[cfg(feature = "protocol_feature_evm")]
-    {
-        let mut ecrecover_v = calls_helper! {
-           ecrecover_10k => ecrecover_10k
-        };
-
-        v.append(&mut ecrecover_v);
-    }
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
