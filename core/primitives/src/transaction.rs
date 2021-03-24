@@ -218,9 +218,9 @@ impl SignedTransaction {
     }
 
     pub fn init(&mut self) {
-        let hash_and_size = self.transaction.get_hash_and_size();
-        self.hash = hash_and_size.0;
-        self.size = hash_and_size.1;
+        let (hash, size) = self.transaction.get_hash_and_size();
+        self.hash = hash;
+        self.size = size;
     }
 
     pub fn get_hash(&self) -> CryptoHash {
