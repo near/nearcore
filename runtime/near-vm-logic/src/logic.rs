@@ -985,7 +985,7 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes + blake2b_base + blake2b_byte * num_bytes`
     #[cfg(feature = "protocol_feature_evm")]
     pub fn blake2b(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        use blake2::{crypto_mac::Mac, Blake2b, Digest};
+        use blake2::{Blake2b, Digest};
 
         self.gas_counter.pay_base(blake2b_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -1007,21 +1007,22 @@ impl<'a> VMLogic<'a> {
         f_ptr: u64,
         register_id: u64,
     ) -> Result<()> {
-        use blake2;
+        use std::convert::TryFrom;
 
         let rounds = self.memory_get_u32(rounds_ptr)?;
         for _ in 0..rounds {
             self.gas_counter.pay_base(blake2b_f_base)?;
         }
-        let h = <[u64; 8]>::try_from(self.memory_get_vec_u64(h_ptr, 8)?)?;
-        let m = <[u64; 16]>::try_from(self.memory_get_vec_u64(m_ptr, 16)?)?;
-        let t = <[u64; 2]>::try_from(self.memory_get_vec_u64(t_ptr, 2)?)?;
+        let h =
+            <[u64; 8]>::try_from(self.memory_get_vec_u64(h_ptr, 8)?).expect("vec bytes conversion");
+        let m = <[u64; 16]>::try_from(self.memory_get_vec_u64(m_ptr, 16)?)
+            .expect("vec bytes conversion");
+        let t =
+            <[u64; 2]>::try_from(self.memory_get_vec_u64(t_ptr, 2)?).expect("vec bytes conversion");
         let f: bool = self.memory_get_u8(f_ptr)? != 0;
 
         let value = blake2::blake2b_f(rounds, h, m, t, f);
-        self.internal_write_register(register_id, value.as_slice().to_vec());
-
-        Ok(())
+        self.internal_write_register(register_id, value.as_slice().to_vec())
     }
 
     /// Recovers an ECDSA signer address and returns it into `register_id`.

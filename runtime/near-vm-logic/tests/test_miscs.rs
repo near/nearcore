@@ -1,6 +1,5 @@
 use fixtures::get_context;
 use helpers::*;
-use hex_literal::hex;
 use near_vm_errors::HostError;
 use near_vm_logic::ExtCosts;
 use vm_logic_builder::VMLogicBuilder;
@@ -598,7 +597,84 @@ fn test_blake2b() {
 
 #[test]
 #[cfg(feature = "protocol_feature_evm")]
+fn test_blake2b_f() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    let rounds: [u8; 4] = 1_u32.to_le_bytes();
+    let h: [u64; 8] = [
+        0x6a09e667f2bdc948,
+        0xbb67ae8584caa73b,
+        0x3c6ef372fe94f82b,
+        0xa54ff53a5f1d36f1,
+        0x510e527fade682d1,
+        0x9b05688c2b3e6c1f,
+        0x1f83d9abfb41bd6b,
+        0x5be0cd19137e2179,
+    ];
+    let m: [u64; 16] = [
+        0x0000000000636261,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+        0x0000000000000000,
+    ];
+    let t: [u64; 2] = [3, 0];
+    let f_bool: [u8; 1] = 1_u8.to_le_bytes();
+    logic
+        .blake2b_f(
+            rounds.as_ptr() as u64,
+            h.as_ptr() as u64,
+            m.as_ptr() as u64,
+            t.as_ptr() as u64,
+            f_bool.as_ptr() as u64,
+            0,
+        )
+        .unwrap();
+
+    let res = &vec![0u8; 64];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(
+        res,
+        &[
+            0xB6, 0x3A, 0x38, 0x0C, 0xB2, 0x89, 0x7D, 0x52, 0x19, 0x94, 0xA8, 0x52, 0x34, 0xEE,
+            0x2C, 0x18, 0x1B, 0x5F, 0x84, 0x4D, 0x2C, 0x62, 0x4C, 0x00, 0x26, 0x77, 0xE9, 0x70,
+            0x34, 0x49, 0xD2, 0xFB, 0xA5, 0x51, 0xB3, 0xA8, 0x33, 0x3B, 0xCD, 0xF5, 0xF2, 0xF7,
+            0xE0, 0x89, 0x93, 0xD5, 0x39, 0x23, 0xDE, 0x3D, 0x64, 0xFC, 0xC6, 0x8C, 0x03, 0x4E,
+            0x71, 0x7B, 0x92, 0x93, 0xFE, 0xD7, 0xA4, 0x21
+        ],
+    );
+
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::blake2b_f_base: 1,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 64,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 64,
+        ExtCosts::read_memory_base: 5,
+        ExtCosts::read_memory_byte: 4 + 64 + 128 + 8 + 8 + 1, // 213 per EIP-152
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 64,
+    });
+}
+
+#[test]
+#[cfg(feature = "protocol_feature_evm")]
 fn test_ecrecover() {
+    use hex_literal::hex;
+
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
 

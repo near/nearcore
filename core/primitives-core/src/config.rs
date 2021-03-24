@@ -693,6 +693,10 @@ impl ExtCosts {
             #[cfg(feature = "protocol_feature_evm")]
             blake2b_byte => config.blake2b_byte,
             #[cfg(feature = "protocol_feature_evm")]
+            blake2b_f_base => config.blake2b_f_base,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_f_byte => config.blake2b_f_byte,
+            #[cfg(feature = "protocol_feature_evm")]
             ecrecover_base => config.ecrecover_base,
             log_base => config.log_base,
             log_byte => config.log_byte,
