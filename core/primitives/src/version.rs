@@ -97,6 +97,8 @@ pub enum ProtocolFeature {
     DeleteActionRestriction,
     #[cfg(feature = "protocol_feature_add_account_versions")]
     AccountVersions,
+    #[cfg(feature = "protocol_feature_tx_size_limit")]
+    TransactionSizeLimit,
     #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
     AllowCreateAccountOnDelete,
 }
@@ -150,6 +152,8 @@ lazy_static! {
             (ProtocolFeature::AccessKeyNonceRange, 106),
             #[cfg(feature = "protocol_feature_add_account_versions")]
             (ProtocolFeature::AccountVersions, 107),
+            #[cfg(feature = "protocol_feature_tx_size_limit")]
+            (ProtocolFeature::TransactionSizeLimit, 108),
             #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
             (ProtocolFeature::AccountVersions, 999),
         ]

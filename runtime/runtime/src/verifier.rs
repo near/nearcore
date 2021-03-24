@@ -55,6 +55,19 @@ pub fn validate_transaction(
         return Err(InvalidTxError::InvalidSignature.into());
     }
 
+    #[cfg(feature = "protocol_feature_tx_size_limit")]
+    {
+        let transaction_size = signed_transaction.get_size();
+        let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
+        if transaction_size > max_transaction_size {
+            return Err(InvalidTxError::TransactionSizeExceeded {
+                size: transaction_size,
+                limit: max_transaction_size,
+            }
+            .into());
+        }
+    }
+
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
         .map_err(|e| InvalidTxError::ActionsValidation(e))?;
 
@@ -1175,6 +1188,56 @@ mod tests {
                 InvalidAccessKeyError::DepositWithFunctionCall,
             )),
         );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_tx_size_limit")]
+    fn test_validate_transaction_exceeding_tx_size_limit() {
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+
+        let transaction = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
+            CryptoHash::default(),
+        );
+        let transaction_size = transaction.get_size();
+
+        let mut config = RuntimeConfig::default();
+        let max_transaction_size = transaction_size - 1;
+        config.wasm_config.limit_config.max_transaction_size = transaction_size - 1;
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                gas_price,
+                &transaction,
+                false,
+                None,
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::TransactionSizeExceeded {
+                size: transaction_size,
+                limit: max_transaction_size
+            }),
+        );
+
+        config.wasm_config.limit_config.max_transaction_size = transaction_size + 1;
+        verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            gas_price,
+            &transaction,
+            false,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect("valid transaction");
     }
 
     // Receipts
