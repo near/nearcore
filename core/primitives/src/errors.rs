@@ -143,6 +143,9 @@ pub enum InvalidTxError {
     Expired,
     /// An error occurred while validating actions of a Transaction.
     ActionsValidation(ActionsValidationError),
+    /// The size of serialized transaction exceeded the limit.
+    #[cfg(feature = "protocol_feature_tx_size_limit")]
+    TransactionSizeExceeded { size: u64, limit: u64 },
 }
 
 #[derive(
@@ -441,6 +444,12 @@ impl Display for InvalidTxError {
                 write!(f, "Transaction actions validation error: {}", error)
             }
             InvalidTxError::NonceTooLarge { tx_nonce, upper_bound } => { write!(f, "Transaction nonce {} must be smaller than the access key nonce upper bound {}", tx_nonce, upper_bound) }
+            #[cfg(feature = "protocol_feature_tx_size_limit")]
+            InvalidTxError::TransactionSizeExceeded { size, limit } => write!(
+                f,
+                "Size of serialized transaction {} exceeded the limit {}",
+                size, limit
+            ),
         }
     }
 }
