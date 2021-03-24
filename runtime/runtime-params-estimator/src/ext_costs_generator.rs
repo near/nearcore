@@ -72,8 +72,7 @@ impl ExtCostsGenerator {
 
             self.extract(blake2b_10b_10k, blake2b_base);
             self.extract(blake2b_10kib_10k, blake2b_byte);
-            self.extract(blake2b_f_10b_10k, blake2b_f_base);
-            self.extract(blake2b_f_10kib_10k, blake2b_f_byte);
+            self.extract(blake2b_f_1r_10k, blake2b_f_base);
 
             self.extract(ecrecover_10k, ecrecover_base);
         }

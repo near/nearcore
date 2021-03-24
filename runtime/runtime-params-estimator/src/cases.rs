@@ -207,9 +207,7 @@ pub enum Metric {
     #[cfg(feature = "protocol_feature_evm")]
     blake2b_10kib_10k,
     #[cfg(feature = "protocol_feature_evm")]
-    blake2b_f_10b_10k,
-    #[cfg(feature = "protocol_feature_evm")]
-    blake2b_f_10kib_10k,
+    blake2b_f_1r_10k,
     #[cfg(feature = "protocol_feature_evm")]
     ecrecover_10k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
