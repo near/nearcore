@@ -218,3 +218,24 @@ fn vm_script_smoke_test() {
     let expected = ReturnData::Value(4950u64.to_le_bytes().to_vec());
     assert_eq!(ret, expected);
 }
+
+#[test]
+fn evm_slow_deserialize_repro() {
+    use near_vm_logic::ReturnData;
+
+    crate::tracing_timings::enable();
+
+    let mut script = Script::default();
+    script.contract_cache(true);
+
+    // From near-evm repo, the version of when slow issue reported
+    let contract =
+        script.contract_from_file(Path::new("repro/near_evm.wasm"));
+
+    let input = hex::decode(&include_bytes!("../repro/ZombieOwnership.bin")).unwrap();
+
+    script.step(contract, "deploy_code").input(input).repeat(3);
+    let res = script.run();
+    assert_eq!(res.outcomes[0].1, None);
+}
+
