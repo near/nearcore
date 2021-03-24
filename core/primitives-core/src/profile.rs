@@ -225,7 +225,6 @@ mod test {
 
     #[test]
     fn test_profile_data_debug() {
-        #[cfg(not(feature = "costs_counting"))]
         println!("{:#?}", ProfileData::new_enabled());
     }
 }
