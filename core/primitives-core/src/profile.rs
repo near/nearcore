@@ -215,7 +215,7 @@ mod test {
     use super::*;
     #[test]
     fn test_profile_all_gas() {
-        let profile_data = ProfileData::default();
+        let profile_data = ProfileData::new_enabled();
         profile_data.set_burnt_gas(42);
         #[cfg(not(feature = "costs_counting"))]
         assert_eq!(profile_data.all_gas(), 0);
