@@ -1,6 +1,4 @@
-use std::fs;
 use std::panic;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -150,9 +148,7 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
-    let code = fs::read(path).unwrap();
+    let code = near_test_contracts::rs_contract();
     let (configs, validator_signers, network_signers, mut genesis) =
         create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false);
     genesis.config.gas_price_adjustment_rate = Rational::from_integer(0);
@@ -163,7 +159,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             {
                 if *record_account_id == seed {
                     is_account_record_found = true;
-                    account.set_code_hash(ContractCode::new(code.clone(), None).get_hash());
+                    account.set_code_hash(ContractCode::new(code.to_vec(), None).get_hash());
                 }
             }
         }
@@ -171,7 +167,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
         genesis
             .records
             .as_mut()
-            .push(StateRecord::Contract { account_id: seed, code: code.clone() });
+            .push(StateRecord::Contract { account_id: seed, code: code.to_vec() });
     }
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }

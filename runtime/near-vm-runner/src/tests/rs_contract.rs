@@ -13,18 +13,13 @@ use crate::tests::{
     PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
 
-#[cfg(feature = "protocol_feature_alt_bn128")]
-lazy_static_include::lazy_static_include_bytes! {
-    TEST_CONTRACT => "tests/res/nightly_test_contract_rs.wasm",
-}
-
-#[cfg(not(feature = "protocol_feature_alt_bn128"))]
-lazy_static_include::lazy_static_include_bytes! {
-    TEST_CONTRACT => "tests/res/test_contract_rs.wasm",
-}
-
 fn test_contract() -> ContractCode {
-    ContractCode::new(TEST_CONTRACT.to_vec(), None)
+    let code = if cfg!(feature = "protocol_feature_alt_bn128") {
+        near_test_contracts::nightly_rs_contract()
+    } else {
+        near_test_contracts::rs_contract()
+    };
+    ContractCode::new(code.to_vec(), None)
 }
 
 fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
