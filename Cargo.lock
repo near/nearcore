@@ -540,16 +540,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blake2"
-version = "0.9.1"
-source = "git+https://github.com/near/near-blake2.git#bc8a58ab1188f6fd4de895920f81137bf710a3be"
-dependencies = [
- "crypto-mac 0.8.0",
- "digest 0.9.0",
- "opaque-debug 0.3.0",
-]
-
-[[package]]
 name = "blake2b_simd"
 version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3153,7 +3143,7 @@ name = "near-crypto"
 version = "0.1.0"
 dependencies = [
  "arrayref",
- "blake2 0.9.1 (git+https://github.com/near/near-blake2.git)",
+ "blake2",
  "borsh",
  "bs58",
  "c2-chacha",
@@ -3611,7 +3601,7 @@ name = "near-vm-logic"
 version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
- "blake2 0.9.1 (git+https://github.com/near/near-blake2.git?branch=f-standard-out)",
+ "blake2",
  "borsh",
  "bs58",
  "byteorder",
