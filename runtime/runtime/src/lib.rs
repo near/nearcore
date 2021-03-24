@@ -39,8 +39,7 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
-#[cfg(feature = "costs_counting")]
-pub use near_vm_runner::EXT_COSTS_COUNTER;
+pub use near_vm_runner::with_ext_cost_counter;
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
@@ -217,6 +216,7 @@ impl Runtime {
             apply_state.gas_price,
             signed_transaction,
             true,
+            Some(apply_state.block_index),
             apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
@@ -396,7 +396,7 @@ impl Runtime {
             Action::AddKey(add_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_ADD_KEY_TOTAL);
                 action_add_key(
-                    &apply_state.config.transaction_costs,
+                    apply_state,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -426,6 +426,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_account,
+                    apply_state.current_protocol_version,
                 )?;
             }
         };
@@ -605,7 +606,7 @@ impl Runtime {
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
                 tx_burnt_amount -= receiver_reward;
-                account.amount = safe_add_balance(account.amount, receiver_reward)?;
+                account.set_amount(safe_add_balance(account.amount(), receiver_reward)?);
                 set_account(state_update, account_id.clone(), account);
                 state_update.commit(StateChangeCause::ActionReceiptGasReward {
                     receipt_hash: receipt.get_hash(),
@@ -952,39 +953,45 @@ impl Runtime {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             if let Some(mut account) = get_account(state_update, account_id)? {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
-                    debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.locked);
-                    account.locked = account
-                        .locked
-                        .checked_add(*reward)
-                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                    debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.locked());
+                    account.set_locked(
+                        account
+                            .locked()
+                            .checked_add(*reward)
+                            .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
+                    );
                 }
 
                 debug!(target: "runtime",
                        "account {} stake {} max_of_stakes: {}",
-                       account_id, account.locked, max_of_stakes
+                       account_id, account.locked(), max_of_stakes
                 );
-                if account.locked < *max_of_stakes {
+                if account.locked() < *max_of_stakes {
                     return Err(StorageError::StorageInconsistentState(format!(
                         "FATAL: staking invariant does not hold. \
                          Account stake {} is less than maximum of stakes {} in the past three epochs",
-                        account.locked,
+                        account.locked(),
                         max_of_stakes)).into());
                 }
                 let last_proposal =
                     *validator_accounts_update.last_proposals.get(account_id).unwrap_or(&0);
                 let return_stake = account
-                    .locked
+                    .locked()
                     .checked_sub(max(*max_of_stakes, last_proposal))
                     .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
                 debug!(target: "runtime", "account {} return stake {}", account_id, return_stake);
-                account.locked = account
-                    .locked
-                    .checked_sub(return_stake)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
-                account.amount = account
-                    .amount
-                    .checked_add(return_stake)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                account.set_locked(
+                    account
+                        .locked()
+                        .checked_sub(return_stake)
+                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
+                );
+                account.set_amount(
+                    account
+                        .amount()
+                        .checked_add(return_stake)
+                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
+                );
 
                 set_account(state_update, account_id.clone(), &account);
             } else if *max_of_stakes > 0 {
@@ -1000,21 +1007,23 @@ impl Runtime {
 
         for (account_id, stake) in validator_accounts_update.slashing_info.iter() {
             if let Some(mut account) = get_account(state_update, &account_id)? {
-                let amount_to_slash = stake.unwrap_or(account.locked);
-                debug!(target: "runtime", "slashing {} of {} from {}", amount_to_slash, account.locked, account_id);
-                if account.locked < amount_to_slash {
+                let amount_to_slash = stake.unwrap_or(account.locked());
+                debug!(target: "runtime", "slashing {} of {} from {}", amount_to_slash, account.locked(), account_id);
+                if account.locked() < amount_to_slash {
                     return Err(StorageError::StorageInconsistentState(format!(
                         "FATAL: staking invariant does not hold. Account locked {} is less than slashed {}",
-                        account.locked, amount_to_slash)).into());
+                        account.locked(), amount_to_slash)).into());
                 }
                 stats.slashed_burnt_amount = stats
                     .slashed_burnt_amount
                     .checked_add(amount_to_slash)
                     .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
-                account.locked = account
-                    .locked
-                    .checked_sub(amount_to_slash)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                account.set_locked(
+                    account
+                        .locked()
+                        .checked_sub(amount_to_slash)
+                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
+                );
                 set_account(state_update, account_id.clone(), &account);
             } else {
                 return Err(StorageError::StorageInconsistentState(format!(
@@ -1043,10 +1052,12 @@ impl Runtime {
                             account_id
                         ))
                     })?;
-                account.amount = account
-                    .amount
-                    .checked_add(treasury_reward)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                account.set_amount(
+                    account
+                        .amount()
+                        .checked_add(treasury_reward)
+                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
+                );
                 set_account(state_update, account_id.clone(), &account);
             }
         }
@@ -1328,7 +1339,7 @@ impl Runtime {
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     set_code(&mut state_update, account_id, &code);
-                    assert_eq!(code.get_hash(), acc.code_hash);
+                    assert_eq!(code.get_hash(), acc.code_hash());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(&mut state_update, account_id, public_key, &access_key);
@@ -1359,7 +1370,7 @@ impl Runtime {
             let mut account = get_account(&state_update, &account_id)
                 .expect("Genesis storage error")
                 .expect("Account must exist");
-            account.storage_usage = storage_usage;
+            account.set_storage_usage(storage_usage);
             set_account(&mut state_update, account_id, &account);
         }
         // Processing postponed receipts after we stored all received data
@@ -1409,7 +1420,7 @@ impl Runtime {
             let mut account: Account = get_account(&state_update, account_id)
                 .expect("Genesis storage error")
                 .expect("account must exist");
-            account.locked = *amount;
+            account.set_locked(*amount);
             set_account(&mut state_update, account_id.clone(), &account);
         }
         state_update.commit(StateChangeCause::InitialState);
@@ -1493,8 +1504,8 @@ mod tests {
         let mut initial_state = tries.new_trie_update(0, root);
         let mut initial_account = account_new(initial_balance, hash(&[]));
         // For the account and a full access key
-        initial_account.storage_usage = 182;
-        initial_account.locked = initial_locked;
+        initial_account.set_storage_usage(182);
+        initial_account.set_locked(initial_locked);
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         set_access_key(
             &mut initial_state,
@@ -1508,7 +1519,7 @@ mod tests {
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            block_index: 0,
+            block_index: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             epoch_id: Default::default(),
@@ -1522,8 +1533,7 @@ mod tests {
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
-            #[cfg(feature = "costs_counting")]
-            profile: Some(ProfileData::new()),
+            profile: ProfileData::new_enabled(),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
@@ -1608,7 +1618,7 @@ mod tests {
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
             assert_eq!(
-                account.amount,
+                account.amount(),
                 initial_balance
                     + small_transfer * Balance::from(capped_i)
                     + Balance::from(capped_i * (capped_i - 1) / 2)
@@ -1657,7 +1667,7 @@ mod tests {
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i * 3, n);
             assert_eq!(
-                account.amount,
+                account.amount(),
                 initial_balance
                     + small_transfer * Balance::from(capped_i)
                     + Balance::from(capped_i * (capped_i - 1) / 2)
@@ -1715,7 +1725,7 @@ mod tests {
             num_receipts_processed += apply_result.outcomes.len() as u64;
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             assert_eq!(
-                account.amount,
+                account.amount(),
                 initial_balance
                     + small_transfer * Balance::from(num_receipts_processed)
                     + Balance::from(num_receipts_processed * (num_receipts_processed - 1) / 2)
@@ -2264,7 +2274,7 @@ mod tests {
         let state_update = tries.new_trie_update(0, root);
         let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
-        assert_eq!(initial_account_state.storage_usage, final_account_state.storage_usage);
+        assert_eq!(initial_account_state.storage_usage(), final_account_state.storage_usage());
     }
 
     #[test]
@@ -2276,7 +2286,7 @@ mod tests {
         let mut state_update = tries.new_trie_update(0, root);
         let mut initial_account_state =
             get_account(&state_update, &alice_account()).unwrap().unwrap();
-        initial_account_state.storage_usage = 10;
+        initial_account_state.set_storage_usage(10);
         set_account(&mut state_update, alice_account(), &initial_account_state);
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize().unwrap().0;
@@ -2316,6 +2326,6 @@ mod tests {
         let state_update = tries.new_trie_update(0, root);
         let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
-        assert_eq!(final_account_state.storage_usage, 0);
+        assert_eq!(final_account_state.storage_usage(), 0);
     }
 }

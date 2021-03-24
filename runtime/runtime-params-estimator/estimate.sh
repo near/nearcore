@@ -1,17 +1,15 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 ./setup.sh
 
 vmkind="wasmer"
 features="required"
 
-if [ "$1" == "wasmtime" ]; then
-  vmkind="$1";
-  features="$features,wasmtime"
-fi
-if [ "$1" == "lightbeam" ]; then
-  vmkind="wasmtime"
-  features="$features,lightbeam"
+if [[ ! -z "$1" ]]; then
+  features="$features,$1"
+  if [[ "$1" == *"wasmtime"* || "$1" == *"lightbeam"* ]]; then
+    vmkind="wasmtime";
+  fi
 fi
 
 rm -rf /tmp/data

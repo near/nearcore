@@ -17,7 +17,9 @@ where
     let mut batch_size = 0;
     let batch_size_limit = 250_000_000;
 
-    store.get_rocksdb().unwrap().clear_column(column);
+    let mut store_update = store.store_update();
+    store_update.delete_all(column);
+    store_update.commit().unwrap();
 
     let mut store_update = store.store_update();
 

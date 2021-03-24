@@ -3,8 +3,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use actix::{Actor, Addr, Arbiter};
-use log::{error, info};
-use tracing::trace;
+use actix_rt::ArbiterHandle;
+use tracing::{error, info, trace};
 
 use near_chain::ChainGenesis;
 #[cfg(feature = "adversarial")]
@@ -14,6 +14,8 @@ use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
+#[cfg(feature = "performance_stats")]
+use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
@@ -22,12 +24,12 @@ use crate::migrations::migrate_12_to_13;
 pub use crate::runtime::NightshadeRuntime;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_6_to_7, migrate_7_to_8,
-    migrate_8_to_9, migrate_9_to_10, set_store_version,
+    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_6_to_7,
+    migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
-use near_store::migrations::migrate_16_to_rectify_inflation;
+use near_store::migrations::migrate_18_to_rectify_inflation;
 
 pub mod config;
 pub mod genesis_validate;
@@ -177,10 +179,21 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         let store = create_store(&path);
         set_store_version(&store, 16);
     }
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
     if db_version <= 16 {
-        // version 16 => rectify inflation: add `timestamp` to `BlockInfo`
-        migrate_16_to_rectify_inflation(&path);
+        info!(target: "near", "Migrate DB from version 16 to 17");
+        // version 16 => 17: add column for storing epoch validator info
+        let store = create_store(&path);
+        set_store_version(&store, 17);
+    }
+    if db_version <= 17 {
+        info!(target: "near", "Migrate DB from version 17 to 18");
+        // version 17 => 18: add `hash` to `BlockInfo` and ColHeaderHashesByHeight
+        migrate_17_to_18(&path);
+    }
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    if db_version <= 18 {
+        // version 18 => rectify inflation: add `timestamp` to `BlockInfo`
+        migrate_18_to_rectify_inflation(&path);
     }
     #[cfg(feature = "nightly_protocol")]
     {
@@ -212,7 +225,7 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<
 pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
-) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<Arbiter>) {
+) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>) {
     let store = init_and_migrate_store(home_dir, &config);
 
     let runtime = Arc::new(NightshadeRuntime::new(
@@ -240,7 +253,7 @@ pub fn start_with_config(
         #[cfg(feature = "adversarial")]
         adv.clone(),
     );
-    let (client_actor, client_arbiter) = start_client(
+    let (client_actor, client_arbiter_handle) = start_client(
         config.client_config,
         chain_genesis,
         runtime,
@@ -275,7 +288,7 @@ pub fn start_with_config(
     let view_client1 = view_client.clone().recipient();
     let network_config = config.network_config;
 
-    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter, move |_ctx| {
+    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
         PeerManagerActor::new(store, network_config, client_actor1, view_client1).unwrap()
     });
 
@@ -283,5 +296,9 @@ pub fn start_with_config(
 
     trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
 
-    (client_actor, view_client, vec![client_arbiter, arbiter])
+    // We probably reached peak memory once on this thread, we want to see when it happens again.
+    #[cfg(feature = "performance_stats")]
+    reset_memory_usage_max();
+
+    (client_actor, view_client, vec![client_arbiter_handle, arbiter.handle()])
 }

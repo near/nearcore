@@ -4,11 +4,10 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 #[cfg(feature = "adversarial")]
-use log::error;
-use log::info;
+use tracing::error;
+use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -65,6 +64,7 @@ fn init_logging(verbose: Option<&str>) {
         }
     }
     tracing_subscriber::fmt::Subscriber::builder()
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
         .with_env_filter(env_filter)
         .with_writer(io::stderr)
         .init();
@@ -242,13 +242,11 @@ fn main() {
                 near_config.client_config.archive = true;
             }
 
-            System::builder()
-                .name("NEAR")
-                .stop_on_panic(true)
-                .run(move || {
-                    start_with_config(home_dir, near_config);
-                })
-                .unwrap();
+            let sys = actix::System::new();
+            sys.block_on(async move {
+                start_with_config(home_dir, near_config);
+            });
+            sys.run().unwrap();
         }
         ("unsafe_reset_data", Some(_args)) => {
             let store_path = get_store_path(home_dir);

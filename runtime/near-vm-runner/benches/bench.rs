@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
 
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::VMError;
@@ -16,7 +17,7 @@ const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
 fn setup(
     input: u64,
-) -> (MockedExternal, VMContext, VMConfig, RuntimeFeesConfig, Vec<PromiseResult>, Vec<u8>) {
+) -> (MockedExternal, VMContext, VMConfig, RuntimeFeesConfig, Vec<PromiseResult>, ContractCode) {
     let fake_external = MockedExternal::new();
     let config = VMConfig::default();
     let fees_config = RuntimeFeesConfig::default();
@@ -43,6 +44,7 @@ fn setup(
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("tests/res/test_contract_rs.wasm");
     let code = fs::read(path).unwrap();
+    let code = ContractCode::new(code, None);
     (fake_external, context, config, fees_config, vec![], code)
 }
 
@@ -69,9 +71,8 @@ fn pass_through(bench: &mut Bencher) {
     let (mut external, context, config, fees_config, promise_results, code) = setup(42);
     bench.iter(move || {
         let result = run(
-            vec![],
             &code,
-            b"pass_through",
+            "pass_through",
             &mut external,
             context.clone(),
             &config,
@@ -79,7 +80,7 @@ fn pass_through(bench: &mut Bencher) {
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
-            None,
+            &Default::default(),
         );
         assert_run_result(result, 42);
     });
@@ -89,9 +90,8 @@ fn benchmark_fake_storage_8b_1000(bench: &mut Bencher) {
     let (mut external, context, config, fees_config, promise_results, code) = setup(1000);
     bench.iter(move || {
         let result = run(
-            vec![],
             &code,
-            b"benchmark_storage_8b",
+            "benchmark_storage_8b",
             &mut external,
             context.clone(),
             &config,
@@ -99,7 +99,7 @@ fn benchmark_fake_storage_8b_1000(bench: &mut Bencher) {
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
-            None,
+            &Default::default(),
         );
         assert_run_result(result, 999 * 1000 / 2);
     });
@@ -109,9 +109,8 @@ fn benchmark_fake_storage_10kib_1000(bench: &mut Bencher) {
     let (mut external, context, config, fees_config, promise_results, code) = setup(1000);
     bench.iter(move || {
         let result = run(
-            vec![],
             &code,
-            b"benchmark_storage_10kib",
+            "benchmark_storage_10kib",
             &mut external,
             context.clone(),
             &config,
@@ -119,7 +118,7 @@ fn benchmark_fake_storage_10kib_1000(bench: &mut Bencher) {
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
-            None,
+            &Default::default(),
         );
         assert_run_result(result, 999 * 1000 / 2);
     });
@@ -129,9 +128,8 @@ fn sum_n_1000000(bench: &mut Bencher) {
     let (mut external, context, config, fees_config, promise_results, code) = setup(1000000);
     bench.iter(move || {
         let result = run(
-            vec![],
             &code,
-            b"sum_n",
+            "sum_n",
             &mut external,
             context.clone(),
             &config,
@@ -139,7 +137,7 @@ fn sum_n_1000000(bench: &mut Bencher) {
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
-            None,
+            &Default::default(),
         );
         assert_run_result(result, (1000000 - 1) * 1000000 / 2);
     });

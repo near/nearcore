@@ -1,17 +1,14 @@
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use glob::glob;
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
-use std::collections::hash_map::DefaultHasher;
 use std::fs;
-use std::{
-    hash::{Hash, Hasher},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 use walrus::{Module, Result};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -40,8 +37,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-fn call() -> (Option<VMOutcome>, Option<VMError>) {
-    let code = include_bytes!("../test-contract/res/large_contract.wasm");
+fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let context = create_context(vec![]);
     let config = VMConfig::default();
@@ -49,13 +45,10 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
 
     let promise_results = vec![];
 
-    let mut hash = DefaultHasher::new();
-    code.hash(&mut hash);
-    let code_hash = hash.finish().to_le_bytes().to_vec();
+    let code = ContractCode::new(code.to_vec(), None);
     near_vm_runner::run(
-        code_hash,
-        code,
-        b"cpu_ram_soak_test",
+        &code,
+        "cpu_ram_soak_test",
         &mut fake_external,
         context,
         &config,
@@ -63,21 +56,20 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
         &promise_results,
         PROTOCOL_VERSION,
         None,
-        #[cfg(feature = "costs_counting")]
-        None,
+        &Default::default(),
     )
 }
 
 const NUM_ITERATIONS: u64 = 10;
 
 /// Cost of the most CPU demanding operation.
-pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
+pub fn cost_per_op(gas_metric: GasMetric, code: &[u8]) -> Ratio<u64> {
     // Call once for the warmup.
-    let (outcome, _) = call();
+    let (outcome, _) = call(code);
     let outcome = outcome.unwrap();
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
-        call();
+        call(code);
     }
     let measured = end_count(gas_metric, &start);
     // We are given by measurement burnt gas
@@ -157,7 +149,7 @@ pub fn cost_to_compile(
         println!(
             "About to compile {}",
             match vm_kind {
-                VMKind::Wasmer => "wasmer",
+                VMKind::Wasmer0 => "wasmer",
                 VMKind::Wasmtime => {
                     if USING_LIGHTBEAM {
                         "wasmtime-lightbeam"
@@ -165,6 +157,7 @@ pub fn cost_to_compile(
                         "wasmtime"
                     }
                 }
+                VMKind::Wasmer1 => "wasmer1",
             }
         );
     };

@@ -47,29 +47,27 @@ impl Node for ProcessNode {
     fn start(&mut self) {
         match self.state {
             ProcessNodeState::Stopped => {
+                std::env::set_var("ADVERSARY_CONSENT", "1");
                 let child =
                     self.get_start_node_command().spawn().expect("start node command failed");
                 self.state = ProcessNodeState::Running(child);
                 let addr = self.config.rpc_config.addr.clone();
                 thread::sleep(Duration::from_secs(3));
-                System::builder()
-                    .stop_on_panic(true)
-                    .run(move || {
-                        WaitOrTimeout::new(
-                            Box::new(move |_| {
-                                actix::spawn(
-                                    new_client(&format!("http://{}", addr))
-                                        .status()
-                                        .map_ok(|_| System::current().stop())
-                                        .then(|_| futures::future::ready(())),
-                                )
-                            }),
-                            1000,
-                            30000,
-                        )
-                        .start();
-                    })
-                    .unwrap();
+                near_actix_test_utils::run_actix_until_stop(async move {
+                    WaitOrTimeout::new(
+                        Box::new(move |_| {
+                            actix::spawn(
+                                new_client(&format!("http://{}", addr))
+                                    .status()
+                                    .map_ok(|_| System::current().stop())
+                                    .then(|_| futures::future::ready(())),
+                            );
+                        }),
+                        1000,
+                        30000,
+                    )
+                    .start();
+                });
             }
             ProcessNodeState::Running(_) => panic!("Node is already running"),
         }
@@ -140,20 +138,15 @@ impl ProcessNode {
     pub fn get_start_node_command(&self) -> Command {
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
             let mut command = Command::new("cargo");
-            command.args(&[
-                "run",
-                "-p",
-                "neard",
-                "--bin",
-                "neard",
-                "--",
-                "--home",
-                &self.work_dir,
-                "run",
-            ]);
+            command.args(&["run", "-p", "neard"]);
+            #[cfg(feature = "nightly_protocol")]
+            command.args(&["--features", "nightly_protocol"]);
+            #[cfg(feature = "nightly_protocol_features")]
+            command.args(&["--features", "nightly_protocol_features"]);
+            command.args(&["--bin", "neard", "--", "--home", &self.work_dir, "run"]);
             command
         } else {
-            let mut command = Command::new("normal_target/debug/neard");
+            let mut command = Command::new("target/debug/neard");
             command.args(&["--home", &self.work_dir, "run"]);
             command
         }

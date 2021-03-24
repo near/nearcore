@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use near_actix_test_utils::ShutdownableThread;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 use neard::{start_with_config, NearConfig};
 
-use crate::actix_utils::ShutdownableThread;
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
 use crate::user::User;

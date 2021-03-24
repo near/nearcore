@@ -52,7 +52,7 @@ const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
 pub const CHUNK_REQUEST_RETRY_MS: u64 = 100;
 pub const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
 pub const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
-const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
+const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 1_000_000;
 const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
@@ -1101,8 +1101,7 @@ impl ShardsManager {
             Ok(true) => (),
             Err(chain_error) => {
                 return match chain_error.kind() {
-                    near_chain::ErrorKind::BlockMissing(_)
-                    | near_chain::ErrorKind::DBNotFoundErr(_) => {
+                    near_chain::ErrorKind::DBNotFoundErr(_) => {
                         // We can't check if this chunk came from a valid chunk producer because
                         // we don't know `prev_block`, so return that we need a block.
                         Ok(ProcessPartialEncodedChunkResult::NeedBlock)

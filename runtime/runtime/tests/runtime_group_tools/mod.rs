@@ -57,7 +57,7 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            block_index: 0,
+            block_index: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             epoch_id: Default::default(),
@@ -71,8 +71,7 @@ impl StandaloneRuntime {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
-            #[cfg(feature = "costs_counting")]
-            profile: None,
+            profile: Default::default(),
         };
 
         Self {
@@ -127,7 +126,8 @@ impl RuntimeMailbox {
 #[derive(Default)]
 pub struct RuntimeGroup {
     pub mailboxes: (Mutex<HashMap<String, RuntimeMailbox>>, Condvar),
-    pub runtimes: Vec<Arc<Mutex<StandaloneRuntime>>>,
+    pub state_records: Arc<Vec<StateRecord>>,
+    pub signers: Vec<InMemorySigner>,
 
     /// Account id of the runtime on which the transaction was executed mapped to the transactions.
     pub executed_transactions: Mutex<HashMap<String, Vec<SignedTransaction>>>,
@@ -147,15 +147,11 @@ impl RuntimeGroup {
         assert!(num_existing_accounts <= account_ids.len() as u64);
         let (state_records, signers) =
             Self::state_records_signers(account_ids, num_existing_accounts, contract_code);
+        Arc::make_mut(&mut res.state_records).extend(state_records);
 
         for signer in signers {
+            res.signers.push(signer.clone());
             res.mailboxes.0.lock().unwrap().insert(signer.account_id.clone(), Default::default());
-            let runtime = Arc::new(Mutex::new(StandaloneRuntime::new(
-                signer,
-                &state_records,
-                create_tries(),
-            )));
-            res.runtimes.push(runtime);
         }
         Arc::new(res)
     }
@@ -179,12 +175,7 @@ impl RuntimeGroup {
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.to_string(),
-                    account: Account {
-                        amount: TESTING_INIT_BALANCE,
-                        locked: TESTING_INIT_STAKE,
-                        code_hash,
-                        storage_usage: 0,
-                    },
+                    account: Account::new(TESTING_INIT_BALANCE, TESTING_INIT_STAKE, code_hash, 0),
                 });
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.to_string(),
@@ -216,58 +207,63 @@ impl RuntimeGroup {
         }
 
         let mut handles = vec![];
-        for runtime in &group.runtimes {
-            handles.push(Self::start_runtime_in_thread(group.clone(), runtime.clone()));
+        for signer in &group.signers {
+            let signer = signer.clone();
+            let state_records = Arc::clone(&group.state_records);
+            let runtime_factory =
+                move || StandaloneRuntime::new(signer, &state_records, create_tries());
+            handles.push(Self::start_runtime_in_thread(group.clone(), runtime_factory));
         }
         handles
     }
 
-    fn start_runtime_in_thread(
-        group: Arc<Self>,
-        runtime: Arc<Mutex<StandaloneRuntime>>,
-    ) -> JoinHandle<()> {
-        thread::spawn(move || loop {
-            let account_id = runtime.lock().unwrap().account_id();
-
-            let mut mailboxes = group.mailboxes.0.lock().unwrap();
+    fn start_runtime_in_thread<F>(group: Arc<Self>, runtime_factory: F) -> JoinHandle<()>
+    where
+        F: FnOnce() -> StandaloneRuntime + Send + 'static,
+    {
+        thread::spawn(move || {
+            let mut runtime = runtime_factory();
             loop {
-                if !mailboxes.get(&account_id).unwrap().is_emtpy() {
-                    break;
-                }
-                if mailboxes.values().all(|m| m.is_emtpy()) {
-                    return;
-                }
-                mailboxes = group.mailboxes.1.wait(mailboxes).unwrap();
-            }
+                let account_id = runtime.account_id();
 
-            let mailbox = mailboxes.get_mut(&account_id).unwrap();
-            group
-                .executed_receipts
-                .lock()
-                .unwrap()
-                .entry(account_id.clone())
-                .or_insert_with(Vec::new)
-                .extend(mailbox.incoming_receipts.clone());
-            group
-                .executed_transactions
-                .lock()
-                .unwrap()
-                .entry(account_id.clone())
-                .or_insert_with(Vec::new)
-                .extend(mailbox.incoming_transactions.clone());
+                let mut mailboxes = group.mailboxes.0.lock().unwrap();
+                loop {
+                    if !mailboxes.get(&account_id).unwrap().is_emtpy() {
+                        break;
+                    }
+                    if mailboxes.values().all(|m| m.is_emtpy()) {
+                        return;
+                    }
+                    mailboxes = group.mailboxes.1.wait(mailboxes).unwrap();
+                }
 
-            let (new_receipts, transaction_results) = runtime
-                .lock()
-                .unwrap()
-                .process_block(&mailbox.incoming_receipts, &mailbox.incoming_transactions);
-            mailbox.incoming_receipts.clear();
-            mailbox.incoming_transactions.clear();
-            group.transaction_logs.lock().unwrap().extend(transaction_results);
-            for new_receipt in new_receipts {
-                let locked_other_mailbox = mailboxes.get_mut(&new_receipt.receiver_id).unwrap();
-                locked_other_mailbox.incoming_receipts.push(new_receipt);
+                let mailbox = mailboxes.get_mut(&account_id).unwrap();
+                group
+                    .executed_receipts
+                    .lock()
+                    .unwrap()
+                    .entry(account_id.clone())
+                    .or_insert_with(Vec::new)
+                    .extend(mailbox.incoming_receipts.clone());
+                group
+                    .executed_transactions
+                    .lock()
+                    .unwrap()
+                    .entry(account_id.clone())
+                    .or_insert_with(Vec::new)
+                    .extend(mailbox.incoming_transactions.clone());
+
+                let (new_receipts, transaction_results) = runtime
+                    .process_block(&mailbox.incoming_receipts, &mailbox.incoming_transactions);
+                mailbox.incoming_receipts.clear();
+                mailbox.incoming_transactions.clear();
+                group.transaction_logs.lock().unwrap().extend(transaction_results);
+                for new_receipt in new_receipts {
+                    let locked_other_mailbox = mailboxes.get_mut(&new_receipt.receiver_id).unwrap();
+                    locked_other_mailbox.incoming_receipts.push(new_receipt);
+                }
+                group.mailboxes.1.notify_all();
             }
-            group.mailboxes.1.notify_all();
         })
     }
 

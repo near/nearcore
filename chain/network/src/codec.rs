@@ -2,11 +2,19 @@ use std::io::{Error, ErrorKind};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{Buf, BufMut, BytesMut};
+use bytesize::{GIB, MIB};
 use tokio_util::codec::{Decoder, Encoder};
+use tracing::error;
 
+use crate::metrics;
 use crate::types::{PeerMessage, ReasonForBan};
+use near_performance_metrics::framed_write::EncoderCallBack;
+#[cfg(feature = "performance_stats")]
+use near_performance_metrics::stats_enabled::get_thread_stats_logger;
+use near_rust_allocator_proxy::allocator::get_tid;
 
-const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 << 20; // 512MB
+const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MIB as u32;
+const MAX_CAPACITY: u64 = GIB;
 
 pub struct Codec {
     max_length: u32,
@@ -15,7 +23,18 @@ pub struct Codec {
 #[allow(clippy::new_without_default)]
 impl Codec {
     pub fn new() -> Self {
-        Codec { max_length: NETWORK_MESSAGE_MAX_SIZE }
+        Codec { max_length: NETWORK_MESSAGE_MAX_SIZE as u32 }
+    }
+}
+
+impl EncoderCallBack for Codec {
+    #[allow(unused)]
+    fn drained(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {
+        #[cfg(feature = "performance_stats")]
+        {
+            let stat = get_thread_stats_logger();
+            stat.lock().unwrap().log_drain_write_buffer(bytes, buf_len, buf_capacity);
+        }
     }
 }
 
@@ -26,6 +45,23 @@ impl Encoder<Vec<u8>> for Codec {
         if item.len() > self.max_length as usize {
             Err(Error::new(ErrorKind::InvalidInput, "Input is too long"))
         } else {
+            #[cfg(feature = "performance_stats")]
+            {
+                let stat = get_thread_stats_logger();
+                stat.lock().unwrap().log_add_write_buffer(
+                    item.len() + 4,
+                    buf.len(),
+                    buf.capacity(),
+                );
+            }
+            if buf.capacity() >= MAX_CAPACITY as usize
+                && item.len() + 4 + buf.len() > buf.capacity()
+            {
+                error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", get_tid(), item.len(), buf.capacity());
+
+                near_metrics::inc_counter_by(&metrics::DROPPED_MESSAGES_COUNT, 1);
+                return Err(Error::new(ErrorKind::Other, "Buf max capacity exceeded"));
+            }
             // First four bytes is the length of the buffer.
             buf.reserve(item.len() + 4);
             buf.put_u32_le(item.len() as u32);

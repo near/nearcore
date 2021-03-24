@@ -66,18 +66,20 @@ pub fn setup(
     max_block_prod_time: u64,
     enable_doomslug: bool,
     archive: bool,
+    epoch_sync_enabled: bool,
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
         epoch_length,
+        archive,
     ));
     let chain_genesis = ChainGenesis {
         time: genesis_time,
@@ -108,6 +110,7 @@ pub fn setup(
         max_block_prod_time,
         num_validator_seats,
         archive,
+        epoch_sync_enabled,
     );
 
     #[cfg(feature = "adversarial")]
@@ -153,7 +156,7 @@ pub fn setup_mock(
         ) -> NetworkResponses,
     >,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    setup_mock_with_validity_period(
+    setup_mock_with_validity_period_and_no_epoch_sync(
         validators,
         account_id,
         skip_sync_wait,
@@ -163,7 +166,7 @@ pub fn setup_mock(
     )
 }
 
-pub fn setup_mock_with_validity_period(
+pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     validators: Vec<&'static str>,
     account_id: &'static str,
     skip_sync_wait: bool,
@@ -188,6 +191,7 @@ pub fn setup_mock_with_validity_period(
         100,
         200,
         enable_doomslug,
+        false,
         false,
         network_adapter.clone(),
         transaction_validity_period,
@@ -374,6 +378,7 @@ pub fn setup_mock_all_validators(
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
     archive: Vec<bool>,
+    epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
     network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
@@ -421,6 +426,7 @@ pub fn setup_mock_all_validators(
         let largest_skipped_height1 = largest_skipped_height.clone();
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
+        let epoch_sync_enabled1 = epoch_sync_enabled.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
@@ -460,7 +466,7 @@ pub fn setup_mock_all_validators(
                                     },
                                     height: last_height2[i],
                                     tracked_shards: vec![],
-                                    archival: false,
+                                    archival: true,
                                 },
                                 edge_info: EdgeInfo::default(),
                             })
@@ -582,6 +588,66 @@ pub fn setup_mock_all_validators(
                                                             .0
                                                             .do_send(NetworkClientMessages::Block(
                                                                 *block, peer_id, true,
+                                                            ));
+                                                    }
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::ready(())
+                                            }),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::EpochSyncRequest { epoch_id, peer_id } => {
+                            for (i, peer_info) in key_pairs.iter().enumerate() {
+                                let peer_id = peer_id.clone();
+                                if peer_info.id == peer_id {
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.read().unwrap()[i]
+                                            .1
+                                            .send(NetworkViewClientMessages::EpochSyncRequest{
+                                                epoch_id: epoch_id.clone(),
+                                            })
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkViewClientResponses::EpochSyncResponse(response) => {
+                                                        connectors2.read().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(NetworkClientMessages::EpochSyncResponse(
+                                                                peer_id, response
+                                                            ));
+                                                    }
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::ready(())
+                                            }),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::EpochSyncFinalizationRequest { epoch_id, peer_id } => {
+                            for (i, peer_info) in key_pairs.iter().enumerate() {
+                                let peer_id = peer_id.clone();
+                                if peer_info.id == peer_id {
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.read().unwrap()[i]
+                                            .1
+                                            .send(NetworkViewClientMessages::EpochSyncFinalizationRequest{
+                                                epoch_id: epoch_id.clone(),
+                                            })
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkViewClientResponses::EpochSyncFinalizationResponse(response) => {
+                                                        connectors2.read().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(NetworkClientMessages::EpochSyncFinalizationResponse(
+                                                                peer_id, response
                                                             ));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -831,6 +897,7 @@ pub fn setup_mock_all_validators(
                 block_prod_time * 3,
                 enable_doomslug,
                 archive1[index],
+                epoch_sync_enabled1[index],
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
@@ -859,7 +926,7 @@ pub fn setup_no_network(
     skip_sync_wait: bool,
     enable_doomslug: bool,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    setup_no_network_with_validity_period(
+    setup_no_network_with_validity_period_and_no_epoch_sync(
         validators,
         account_id,
         skip_sync_wait,
@@ -868,14 +935,14 @@ pub fn setup_no_network(
     )
 }
 
-pub fn setup_no_network_with_validity_period(
+pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
     validators: Vec<&'static str>,
     account_id: &'static str,
     skip_sync_wait: bool,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    setup_mock_with_validity_period(
+    setup_mock_with_validity_period_and_no_epoch_sync(
         validators,
         account_id,
         skip_sync_wait,
@@ -897,7 +964,7 @@ pub fn setup_client_with_runtime(
         Arc::new(InMemoryValidatorSigner::from_seed(x, KeyType::ED25519, x))
             as Arc<dyn ValidatorSigner>
     });
-    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false);
+    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -1120,18 +1187,18 @@ pub fn create_chunk(
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     let last_block =
         client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
+    let next_height = last_block.header().height() + 1;
     let (mut chunk, mut merkle_paths, receipts) = client
         .produce_chunk(
             *last_block.hash(),
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
-            2,
+            next_height,
             0,
         )
         .unwrap()
         .unwrap();
     let should_replace = replace_transactions.is_some() || replace_tx_root.is_some();
-    let tx_root_replaced = replace_tx_root.is_some();
     let transactions = replace_transactions.unwrap_or_else(Vec::new);
     let tx_root = match replace_tx_root {
         Some(root) => root,
@@ -1170,14 +1237,12 @@ pub fn create_chunk(
         swap(&mut chunk, &mut encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
     }
-    if tx_root_replaced {
-        match &mut chunk {
-            EncodedShardChunk::V1(ref mut chunk) => {
-                chunk.header.height_included = 2;
-            }
-            EncodedShardChunk::V2(ref mut chunk) => {
-                *chunk.header.height_included_mut() = 2;
-            }
+    match &mut chunk {
+        EncodedShardChunk::V1(chunk) => {
+            chunk.header.height_included = next_height;
+        }
+        EncodedShardChunk::V2(chunk) => {
+            *chunk.header.height_included_mut() = next_height;
         }
     }
     let mut block_merkle_tree =
@@ -1186,11 +1251,16 @@ pub fn create_chunk(
     let block = Block::produce(
         PROTOCOL_VERSION,
         &last_block.header(),
-        2,
-        last_block.header().block_ordinal() + 1,
+        next_height,
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        {
+            last_block.header().block_ordinal() + 1
+        },
         vec![chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        None,
         vec![],
         Rational::from_integer(0),
         0,

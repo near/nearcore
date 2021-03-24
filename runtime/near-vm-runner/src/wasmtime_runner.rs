@@ -5,6 +5,7 @@ use wasmtime::Module;
 pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
     use crate::{imports, prepare};
+    use near_primitives::contract::ContractCode;
     use near_primitives::runtime::fees::RuntimeFeesConfig;
     use near_primitives::{
         config::VMConfig, profile::ProfileData, types::CompiledContractCache,
@@ -111,18 +112,17 @@ pub mod wasmtime_runner {
         }
     }
 
-    pub fn run_wasmtime<'a>(
-        _code_hash: Vec<u8>,
-        code: &[u8],
-        method_name: &[u8],
+    pub fn run_wasmtime(
+        code: &ContractCode,
+        method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
-        wasm_config: &'a VMConfig,
-        fees_config: &'a RuntimeFeesConfig,
-        promise_results: &'a [PromiseResult],
-        profile: Option<ProfileData>,
+        wasm_config: &VMConfig,
+        fees_config: &RuntimeFeesConfig,
+        promise_results: &[PromiseResult],
+        profile: ProfileData,
         current_protocol_version: ProtocolVersion,
-        _cache: Option<&'a dyn CompiledContractCache>,
+        _cache: Option<&dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
         let mut config = Config::default();
         let engine = get_engine(&mut config);
@@ -133,7 +133,7 @@ pub mod wasmtime_runner {
             wasm_config.limit_config.max_memory_pages,
         )
         .unwrap();
-        let prepared_code = match prepare::prepare_contract(code, wasm_config) {
+        let prepared_code = match prepare::prepare_contract(&code.code, wasm_config) {
             Ok(code) => code,
             Err(err) => return (None, Some(VMError::from(err))),
         };
@@ -151,7 +151,7 @@ pub mod wasmtime_runner {
             profile,
             current_protocol_version,
         );
-        if logic.add_contract_compile_fee(code.len() as u64).is_err() {
+        if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
             return (
                 Some(logic.outcome()),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
@@ -163,17 +163,6 @@ pub mod wasmtime_runner {
         // lifetimes of the logic instance and pass raw pointers here.
         let raw_logic = &mut logic as *mut _ as *mut c_void;
         imports::link_wasmtime(&mut linker, memory_copy, raw_logic, current_protocol_version);
-        let func_name = match str::from_utf8(method_name) {
-            Ok(name) => name,
-            Err(_) => {
-                return (
-                    None,
-                    Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                        MethodResolveError::MethodUTF8Error,
-                    ))),
-                )
-            }
-        };
         if method_name.is_empty() {
             return (
                 None,
@@ -182,7 +171,7 @@ pub mod wasmtime_runner {
                 ))),
             );
         }
-        match module.get_export(func_name) {
+        match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {
                     if !func_type.params().is_empty() || !func_type.results().is_empty() {
@@ -215,7 +204,7 @@ pub mod wasmtime_runner {
             }
         }
         match linker.instantiate(&module) {
-            Ok(instance) => match instance.get_func(func_name) {
+            Ok(instance) => match instance.get_func(method_name) {
                 Some(func) => match func.get0::<()>() {
                     Ok(run) => match run() {
                         Ok(_) => (Some(logic.outcome()), None),
@@ -226,7 +215,7 @@ pub mod wasmtime_runner {
                 None => (
                     None,
                     Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                        MethodResolveError::MethodUTF8Error,
+                        MethodResolveError::MethodNotFound,
                     ))),
                 ),
             },
@@ -248,4 +237,9 @@ pub fn compile_module(code: &[u8]) -> bool {
     let mut config = wasmtime::Config::default();
     let engine = wasmtime_runner::get_engine(&mut config);
     Module::new(&engine, code).is_ok()
+}
+
+pub(crate) fn wasmtime_vm_hash() -> u64 {
+    // TODO: take into account compiler and engine used to compile the contract.
+    64
 }

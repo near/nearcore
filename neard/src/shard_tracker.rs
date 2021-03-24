@@ -3,7 +3,7 @@ use std::io::Cursor;
 use std::sync::{Arc, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use log::info;
+use tracing::info;
 
 use near_epoch_manager::EpochManager;
 use near_primitives::errors::EpochError;
@@ -296,8 +296,8 @@ mod tests {
     ) {
         epoch_manager
             .record_block_info(
-                &cur_h,
                 BlockInfo::new(
+                    cur_h,
                     height,
                     0,
                     prev_h,

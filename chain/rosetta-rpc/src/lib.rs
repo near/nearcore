@@ -376,13 +376,7 @@ async fn account_balance(
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
                 block.header.height,
-                near_primitives::account::Account {
-                    amount: 0,
-                    locked: 0,
-                    storage_usage: 0,
-                    code_hash: Default::default(),
-                }
-                .into(),
+                near_primitives::account::Account::new(0, 0, Default::default(), 0).into(),
             ),
             Err(err) => return Err(err.into()),
         };
@@ -648,7 +642,7 @@ async fn construction_payloads(
     let models::ConstructionMetadata { recent_block_hash, signer_public_access_key_nonce } =
         metadata;
     let unsigned_transaction = near_primitives::transaction::Transaction {
-        block_hash: recent_block_hash.try_into().map_err(|err| {
+        block_hash: recent_block_hash.parse().map_err(|err| {
             errors::ErrorKind::InvalidInput(format!(
                 "block hash could not be parsed due to: {:?}",
                 err

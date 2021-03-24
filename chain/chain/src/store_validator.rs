@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
-use log::warn;
 use strum::IntoEnumIterator;
+use tracing::warn;
 
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::{Block, BlockHeader};
@@ -144,6 +144,8 @@ impl StoreValidator {
                     self.check(&validate::block_header_hash_validity, &block_hash, &header, col);
                     // Block Header Height is valid
                     self.check(&validate::block_header_height_validity, &block_hash, &header, col);
+                    // Block Header can be indexed by Height
+                    self.check(&validate::header_hash_indexed_by_height, &block_hash, &header, col);
                 }
                 DBCol::ColBlock => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
@@ -214,6 +216,17 @@ impl StoreValidator {
                     let chunk_hashes = HashSet::<ChunkHash>::try_from_slice(value_ref)?;
                     // ShardChunk which can be indexed by Height exists
                     self.check(&validate::chunk_of_height_exists, &height, &chunk_hashes, col);
+                }
+                DBCol::ColHeaderHashesByHeight => {
+                    let height = BlockHeight::try_from_slice(key_ref)?;
+                    let header_hashes = HashSet::<CryptoHash>::try_from_slice(value_ref)?;
+                    // Headers which can be indexed by Height exists
+                    self.check(
+                        &validate::header_hash_of_height_exists,
+                        &height,
+                        &header_hashes,
+                        col,
+                    );
                 }
                 DBCol::ColOutcomeIds => {
                     let (block_hash, _) = get_block_shard_id_rev(key_ref)?;

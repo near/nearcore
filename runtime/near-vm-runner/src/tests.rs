@@ -1,26 +1,40 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+mod contract_preload;
+mod error_cases;
+mod invalid_contracts;
+mod rs_contract;
+mod ts_contract;
 
+use near_primitives::contract::ContractCode;
+use near_primitives::profile::ProfileData;
 use wabt::Wat2Wasm;
 
+use crate::run_vm;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
-use near_vm_runner::run_vm;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
-pub const CURRENT_ACCOUNT_ID: &str = "alice";
-pub const SIGNER_ACCOUNT_ID: &str = "bob";
-pub const SIGNER_ACCOUNT_PK: [u8; 3] = [0, 1, 2];
-pub const PREDECESSOR_ACCOUNT_ID: &str = "carol";
+const CURRENT_ACCOUNT_ID: &str = "alice";
+const SIGNER_ACCOUNT_ID: &str = "bob";
+const SIGNER_ACCOUNT_PK: [u8; 3] = [0, 1, 2];
+const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 
-pub const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
+const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
-pub fn create_context(input: Vec<u8>) -> VMContext {
+fn with_vm_variants(runner: fn(VMKind) -> ()) {
+    #[cfg(feature = "wasmer0_vm")]
+    runner(VMKind::Wasmer0);
+
+    #[cfg(feature = "wasmtime_vm")]
+    runner(VMKind::Wasmtime);
+
+    #[cfg(feature = "wasmer1_vm")]
+    runner(VMKind::Wasmer1);
+}
+
+fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
         current_account_id: CURRENT_ACCOUNT_ID.to_owned(),
         signer_account_id: SIGNER_ACCOUNT_ID.to_owned(),
@@ -41,9 +55,9 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-pub fn make_simple_contract_call_with_gas_vm(
+fn make_simple_contract_call_with_gas_vm(
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
@@ -55,12 +69,9 @@ pub fn make_simple_contract_call_with_gas_vm(
 
     let promise_results = vec![];
 
-    let mut hash = DefaultHasher::new();
-    code.hash(&mut hash);
-    let code_hash = hash.finish().to_le_bytes().to_vec();
+    let code = ContractCode::new(code.to_vec(), None);
     run_vm(
-        code_hash,
-        code,
+        &code,
         method_name,
         &mut fake_external,
         context,
@@ -70,58 +81,26 @@ pub fn make_simple_contract_call_with_gas_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
+        ProfileData::new_disabled(),
     )
 }
 
-pub fn make_simple_contract_call_with_gas(
+fn make_simple_contract_call_vm(
     code: &[u8],
-    method_name: &[u8],
-    prepaid_gas: u64,
-) -> (Option<VMOutcome>, Option<VMError>) {
-    make_simple_contract_call_with_gas_vm(code, method_name, prepaid_gas, VMKind::default())
-}
-
-pub fn make_simple_contract_call(
-    code: &[u8],
-    method_name: &[u8],
-) -> (Option<VMOutcome>, Option<VMError>) {
-    make_simple_contract_call_with_gas(code, method_name, 10u64.pow(14))
-}
-
-pub fn make_simple_contract_call_vm(
-    code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
 }
 
-pub fn wat2wasm_no_validate(wat: &str) -> Vec<u8> {
+fn wat2wasm_no_validate(wat: &str) -> Vec<u8> {
     Wat2Wasm::new().validate(false).convert(wat).unwrap().as_ref().to_vec()
 }
 
-pub struct MockCompiledContractCache {
-    pub store: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
-}
-
-impl CompiledContractCache for MockCompiledContractCache {
-    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error> {
-        self.store.lock().unwrap().insert(key.to_vec(), value.to_vec());
-        Ok(())
-    }
-
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
-        match self.store.lock().unwrap().get(key) {
-            Some(value) => Ok(Some(value.clone())),
-            None => Ok(None),
-        }
-    }
-}
-
-pub fn make_cached_contract_call_vm(
+fn make_cached_contract_call_vm(
     cache: &mut dyn CompiledContractCache,
     code: &[u8],
-    method_name: &[u8],
+    method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
@@ -131,12 +110,9 @@ pub fn make_cached_contract_call_vm(
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
-    let mut hash = DefaultHasher::new();
-    code.hash(&mut hash);
-    let code_hash = hash.finish().to_le_bytes().to_vec();
+    let code = ContractCode::new(code.to_vec(), None);
 
     run_vm(
-        code_hash,
         &code,
         method_name,
         &mut fake_external,
@@ -147,5 +123,6 @@ pub fn make_cached_contract_call_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         Some(cache),
+        ProfileData::new_disabled(),
     )
 }

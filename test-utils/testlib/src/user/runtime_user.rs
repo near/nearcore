@@ -127,7 +127,7 @@ impl RuntimeUser {
 
     fn apply_state(&self) -> ApplyState {
         ApplyState {
-            block_index: 0,
+            block_index: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             block_timestamp: 0,
@@ -141,8 +141,7 @@ impl RuntimeUser {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
-            #[cfg(feature = "costs_counting")]
-            profile: None,
+            profile: Default::default(),
         }
     }
 

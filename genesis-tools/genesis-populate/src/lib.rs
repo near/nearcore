@@ -170,7 +170,7 @@ impl GenesisBuilder {
         {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
-            account.storage_usage = storage_usage;
+            account.set_storage_usage(storage_usage);
             set_account(&mut state_update, account_id, &account);
         }
         let tries = self.runtime.get_tries();
@@ -205,7 +205,11 @@ impl GenesisBuilder {
         let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);
         let mut store_update = store.store_update();
 
-        self.runtime.add_validator_proposals(BlockHeaderInfo::new(&genesis.header(), 0)).unwrap();
+        store_update.merge(
+            self.runtime
+                .add_validator_proposals(BlockHeaderInfo::new(&genesis.header(), 0))
+                .unwrap(),
+        );
         store_update
             .save_block_header(genesis.header().clone())
             .expect("save genesis block header shouldn't fail");
@@ -243,12 +247,12 @@ impl GenesisBuilder {
             self.state_updates.remove(&shard_id).expect("State update should have been added");
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-        let account = Account {
-            amount: testing_init_balance,
-            locked: testing_init_stake,
-            code_hash: self.additional_accounts_code_hash,
-            storage_usage: 0,
-        };
+        let account = Account::new(
+            testing_init_balance,
+            testing_init_stake,
+            self.additional_accounts_code_hash,
+            0,
+        );
         set_account(&mut state_update, account_id.clone(), &account);
         let account_record = StateRecord::Account { account_id: account_id.clone(), account };
         records.push(account_record);

@@ -27,7 +27,7 @@ use crate::version::PROTOCOL_VERSION;
 use crate::views::FinalExecutionStatus;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
+    Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
 }
 
 impl Transaction {
@@ -399,10 +399,13 @@ impl Block {
             PROTOCOL_VERSION,
             prev.header(),
             height,
-            prev.header().block_ordinal() + 1,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            (prev.header().block_ordinal() + 1),
             prev.chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            None,
             approvals,
             Rational::from_integer(0),
             0,

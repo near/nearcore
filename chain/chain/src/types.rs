@@ -13,6 +13,7 @@ use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
@@ -28,7 +29,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
@@ -278,6 +279,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         shard_id: ShardId,
         state_root: StateRoot,
+        next_block_height: BlockHeight,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
@@ -453,11 +455,46 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 
+    // TODO #3488 this likely to be updated
+    /// Data that is necessary for prove Epochs in Epoch Sync.
+    fn get_epoch_sync_data(
+        &self,
+        prev_epoch_last_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        next_epoch_id: &EpochId,
+    ) -> Result<(BlockInfo, BlockInfo, BlockInfo, EpochInfo, EpochInfo, EpochInfo), Error>;
+
+    // TODO #3488 this likely to be updated
+    /// Hash that is necessary for prove Epochs in Epoch Sync.
+    fn get_epoch_sync_data_hash(
+        &self,
+        prev_epoch_last_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        next_epoch_id: &EpochId,
+    ) -> Result<CryptoHash, Error>;
+
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;
 
+    /// Epoch Manager init procedure that is necessary after Epoch Sync.
+    fn epoch_sync_init_epoch_manager(
+        &self,
+        prev_epoch_first_block_info: BlockInfo,
+        prev_epoch_prev_last_block_info: BlockInfo,
+        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_id: &EpochId,
+        prev_epoch_info: EpochInfo,
+        epoch_id: &EpochId,
+        epoch_info: EpochInfo,
+        next_epoch_id: &EpochId,
+        next_epoch_info: EpochInfo,
+    ) -> Result<(), Error>;
+
     /// Add proposals for validators.
-    fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error>;
+    fn add_validator_proposals(
+        &self,
+        block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
@@ -542,9 +579,12 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
+    ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
 
-    fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
+    fn get_validator_info(
+        &self,
+        epoch_id: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, Error>;
 
     /// Get the part of the state from given state root.
     fn obtain_state_part(
@@ -566,11 +606,13 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     /// Should be executed after accepting all the parts to set up a new state.
-    fn confirm_state(
+    fn apply_state_part(
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        parts: &Vec<Vec<u8>>,
+        part_id: u64,
+        num_parts: u64,
+        part: &[u8],
     ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
@@ -642,6 +684,13 @@ pub trait RuntimeAdapter: Send + Sync {
 pub struct LatestKnown {
     pub height: BlockHeight,
     pub seen: u64,
+}
+
+/// Either an epoch id or latest block hash
+#[derive(Debug)]
+pub enum ValidatorInfoIdentifier {
+    EpochId(EpochId),
+    BlockHash(CryptoHash),
 }
 
 #[cfg(test)]

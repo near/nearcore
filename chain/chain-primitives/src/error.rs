@@ -8,10 +8,51 @@ use log::error;
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
-use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
+
+#[derive(thiserror::Error, Debug)]
+pub enum QueryError {
+    #[error("Account ID {requested_account_id} is invalid")]
+    InvalidAccount {
+        requested_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("Account {requested_account_id} does not exist while viewing")]
+    UnknownAccount {
+        requested_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
+        "Contract code for contract ID {contract_account_id} has never been observed on the node"
+    )]
+    NoContractCode {
+        contract_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("Access key for public key {public_key} does not exist while viewing")]
+    UnknownAccessKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("Internal error occurred: {error_message}")]
+    InternalError {
+        error_message: String,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("Function call returned an error: {error_message}")]
+    ContractExecutionError {
+        error_message: String,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+}
 
 #[derive(Debug)]
 pub struct Error {
@@ -26,9 +67,6 @@ pub enum ErrorKind {
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
-    /// Block is not available (e.g. garbage collected)
-    #[fail(display = "Block Missing (unavailable on the node): {}", _0)]
-    BlockMissing(CryptoHash),
     /// Chunk is missing.
     #[fail(display = "Chunk Missing (unavailable on the node): {:?}", _0)]
     ChunkMissing(ChunkHash),
@@ -154,7 +192,7 @@ pub enum ErrorKind {
     ValidatorError(String),
     /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
     #[fail(display = "Epoch Out Of Bounds")]
-    EpochOutOfBounds,
+    EpochOutOfBounds(EpochId),
     /// A challenged block is on the chain that was attempted to become the head
     #[fail(display = "Challenged block on chain")]
     ChallengedBlockOnChain,
@@ -221,15 +259,13 @@ impl Error {
         match self.kind() {
             ErrorKind::Unfit(_)
             | ErrorKind::Orphan
-            | ErrorKind::BlockMissing(_)
             | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
             | ErrorKind::InvalidChunkHeight
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
             | ErrorKind::ValidatorError(_)
-            // TODO: can be either way?
-            | ErrorKind::EpochOutOfBounds
+            | ErrorKind::EpochOutOfBounds(_)
             | ErrorKind::ChallengedBlockOnChain
             | ErrorKind::StorageError(_)
             | ErrorKind::GCError(_)
@@ -305,7 +341,7 @@ impl std::error::Error for Error {}
 impl From<EpochError> for Error {
     fn from(error: EpochError) -> Self {
         match error {
-            EpochError::EpochOutOfBounds => ErrorKind::EpochOutOfBounds,
+            EpochError::EpochOutOfBounds(epoch_id) => ErrorKind::EpochOutOfBounds(epoch_id),
             EpochError::MissingBlock(h) => ErrorKind::DBNotFoundErr(to_base(&h)),
             err => ErrorKind::ValidatorError(err.to_string()),
         }

@@ -20,7 +20,10 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::types::PartialEncodedChunkResponseMsg;
-use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
+use near_network::{
+    FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests,
+    EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS,
+};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -32,15 +35,15 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId,
-};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::types::NumBlocks;
+use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::metrics;
-use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
+use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::SyncStatus;
 use near_client_primitives::types::{Error, ShardSyncDownload};
 use near_primitives::block_header::ApprovalType;
@@ -73,6 +76,8 @@ pub struct Client {
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
+    /// Keeps track of information needed to perform the initial Epoch Sync
+    pub epoch_sync: EpochSync,
     /// Keeps track of syncing headers.
     pub header_sync: HeaderSync,
     /// Keeps track of syncing block.
@@ -111,6 +116,22 @@ impl Client {
             network_adapter.clone(),
         );
         let sync_status = SyncStatus::AwaitingPeers;
+        let genesis_block = chain.genesis_block();
+        let epoch_sync = EpochSync::new(
+            network_adapter.clone(),
+            genesis_block.header().epoch_id().clone(),
+            genesis_block.header().next_epoch_id().clone(),
+            runtime_adapter
+                .get_epoch_block_producers_ordered(
+                    &genesis_block.header().epoch_id(),
+                    &genesis_block.hash(),
+                )?
+                .iter()
+                .map(|x| x.0.clone().into())
+                .collect(),
+            Duration::from_millis(EPOCH_SYNC_REQUEST_TIMEOUT_MS),
+            Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
+        );
         let header_sync = HeaderSync::new(
             network_adapter.clone(),
             config.header_sync_initial_timeout,
@@ -150,6 +171,7 @@ impl Client {
             validator_signer,
             pending_approvals: SizedCache::with_size(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
+            epoch_sync,
             header_sync,
             block_sync,
             state_sync,
@@ -408,6 +430,7 @@ impl Client {
         let block_merkle_root = block_merkle_tree.root();
         // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
         // The ordinal of the next Block will be equal to this amount plus one.
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
@@ -431,6 +454,18 @@ impl Client {
                 None
             };
 
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        let epoch_sync_data_hash =
+            if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+                Some(self.runtime_adapter.get_epoch_sync_data_hash(
+                    prev_block.hash(),
+                    &epoch_id,
+                    &next_epoch_id,
+                )?)
+            } else {
+                None
+            };
+
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
         // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
@@ -440,10 +475,13 @@ impl Client {
             protocol_version,
             &prev_header,
             next_height,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
             block_ordinal,
             chunks,
             epoch_id,
             next_epoch_id,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            epoch_sync_data_hash,
             approvals,
             gas_price_adjustment_rate,
             min_gas_price,
@@ -461,6 +499,8 @@ impl Client {
             height: next_height,
             seen: to_timestamp(Utc::now()),
         })?;
+
+        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
 
         Ok(Some(block))
     }
@@ -569,7 +609,7 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
+        near_metrics::inc_counter(&metrics::CHUNK_PRODUCED_TOTAL);
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
@@ -593,6 +633,10 @@ impl Client {
                 chunk_extra.gas_limit,
                 shard_id,
                 chunk_extra.state_root.clone(),
+                // while the height of the next block that includes the chunk might not be prev_height + 1,
+                // passing it will result in a more conservative check and will not accidentally allow
+                // invalid transactions to be included.
+                prev_block_header.height() + 1,
                 &mut iter,
                 &mut |tx: &SignedTransaction| -> bool {
                     chain
@@ -762,8 +806,7 @@ impl Client {
             }
             Err(near_chunks::Error::ChainError(chain_error)) => {
                 match chain_error.kind() {
-                    near_chain::ErrorKind::BlockMissing(_)
-                    | near_chain::ErrorKind::DBNotFoundErr(_) => {
+                    near_chain::ErrorKind::DBNotFoundErr(_) => {
                         // We can't check if this chunk came from a valid chunk producer because
                         // we don't know `prev_block`, however the signature is checked when
                         // forwarded parts are later processed as partial encoded chunks, so we

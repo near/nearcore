@@ -113,6 +113,8 @@ pub enum InvalidTxError {
     SignerDoesNotExist { signer_id: AccountId },
     /// Transaction nonce must be account[access_key].nonce + 1
     InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
+    /// Transaction nonce is larger than the upper bound given by the block height
+    NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
     /// TX receiver_id is not in a valid format or not satisfy requirements see `near_runtime_utils::is_valid_account_id`
     InvalidReceiverId { receiver_id: AccountId },
     /// TX signature is not valid
@@ -387,6 +389,8 @@ pub enum ActionErrorKind {
     /// Error occurs when a `CreateAccount` action is called on hex-characters account of length 64.
     /// See implicit account creation NEP: https://github.com/nearprotocol/NEPs/pull/71
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
+    /// Delete account whose state is large is temporarily banned.
+    DeleteAccountWithLargeState { account_id: AccountId },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -436,6 +440,7 @@ impl Display for InvalidTxError {
             InvalidTxError::ActionsValidation(error) => {
                 write!(f, "Transaction actions validation error: {}", error)
             }
+            InvalidTxError::NonceTooLarge { tx_nonce, upper_bound } => { write!(f, "Transaction nonce {} must be smaller than the access key nonce upper bound {}", tx_nonce, upper_bound) }
         }
     }
 }
@@ -674,7 +679,8 @@ impl Display for ActionErrorKind {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }
             ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(f, "Account {} tries to stake {} but minimum required stake is {}", account_id, stake, minimum_stake),
-            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id)
+            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id),
+            ActionErrorKind::DeleteAccountWithLargeState { account_id } => write!(f, "The state of account {} is too large and therefore cannot be deleted", account_id),
         }
     }
 }
@@ -685,7 +691,7 @@ pub enum EpochError {
     /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
     ThresholdError { stake_sum: Balance, num_seats: u64 },
     /// Requesting validators for an epoch that wasn't computed yet.
-    EpochOutOfBounds,
+    EpochOutOfBounds(EpochId),
     /// Missing block hash in the storage (means there is some structural issue).
     MissingBlock(CryptoHash),
     /// Error due to IO (DB read/write, serialization, etc.).
@@ -704,7 +710,9 @@ impl Display for EpochError {
                 "Total stake {} must be higher than the number of seats {}",
                 stake_sum, num_seats
             ),
-            EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
+            EpochError::EpochOutOfBounds(epoch_id) => {
+                write!(f, "Epoch {:?} is out of bounds", epoch_id)
+            }
             EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
             EpochError::IOErr(err) => write!(f, "IO: {}", err),
             EpochError::NotAValidator(account_id, epoch_id) => {
@@ -720,7 +728,7 @@ impl Debug for EpochError {
             EpochError::ThresholdError { stake_sum, num_seats } => {
                 write!(f, "ThresholdError({}, {})", stake_sum, num_seats)
             }
-            EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
+            EpochError::EpochOutOfBounds(epoch_id) => write!(f, "EpochOutOfBounds({:?})", epoch_id),
             EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
             EpochError::IOErr(err) => write!(f, "IOErr({})", err),
             EpochError::NotAValidator(account_id, epoch_id) => {

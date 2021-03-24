@@ -196,12 +196,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
     let mut res = vec![StateRecord::Account {
         account_id: row.account_id.clone(),
-        account: Account {
-            amount: row.amount,
-            locked: row.validator_stake,
-            code_hash: smart_contract_hash.into(),
-            storage_usage: 0,
-        },
+        account: Account::new(row.amount, row.validator_stake, smart_contract_hash.into(), 0),
     }];
 
     // Add restricted access keys.
@@ -353,8 +348,10 @@ mod tests {
 
     #[test]
     fn test_res_file() {
-        let res = include_bytes!("../res/test_accounts.csv");
-        keys_to_state_records(&res[..], 1).unwrap();
+        lazy_static_include::lazy_static_include_bytes! {
+            RES => "res/test_accounts.csv"
+        }
+        keys_to_state_records(&RES[..], 1).unwrap();
     }
 
     #[test]
