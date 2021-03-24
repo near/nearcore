@@ -565,7 +565,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     config.block_sizes = vec![2];
 
     // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
-    let v = calls_helper! {
+    let mut v = calls_helper! {
         cpu_ram_soak_test => cpu_ram_soak_test,
         base_1M => base_1M,
         read_memory_10b_10k => read_memory_10b_10k,

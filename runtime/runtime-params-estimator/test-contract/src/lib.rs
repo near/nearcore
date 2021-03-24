@@ -488,8 +488,8 @@ pub unsafe fn blake2b_10kib_10k() {
 #[no_mangle]
 #[cfg(feature = "protocol_feature_evm")]
 pub unsafe fn blake2b_f_1r_10k() {
-    let rounds: u32 = 1;
-    let hash: [u64; 8] = [
+    let rounds: [u8; 4] = 1_u32.to_le_bytes();
+    let h: [u64; 8] = [
         0x6a09e667f2bdc948,
         0xbb67ae8584caa73b,
         0x3c6ef372fe94f82b,
@@ -518,10 +518,10 @@ pub unsafe fn blake2b_f_1r_10k() {
         0x0000000000000000,
     ];
     let t: [u64; 2] = [3, 0];
-    let f = true;
+    let f: [u8; 1] = 1_u8.to_le_bytes();
 
     for _ in 0..10_000 {
-        blake2b_f(rounds.as_ptr(), hash.as_ptr() as u64, m.as_ptr() as u64, t.as_ptr() as u64, f.as_ptr() as u64, 0);
+        blake2b_f(rounds.as_ptr() as u64, h.as_ptr() as u64, m.as_ptr() as u64, t.as_ptr() as u64, f.as_ptr() as u64, 0);
     }
 }
 
