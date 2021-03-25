@@ -844,7 +844,7 @@ fn assert_access_key(
     access_key: &AccessKey,
     access_key_view: AccessKeyView,
     result: &FinalExecutionOutcomeView,
-    user: Box<dyn User>,
+    user: &dyn User,
 ) {
     let key = if cfg!(feature = "protocol_feature_access_key_nonce_range") {
             let mut key = access_key.clone();
