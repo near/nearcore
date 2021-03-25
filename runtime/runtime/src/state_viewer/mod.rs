@@ -124,6 +124,21 @@ impl TrieViewer {
                 requested_account_id: account_id.clone(),
             });
         }
+        match get_account(state_update, account_id)? {
+            Some(account) => {
+                if account.storage_usage() > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
+                    return Err(errors::ViewStateError::AccountStateTooLarge {
+                        requested_account_id: account_id.clone(),
+                    });
+                }
+            }
+            None => {
+                return Err(errors::ViewStateError::AccountDoesNotExist {
+                    requested_account_id: account_id.clone(),
+                })
+            }
+        };
+
         let mut values = vec![];
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
@@ -269,6 +284,7 @@ mod tests {
     };
 
     use super::*;
+    use near_store::set_account;
 
     #[test]
     fn test_view_call() {
@@ -451,6 +467,25 @@ mod tests {
                 proof: vec![]
             }]
         );
+    }
+
+    #[test]
+    fn test_view_state_too_large() {
+        let (_, tries, root) = get_runtime_and_trie();
+        let mut state_update = tries.new_trie_update(0, root);
+        set_account(
+            &mut state_update,
+            alice_account(),
+            &Account::new(
+                0,
+                0,
+                CryptoHash::default(),
+                Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
+            ),
+        );
+        let trie_viewer = TrieViewer::new();
+        let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
+        assert!(matches!(result, Err(errors::ViewStateError::AccountStateTooLarge { .. })));
     }
 
     #[test]
