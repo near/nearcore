@@ -1390,9 +1390,9 @@ impl ClientActor {
                     })
                     .collect();
 
-                if !self.client.config.archive && just_enter_state_sync {
+                /*if !self.client.config.archive && just_enter_state_sync {
                     unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
-                }
+                }*/
 
                 match unwrap_or_run_later!(self.client.state_sync.run(
                     &me,

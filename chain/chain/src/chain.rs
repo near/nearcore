@@ -33,6 +33,7 @@ use near_primitives::challenge::{
     MaybeEncodedShardChunk, SlashedValidator,
 };
 use near_primitives::checked_feature;
+use near_primitives::epoch_manager::BlockInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
     combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
@@ -59,7 +60,8 @@ use near_primitives::views::{
     SignedTransactionView,
 };
 use near_store::{
-    ColState, ColStateHeaders, ColStateParts, DBCol, ShardTries, StoreUpdate, SHOULD_COL_GC,
+    ColState, ColStateHeaders, ColStateParts, DBCol, ShardTries, StoreUpdate, HEAD_KEY,
+    SHOULD_COL_GC,
 };
 
 #[cfg(feature = "delay_detector")]
@@ -248,8 +250,11 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
+        println!("HERE1");
         let (store, state_roots) = runtime_adapter.genesis_state();
+        println!("HERE2");
         let mut store = ChainStore::new(store, chain_genesis.height);
+        println!("HERE3");
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             runtime_adapter.num_shards(),
@@ -257,6 +262,7 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.protocol_version,
         );
+        println!("HERE4");
         let genesis = Block::genesis(
             chain_genesis.protocol_version,
             genesis_chunks.iter().map(|chunk| chunk.cloned_header()).collect(),
@@ -266,13 +272,17 @@ impl Chain {
             chain_genesis.total_supply,
             Chain::compute_bp_hash(&*runtime_adapter, EpochId::default(), &CryptoHash::default())?,
         );
+        println!("HERE5");
 
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut store_update = store.store_update();
+        println!("HERE6");
         let head_res = store_update.head();
+        println!("HERE7 {:?}", head_res);
         let head: Tip;
         match head_res {
             Ok(h) => {
+                println!("-HERE1");
                 head = h;
 
                 // Check that genesis in the store is the same as genesis given in the config.
@@ -296,9 +306,11 @@ impl Chain {
             }
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
+                    println!("-HERE2");
                     for chunk in genesis_chunks {
                         store_update.save_chunk(chunk.clone());
                     }
+                    println!("HERE3");
                     store_update.merge(runtime_adapter.add_validator_proposals(
                         BlockHeaderInfo::new(
                             &genesis.header(),
@@ -306,6 +318,7 @@ impl Chain {
                             chain_genesis.height,
                         ),
                     )?);
+                    println!("HERE4");
                     store_update.save_block_header(genesis.header().clone())?;
                     store_update.save_block(genesis.clone());
                     store_update.save_block_extra(
@@ -313,6 +326,7 @@ impl Chain {
                         BlockExtra { challenges_result: vec![] },
                     );
 
+                    println!("HERE5");
                     for (chunk_header, state_root) in
                         genesis.chunks().iter().zip(state_roots.iter())
                     {
@@ -330,6 +344,7 @@ impl Chain {
                         );
                     }
 
+                    println!("HERE6");
                     head = Tip::from_header(genesis.header());
                     store_update.save_head(&head)?;
                     store_update.save_final_head(&head)?;
@@ -951,13 +966,22 @@ impl Chain {
         store_update.delete_all(ColState);
         chain_store_update.merge(store_update);
 
-        // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
         chain_store_update.commit()?;
         Ok(())
     }
 
     pub fn reset_data(&mut self) -> Result<(), Error> {
+        info!(target: "chain", "Reset data");
+
+        // TODO fix me
+        /*let genesis_block_info: BlockInfo = self
+            .store
+            .owned_store()
+            .get_ser(DBCol::ColBlockInfo, &CryptoHash::default().try_to_vec()?)?
+            .unwrap();
+        info!(target: "chain", "genesis_block_info {:?}", genesis_block_info);*/
+
         let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
         let mut store_update = StoreUpdate::new_with_tries(tries);
@@ -965,16 +989,26 @@ impl Chain {
         for col in DBCol::iter() {
             if SHOULD_COL_GC[col as usize] {
                 store_update.delete_all(col);
-
-                // clear caches here
             }
         }
+        //store_update.delete(DBCol::ColBlockMisc, HEAD_KEY);
         chain_store_update.merge(store_update);
 
         chain_store_update.cache_reset();
 
+        // TODO replace with reset all
+        chain_store_update.reset_head();
         chain_store_update.reset_tail();
         chain_store_update.commit()?;
+
+        /*let mut chain_store_update = self.mut_store().store_update();
+        let mut store_update = chain_store_update.store().store_update();
+        store_update
+            .set_ser(DBCol::ColBlockInfo, &CryptoHash::default().try_to_vec()?, &genesis_block_info)
+            .unwrap();
+        chain_store_update.merge(store_update);
+        chain_store_update.commit()?;*/
+
         Ok(())
     }
 

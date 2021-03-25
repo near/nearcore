@@ -316,7 +316,7 @@ class LocalNode(BaseNode):
             self.start_proxy_if_needed()
 
         try:
-            self.wait_for_rpc(10)
+            self.wait_for_rpc(30)
         except:
             print(
                 '=== Error: failed to start node, rpc does not ready in 10 seconds'

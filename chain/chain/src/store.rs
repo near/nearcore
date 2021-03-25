@@ -2052,6 +2052,12 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
+    pub fn reset_head(&mut self) {
+        self.head = None;
+        self.header_head = None;
+        self.final_head = None;
+    }
+
     pub fn reset_tail(&mut self) {
         self.tail = None;
         self.chunk_tail = None;
@@ -2111,10 +2117,9 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             let header_hashes = self.get_all_header_hashes_by_height(height)?;
-            for _header_hash in header_hashes {
+            for header_hash in header_hashes {
                 // 3. Delete header_hash-indexed data
-                // TODO #3488: enable
-                //self.gc_col(ColBlockHeader, &header_hash.into());
+                self.gc_col(ColBlockHeader, &header_hash.into());
             }
 
             // 4. Delete chunks_tail-related data

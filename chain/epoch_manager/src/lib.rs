@@ -578,6 +578,12 @@ impl EpochManager {
         last_known_block_hash: &CryptoHash,
     ) -> Result<&[(ValidatorStake, bool)], EpochError> {
         // TODO(3674): Revisit this when we enable slashing
+        println!(
+            "<<< {:?} {:?} {:?}",
+            epoch_id,
+            last_known_block_hash,
+            self.epoch_validators_ordered.cache_get(epoch_id)
+        );
         if self.epoch_validators_ordered.cache_get(epoch_id).is_none() {
             let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
             let epoch_info = self.get_epoch_info(epoch_id)?;
@@ -598,9 +604,15 @@ impl EpochManager {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<&[(ValidatorStake, bool)], EpochError> {
+        println!(
+            "=== {:?} {:?}",
+            epoch_id,
+            self.epoch_validators_ordered_unique.cache_get(epoch_id)
+        );
         if self.epoch_validators_ordered_unique.cache_get(epoch_id).is_none() {
             let settlement =
                 self.get_all_block_producers_settlement(epoch_id, last_known_block_hash)?;
+            println!("=== {:?} {:?}", last_known_block_hash, settlement);
             let mut result = vec![];
             let mut validators: HashSet<AccountId> = HashSet::default();
             for (validator_stake, is_slashed) in settlement.into_iter() {
@@ -609,6 +621,7 @@ impl EpochManager {
                     result.push((validator_stake.clone(), *is_slashed));
                 }
             }
+            println!("=== {:?}", result);
             self.epoch_validators_ordered_unique.cache_set(epoch_id.clone(), result);
         }
         Ok(self.epoch_validators_ordered_unique.cache_get(epoch_id).unwrap())
@@ -720,6 +733,7 @@ impl EpochManager {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<&HashMap<AccountId, SlashState>, EpochError> {
+        println!("SLA {:?} {:?}", block_hash, self.get_block_info(block_hash));
         Ok(&self.get_block_info(block_hash)?.slashed)
     }
 
@@ -1241,11 +1255,18 @@ impl EpochManager {
     /// EpochError::MissingBlock if block is not in storage
     pub fn get_block_info(&mut self, hash: &CryptoHash) -> Result<&BlockInfo, EpochError> {
         if self.blocks_info.cache_get(hash).is_none() {
-            let block_info = self
-                .store
+            let block_info = if hash == &CryptoHash::default() {
+                /*self.store
                 .get_ser(ColBlockInfo, hash.as_ref())
                 .map_err(EpochError::from)
-                .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(*hash)))?;
+                .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(*hash)))?*/
+                BlockInfo::default()
+            } else {
+                self.store
+                    .get_ser(ColBlockInfo, hash.as_ref())
+                    .map_err(EpochError::from)
+                    .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(*hash)))?
+            };
             self.blocks_info.cache_set(*hash, block_info);
         }
         self.blocks_info.cache_get(hash).ok_or(EpochError::MissingBlock(*hash))
