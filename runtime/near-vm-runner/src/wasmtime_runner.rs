@@ -174,7 +174,7 @@ pub mod wasmtime_runner {
         match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {
-                    if !func_type.params().is_empty() || !func_type.results().is_empty() {
+                    if func_type.params().len() != 0 || func_type.results().len() != 0 {
                         return (
                             None,
                             Some(VMError::FunctionCallError(
@@ -205,8 +205,8 @@ pub mod wasmtime_runner {
         }
         match linker.instantiate(&module) {
             Ok(instance) => match instance.get_func(method_name) {
-                Some(func) => match func.get0::<()>() {
-                    Ok(run) => match run() {
+                Some(func) => match func.typed::<(), ()>() {
+                    Ok(run) => match run.call(()) {
                         Ok(_) => (Some(logic.outcome()), None),
                         Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
                     },
@@ -224,12 +224,12 @@ pub mod wasmtime_runner {
     }
     #[cfg(not(feature = "lightbeam"))]
     pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
-        Engine::new(config)
+        Engine::new(config).unwrap()
     }
 
     #[cfg(feature = "lightbeam")]
     pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
-        Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap())
+        Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap()).unwrap()
     }
 }
 

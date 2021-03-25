@@ -409,7 +409,7 @@ fn test_bad_import_3() {
     with_vm_variants(|vm_kind: VMKind| {
         let msg = match vm_kind {
             VMKind::Wasmer0 => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
-            VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { params: [I64], results: [] })\\n\"",
+            VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { sig: WasmFuncType { params: [I64], returns: [] } })\\n\"",
             VMKind::Wasmer1 => "Error while importing \"env\".\"input\": incompatible import type. Expected Global(GlobalType { ty: I32, mutability: Const }) but received Function(FunctionType { params: [I64], results: [] })"
         }.to_string();
         assert_eq!(
@@ -503,9 +503,9 @@ fn test_bad_many_imports() {
         assert_eq!(result.0, Some(vm_outcome_with_gas(299664213)));
         if let Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })) = result.1 {
             eprintln!("{}", msg);
-            assert!(msg.len() < 1000, format!("Huge error message: {}", msg.len()));
+            assert!(msg.len() < 1000, "Huge error message: {}", msg.len());
         } else {
-            panic!(result.1);
+            panic!("{:?}", result.1);
         }
     });
 }

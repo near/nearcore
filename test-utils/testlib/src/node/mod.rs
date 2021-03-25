@@ -1,5 +1,4 @@
 use std::fs;
-use std::panic;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
