@@ -847,19 +847,19 @@ fn assert_access_key(
     user: &dyn User,
 ) {
     let key = if cfg!(feature = "protocol_feature_access_key_nonce_range") {
-            let mut key = access_key.clone();
-            let block = user.get_block_by_hash(result.transaction_outcome.block_hash);
-            if let Some(b) = block {
-                key.nonce = (b.header.height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-            }
-            key
-        } else  {
-            let _ = (user, result);
-            access_key.clone()
+        let mut key = access_key.clone();
+        let block = user.get_block_by_hash(result.transaction_outcome.block_hash);
+        if let Some(b) = block {
+            key.nonce = (b.header.height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
         }
+        key
+    } else {
+        let _ = (user, result);
+        access_key.clone()
     };
     assert_eq!(access_key_view, key.into());
 }
+
 pub fn test_add_access_key_function_call(node: impl Node) {
     let node_user = node.user();
     let account_id = &node.account_id().unwrap();
@@ -877,7 +877,7 @@ pub fn test_add_access_key_function_call(node: impl Node) {
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
 
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
-    assert_access_key(&access_key, view_access_key, &result, node_user);
+    assert_access_key(&access_key, view_access_key, &result, node_user.as_ref());
 }
 
 pub fn test_delete_access_key(node: impl Node) {
@@ -932,7 +932,7 @@ pub fn test_add_access_key_with_allowance(node: impl Node) {
 
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
-    assert_access_key(&access_key, view_access_key, &result, node_user);
+    assert_access_key(&access_key, view_access_key, &result, node_user.as_ref());
 }
 
 pub fn test_delete_access_key_with_allowance(node: impl Node) {
