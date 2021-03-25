@@ -27,7 +27,7 @@ use crate::version::PROTOCOL_VERSION;
 use crate::views::FinalExecutionStatus;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
+    Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
 }
 
 impl Transaction {
@@ -42,7 +42,7 @@ impl Transaction {
     }
 
     pub fn sign(self, signer: &dyn Signer) -> SignedTransaction {
-        let signature = signer.sign(self.get_hash().as_ref());
+        let signature = signer.sign(self.get_hash_and_size().0.as_ref());
         SignedTransaction::new(signature, self)
     }
 

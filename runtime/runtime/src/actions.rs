@@ -16,8 +16,8 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
-    ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION, PROTOCOL_FEATURES_TO_VERSION_MAPPING,
 };
 use near_runtime_utils::{
     is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
@@ -68,20 +68,16 @@ pub(crate) fn execute_function_call(
             &account_id,
             &action_receipt.signer_id,
             predecessor_id,
-            account.amount,
+            account.amount(),
             function_call.deposit,
-            account.storage_usage,
+            account.storage_usage(),
             function_call.method_name.clone(),
             function_call.args.clone(),
             function_call.gas,
             is_view,
         )
     } else {
-        let cache = match &apply_state.cache {
-            Some(cache) => Some((*cache).as_ref()),
-            None => None,
-        };
-        let code = match runtime_ext.get_code(account.code_hash) {
+        let code = match runtime_ext.get_code(account.code_hash()) {
             Ok(Some(code)) => code,
             Ok(None) => {
                 let error =
@@ -122,9 +118,9 @@ pub(crate) fn execute_function_call(
             block_index: apply_state.block_index,
             block_timestamp: apply_state.block_timestamp,
             epoch_height: apply_state.epoch_height,
-            account_balance: account.amount,
-            account_locked_balance: account.locked,
-            storage_usage: account.storage_usage,
+            account_balance: account.amount(),
+            account_locked_balance: account.locked(),
+            storage_usage: account.storage_usage(),
             attached_deposit: function_call.deposit,
             prepaid_gas: function_call.gas,
             random_seed,
@@ -133,8 +129,7 @@ pub(crate) fn execute_function_call(
         };
 
         near_vm_runner::run(
-            code.hash.as_ref().to_vec(),
-            &code.code,
+            &code,
             &function_call.method_name,
             runtime_ext,
             context,
@@ -142,7 +137,7 @@ pub(crate) fn execute_function_call(
             &config.transaction_costs,
             promise_results,
             apply_state.current_protocol_version,
-            cache,
+            apply_state.cache.as_deref(),
             &apply_state.profile,
         )
     }
@@ -163,7 +158,7 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
-    if account.amount.checked_add(function_call.deposit).is_none() {
+    if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
             "Account balance integer overflow during function call deposit".to_string(),
         )
@@ -233,8 +228,8 @@ pub(crate) fn action_function_call(
         result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
         result.logs.extend(outcome.logs.into_iter());
         if execution_succeeded {
-            account.amount = outcome.balance;
-            account.storage_usage = outcome.storage_usage;
+            account.set_amount(outcome.balance);
+            account.set_storage_usage(outcome.storage_usage);
             result.result = Ok(outcome.return_data);
             result.new_receipts.extend(runtime_ext.into_receipts(account_id));
         }
@@ -252,10 +247,10 @@ pub(crate) fn action_stake(
     last_block_hash: &CryptoHash,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
-    let increment = stake.stake.saturating_sub(account.locked);
+    let increment = stake.stake.saturating_sub(account.locked());
 
-    if account.amount >= increment {
-        if account.locked == 0 && stake.stake == 0 {
+    if account.amount() >= increment {
+        if account.locked() == 0 && stake.stake == 0 {
             // if the account hasn't staked, it cannot unstake
             result.result =
                 Err(ActionErrorKind::TriesToUnstake { account_id: account_id.clone() }.into());
@@ -280,17 +275,17 @@ pub(crate) fn action_stake(
             public_key: stake.public_key.clone(),
             stake: stake.stake,
         });
-        if stake.stake > account.locked {
+        if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
-            account.amount -= increment;
-            account.locked = stake.stake;
+            account.set_amount(account.amount() - increment);
+            account.set_locked(stake.stake);
         }
     } else {
         result.result = Err(ActionErrorKind::TriesToStake {
             account_id: account_id.clone(),
             stake: stake.stake,
-            locked: account.locked,
-            balance: account.amount,
+            locked: account.locked(),
+            balance: account.amount(),
         }
         .into());
     }
@@ -328,9 +323,9 @@ pub(crate) fn action_transfer(
     account: &mut Account,
     transfer: &TransferAction,
 ) -> Result<(), StorageError> {
-    account.amount = account.amount.checked_add(transfer.deposit).ok_or_else(|| {
+    account.set_amount(account.amount().checked_add(transfer.deposit).ok_or_else(|| {
         StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
-    })?;
+    })?);
     Ok(())
 }
 
@@ -374,12 +369,12 @@ pub(crate) fn action_create_account(
     }
 
     *actor_id = account_id.clone();
-    *account = Some(Account {
-        amount: 0,
-        locked: 0,
-        code_hash: CryptoHash::default(),
-        storage_usage: fee_config.storage_usage_config.num_bytes_account,
-    });
+    *account = Some(Account::new(
+        0,
+        0,
+        CryptoHash::default(),
+        fee_config.storage_usage_config.num_bytes_account,
+    ));
 }
 
 pub(crate) fn action_implicit_account_creation_transfer(
@@ -407,15 +402,15 @@ pub(crate) fn action_implicit_account_creation_transfer(
     let public_key = PublicKey::try_from_slice(&public_key_data)
         .expect("we should be able to deserialize ED25519 public key");
 
-    *account = Some(Account {
-        amount: transfer.deposit,
-        locked: 0,
-        code_hash: CryptoHash::default(),
-        storage_usage: fee_config.storage_usage_config.num_bytes_account
+    *account = Some(Account::new(
+        transfer.deposit,
+        0,
+        CryptoHash::default(),
+        fee_config.storage_usage_config.num_bytes_account
             + public_key.len() as u64
             + access_key.try_to_vec().unwrap().len() as u64
             + fee_config.storage_usage_config.num_extra_bytes_record,
-    });
+    ));
 
     set_access_key(state_update, account_id.clone(), public_key, &access_key);
 }
@@ -427,17 +422,18 @@ pub(crate) fn action_deploy_contract(
     deploy_contract: &DeployContractAction,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone(), None);
-    let prev_code = get_code(state_update, account_id, Some(account.code_hash))?;
+    let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
-    account.storage_usage = account.storage_usage.checked_sub(prev_code_length).unwrap_or(0);
-    account.storage_usage =
-        account.storage_usage.checked_add(code.code.len() as u64).ok_or_else(|| {
+    account.set_storage_usage(account.storage_usage().checked_sub(prev_code_length).unwrap_or(0));
+    account.set_storage_usage(
+        account.storage_usage().checked_add(code.code.len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Storage usage integer overflow for account {}",
                 account_id
             ))
-        })?;
-    account.code_hash = code.get_hash();
+        })?,
+    );
+    account.set_code_hash(code.get_hash());
     set_code(state_update, account_id.clone(), &code);
     Ok(())
 }
@@ -450,9 +446,30 @@ pub(crate) fn action_delete_account(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
+    if current_protocol_version
+        >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
+    {
+        let account = account.as_ref().unwrap();
+        let mut account_storage_usage = account.storage_usage();
+        let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
+        if let Some(code) = contract_code {
+            // account storage usage should be larger than code size
+            let code_len = code.code.len() as u64;
+            debug_assert!(account_storage_usage > code_len);
+            account_storage_usage = account_storage_usage.saturating_sub(code_len);
+        }
+        if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
+            result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
+                account_id: account_id.clone(),
+            }
+            .into());
+            return Ok(());
+        }
+    }
     // We use current amount as a pay out to beneficiary.
-    let account_balance = account.as_ref().unwrap().amount;
+    let account_balance = account.as_ref().unwrap().amount();
     if account_balance > 0 {
         result
             .new_receipts
@@ -488,7 +505,7 @@ pub(crate) fn action_delete_key(
         };
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
-        account.storage_usage = account.storage_usage.checked_sub(storage_usage).unwrap_or(0);
+        account.set_storage_usage(account.storage_usage().checked_sub(storage_usage).unwrap_or(0));
     } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
             public_key: delete_key.public_key.clone(),
@@ -500,7 +517,7 @@ pub(crate) fn action_delete_key(
 }
 
 pub(crate) fn action_add_key(
-    fees_config: &RuntimeFeesConfig,
+    apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
     account: &mut Account,
     result: &mut ActionResult,
@@ -515,26 +532,46 @@ pub(crate) fn action_add_key(
         .into());
         return Ok(());
     }
-    set_access_key(
-        state_update,
-        account_id.clone(),
-        add_key.public_key.clone(),
-        &add_key.access_key,
+    checked_feature!(
+        "protocol_feature_access_key_nonce_range",
+        AccessKeyNonceRange,
+        apply_state.current_protocol_version,
+        {
+            let mut access_key = add_key.access_key.clone();
+            access_key.nonce = (apply_state.block_index - 1)
+                * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            set_access_key(
+                state_update,
+                account_id.clone(),
+                add_key.public_key.clone(),
+                &access_key,
+            );
+        },
+        {
+            set_access_key(
+                state_update,
+                account_id.clone(),
+                add_key.public_key.clone(),
+                &add_key.access_key,
+            );
+        }
     );
-    let storage_config = &fees_config.storage_usage_config;
-    account.storage_usage = account
-        .storage_usage
-        .checked_add(
-            add_key.public_key.try_to_vec().unwrap().len() as u64
-                + add_key.access_key.try_to_vec().unwrap().len() as u64
-                + storage_config.num_extra_bytes_record,
-        )
-        .ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Storage usage integer overflow for account {}",
-                account_id
-            ))
-        })?;
+    let storage_config = &apply_state.config.transaction_costs.storage_usage_config;
+    account.set_storage_usage(
+        account
+            .storage_usage()
+            .checked_add(
+                add_key.public_key.try_to_vec().unwrap().len() as u64
+                    + add_key.access_key.try_to_vec().unwrap().len() as u64
+                    + storage_config.num_extra_bytes_record,
+            )
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Storage usage integer overflow for account {}",
+                    account_id
+                ))
+            })?,
+    );
     Ok(())
 }
 
@@ -548,8 +585,8 @@ pub(crate) fn check_actor_permissions(
         Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
-                    account_id: actor_id.clone(),
-                    actor_id: account_id.clone(),
+                    account_id: account_id.clone(),
+                    actor_id: actor_id.clone(),
                 }
                 .into());
             }
@@ -563,7 +600,7 @@ pub(crate) fn check_actor_permissions(
                 .into());
             }
             let account = account.as_ref().unwrap();
-            if account.locked != 0 {
+            if account.locked() != 0 {
                 return Err(ActionErrorKind::DeleteAccountStaking {
                     account_id: account_id.clone(),
                 }
@@ -651,7 +688,11 @@ pub(crate) fn check_account_existence(
 
 #[cfg(test)]
 mod tests {
+    use near_store::test_utils::create_tries;
+
     use super::*;
+    use near_primitives::hash::hash;
+    use near_primitives::trie_key::TrieKey;
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -750,5 +791,83 @@ mod tests {
         let action_result =
             test_action_create_account(account_id.clone(), predecessor_id.clone(), 0);
         assert!(action_result.result.is_ok());
+    }
+
+    fn test_delete_large_account(
+        account_id: &AccountId,
+        code_hash: &CryptoHash,
+        storage_usage: u64,
+        state_update: &mut TrieUpdate,
+    ) -> ActionResult {
+        let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
+        let mut actor_id = account_id.clone();
+        let mut action_result = ActionResult::default();
+        let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
+        let res = action_delete_account(
+            state_update,
+            &mut account,
+            &mut actor_id,
+            &receipt,
+            &mut action_result,
+            account_id,
+            &DeleteAccountAction { beneficiary_id: "bob".to_string() },
+            PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction],
+        );
+        assert!(res.is_ok());
+        action_result
+    }
+
+    #[test]
+    fn test_delete_account_too_large() {
+        let tries = create_tries();
+        let mut state_update = tries.new_trie_update(0, CryptoHash::default());
+        let action_result = test_delete_large_account(
+            &"alice".to_string(),
+            &CryptoHash::default(),
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
+            &mut state_update,
+        );
+        assert_eq!(
+            action_result.result,
+            Err(ActionError {
+                index: None,
+                kind: ActionErrorKind::DeleteAccountWithLargeState {
+                    account_id: "alice".to_string()
+                }
+            })
+        )
+    }
+
+    fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
+        let tries = create_tries();
+        let mut state_update = tries.new_trie_update(0, CryptoHash::default());
+        let account_id = "alice".to_string();
+        let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
+        let empty_contract = [0; 10_000].to_vec();
+        let contract_hash = hash(&empty_contract);
+        state_update.set(trie_key, empty_contract);
+        test_delete_large_account(&account_id, &contract_hash, storage_usage, &mut state_update)
+    }
+
+    #[test]
+    fn test_delete_account_with_contract_and_small_state() {
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    fn test_delete_account_with_contract_and_large_state() {
+        let action_result =
+            test_delete_account_with_contract(10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE);
+        assert_eq!(
+            action_result.result,
+            Err(ActionError {
+                index: None,
+                kind: ActionErrorKind::DeleteAccountWithLargeState {
+                    account_id: "alice".to_string()
+                }
+            })
+        );
     }
 }

@@ -14,39 +14,39 @@ use near_primitives::types::{BlockHeight, EpochId, ShardId};
 
 #[derive(thiserror::Error, Debug)]
 pub enum QueryError {
-    #[error("Account ID #{requested_account_id} is invalid")]
+    #[error("Account ID {requested_account_id} is invalid")]
     InvalidAccount {
         requested_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Account #{requested_account_id} does not exist while viewing")]
+    #[error("Account {requested_account_id} does not exist while viewing")]
     UnknownAccount {
         requested_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
     #[error(
-        "Contract code for contract ID #{contract_account_id} has never been observed on the node"
+        "Contract code for contract ID {contract_account_id} has never been observed on the node"
     )]
     NoContractCode {
         contract_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Access key for public key #{public_key} does not exist while viewing")]
+    #[error("Access key for public key {public_key} does not exist while viewing")]
     UnknownAccessKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Internal error occurred: #{error_message}")]
+    #[error("Internal error occurred: {error_message}")]
     InternalError {
         error_message: String,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Function call returned an error: #{error_message}")]
+    #[error("Function call returned an error: {error_message}")]
     ContractExecutionError {
         error_message: String,
         block_height: near_primitives::types::BlockHeight,

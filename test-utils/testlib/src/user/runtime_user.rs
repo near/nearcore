@@ -127,7 +127,7 @@ impl RuntimeUser {
 
     fn apply_state(&self) -> ApplyState {
         ApplyState {
-            block_index: 0,
+            block_index: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             block_timestamp: 0,

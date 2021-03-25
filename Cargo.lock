@@ -953,6 +953,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ae45936bbf9bddd6a0268c0ea5d3814a72403f4b69a1c318aae2ce90444ad55"
 
 [[package]]
+name = "conqueue"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eac4306c796b95d3964b94fa65018a57daee08b45a54b86a4f64910426427b66"
+
+[[package]]
 name = "console"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1888,6 +1894,16 @@ checksum = "5fc25a87fa4fd2094bffb06925852034d90a17f0d1e05197d4956d3555752191"
 dependencies = [
  "matches",
  "percent-encoding",
+]
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]
@@ -3021,7 +3037,6 @@ dependencies = [
  "failure",
  "failure_derive",
  "lazy_static",
- "log",
  "near-chain-configs",
  "near-chain-primitives",
  "near-crypto",
@@ -3355,10 +3370,10 @@ dependencies = [
  "bytesize",
  "cached",
  "chrono",
+ "conqueue",
  "delay-detector",
  "futures",
  "lazy_static",
- "log",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
@@ -3547,9 +3562,11 @@ dependencies = [
  "bencher",
  "borsh",
  "byteorder",
+ "bytesize",
  "cached",
  "derive_more",
  "elastic-array",
+ "fs2",
  "lazy_static",
  "near-crypto",
  "near-primitives",
@@ -3560,6 +3577,8 @@ dependencies = [
  "serde_json",
  "strum",
  "tempfile",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -3626,7 +3645,9 @@ dependencies = [
  "tracing",
  "wabt",
  "wasmer",
+ "wasmer-compiler-cranelift",
  "wasmer-compiler-singlepass",
+ "wasmer-engine-native",
  "wasmer-runtime-core-near",
  "wasmer-runtime-near",
  "wasmer-types",
@@ -3691,7 +3712,6 @@ dependencies = [
  "jemallocator",
  "lazy-static-include",
  "lazy_static",
- "log",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
@@ -4836,6 +4856,7 @@ name = "runtime-params-estimator"
 version = "3.0.0"
 dependencies = [
  "borsh",
+ "cfg-if 1.0.0",
  "clap 2.33.3",
  "csv",
  "ethabi",
@@ -4846,7 +4867,6 @@ dependencies = [
  "gnuplot",
  "hex",
  "indicatif 0.15.0",
- "lazy-static-include",
  "libc",
  "near-chain-configs",
  "near-crypto",
@@ -4859,6 +4879,7 @@ dependencies = [
  "node-runtime",
  "num-rational",
  "num-traits",
+ "once_cell",
  "rand 0.7.3",
  "rand_xorshift 0.2.0",
  "rocksdb",

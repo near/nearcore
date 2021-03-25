@@ -1,6 +1,7 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{
     config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
@@ -9,7 +10,7 @@ use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
-use wasmer_runtime::Module;
+use wasmer_runtime::{ImportObject, Module};
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
@@ -169,8 +170,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
 }
 
 pub fn run_wasmer<'a>(
-    code_hash: &[u8],
-    code: &[u8],
+    code: &ContractCode,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -203,12 +203,8 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::wasmer0_cache::compile_module_cached_wasmer(
-        &code_hash,
-        code,
-        wasm_config,
-        cache,
-    ) {
+    let module = match cache::wasmer0_cache::compile_module_cached_wasmer0(code, wasm_config, cache)
+    {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
@@ -231,7 +227,7 @@ pub fn run_wasmer<'a>(
         current_protocol_version,
     );
 
-    if logic.add_contract_compile_fee(code.len() as u64).is_err() {
+    if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
         return (
             Some(logic.outcome()),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(
@@ -246,25 +242,34 @@ pub fn run_wasmer<'a>(
         return (None, Some(e));
     }
 
-    let instantiate = {
-        let _span = tracing::debug_span!("run_wasmer/instantiate").entered();
-        module.instantiate(&import_object)
-    };
-    match instantiate {
-        Ok(instance) => {
-            let _span = tracing::debug_span!("run_wasmer/call").entered();
-
-            match instance.call(&method_name, &[]) {
-                Ok(_) => (Some(logic.outcome()), None),
-                Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-            }
-        }
-        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-    }
+    let err = run_method(&module, &import_object, method_name).err();
+    (Some(logic.outcome()), err)
 }
 
-pub(crate) fn run_wasmer_module<'a>(
+fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
+    let _span = tracing::debug_span!("run_method").entered();
+
+    let instance = {
+        let _span = tracing::debug_span!("run_method/instantiate").entered();
+        module.instantiate(import).map_err(|err| err.into_vm_error())?
+    };
+
+    {
+        let _span = tracing::debug_span!("run_method/call").entered();
+        instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
+    }
+
+    {
+        let _span = tracing::debug_span!("run_method/drop_instance").entered();
+        drop(instance)
+    }
+
+    Ok(())
+}
+
+pub(crate) fn run_wasmer0_module<'a>(
     module: Module,
+    memory: &mut WasmerMemory,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -282,11 +287,6 @@ pub(crate) fn run_wasmer_module<'a>(
             ))),
         );
     }
-    let mut memory = WasmerMemory::new(
-        wasm_config.limit_config.initial_memory_pages,
-        wasm_config.limit_config.max_memory_pages,
-    )
-    .expect("Cannot create memory for a contract call");
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
@@ -296,7 +296,7 @@ pub(crate) fn run_wasmer_module<'a>(
         wasm_config,
         fees_config,
         promise_results,
-        &mut memory,
+        memory,
         profile,
         current_protocol_version,
     );
@@ -307,15 +307,15 @@ pub(crate) fn run_wasmer_module<'a>(
         return (None, Some(e));
     }
 
-    match module.instantiate(&import_object) {
-        Ok(instance) => match instance.call(&method_name, &[]) {
-            Ok(_) => (Some(logic.outcome()), None),
-            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-        },
-        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-    }
+    let err = run_method(&module, &import_object, method_name).err();
+    (Some(logic.outcome()), err)
 }
 
-pub fn compile_module(code: &[u8]) -> bool {
+pub fn compile_wasmer0_module(code: &[u8]) -> bool {
     wasmer_runtime::compile(code).is_ok()
+}
+
+pub(crate) fn wasmer0_vm_hash() -> u64 {
+    // TODO: take into account compiler and engine used to compile the contract.
+    42
 }

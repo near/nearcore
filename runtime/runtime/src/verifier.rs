@@ -22,7 +22,9 @@ use near_store::{
 
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::VerificationResult;
+use near_primitives::checked_feature;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::types::BlockHeight;
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
@@ -53,6 +55,19 @@ pub fn validate_transaction(
         return Err(InvalidTxError::InvalidSignature.into());
     }
 
+    #[cfg(feature = "protocol_feature_tx_size_limit")]
+    {
+        let transaction_size = signed_transaction.get_size();
+        let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
+        if transaction_size > max_transaction_size {
+            return Err(InvalidTxError::TransactionSizeExceeded {
+                size: transaction_size,
+                limit: max_transaction_size,
+            }
+            .into());
+        }
+    }
+
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
         .map_err(|e| InvalidTxError::ActionsValidation(e))?;
 
@@ -76,6 +91,7 @@ pub fn verify_and_charge_transaction(
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
     verify_signature: bool,
+    #[allow(unused)] block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
@@ -115,15 +131,34 @@ pub fn verify_and_charge_transaction(
         }
         .into());
     }
+    checked_feature!(
+        "protocol_feature_access_key_nonce_range",
+        AccessKeyNonceRange,
+        current_protocol_version,
+        {
+            if let Some(height) = block_height {
+                let upper_bound =
+                    height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+                if transaction.nonce >= upper_bound {
+                    return Err(InvalidTxError::NonceTooLarge {
+                        tx_nonce: transaction.nonce,
+                        upper_bound,
+                    }
+                    .into());
+                }
+            }
+        }
+    );
 
     access_key.nonce = transaction.nonce;
 
-    signer.amount =
-        signer.amount.checked_sub(total_cost).ok_or_else(|| InvalidTxError::NotEnoughBalance {
+    signer.set_amount(signer.amount().checked_sub(total_cost).ok_or_else(|| {
+        InvalidTxError::NotEnoughBalance {
             signer_id: signer_id.clone(),
-            balance: signer.amount,
+            balance: signer.amount(),
             cost: total_cost,
-        })?;
+        }
+    })?);
 
     if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
         access_key.permission
@@ -474,7 +509,7 @@ mod tests {
         let mut initial_state = tries.new_trie_update(0, root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
             let mut initial_account = account_new(initial_balance, hash(&[]));
-            initial_account.locked = initial_locked;
+            initial_account.set_locked(initial_locked);
             set_account(&mut initial_state, account_id.clone(), &initial_account);
             if let Some(access_key) = access_key {
                 set_access_key(
@@ -512,6 +547,7 @@ mod tests {
                 gas_price,
                 &signed_transaction,
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -544,6 +580,7 @@ mod tests {
             gas_price,
             &transaction,
             true,
+            None,
             PROTOCOL_VERSION,
         )
         .expect("valid transaction");
@@ -558,7 +595,7 @@ mod tests {
         let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
         // Balance is decreased by the (TX fees + transfer balance).
         assert_eq!(
-            account.amount,
+            account.amount(),
             TESTING_INIT_BALANCE
                 - Balance::from(verification_result.gas_remaining)
                     * verification_result.receipt_gas_price
@@ -665,6 +702,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 false,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -731,6 +769,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -763,6 +802,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -811,6 +851,7 @@ mod tests {
                 CryptoHash::default(),
             ),
             true,
+            None,
             PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
@@ -862,6 +903,7 @@ mod tests {
                 CryptoHash::default(),
             ),
             true,
+            None,
             PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
@@ -903,6 +945,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -953,6 +996,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -975,6 +1019,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -997,6 +1042,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1041,6 +1087,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1088,6 +1135,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1132,6 +1180,7 @@ mod tests {
                     CryptoHash::default(),
                 ),
                 true,
+                None,
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1139,6 +1188,56 @@ mod tests {
                 InvalidAccessKeyError::DepositWithFunctionCall,
             )),
         );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_tx_size_limit")]
+    fn test_validate_transaction_exceeding_tx_size_limit() {
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+
+        let transaction = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
+            CryptoHash::default(),
+        );
+        let transaction_size = transaction.get_size();
+
+        let mut config = RuntimeConfig::default();
+        let max_transaction_size = transaction_size - 1;
+        config.wasm_config.limit_config.max_transaction_size = transaction_size - 1;
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                gas_price,
+                &transaction,
+                false,
+                None,
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::TransactionSizeExceeded {
+                size: transaction_size,
+                limit: max_transaction_size
+            }),
+        );
+
+        config.wasm_config.limit_config.max_transaction_size = transaction_size + 1;
+        verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            gas_price,
+            &transaction,
+            false,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect("valid transaction");
     }
 
     // Receipts

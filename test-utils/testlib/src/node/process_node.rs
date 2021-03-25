@@ -47,6 +47,7 @@ impl Node for ProcessNode {
     fn start(&mut self) {
         match self.state {
             ProcessNodeState::Stopped => {
+                std::env::set_var("ADVERSARY_CONSENT", "1");
                 let child =
                     self.get_start_node_command().spawn().expect("start node command failed");
                 self.state = ProcessNodeState::Running(child);
@@ -137,20 +138,15 @@ impl ProcessNode {
     pub fn get_start_node_command(&self) -> Command {
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
             let mut command = Command::new("cargo");
-            command.args(&[
-                "run",
-                "-p",
-                "neard",
-                "--bin",
-                "neard",
-                "--",
-                "--home",
-                &self.work_dir,
-                "run",
-            ]);
+            command.args(&["run", "-p", "neard"]);
+            #[cfg(feature = "nightly_protocol")]
+            command.args(&["--features", "nightly_protocol"]);
+            #[cfg(feature = "nightly_protocol_features")]
+            command.args(&["--features", "nightly_protocol_features"]);
+            command.args(&["--bin", "neard", "--", "--home", &self.work_dir, "run"]);
             command
         } else {
-            let mut command = Command::new("normal_target/debug/neard");
+            let mut command = Command::new("target/debug/neard");
             command.args(&["--home", &self.work_dir, "run"]);
             command
         }

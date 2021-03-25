@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::ops::Sub;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use serde::Serialize;
 
@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
 use chrono;
-use log::{trace, warn};
+use tracing::{trace, warn};
 
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
@@ -28,6 +28,7 @@ use crate::{
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
+use conqueue::{QueueReceiver, QueueSender};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 
@@ -71,7 +72,7 @@ pub enum EdgeType {
 }
 
 /// Edge object. Contains information relative to a new edge that is being added or removed
-/// from the network. This is the information that is required
+/// from the network. This is the information that is required.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
@@ -255,6 +256,25 @@ impl Edge {
     }
 }
 
+pub struct EdgeVerifierHelper {
+    /// Shared version of edges_info used by multiple threads
+    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    /// Queue of edges verified, but not added yes
+    pub edges_to_add_receiver: QueueReceiver<Edge>,
+    pub edges_to_add_sender: QueueSender<Edge>,
+}
+
+impl Default for EdgeVerifierHelper {
+    fn default() -> Self {
+        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
+        Self {
+            edges_info_shared: Default::default(),
+            edges_to_add_sender: tx,
+            edges_to_add_receiver: rx,
+        }
+    }
+}
+
 pub struct RoutingTable {
     /// PeerId associated for every known account id.
     account_peers: SizedCache<AccountId, AnnounceAccount>,
@@ -274,8 +294,6 @@ pub struct RoutingTable {
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
     route_nonce: SizedCache<PeerId, usize>,
-    /// Flag to know if there is state recalculation pending.
-    recalculation_scheduled: Option<Instant>,
     /// Ping received by nonce.
     ping_info: SizedCache<usize, Ping>,
     /// Ping received by nonce.
@@ -306,18 +324,17 @@ impl RoutingTable {
 
         Self {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
-            peer_forwarding: HashMap::new(),
-            edges_info: HashMap::new(),
+            peer_forwarding: Default::default(),
+            edges_info: Default::default(),
             route_back: RouteBackCache::new(
                 ROUTE_BACK_CACHE_SIZE,
                 ROUTE_BACK_CACHE_EVICT_TIMEOUT,
                 ROUTE_BACK_CACHE_REMOVE_BATCH,
             ),
-            peer_last_time_reachable: HashMap::new(),
+            peer_last_time_reachable: Default::default(),
             store,
             raw_graph: Graph::new(peer_id),
             route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
-            recalculation_scheduled: None,
             ping_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
@@ -517,33 +534,11 @@ impl RoutingTable {
             }
         }
 
-        let mut new_schedule = None;
-
-        if new_edge {
-            // Minimum between known routes and 1000
-            let known_routes = std::cmp::min(self.peer_forwarding.len() as u64, 1000);
-
-            new_schedule = self.recalculation_scheduled.map_or_else(
-                move || Some(Duration::from_millis(known_routes)),
-                |target| {
-                    if Instant::now() > target {
-                        Some(Duration::from_millis(known_routes))
-                    } else {
-                        None
-                    }
-                },
-            );
-
-            if let Some(duration) = new_schedule {
-                self.recalculation_scheduled = Some(Instant::now() + duration);
-            }
-        }
-
         // Update metrics after edge update
         near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as u64);
         near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges as i64);
 
-        ProcessEdgeResult { new_edge, schedule_computation: new_schedule }
+        ProcessEdgeResult { new_edge }
     }
 
     pub fn find_nonce(&self, edge: &(PeerId, PeerId)) -> u64 {
@@ -685,14 +680,13 @@ impl RoutingTable {
     }
 
     /// Recalculate routing table.
-    pub fn update(&mut self) {
+    pub fn update(&mut self, can_save_edges: bool) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
             near_metrics::start_timer(&metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM);
 
         trace!(target: "network", "Update routing table.");
-        self.recalculation_scheduled = None;
 
         self.peer_forwarding = self.raw_graph.calculate_distance();
 
@@ -701,7 +695,9 @@ impl RoutingTable {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
 
-        self.try_save_edges();
+        if can_save_edges {
+            self.try_save_edges();
+        }
 
         near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
@@ -760,7 +756,6 @@ impl RoutingTable {
 
 pub struct ProcessEdgeResult {
     pub new_edge: bool,
-    pub schedule_computation: Option<Duration>,
 }
 
 #[derive(Debug)]

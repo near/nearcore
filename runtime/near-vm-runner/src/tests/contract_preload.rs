@@ -1,9 +1,8 @@
 use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError};
-use near_primitives::hash::hash;
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
 
-use near_primitives::borsh::BorshSerialize;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -13,8 +12,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
-const TEST_CONTRACT_1: &'static [u8] = include_bytes!("../../tests/res/test_contract_rs.wasm");
-const TEST_CONTRACT_2: &'static [u8] = include_bytes!("../../tests/res/test_contract_ts.wasm");
+lazy_static_include::lazy_static_include_bytes! {
+    TEST_CONTRACT_1 => "tests/res/test_contract_rs.wasm",
+    TEST_CONTRACT_2 => "tests/res/test_contract_ts.wasm",
+}
 
 fn default_vm_context() -> VMContext {
     return VMContext {
@@ -91,11 +92,9 @@ fn test_result(result: (Option<VMOutcome>, Option<VMError>), check_gas: bool) ->
 }
 
 fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
-    let code1 = TEST_CONTRACT_1;
-    let code2 = TEST_CONTRACT_2;
+    let code1 = Arc::new(ContractCode::new(TEST_CONTRACT_1.to_vec(), None));
+    let code2 = Arc::new(ContractCode::new(TEST_CONTRACT_2.to_vec(), None));
     let method_name1 = "log_something";
-    let code1_hash = hash(code1);
-    let code2_hash = hash(code2);
 
     let mut fake_external = MockedExternal::new();
 
@@ -111,29 +110,24 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
 
     if preloaded {
         let mut requests = Vec::new();
-        let mut caller = ContractCaller::new(4);
+        let mut caller = ContractCaller::new(4, vm_kind, vm_config);
         for _ in 0..repeat {
             requests.push(ContractCallPrepareRequest {
-                code_hash: code1_hash,
-                code: code1.to_vec(),
-                vm_config: vm_config.clone(),
+                code: Arc::clone(&code1),
                 cache: cache.clone(),
             });
             requests.push(ContractCallPrepareRequest {
-                code_hash: code2_hash,
-                code: code2.to_vec(),
-                vm_config: vm_config.clone(),
+                code: Arc::clone(&code2),
                 cache: cache.clone(),
             });
         }
-        let calls = caller.preload(requests, vm_kind);
+        let calls = caller.preload(requests);
         for prepared in &calls {
             let result = caller.run_preloaded(
                 prepared,
                 method_name1,
                 &mut fake_external,
                 context.clone(),
-                &vm_config,
                 &fees,
                 &promise_results,
                 ProtocolVersion::MAX,
@@ -146,8 +140,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
     } else {
         for _ in 0..repeat {
             let result1 = run_vm(
-                code1_hash.try_to_vec().unwrap(),
-                code1,
+                &code1,
                 method_name1,
                 &mut fake_external,
                 context.clone(),
@@ -163,8 +156,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
             oks += ok;
             errs += err;
             let result2 = run_vm(
-                code2_hash.try_to_vec().unwrap(),
-                code2,
+                &code2,
                 method_name1,
                 &mut fake_external,
                 context.clone(),
@@ -187,11 +179,17 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
 }
 
 #[test]
-pub fn test_vm_run_sequential() {
+pub fn test_run_sequential() {
+    #[cfg(feature = "wasmer0_vm")]
     test_vm_runner(false, VMKind::Wasmer0, 100);
+    #[cfg(feature = "wasmer1_vm")]
+    test_vm_runner(false, VMKind::Wasmer1, 100);
 }
 
 #[test]
-pub fn test_vm_run_preloaded() {
+pub fn test_run_preloaded() {
+    #[cfg(feature = "wasmer0_vm")]
     test_vm_runner(true, VMKind::Wasmer0, 100);
+    #[cfg(feature = "wasmer1_vm")]
+    test_vm_runner(true, VMKind::Wasmer1, 100);
 }

@@ -743,12 +743,13 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
 
     is_local = config['local']
     near_root = config['near_root']
+    binary_name = config.get('binary_name', 'near')
 
     print("Creating %s cluster configuration with %s nodes" %
           ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
     process = subprocess.Popen([
-        os.path.join(near_root, "near"), "testnet", "--v",
+        os.path.join(near_root, binary_name), "testnet", "--v",
         str(num_nodes), "--shards",
         str(num_shards), "--n",
         str(num_observers), "--prefix", "test"
@@ -790,6 +791,7 @@ def apply_genesis_changes(node_dir, genesis_config_changes):
     fname = os.path.join(node_dir, 'genesis.json')
     with open(fname) as f:
         genesis_config = json.loads(f.read())
+    genesis_config_changes = process_genesis_config_changes(genesis_config_changes, genesis_config.get('protocol_version'))
     for change in genesis_config_changes:
         cur = genesis_config
         for s in change[:-2]:
@@ -947,3 +949,11 @@ def load_config():
     else:
         print(f"Use default config {config}")
     return config
+
+def process_genesis_config_changes(genesis_config_changes, protocol_version):
+    if protocol_version and protocol_version >= 107:
+        return genesis_config_changes
+    for change in genesis_config_changes:
+        if change[0] == 'records' and 'AccountV1' in change:
+            change.remove('AccountV1')
+    return genesis_config_changes

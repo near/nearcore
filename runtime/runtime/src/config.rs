@@ -60,6 +60,11 @@ pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverfl
     a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
 }
 
+#[cfg(feature = "protocol_feature_tx_size_limit")]
+pub fn safe_add_usize(a: usize, b: usize) -> Result<usize, IntegerOverflowError> {
+    a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
+}
+
 #[macro_export]
 macro_rules! safe_add_balance_apply {
     ($x: expr) => {$x};

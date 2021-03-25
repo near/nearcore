@@ -5,9 +5,9 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
-use log::debug;
 use num_rational::Rational;
 use serde::Serialize;
+use tracing::debug;
 
 use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
@@ -550,6 +550,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_limit: Gas,
         _shard_id: ShardId,
         _state_root: StateRoot,
+        _next_block_height: BlockHeight,
         transactions: &mut dyn PoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
@@ -795,15 +796,15 @@ impl RuntimeAdapter for KeyValueRuntime {
         match request {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewAccount(
-                    Account {
-                        amount: self.state.read().unwrap().get(&state_root).map_or_else(
+                    Account::new(
+                        self.state.read().unwrap().get(&state_root).map_or_else(
                             || 0,
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
-                        locked: 0,
-                        code_hash: CryptoHash::default(),
-                        storage_usage: 0,
-                    }
+                        0,
+                        CryptoHash::default(),
+                        0,
+                    )
                     .into(),
                 ),
                 block_height,

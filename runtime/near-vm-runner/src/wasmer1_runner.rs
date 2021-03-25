@@ -1,5 +1,6 @@
 use crate::errors::IntoVMError;
 use crate::{cache, imports};
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{profile::ProfileData, types::CompiledContractCache};
 use near_vm_errors::{
@@ -7,6 +8,8 @@ use near_vm_errors::{
 };
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
 use wasmer_compiler_singlepass::Singlepass;
 
@@ -140,18 +143,17 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     }
 }
 
-pub fn run_wasmer1<'a>(
-    code_hash: &[u8],
-    code: &[u8],
+pub fn run_wasmer1(
+    code: &ContractCode,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
-    wasm_config: &'a VMConfig,
-    fees_config: &'a RuntimeFeesConfig,
-    promise_results: &'a [PromiseResult],
+    wasm_config: &VMConfig,
+    fees_config: &RuntimeFeesConfig,
+    promise_results: &[PromiseResult],
     profile: ProfileData,
     current_protocol_version: ProtocolVersion,
-    cache: Option<&'a dyn CompiledContractCache>,
+    cache: Option<&dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let _span = tracing::debug_span!("run_wasmer1").entered();
     // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
@@ -173,10 +175,8 @@ pub fn run_wasmer1<'a>(
         );
     }
 
-    let engine = JIT::new(Singlepass::default()).engine();
-    let store = Store::new(&engine);
+    let store = default_wasmer1_store();
     let module = match cache::wasmer1_cache::compile_module_cached_wasmer1(
-        code_hash,
         &code,
         wasm_config,
         cache,
@@ -206,7 +206,7 @@ pub fn run_wasmer1<'a>(
         current_protocol_version,
     );
 
-    if logic.add_contract_compile_fee(code.len() as u64).is_err() {
+    if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
         return (
             Some(logic.outcome()),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(
@@ -226,21 +226,114 @@ pub fn run_wasmer1<'a>(
 }
 
 fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
+    let _span = tracing::debug_span!("run_method").entered();
+
     let instance = {
         let _span = tracing::debug_span!("run_method/instantiate").entered();
         Instance::new(&module, &import).map_err(|err| err.into_vm_error())?
     };
     let f = instance.exports.get_function(method_name).map_err(|err| err.into_vm_error())?;
     let f = f.native::<(), ()>().map_err(|err| err.into_vm_error())?;
-    let () = {
+
+    {
         let _span = tracing::debug_span!("run_method/call").entered();
         f.call().map_err(|err| err.into_vm_error())?
-    };
+    }
+
+    {
+        let _span = tracing::debug_span!("run_method/drop_instance").entered();
+        drop(instance)
+    }
+
     Ok(())
 }
 
-pub fn compile_module(code: &[u8]) -> bool {
-    let engine = JIT::new(Singlepass::default()).engine();
-    let store = Store::new(&engine);
+pub(crate) fn compile_wasmer1_module(code: &[u8]) -> bool {
+    let store = default_wasmer1_store();
     Module::new(&store, code).is_ok()
+}
+
+#[derive(Hash)]
+struct Wasmer1Config {
+    seed: i32,
+    use_cranelift: bool,
+    use_native_engine: bool,
+}
+
+impl Wasmer1Config {
+    fn config_hash(self: Self) -> u64 {
+        let mut s = DefaultHasher::new();
+        self.hash(&mut s);
+        s.finish()
+    }
+}
+
+const WASMER1_CONFIG: Wasmer1Config =
+    Wasmer1Config { seed: 53, use_cranelift: false, use_native_engine: false };
+
+pub(crate) fn wasmer1_vm_hash() -> u64 {
+    WASMER1_CONFIG.config_hash()
+}
+
+pub(crate) fn default_wasmer1_store() -> Store {
+    if WASMER1_CONFIG.use_native_engine {
+        let engine = if WASMER1_CONFIG.use_cranelift {
+            wasmer_engine_native::Native::new(wasmer_compiler_cranelift::Cranelift::default())
+                .engine()
+        } else {
+            wasmer_engine_native::Native::new(wasmer_compiler_singlepass::Singlepass::default())
+                .engine()
+        };
+        Store::new(&engine)
+    } else {
+        let engine = JIT::new(Singlepass::default()).engine();
+        Store::new(&engine)
+    }
+}
+
+pub(crate) fn run_wasmer1_module<'a>(
+    module: &Module,
+    store: &Store,
+    memory: &mut Wasmer1Memory,
+    method_name: &str,
+    ext: &mut dyn External,
+    context: VMContext,
+    wasm_config: &'a VMConfig,
+    fees_config: &'a RuntimeFeesConfig,
+    promise_results: &'a [PromiseResult],
+    profile: ProfileData,
+    current_protocol_version: ProtocolVersion,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    // Do we really need that code?
+    if method_name.is_empty() {
+        return (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ))),
+        );
+    }
+
+    // Note that we don't clone the actual backing memory, just increase the RC.
+    let memory_copy = memory.clone();
+
+    let mut logic = VMLogic::new_with_protocol_version(
+        ext,
+        context,
+        wasm_config,
+        fees_config,
+        promise_results,
+        memory,
+        profile,
+        current_protocol_version,
+    );
+
+    let import = imports::build_wasmer1(store, memory_copy, &mut logic, current_protocol_version);
+
+    if let Err(e) = check_method(&module, method_name) {
+        return (None, Some(e));
+    }
+
+    let err = run_method(module, &import, method_name).err();
+    (Some(logic.outcome()), err)
 }

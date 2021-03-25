@@ -5,10 +5,10 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use chrono::Utc;
-use log::{debug, error, info, warn};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use tracing::{debug, error, info, warn};
 
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
@@ -30,6 +30,7 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, SlashedValidator,
 };
+use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
     combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
@@ -2061,6 +2062,7 @@ impl Chain {
             &self.block_economics_config,
             self.doomslug_threshold_mode,
             &self.genesis,
+            self.transaction_validity_period,
         )
     }
 
@@ -2463,6 +2465,8 @@ pub struct ChainUpdate<'a> {
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
     genesis: &'a Block,
+    #[allow(unused)]
+    transaction_validity_period: BlockHeightDelta,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -2475,6 +2479,7 @@ impl<'a> ChainUpdate<'a> {
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
         genesis: &'a Block,
+        transaction_validity_period: BlockHeightDelta,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
@@ -2486,6 +2491,7 @@ impl<'a> ChainUpdate<'a> {
             block_economics_config,
             doomslug_threshold_mode,
             genesis,
+            transaction_validity_period,
         }
     }
 
@@ -2713,6 +2719,8 @@ impl<'a> ChainUpdate<'a> {
             Some(&block.hash()),
         )?;
         self.chain_store_update.save_block_extra(&block.hash(), BlockExtra { challenges_result });
+        let protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
         for (shard_id, (chunk_header, prev_chunk_header)) in
             (block.chunks().iter().zip(prev_block.chunks().iter())).enumerate()
@@ -2782,7 +2790,8 @@ impl<'a> ChainUpdate<'a> {
                         .chain_store_update
                         .get_chunk_clone_from_header(&chunk_header.clone())?;
 
-                    if !validate_transactions_order(chunk.transactions()) {
+                    let transactions = chunk.transactions();
+                    if !validate_transactions_order(transactions) {
                         let merkle_paths =
                             Block::compute_chunk_headers_root(block.chunks().iter()).1;
                         let chunk_proof = ChunkProofs {
@@ -2794,6 +2803,25 @@ impl<'a> ChainUpdate<'a> {
                             chunk_proof,
                         ))));
                     }
+
+                    checked_feature!(
+                        "protocol_feature_access_key_nonce_range",
+                        AccessKeyNonceRange,
+                        protocol_version,
+                        {
+                            let transaction_validity_period = self.transaction_validity_period;
+                            for transaction in transactions {
+                                self.chain_store_update
+                                    .get_chain_store()
+                                    .check_transaction_validity_period(
+                                        prev_block.header(),
+                                        &transaction.transaction.block_hash,
+                                        transaction_validity_period,
+                                    )
+                                    .map_err(|_| Error::from(ErrorKind::InvalidTransactions))?;
+                            }
+                        }
+                    );
 
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit;

@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
-use log::warn;
 use strum::IntoEnumIterator;
+use tracing::warn;
 
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::{Block, BlockHeader};

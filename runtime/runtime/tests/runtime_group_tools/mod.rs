@@ -57,7 +57,7 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            block_index: 0,
+            block_index: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             epoch_id: Default::default(),
@@ -175,12 +175,7 @@ impl RuntimeGroup {
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.to_string(),
-                    account: Account {
-                        amount: TESTING_INIT_BALANCE,
-                        locked: TESTING_INIT_STAKE,
-                        code_hash,
-                        storage_usage: 0,
-                    },
+                    account: Account::new(TESTING_INIT_BALANCE, TESTING_INIT_STAKE, code_hash, 0),
                 });
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.to_string(),

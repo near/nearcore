@@ -9,9 +9,9 @@ use std::time::Duration;
 use actix;
 use actix_web;
 use chrono::Utc;
-use log::info;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use lazy_static::lazy_static;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
@@ -722,7 +722,7 @@ fn add_account_with_key(
 ) {
     records.push(StateRecord::Account {
         account_id: account_id.to_string(),
-        account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
+        account: Account::new(amount, staked, code_hash, 0),
     });
     records.push(StateRecord::AccessKey {
         account_id: account_id.to_string(),
