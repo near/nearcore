@@ -846,18 +846,14 @@ fn assert_access_key(
     result: &FinalExecutionOutcomeView,
     user: Box<dyn User>,
 ) {
-    let key = {
-        #[cfg(feature = "protocol_feature_access_key_nonce_range")]
-        {
+    let key = if cfg!(feature = "protocol_feature_access_key_nonce_range") {
             let mut key = access_key.clone();
             let block = user.get_block_by_hash(result.transaction_outcome.block_hash);
             if let Some(b) = block {
                 key.nonce = (b.header.height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
             }
             key
-        }
-        #[cfg(not(feature = "protocol_feature_access_key_nonce_range"))]
-        {
+        } else  {
             let _ = (user, result);
             access_key.clone()
         }
