@@ -13,10 +13,11 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
+use tracing::debug;
 
 pub fn enable() {
     let subscriber = tracing_subscriber::Registry::default().with(Timings);
-    tracing::subscriber::set_global_default(subscriber).unwrap();
+    tracing::subscriber::set_global_default(subscriber).unwrap_or_else(|_| debug!("Global subscriber is already set"));
 }
 
 struct Timings;
