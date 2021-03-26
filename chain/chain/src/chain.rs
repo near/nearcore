@@ -5,6 +5,7 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use chrono::Utc;
+use itertools::Itertools;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -52,7 +53,6 @@ use near_primitives::types::{
     ShardId,
 };
 use near_primitives::unwrap_or_return;
-use near_primitives::utils;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::version::BLOCK_HEADER_V3_VERSION;
 use near_primitives::views::{
@@ -3088,16 +3088,15 @@ impl<'a> ChainUpdate<'a> {
 
         // Verify that proposals from chunks match block header proposals.
         let block_height = block.header().height();
-        for (hp, cp) in utils::full_zip(
-            block.header().validator_proposals(),
-            block
-                .chunks()
-                .iter()
-                .filter(|chunk| block_height == chunk.height_included())
-                .flat_map(|chunk| chunk.validator_proposals()),
-        ) {
-            match (hp, cp) {
-                (Some(hp), Some(cp)) => {
+        for pair in block
+            .chunks()
+            .iter()
+            .filter(|chunk| block_height == chunk.height_included())
+            .flat_map(|chunk| chunk.validator_proposals())
+            .zip_longest(block.header().validator_proposals())
+        {
+            match pair {
+                itertools::EitherOrBoth::Both(cp, hp) => {
                     if hp != cp {
                         // Proposals differed!
                         return Err(ErrorKind::InvalidValidatorProposals.into());
