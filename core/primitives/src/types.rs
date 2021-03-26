@@ -468,6 +468,7 @@ pub mod validator_stake {
             Self::V1(ValidatorStakeV1 { account_id, public_key, stake })
         }
 
+        #[inline]
         pub fn into_v1(self) -> ValidatorStakeV1 {
             match self {
                 Self::V1(v1) => v1,
@@ -713,6 +714,7 @@ pub mod chunk_extra {
             })
         }
 
+        #[inline]
         pub fn outcome_root(&self) -> &StateRoot {
             match self {
                 Self::V1(v1) => &v1.outcome_root,
@@ -720,6 +722,7 @@ pub mod chunk_extra {
             }
         }
 
+        #[inline]
         pub fn state_root(&self) -> &StateRoot {
             match self {
                 Self::V1(v1) => &v1.state_root,
@@ -727,6 +730,7 @@ pub mod chunk_extra {
             }
         }
 
+        #[inline]
         pub fn state_root_mut(&mut self) -> &mut StateRoot {
             match self {
                 Self::V1(v1) => &mut v1.state_root,
@@ -734,6 +738,7 @@ pub mod chunk_extra {
             }
         }
 
+        #[inline]
         pub fn validator_proposals(&self) -> ValidatorStakeIter {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validator_proposals),
@@ -741,6 +746,7 @@ pub mod chunk_extra {
             }
         }
 
+        #[inline]
         pub fn gas_limit(&self) -> Gas {
             match self {
                 Self::V1(v1) => v1.gas_limit,
@@ -748,6 +754,7 @@ pub mod chunk_extra {
             }
         }
 
+        #[inline]
         pub fn gas_used(&self) -> Gas {
             match self {
                 Self::V1(v1) => v1.gas_used,
@@ -755,6 +762,7 @@ pub mod chunk_extra {
             }
         }
 
+        #[inline]
         pub fn balance_burnt(&self) -> Balance {
             match self {
                 Self::V1(v1) => v1.balance_burnt,
@@ -793,30 +801,37 @@ pub mod chunk_extra {
             }
         }
 
+        #[inline]
         pub fn outcome_root(&self) -> &StateRoot {
             &self.outcome_root
         }
 
+        #[inline]
         pub fn state_root(&self) -> &StateRoot {
             &self.state_root
         }
 
+        #[inline]
         pub fn state_root_mut(&mut self) -> &mut StateRoot {
             &mut self.state_root
         }
 
+        #[inline]
         pub fn validator_proposals(&self) -> ValidatorStakeIter {
             ValidatorStakeIter::new(&self.validator_proposals)
         }
 
+        #[inline]
         pub fn gas_limit(&self) -> Gas {
             self.gas_limit
         }
 
+        #[inline]
         pub fn gas_used(&self) -> Gas {
             self.gas_used
         }
 
+        #[inline]
         pub fn balance_burnt(&self) -> Balance {
             self.balance_burnt
         }

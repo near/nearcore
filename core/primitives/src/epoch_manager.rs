@@ -118,6 +118,7 @@ pub mod block_info {
             })
         }
 
+        #[inline]
         pub fn proposals_iter(&self) -> ValidatorStakeIter {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.proposals),
@@ -238,6 +239,7 @@ pub mod block_info {
         }
 
         #[cfg(feature = "protocol_feature_rectify_inflation")]
+        #[inline]
         pub fn timestamp_nanosec(&self) -> &u64 {
             match self {
                 Self::V1(v1) => &v1.timestamp_nanosec,
@@ -281,6 +283,7 @@ pub mod block_info {
     pub type BlockInfo = super::BlockInfoV1;
 
     impl BlockInfo {
+        #[inline]
         pub fn proposals_iter(&self) -> ValidatorStakeIter {
             ValidatorStakeIter::new(&self.proposals)
         }
@@ -356,6 +359,7 @@ pub mod block_info {
         }
 
         #[cfg(feature = "protocol_feature_rectify_inflation")]
+        #[inline]
         pub fn timestamp_nanosec(&self) -> &u64 {
             &self.timestamp_nanosec
         }
@@ -606,6 +610,7 @@ pub mod epoch_info {
             }
         }
 
+        #[inline]
         pub fn validators_iter(&self) -> ValidatorStakeIter {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validators),
@@ -613,6 +618,7 @@ pub mod epoch_info {
             }
         }
 
+        #[inline]
         pub fn fishermen_iter(&self) -> ValidatorStakeIter {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.fishermen),
@@ -620,6 +626,7 @@ pub mod epoch_info {
             }
         }
 
+        #[inline]
         pub fn validator_stake(&self, validator_id: u64) -> Balance {
             match self {
                 Self::V1(v1) => v1.validators[validator_id as usize].stake,
@@ -627,6 +634,7 @@ pub mod epoch_info {
             }
         }
 
+        #[inline]
         pub fn validator_account_id(&self, validator_id: u64) -> &AccountId {
             match self {
                 Self::V1(v1) => &v1.validators[validator_id as usize].account_id,
@@ -634,6 +642,7 @@ pub mod epoch_info {
             }
         }
 
+        #[inline]
         pub fn account_is_validator(&self, account_id: &str) -> bool {
             match self {
                 Self::V1(v1) => v1.validator_to_index.contains_key(account_id),
@@ -660,6 +669,7 @@ pub mod epoch_info {
             }
         }
 
+        #[inline]
         pub fn get_validator(&self, validator_id: u64) -> ValidatorStake {
             match self {
                 Self::V1(v1) => ValidatorStake::V1(v1.validators[validator_id as usize].clone()),
@@ -667,6 +677,7 @@ pub mod epoch_info {
             }
         }
 
+        #[inline]
         pub fn account_is_fisherman(&self, account_id: &AccountId) -> bool {
             match self {
                 Self::V1(v1) => v1.fishermen_to_index.contains_key(account_id),
@@ -686,6 +697,7 @@ pub mod epoch_info {
             }
         }
 
+        #[inline]
         pub fn get_fisherman(&self, fisherman_id: u64) -> ValidatorStake {
             match self {
                 Self::V1(v1) => ValidatorStake::V1(v1.fishermen[fisherman_id as usize].clone()),
@@ -693,6 +705,7 @@ pub mod epoch_info {
             }
         }
 
+        #[inline]
         pub fn validators_len(&self) -> usize {
             match self {
                 Self::V1(v1) => v1.validators.len(),
@@ -815,26 +828,32 @@ pub mod epoch_info {
             &self.validator_reward
         }
 
+        #[inline]
         pub fn validators_iter(&self) -> ValidatorStakeIter {
             ValidatorStakeIter::new(&self.validators)
         }
 
+        #[inline]
         pub fn fishermen_iter(&self) -> ValidatorStakeIter {
             ValidatorStakeIter::new(&self.fishermen)
         }
 
+        #[inline]
         pub fn validator_stake(&self, validator_id: u64) -> Balance {
             self.validators[validator_id as usize].stake
         }
 
+        #[inline]
         pub fn validator_account_id(&self, validator_id: u64) -> &AccountId {
             &self.validators[validator_id as usize].account_id
         }
 
+        #[inline]
         pub fn account_is_validator(&self, account_id: &str) -> bool {
             self.validator_to_index.contains_key(account_id)
         }
 
+        #[inline]
         pub fn get_validator_id(&self, account_id: &AccountId) -> Option<&ValidatorId> {
             self.validator_to_index.get(account_id)
         }
@@ -845,10 +864,12 @@ pub mod epoch_info {
                 .map(|validator_id| self.validators[*validator_id as usize].clone())
         }
 
+        #[inline]
         pub fn get_validator(&self, validator_id: u64) -> ValidatorStake {
             self.validators[validator_id as usize].clone()
         }
 
+        #[inline]
         pub fn account_is_fisherman(&self, account_id: &AccountId) -> bool {
             self.fishermen_to_index.contains_key(account_id)
         }
@@ -859,10 +880,12 @@ pub mod epoch_info {
                 .map(|validator_id| self.fishermen[*validator_id as usize].clone())
         }
 
+        #[inline]
         pub fn get_fisherman(&self, fisherman_id: u64) -> ValidatorStake {
             self.fishermen[fisherman_id as usize].clone()
         }
 
+        #[inline]
         pub fn validators_len(&self) -> usize {
             self.validators.len()
         }
