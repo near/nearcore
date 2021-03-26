@@ -50,8 +50,8 @@ pub(crate) fn merge_refcounted_records(result: &mut Vec<u8>, val: &[u8]) {
 }
 
 /// Returns
-/// (Some(value), rc) if rc > 0
-/// (None, rc) if rc <= 0
+/// (Some(value), rc) if rc >= 0
+/// (None, rc) if rc < 0
 pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
     if bytes.len() < 8 {
         debug_assert!(bytes.is_empty());
