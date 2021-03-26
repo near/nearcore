@@ -2063,7 +2063,6 @@ dependencies = [
  "byteorder",
  "clap 2.33.3",
  "indicatif 0.15.0",
- "lazy-static-include",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -2075,6 +2074,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-telemetry",
+ "near-test-contracts",
  "neard",
  "tempfile",
 ]
@@ -2761,13 +2761,13 @@ dependencies = [
  "env_logger 0.8.3",
  "futures",
  "git-version",
- "lazy-static-include",
  "log",
  "near-crypto",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-primitives",
  "near-store",
+ "near-test-contracts",
  "neard",
  "node-runtime",
  "rand 0.7.3",
@@ -3082,7 +3082,6 @@ dependencies = [
  "chrono",
  "delay-detector",
  "futures",
- "lazy-static-include",
  "lazy_static",
  "linked-hash-map",
  "log",
@@ -3101,6 +3100,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-telemetry",
+ "near-test-contracts",
  "neard",
  "num-rational",
  "rand 0.7.3",
@@ -3564,6 +3564,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-test-contracts"
+version = "0.0.0"
+dependencies = [
+ "once_cell",
+]
+
+[[package]]
 name = "near-vm-errors"
 version = "3.0.0"
 dependencies = [
@@ -3601,9 +3608,9 @@ dependencies = [
  "bencher",
  "borsh",
  "cached",
- "lazy-static-include",
  "near-evm-runner",
  "near-primitives",
+ "near-test-contracts",
  "near-vm-errors",
  "near-vm-logic",
  "parity-wasm",
@@ -3629,6 +3636,7 @@ dependencies = [
  "clap 2.33.3",
  "near-primitives",
  "near-primitives-core",
+ "near-test-contracts",
  "near-vm-logic",
  "near-vm-runner",
  "num-rational",
@@ -3734,7 +3742,6 @@ dependencies = [
  "ethereum-types 0.11.0",
  "hex",
  "indicatif 0.13.0",
- "lazy-static-include",
  "lazy_static",
  "log",
  "near-chain-configs",
@@ -3744,6 +3751,7 @@ dependencies = [
  "near-primitives",
  "near-runtime-utils",
  "near-store",
+ "near-test-contracts",
  "near-vm-errors",
  "near-vm-logic",
  "near-vm-runner",
@@ -5510,6 +5518,7 @@ dependencies = [
  "near-network",
  "near-primitives",
  "near-store",
+ "near-test-contracts",
  "near-vm-errors",
  "neard",
  "node-runtime",
