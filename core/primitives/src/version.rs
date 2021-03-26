@@ -166,14 +166,6 @@ lazy_static! {
         nightly_protocol_features_to_version_mapping
     };
 }
-#[cfg(all(feature = "nightly_protocol", feature = "protocol_feature_block_header_v3"))]
-lazy_static! {
-    pub static ref BLOCK_HEADER_V3_VERSION: ProtocolVersion =
-        *PROTOCOL_FEATURES_TO_VERSION_MAPPING.get(&ProtocolFeature::BlockHeaderV3).unwrap();
-}
-
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-pub const BLOCK_HEADER_V3_VERSION: &'static ProtocolVersion = &u32::MAX;
 
 #[macro_export]
 macro_rules! checked_feature {

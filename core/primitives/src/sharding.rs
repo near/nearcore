@@ -11,10 +11,9 @@ use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::ValidatorSigner;
-use crate::version::{
-    ProtocolVersion, ProtocolVersionRange, BLOCK_HEADER_V3_VERSION,
-    SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use crate::version::{ProtocolFeature, PROTOCOL_FEATURES_TO_VERSION_MAPPING};
+use crate::version::{ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use reed_solomon_erasure::ReconstructShard;
 use std::sync::Arc;
 
@@ -531,15 +530,17 @@ impl ShardChunkHeader {
 
     #[cfg(feature = "protocol_feature_block_header_v3")]
     pub fn version_range(&self) -> ProtocolVersionRange {
+        let block_header_v3_version =
+            PROTOCOL_FEATURES_TO_VERSION_MAPPING.get(&ProtocolFeature::BlockHeaderV3).unwrap();
         match &self {
             ShardChunkHeader::V1(_) => {
                 ProtocolVersionRange::new(0, Some(SHARD_CHUNK_HEADER_UPGRADE_VERSION))
             }
             ShardChunkHeader::V2(_) => ProtocolVersionRange::new(
                 SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-                Some(*BLOCK_HEADER_V3_VERSION),
+                Some(*block_header_v3_version),
             ),
-            ShardChunkHeader::V3(_) => ProtocolVersionRange::new(*BLOCK_HEADER_V3_VERSION, None),
+            ShardChunkHeader::V3(_) => ProtocolVersionRange::new(*block_header_v3_version, None),
         }
     }
 }
@@ -1123,6 +1124,12 @@ impl EncodedShardChunk {
         content.reconstruct(rs).unwrap();
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        let block_header_v3_version = None;
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        let block_header_v3_version =
+            PROTOCOL_FEATURES_TO_VERSION_MAPPING.get(&ProtocolFeature::BlockHeaderV3).copied();
+
         if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
             #[cfg(feature = "protocol_feature_block_header_v3")]
             let validator_proposals =
@@ -1145,7 +1152,9 @@ impl EncodedShardChunk {
             );
             let chunk = EncodedShardChunkV1 { header, content };
             (Self::V1(chunk), merkle_paths)
-        } else if protocol_version < *BLOCK_HEADER_V3_VERSION {
+        } else if block_header_v3_version.is_none()
+            || protocol_version < block_header_v3_version.unwrap()
+        {
             #[cfg(feature = "protocol_feature_block_header_v3")]
             let validator_proposals =
                 validator_proposals.into_iter().map(|v| v.into_v1()).collect();
