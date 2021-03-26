@@ -997,6 +997,17 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
+    /// The compression function of the blake2 algorithm.
+    ///
+    /// Takes as an argument the state vector "h", message block vector "m" (the
+    /// last block is padded with zeros to full block size, if required), 2w-bit
+    /// offset counter "t", and final block indicator flag "f". Local vector
+    /// v[0..15] is used in processing. F returns a new state vector. The number
+    /// of rounds, "r", is 12 for BLAKE2b and 10 for BLAKE2s. Rounds are
+    /// numbered from 0 to r - 1.
+    ///
+    /// # Cost
+    /// base + write_register_base + write_register_byte * 64 + blake2b_f_base
     #[cfg(feature = "protocol_feature_evm")]
     pub fn blake2b_f(
         &mut self,
