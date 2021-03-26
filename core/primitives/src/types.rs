@@ -398,20 +398,12 @@ pub mod validator_stake {
     use near_primitives_core::types::{AccountId, Balance};
     use serde::Serialize;
 
+    pub use super::ValidatorStakeV1;
+
     /// Stores validator and its stake.
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
     pub enum ValidatorStake {
         V1(ValidatorStakeV1),
-    }
-
-    #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-    pub struct ValidatorStakeV1 {
-        /// Account that stakes money.
-        pub account_id: AccountId,
-        /// Public key of the proposed validator.
-        pub public_key: PublicKey,
-        /// Stake / weight of the validator.
-        pub stake: Balance,
     }
 
     pub struct ValidatorStakeIter<'a> {
@@ -551,23 +543,11 @@ pub mod validator_stake {
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 pub mod validator_stake {
     use crate::types::ApprovalStake;
-    use borsh::{BorshDeserialize, BorshSerialize};
     use near_crypto::PublicKey;
     use near_primitives_core::types::{AccountId, Balance};
-    use serde::Serialize;
 
-    /// Stores validator and its stake.
-    #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-    pub struct ValidatorStake {
-        /// Account that stakes money.
-        pub account_id: AccountId,
-        /// Public key of the proposed validator.
-        pub public_key: PublicKey,
-        /// Stake / weight of the validator.
-        pub stake: Balance,
-    }
-
-    pub type ValidatorStakeV1 = ValidatorStake;
+    pub use super::ValidatorStakeV1;
+    pub type ValidatorStake = ValidatorStakeV1;
 
     pub struct ValidatorStakeIter<'a> {
         collection: &'a [ValidatorStake],
@@ -663,6 +643,17 @@ pub mod validator_stake {
     }
 }
 
+/// Stores validator and its stake.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct ValidatorStakeV1 {
+    /// Account that stakes money.
+    pub account_id: AccountId,
+    /// Public key of the proposed validator.
+    pub public_key: PublicKey,
+    /// Stake / weight of the validator.
+    pub stake: Balance,
+}
+
 /// Information after block was processed.
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
 pub struct BlockExtra {
@@ -671,34 +662,20 @@ pub struct BlockExtra {
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 pub mod chunk_extra {
-    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
+    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::StateRoot;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, Gas};
     use serde::Serialize;
 
+    pub use super::ChunkExtraV1;
+
     /// Information after chunk was processed, used to produce or check next chunk.
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
     pub enum ChunkExtra {
         V1(ChunkExtraV1),
         V2(ChunkExtraV2),
-    }
-
-    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
-    pub struct ChunkExtraV1 {
-        /// Post state root after applying give chunk.
-        pub state_root: StateRoot,
-        /// Root of merklizing results of receipts (transactions) execution.
-        pub outcome_root: CryptoHash,
-        /// Validator proposals produced by given chunk.
-        pub validator_proposals: Vec<ValidatorStakeV1>,
-        /// Actually how much gas were used.
-        pub gas_used: Gas,
-        /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
-        pub gas_limit: Gas,
-        /// Total balance burnt after processing the current chunk.
-        pub balance_burnt: Balance,
     }
 
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
@@ -791,29 +768,11 @@ pub mod chunk_extra {
 pub mod chunk_extra {
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::StateRoot;
-    use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, Gas};
-    use serde::Serialize;
 
-    pub type ChunkExtraV1 = ChunkExtra;
-
-    /// Information after chunk was processed, used to produce or check next chunk.
-    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
-    pub struct ChunkExtra {
-        /// Post state root after applying give chunk.
-        pub state_root: StateRoot,
-        /// Root of merklizing results of receipts (transactions) execution.
-        pub outcome_root: CryptoHash,
-        /// Validator proposals produced by given chunk.
-        pub validator_proposals: Vec<ValidatorStake>,
-        /// Actually how much gas were used.
-        pub gas_used: Gas,
-        /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
-        pub gas_limit: Gas,
-        /// Total balance burnt after processing the current chunk.
-        pub balance_burnt: Balance,
-    }
+    pub use super::ChunkExtraV1;
+    pub type ChunkExtra = ChunkExtraV1;
 
     impl ChunkExtra {
         pub fn new(
@@ -862,6 +821,23 @@ pub mod chunk_extra {
             self.balance_burnt
         }
     }
+}
+
+/// Information after chunk was processed, used to produce or check next chunk.
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
+pub struct ChunkExtraV1 {
+    /// Post state root after applying give chunk.
+    pub state_root: StateRoot,
+    /// Root of merklizing results of receipts (transactions) execution.
+    pub outcome_root: CryptoHash,
+    /// Validator proposals produced by given chunk.
+    pub validator_proposals: Vec<ValidatorStakeV1>,
+    /// Actually how much gas were used.
+    pub gas_used: Gas,
+    /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+    pub gas_limit: Gas,
+    /// Total balance burnt after processing the current chunk.
+    pub balance_burnt: Balance,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]

@@ -2,7 +2,17 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use num_rational::Rational;
 use serde::Serialize;
 
-use crate::types::{Balance, BlockHeightDelta, EpochHeight, NumSeats, NumShards, ValidatorId};
+use crate::challenge::SlashedValidator;
+use crate::types::validator_stake::ValidatorStakeV1;
+use crate::types::{
+    AccountId, Balance, BlockHeightDelta, EpochHeight, EpochId, NumSeats, NumShards,
+    ProtocolVersion, ValidatorId, ValidatorKickoutReason,
+};
+use crate::version::PROTOCOL_VERSION;
+use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::BlockHeight;
+use smart_default::SmartDefault;
+use std::collections::{BTreeMap, HashMap};
 
 pub type RngSeed = [u8; 32];
 
@@ -44,13 +54,15 @@ pub struct EpochConfig {
 pub mod block_info {
     use super::SlashState;
     use crate::challenge::SlashedValidator;
-    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
+    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::EpochId;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{AccountId, Balance, BlockHeight, ProtocolVersion};
     use serde::Serialize;
     use std::collections::HashMap;
+
+    pub use super::BlockInfoV1;
 
     /// Information per each block.
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Clone, Debug)]
@@ -256,148 +268,20 @@ pub mod block_info {
         #[cfg(feature = "protocol_feature_rectify_inflation")]
         pub timestamp_nanosec: u64,
     }
-
-    #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Clone, Debug)]
-    pub struct BlockInfoV1 {
-        pub hash: CryptoHash,
-        pub height: BlockHeight,
-        pub last_finalized_height: BlockHeight,
-        pub last_final_block_hash: CryptoHash,
-        pub prev_hash: CryptoHash,
-        pub epoch_first_block: CryptoHash,
-        pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStakeV1>,
-        pub chunk_mask: Vec<bool>,
-        /// Latest protocol version this validator observes.
-        pub latest_protocol_version: ProtocolVersion,
-        /// Validators slashed since the start of epoch or in previous epoch.
-        pub slashed: HashMap<AccountId, SlashState>,
-        /// Total supply at this block.
-        pub total_supply: Balance,
-        #[cfg(feature = "protocol_feature_rectify_inflation")]
-        pub timestamp_nanosec: u64,
-    }
-
-    impl BlockInfoV1 {
-        pub fn new(
-            hash: CryptoHash,
-            height: BlockHeight,
-            last_finalized_height: BlockHeight,
-            last_final_block_hash: CryptoHash,
-            prev_hash: CryptoHash,
-            proposals: Vec<ValidatorStakeV1>,
-            validator_mask: Vec<bool>,
-            slashed: Vec<SlashedValidator>,
-            total_supply: Balance,
-            latest_protocol_version: ProtocolVersion,
-            #[cfg(feature = "protocol_feature_rectify_inflation")] timestamp_nanosec: u64,
-        ) -> Self {
-            Self {
-                hash,
-                height,
-                last_finalized_height,
-                last_final_block_hash,
-                prev_hash,
-                proposals,
-                chunk_mask: validator_mask,
-                latest_protocol_version,
-                slashed: slashed
-                    .into_iter()
-                    .map(|s| {
-                        let slash_state = if s.is_double_sign {
-                            SlashState::DoubleSign
-                        } else {
-                            SlashState::Other
-                        };
-                        (s.account_id, slash_state)
-                    })
-                    .collect(),
-                total_supply,
-                epoch_first_block: Default::default(),
-                epoch_id: Default::default(),
-                #[cfg(feature = "protocol_feature_rectify_inflation")]
-                timestamp_nanosec,
-            }
-        }
-    }
 }
 
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 pub mod block_info {
     use super::SlashState;
-    use crate::challenge::SlashedValidator;
-    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+    use crate::types::validator_stake::ValidatorStakeIter;
     use crate::types::EpochId;
-    use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{AccountId, Balance, BlockHeight, ProtocolVersion};
-    use serde::Serialize;
     use std::collections::HashMap;
 
-    /// Information per each block.
-    #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Clone, Debug)]
-    pub struct BlockInfo {
-        pub hash: CryptoHash,
-        pub height: BlockHeight,
-        pub last_finalized_height: BlockHeight,
-        pub last_final_block_hash: CryptoHash,
-        pub prev_hash: CryptoHash,
-        pub epoch_first_block: CryptoHash,
-        pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStake>,
-        pub chunk_mask: Vec<bool>,
-        /// Latest protocol version this validator observes.
-        pub latest_protocol_version: ProtocolVersion,
-        /// Validators slashed since the start of epoch or in previous epoch.
-        pub slashed: HashMap<AccountId, SlashState>,
-        /// Total supply at this block.
-        pub total_supply: Balance,
-        #[cfg(feature = "protocol_feature_rectify_inflation")]
-        pub timestamp_nanosec: u64,
-    }
+    pub type BlockInfo = super::BlockInfoV1;
 
     impl BlockInfo {
-        pub fn new(
-            hash: CryptoHash,
-            height: BlockHeight,
-            last_finalized_height: BlockHeight,
-            last_final_block_hash: CryptoHash,
-            prev_hash: CryptoHash,
-            proposals: Vec<ValidatorStake>,
-            validator_mask: Vec<bool>,
-            slashed: Vec<SlashedValidator>,
-            total_supply: Balance,
-            latest_protocol_version: ProtocolVersion,
-            #[cfg(feature = "protocol_feature_rectify_inflation")] timestamp_nanosec: u64,
-        ) -> Self {
-            Self {
-                hash,
-                height,
-                last_finalized_height,
-                last_final_block_hash,
-                prev_hash,
-                proposals,
-                chunk_mask: validator_mask,
-                latest_protocol_version,
-                slashed: slashed
-                    .into_iter()
-                    .map(|s| {
-                        let slash_state = if s.is_double_sign {
-                            SlashState::DoubleSign
-                        } else {
-                            SlashState::Other
-                        };
-                        (s.account_id, slash_state)
-                    })
-                    .collect(),
-                total_supply,
-                epoch_first_block: Default::default(),
-                epoch_id: Default::default(),
-                #[cfg(feature = "protocol_feature_rectify_inflation")]
-                timestamp_nanosec,
-            }
-        }
-
         pub fn proposals_iter(&self) -> ValidatorStakeIter {
             ValidatorStakeIter::new(&self.proposals)
         }
@@ -479,13 +363,75 @@ pub mod block_info {
     }
 }
 
+/// Information per each block.
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Clone, Debug)]
+pub struct BlockInfoV1 {
+    pub hash: CryptoHash,
+    pub height: BlockHeight,
+    pub last_finalized_height: BlockHeight,
+    pub last_final_block_hash: CryptoHash,
+    pub prev_hash: CryptoHash,
+    pub epoch_first_block: CryptoHash,
+    pub epoch_id: EpochId,
+    pub proposals: Vec<ValidatorStakeV1>,
+    pub chunk_mask: Vec<bool>,
+    /// Latest protocol version this validator observes.
+    pub latest_protocol_version: ProtocolVersion,
+    /// Validators slashed since the start of epoch or in previous epoch.
+    pub slashed: HashMap<AccountId, SlashState>,
+    /// Total supply at this block.
+    pub total_supply: Balance,
+    #[cfg(feature = "protocol_feature_rectify_inflation")]
+    pub timestamp_nanosec: u64,
+}
+
+impl BlockInfoV1 {
+    pub fn new(
+        hash: CryptoHash,
+        height: BlockHeight,
+        last_finalized_height: BlockHeight,
+        last_final_block_hash: CryptoHash,
+        prev_hash: CryptoHash,
+        proposals: Vec<ValidatorStakeV1>,
+        validator_mask: Vec<bool>,
+        slashed: Vec<SlashedValidator>,
+        total_supply: Balance,
+        latest_protocol_version: ProtocolVersion,
+        #[cfg(feature = "protocol_feature_rectify_inflation")] timestamp_nanosec: u64,
+    ) -> Self {
+        Self {
+            hash,
+            height,
+            last_finalized_height,
+            last_final_block_hash,
+            prev_hash,
+            proposals,
+            chunk_mask: validator_mask,
+            latest_protocol_version,
+            slashed: slashed
+                .into_iter()
+                .map(|s| {
+                    let slash_state =
+                        if s.is_double_sign { SlashState::DoubleSign } else { SlashState::Other };
+                    (s.account_id, slash_state)
+                })
+                .collect(),
+            total_supply,
+            epoch_first_block: Default::default(),
+            epoch_id: Default::default(),
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            timestamp_nanosec,
+        }
+    }
+}
+
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
-    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
+    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
@@ -496,6 +442,8 @@ pub mod epoch_info {
     use serde::Serialize;
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
+
+    pub use super::EpochInfoV1;
 
     /// Information per epoch.
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
@@ -508,42 +456,6 @@ pub mod epoch_info {
         fn default() -> Self {
             Self::V2(EpochInfoV2::default())
         }
-    }
-
-    #[derive(
-        SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq,
-    )]
-    pub struct EpochInfoV1 {
-        /// Ordinal of given epoch from genesis.
-        /// There can be multiple epochs with the same ordinal in case of long forks.
-        pub epoch_height: EpochHeight,
-        /// List of current validators.
-        pub validators: Vec<ValidatorStakeV1>,
-        /// Validator account id to index in proposals.
-        pub validator_to_index: HashMap<AccountId, ValidatorId>,
-        /// Settlement of validators responsible for block production.
-        pub block_producers_settlement: Vec<ValidatorId>,
-        /// Per each shard, settlement validators that are responsible.
-        pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-        /// Settlement of hidden validators with weights used to determine how many shards they will validate.
-        pub hidden_validators_settlement: Vec<ValidatorWeight>,
-        /// List of current fishermen.
-        pub fishermen: Vec<ValidatorStakeV1>,
-        /// Fisherman account id to index of proposal.
-        pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
-        /// New stake for validators.
-        pub stake_change: BTreeMap<AccountId, Balance>,
-        /// Validator reward for the epoch.
-        pub validator_reward: HashMap<AccountId, Balance>,
-        /// Validators who are kicked out in this epoch.
-        pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
-        /// Total minted tokens in the epoch.
-        pub minted_amount: Balance,
-        /// Seat price of this epoch.
-        pub seat_price: Balance,
-        /// Current protocol version during this epoch.
-        #[default(PROTOCOL_VERSION)]
-        pub protocol_version: ProtocolVersion,
     }
 
     // V1 -> V2: Use versioned ValidatorStake structure in validators and fishermen
@@ -812,54 +724,15 @@ pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
-    use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{
         AccountId, Balance, EpochHeight, ProtocolVersion, ValidatorId,
     };
-    use serde::Serialize;
-    use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
-    pub type EpochInfoV1 = EpochInfo;
-
-    /// Information per epoch.
-    #[derive(
-        SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq,
-    )]
-    pub struct EpochInfo {
-        /// Ordinal of given epoch from genesis.
-        /// There can be multiple epochs with the same ordinal in case of long forks.
-        pub epoch_height: EpochHeight,
-        /// List of current validators.
-        pub validators: Vec<ValidatorStake>,
-        /// Validator account id to index in proposals.
-        pub validator_to_index: HashMap<AccountId, ValidatorId>,
-        /// Settlement of validators responsible for block production.
-        pub block_producers_settlement: Vec<ValidatorId>,
-        /// Per each shard, settlement validators that are responsible.
-        pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-        /// Settlement of hidden validators with weights used to determine how many shards they will validate.
-        pub hidden_validators_settlement: Vec<ValidatorWeight>,
-        /// List of current fishermen.
-        pub fishermen: Vec<ValidatorStake>,
-        /// Fisherman account id to index of proposal.
-        pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
-        /// New stake for validators.
-        pub stake_change: BTreeMap<AccountId, Balance>,
-        /// Validator reward for the epoch.
-        pub validator_reward: HashMap<AccountId, Balance>,
-        /// Validators who are kicked out in this epoch.
-        pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
-        /// Total minted tokens in the epoch.
-        pub minted_amount: Balance,
-        /// Seat price of this epoch.
-        pub seat_price: Balance,
-        /// Current protocol version during this epoch.
-        #[default(PROTOCOL_VERSION)]
-        pub protocol_version: ProtocolVersion,
-    }
+    pub use super::EpochInfoV1;
+    pub type EpochInfo = super::EpochInfoV1;
 
     impl EpochInfo {
         pub fn new(
@@ -1011,6 +884,41 @@ pub mod epoch_info {
         /// Protocol version for next epoch.
         pub next_version: ProtocolVersion,
     }
+}
+
+/// Information per epoch.
+#[derive(SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct EpochInfoV1 {
+    /// Ordinal of given epoch from genesis.
+    /// There can be multiple epochs with the same ordinal in case of long forks.
+    pub epoch_height: EpochHeight,
+    /// List of current validators.
+    pub validators: Vec<ValidatorStakeV1>,
+    /// Validator account id to index in proposals.
+    pub validator_to_index: HashMap<AccountId, ValidatorId>,
+    /// Settlement of validators responsible for block production.
+    pub block_producers_settlement: Vec<ValidatorId>,
+    /// Per each shard, settlement validators that are responsible.
+    pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    /// Settlement of hidden validators with weights used to determine how many shards they will validate.
+    pub hidden_validators_settlement: Vec<ValidatorWeight>,
+    /// List of current fishermen.
+    pub fishermen: Vec<ValidatorStakeV1>,
+    /// Fisherman account id to index of proposal.
+    pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
+    /// New stake for validators.
+    pub stake_change: BTreeMap<AccountId, Balance>,
+    /// Validator reward for the epoch.
+    pub validator_reward: HashMap<AccountId, Balance>,
+    /// Validators who are kicked out in this epoch.
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    /// Total minted tokens in the epoch.
+    pub minted_amount: Balance,
+    /// Seat price of this epoch.
+    pub seat_price: Balance,
+    /// Current protocol version during this epoch.
+    #[default(PROTOCOL_VERSION)]
+    pub protocol_version: ProtocolVersion,
 }
 
 /// State that a slashed validator can be in.

@@ -1109,12 +1109,12 @@ impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 pub mod validator_stake_view {
-    use crate::serialize::u128_dec_format;
     use crate::types::validator_stake::ValidatorStake;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_crypto::PublicKey;
-    use near_primitives_core::types::{AccountId, Balance};
+    use near_primitives_core::types::AccountId;
     use serde::{Deserialize, Serialize};
+
+    pub use super::ValidatorStakeViewV1;
 
     #[derive(
         BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
@@ -1144,16 +1144,6 @@ pub mod validator_stake_view {
         }
     }
 
-    #[derive(
-        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
-    )]
-    pub struct ValidatorStakeViewV1 {
-        pub account_id: AccountId,
-        pub public_key: PublicKey,
-        #[serde(with = "u128_dec_format")]
-        pub stake: Balance,
-    }
-
     impl From<ValidatorStake> for ValidatorStakeView {
         fn from(stake: ValidatorStake) -> Self {
             match stake {
@@ -1177,22 +1167,11 @@ pub mod validator_stake_view {
 
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 pub mod validator_stake_view {
-    use crate::serialize::u128_dec_format;
     use crate::types::validator_stake::ValidatorStake;
-    use borsh::{BorshDeserialize, BorshSerialize};
-    use near_crypto::PublicKey;
-    use near_primitives_core::types::{AccountId, Balance};
-    use serde::{Deserialize, Serialize};
+    use near_primitives_core::types::AccountId;
 
-    #[derive(
-        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
-    )]
-    pub struct ValidatorStakeView {
-        pub account_id: AccountId,
-        pub public_key: PublicKey,
-        #[serde(with = "u128_dec_format")]
-        pub stake: Balance,
-    }
+    pub use super::ValidatorStakeViewV1;
+    pub type ValidatorStakeView = ValidatorStakeViewV1;
 
     impl ValidatorStakeView {
         #[inline]
@@ -1217,6 +1196,14 @@ pub mod validator_stake_view {
             Self { account_id: view.account_id, public_key: view.public_key, stake: view.stake }
         }
     }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct ValidatorStakeViewV1 {
+    pub account_id: AccountId,
+    pub public_key: PublicKey,
+    #[serde(with = "u128_dec_format")]
+    pub stake: Balance,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
