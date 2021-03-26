@@ -285,6 +285,12 @@ mod test {
     }
 
     #[test]
+    fn test_delete_account_signer_is_receiver() {
+        let node = create_runtime_node();
+        test_delete_account_ok(node);
+    }
+
+    #[test]
     fn test_delete_account_has_enough_money_runtime() {
         let node = create_runtime_node();
         test_delete_account_fail(node);

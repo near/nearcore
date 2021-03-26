@@ -1170,6 +1170,20 @@ pub fn test_fail_not_enough_balance_for_storage(node: impl Node) {
     node_user.send_money(account_id, alice_account(), 10).unwrap_err();
 }
 
+pub fn test_delete_account_ok(node: impl Node) {
+    let money_used = TESTING_INIT_BALANCE / 2;
+    let node_user = node.user();
+    let _ = node_user.create_account(
+        alice_account(),
+        eve_dot_alice_account(),
+        node.signer().public_key(),
+        money_used,
+    );
+    let transaction_result =
+        node_user.delete_account(eve_dot_alice_account(), eve_dot_alice_account()).unwrap();
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+}
+
 pub fn test_delete_account_fail(node: impl Node) {
     let money_used = TESTING_INIT_BALANCE / 2;
     let node_user = node.user();

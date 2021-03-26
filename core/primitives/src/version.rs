@@ -109,7 +109,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 999;
+pub const PROTOCOL_VERSION: ProtocolVersion = 109;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
@@ -155,7 +155,7 @@ lazy_static! {
             #[cfg(feature = "protocol_feature_tx_size_limit")]
             (ProtocolFeature::TransactionSizeLimit, 108),
             #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
-            (ProtocolFeature::AccountVersions, 999),
+            (ProtocolFeature::AllowCreateAccountOnDelete, 109),
         ]
         .into_iter()
         .collect();
