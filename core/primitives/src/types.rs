@@ -552,14 +552,13 @@ pub mod validator_stake {
     pub type ValidatorStake = ValidatorStakeV1;
 
     pub struct ValidatorStakeIter<'a> {
-        collection: &'a [ValidatorStake],
-        curr_index: usize,
+        inner: std::slice::Iter<'a, ValidatorStake>,
         len: usize,
     }
 
     impl<'a> ValidatorStakeIter<'a> {
         pub fn empty() -> Self {
-            Self { collection: &[], curr_index: 0, len: 0 }
+            Self { inner: (&[]).iter(), len: 0 }
         }
 
         pub fn v1(collection: &'a [ValidatorStakeV1]) -> Self {
@@ -567,7 +566,7 @@ pub mod validator_stake {
         }
 
         pub fn new(collection: &'a [ValidatorStake]) -> Self {
-            Self { collection, curr_index: 0, len: collection.len() }
+            Self { inner: collection.iter(), len: collection.len() }
         }
 
         pub fn len(&self) -> usize {
@@ -579,13 +578,7 @@ pub mod validator_stake {
         type Item = ValidatorStake;
 
         fn next(&mut self) -> Option<Self::Item> {
-            if self.curr_index < self.len {
-                let item = self.collection[self.curr_index].clone();
-                self.curr_index += 1;
-                Some(item)
-            } else {
-                None
-            }
+            self.inner.next().cloned()
         }
     }
 
