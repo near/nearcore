@@ -227,8 +227,7 @@ fn evm_slow_deserialize_repro() {
     script.contract_cache(true);
 
     // From near-evm repo, the version of when slow issue reported
-    let contract =
-        script.contract_from_file(Path::new("repro/near_evm.wasm"));
+    let contract = script.contract_from_file(Path::new("repro/near_evm.wasm"));
 
     let input = hex::decode(&include_bytes!("../repro/ZombieOwnership.bin")).unwrap();
 
@@ -236,4 +235,3 @@ fn evm_slow_deserialize_repro() {
     let res = script.run();
     assert_eq!(res.outcomes[0].1, None);
 }
-
