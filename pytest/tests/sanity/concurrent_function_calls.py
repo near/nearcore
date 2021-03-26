@@ -22,7 +22,7 @@ hash_ = base58.b58decode(hash_.encode('utf8'))
 tx = sign_deploy_contract_tx(
     nodes[0].signer_key,
     load_binary_file(
-        '../runtime/near-vm-runner/tests/res/test_contract_rs.wasm'), 10, hash_)
+        '../runtime/near-test-contracts/res/test_contract_rs.wasm'), 10, hash_)
 nodes[0].send_tx(tx)
 
 time.sleep(3)

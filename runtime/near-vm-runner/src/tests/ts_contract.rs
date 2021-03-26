@@ -9,14 +9,10 @@ use near_vm_logic::{External, VMConfig, VMKind};
 use crate::run_vm;
 use crate::tests::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 
-lazy_static_include::lazy_static_include_bytes! {
-    TEST_CONTRACT => "tests/res/test_contract_ts.wasm"
-}
-
 #[test]
 pub fn test_ts_contract() {
     with_vm_variants(|vm_kind: VMKind| {
-        let code = ContractCode::new(TEST_CONTRACT.to_vec(), None);
+        let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(Vec::new());
