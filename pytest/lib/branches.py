@@ -68,6 +68,8 @@ def compile_current():
     try:
         # Accommodate rename from near to neard
         subprocess.check_output(['cargo', 'build', '-p', 'neard'])
+
+        subprocess.check_output(['cargo', 'build', '-p', 'near-test-contracts'])
     except:
         subprocess.check_output(['cargo', 'build', '-p', 'near'])
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])

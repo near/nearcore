@@ -2538,10 +2538,12 @@ mod test {
             1,
             true
         ));
-        assert!(
-            env.runtime.cares_about_shard(Some(&validators[1]), &env.head.last_block_hash, 0, true),
+        assert!(env.runtime.cares_about_shard(
+            Some(&validators[1]),
+            &env.head.last_block_hash,
+            0,
             true
-        );
+        ));
         assert!(env.runtime.cares_about_shard(
             Some(&validators[1]),
             &env.head.last_block_hash,

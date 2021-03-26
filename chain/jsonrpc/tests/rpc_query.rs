@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::str::FromStr;
 
 use actix::{Actor, System};
 use futures::{future, FutureExt};
@@ -32,7 +32,7 @@ fn test_block_by_id_height() {
         assert_eq!(block.header.prev_hash.0.as_ref(), &[0; 32]);
         assert_eq!(
             block.header.prev_state_root,
-            CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+            CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
         );
         assert!(block.header.timestamp > 0);
         assert_eq!(block.header.validator_proposals.len(), 0);
@@ -77,7 +77,7 @@ fn test_block_query() {
             assert_eq!(block.header.prev_hash.as_ref(), &[0; 32]);
             assert_eq!(
                 block.header.prev_state_root,
-                CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+                CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
             );
             assert!(block.header.timestamp > 0);
             assert_eq!(block.header.validator_proposals.len(), 0);
@@ -669,7 +669,7 @@ fn test_validators_non_existing_block_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let validators_response = client
             .validators(Some(near_primitives::types::BlockId::Hash(
-                near_primitives::hash::CryptoHash::try_from(
+                near_primitives::hash::CryptoHash::from_str(
                     "123PXBoQKnTnARA49ctEzAiradrAAAEtLRCJGpjH24qC",
                 )
                 .unwrap(),

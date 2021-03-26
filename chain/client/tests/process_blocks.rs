@@ -1,7 +1,7 @@
 use std::collections::HashSet;
-use std::convert::TryFrom;
 use std::iter::FromIterator;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -1846,7 +1846,7 @@ fn test_sync_hash_validity() {
             assert!(!res.unwrap())
         }
     }
-    let bad_hash = CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
+    let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
     println!("bad hash -> {:?}", res.is_ok());
     match res {
@@ -1889,10 +1889,6 @@ fn test_block_height_processed_orphan() {
     assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
 }
 
-lazy_static_include::lazy_static_include_bytes! {
-    TEST_CONTRACT => "../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm"
-}
-
 #[test]
 fn test_validate_chunk_extra() {
     let epoch_length = 5;
@@ -1913,7 +1909,9 @@ fn test_validate_chunk_extra() {
         "test0".to_string(),
         "test0".to_string(),
         &signer,
-        vec![Action::DeployContract(DeployContractAction { code: TEST_CONTRACT.to_vec() })],
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
         *genesis_block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);

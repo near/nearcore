@@ -53,7 +53,9 @@ pub struct AccountInfo {
 ///
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
-#[derive(Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
+)]
 #[as_ref(forward)]
 pub struct StoreKey(Vec<u8>);
 
@@ -61,7 +63,9 @@ pub struct StoreKey(Vec<u8>);
 ///
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
-#[derive(Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
+)]
 #[as_ref(forward)]
 pub struct StoreValue(Vec<u8>);
 
@@ -70,7 +74,9 @@ pub struct StoreValue(Vec<u8>);
 /// NOTE: The main reason for this to exist (except the type-safety) is that the value is
 /// transparently serialized and deserialized as a base64-encoded string when serde is used
 /// (serde_json).
-#[derive(Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
+)]
 #[as_ref(forward)]
 pub struct FunctionArgs(Vec<u8>);
 
@@ -296,8 +302,11 @@ impl StateChanges {
         Ok(state_changes
             .into_iter()
             .filter(|state_change| {
-                matches!(state_change.value, StateChangeValue::AccountUpdate { .. }
-                | StateChangeValue::AccountDeletion { .. })
+                matches!(
+                    state_change.value,
+                    StateChangeValue::AccountUpdate { .. }
+                        | StateChangeValue::AccountDeletion { .. }
+                )
             })
             .collect())
     }
@@ -310,8 +319,11 @@ impl StateChanges {
         Ok(state_changes
             .into_iter()
             .filter(|state_change| {
-                matches!(state_change.value, StateChangeValue::AccessKeyUpdate { .. }
-                | StateChangeValue::AccessKeyDeletion { .. })
+                matches!(
+                    state_change.value,
+                    StateChangeValue::AccessKeyUpdate { .. }
+                        | StateChangeValue::AccessKeyDeletion { .. }
+                )
             })
             .collect())
     }
@@ -324,8 +336,11 @@ impl StateChanges {
         Ok(state_changes
             .into_iter()
             .filter(|state_change| {
-                matches!(state_change.value,StateChangeValue::ContractCodeUpdate { .. }
-                | StateChangeValue::ContractCodeDeletion { .. } )
+                matches!(
+                    state_change.value,
+                    StateChangeValue::ContractCodeUpdate { .. }
+                        | StateChangeValue::ContractCodeDeletion { .. }
+                )
             })
             .collect())
     }
@@ -337,7 +352,12 @@ impl StateChanges {
 
         Ok(state_changes
             .into_iter()
-            .filter(|state_change| matches!(state_change.value, StateChangeValue::DataUpdate { .. } | StateChangeValue::DataDeletion { .. }))
+            .filter(|state_change| {
+                matches!(
+                    state_change.value,
+                    StateChangeValue::DataUpdate { .. } | StateChangeValue::DataDeletion { .. }
+                )
+            })
             .collect())
     }
 }

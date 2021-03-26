@@ -20,7 +20,9 @@ pub struct VMConfig {
 }
 
 /// Describes limits for VM and Runtime.
+/// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[serde(default)]
 pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
@@ -68,6 +70,9 @@ pub struct VMLimitConfig {
     pub max_length_returned_data: u64,
     /// Max contract size
     pub max_contract_size: u64,
+    /// Max transaction size
+    #[cfg(feature = "protocol_feature_tx_size_limit")]
+    pub max_transaction_size: u64,
     /// Max storage key size
     pub max_length_storage_key: u64,
     /// Max storage value size
@@ -149,6 +154,8 @@ impl Default for VMLimitConfig {
             max_arguments_length: 4 * 2u64.pow(20), // 4 Mib
             max_length_returned_data: 4 * 2u64.pow(20), // 4 Mib
             max_contract_size: 4 * 2u64.pow(20),    // 4 Mib,
+            #[cfg(feature = "protocol_feature_tx_size_limit")]
+            max_transaction_size: 4 * 2u64.pow(20), // 4 Mib
 
             max_length_storage_key: 4 * 2u64.pow(20), // 4 Mib
             max_length_storage_value: 4 * 2u64.pow(20), // 4 Mib

@@ -42,7 +42,7 @@ impl Transaction {
     }
 
     pub fn sign(self, signer: &dyn Signer) -> SignedTransaction {
-        let signature = signer.sign(self.get_hash().as_ref());
+        let signature = signer.sign(self.get_hash_and_size().0.as_ref());
         SignedTransaction::new(signature, self)
     }
 

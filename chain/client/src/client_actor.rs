@@ -707,7 +707,9 @@ impl ClientActor {
         let latest_known = self.client.chain.mut_store().get_latest_known()?;
         assert!(
             head.height <= latest_known.height,
-            format!("Latest known height is invalid {} vs {}", head.height, latest_known.height)
+            "Latest known height is invalid {} vs {}",
+            head.height,
+            latest_known.height
         );
 
         let epoch_id =

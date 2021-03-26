@@ -82,7 +82,7 @@ pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAd
 }
 
 /// Validates that the given transactions are in proper valid order.
-/// See https://nomicon.io/BlockchainLayer/Transactions.html#transaction-ordering
+/// See https://nomicon.io/ChainSpec/Transactions.html#transaction-ordering
 pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
     let mut nonces: HashMap<(&AccountId, &PublicKey), Nonce> = HashMap::new();
     let mut batches: HashMap<(&AccountId, &PublicKey), usize> = HashMap::new();

@@ -200,8 +200,7 @@ fn vm_script_smoke_test() {
     let mut script = Script::default();
     script.contract_cache(true);
 
-    let contract =
-        script.contract_from_file(Path::new("../near-vm-runner/tests/res/test_contract_rs.wasm"));
+    let contract = script.contract(near_test_contracts::rs_contract().to_vec());
 
     script.step(contract, "log_something").repeat(3);
     script.step(contract, "sum_n").input(100u64.to_le_bytes().to_vec());

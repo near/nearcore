@@ -10,7 +10,6 @@ byteorder = "1.2"
 indicatif = "0.15.0"
 clap = "2.33.0"
 tempfile = "3"
-lazy-static-include = "3"
 
 neard = { path = "../../neard" }
 near-chain-configs = { path = "../../core/chain-configs" }
@@ -24,3 +23,4 @@ near-network = { path = "../../chain/network" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-telemetry = { path = "../../chain/telemetry" }
 near-epoch-manager = { path = "../../chain/epoch_manager" }
+near-test-contracts = { path = "../../runtime/near-test-contracts" }
