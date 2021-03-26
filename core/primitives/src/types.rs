@@ -407,6 +407,7 @@ pub mod validator_stake {
         V1(ValidatorStakeV1),
     }
 
+    #[derive(PartialEq, Eq)]
     pub struct ValidatorStakeIter<'a> {
         collection: ValidatorStakeIterSource<'a>,
         curr_index: usize,
@@ -458,6 +459,7 @@ pub mod validator_stake {
         }
     }
 
+    #[derive(PartialEq, Eq)]
     enum ValidatorStakeIterSource<'a> {
         V1(&'a [ValidatorStakeV1]),
         V2(&'a [ValidatorStake]),
@@ -551,14 +553,16 @@ pub mod validator_stake {
     pub use super::ValidatorStakeV1;
     pub type ValidatorStake = ValidatorStakeV1;
 
+    #[derive(PartialEq, Eq)]
     pub struct ValidatorStakeIter<'a> {
-        inner: std::slice::Iter<'a, ValidatorStake>,
+        collection: &'a [ValidatorStake],
+        curr_index: usize,
         len: usize,
     }
 
     impl<'a> ValidatorStakeIter<'a> {
         pub fn empty() -> Self {
-            Self { inner: (&[]).iter(), len: 0 }
+            Self { collection: &[], curr_index: 0, len: 0 }
         }
 
         pub fn v1(collection: &'a [ValidatorStakeV1]) -> Self {
@@ -566,7 +570,7 @@ pub mod validator_stake {
         }
 
         pub fn new(collection: &'a [ValidatorStake]) -> Self {
-            Self { inner: collection.iter(), len: collection.len() }
+            Self { collection, curr_index: 0, len: collection.len() }
         }
 
         pub fn len(&self) -> usize {
@@ -578,7 +582,13 @@ pub mod validator_stake {
         type Item = ValidatorStake;
 
         fn next(&mut self) -> Option<Self::Item> {
-            self.inner.next().cloned()
+            if self.curr_index < self.len {
+                let item = self.collection[self.curr_index].clone();
+                self.curr_index += 1;
+                Some(item)
+            } else {
+                None
+            }
         }
     }
 
