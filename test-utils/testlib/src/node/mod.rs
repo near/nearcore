@@ -1,4 +1,3 @@
-use std::panic;
 use std::sync::Arc;
 use std::sync::RwLock;
 

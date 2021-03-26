@@ -24,7 +24,7 @@ wasmer-compiler-cranelift = { version = "1.0.2", optional = true }
 wasmer-engine-native = { version = "1.0.2", optional = true }
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
-wasmtime = { version = "0.20.0", default-features = false, optional = true }
+wasmtime = { version = "0.25.0", default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
 near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", default-features = false, features = [] }
 near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
