@@ -1119,7 +1119,7 @@ pub mod validator_stake_view {
     #[derive(
         BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
     )]
-    #[serde(tag = "version")]
+    #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStakeView {
         V1(ValidatorStakeViewV1),
     }

@@ -126,9 +126,9 @@ def validate_light_client_block(last_known_block,
         for i in range(3):
             serialized_next_bp.append(0)
         for bp in new_block['next_bps']:
-            if 'version' in bp:
+            if 'validator_stake_struct_version' in bp:
                 # version of ValidatorStake enum
-                version = int(bp['version'][1:]) - 1
+                version = int(bp['validator_stake_struct_version'][1:]) - 1
                 serialized_next_bp.append(version)
             serialized_next_bp.append(5)
             for i in range(3):
