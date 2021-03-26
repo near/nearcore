@@ -12,11 +12,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
-lazy_static_include::lazy_static_include_bytes! {
-    TEST_CONTRACT_1 => "tests/res/test_contract_rs.wasm",
-    TEST_CONTRACT_2 => "tests/res/test_contract_ts.wasm",
-}
-
 fn default_vm_context() -> VMContext {
     return VMContext {
         current_account_id: "alice".to_string(),
@@ -92,8 +87,8 @@ fn test_result(result: (Option<VMOutcome>, Option<VMError>), check_gas: bool) ->
 }
 
 fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
-    let code1 = Arc::new(ContractCode::new(TEST_CONTRACT_1.to_vec(), None));
-    let code2 = Arc::new(ContractCode::new(TEST_CONTRACT_2.to_vec(), None));
+    let code1 = Arc::new(ContractCode::new(near_test_contracts::rs_contract().to_vec(), None));
+    let code2 = Arc::new(ContractCode::new(near_test_contracts::ts_contract().to_vec(), None));
     let method_name1 = "log_something";
 
     let mut fake_external = MockedExternal::new();

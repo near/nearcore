@@ -34,6 +34,7 @@ near-primitives = { path = "../../core/primitives", version = "0.1.0" }
 
 [dev-dependencies]
 hex = "0.4"
+near-test-contracts = { path = "../near-test-contracts" }
 
 [features]
 default = []
