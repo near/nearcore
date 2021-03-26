@@ -402,6 +402,7 @@ pub mod validator_stake {
 
     /// Stores validator and its stake.
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+    #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStake {
         V1(ValidatorStakeV1),
     }
@@ -667,18 +668,17 @@ pub mod chunk_extra {
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, Gas};
-    use serde::Serialize;
 
     pub use super::ChunkExtraV1;
 
     /// Information after chunk was processed, used to produce or check next chunk.
-    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
+    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
     pub enum ChunkExtra {
         V1(ChunkExtraV1),
         V2(ChunkExtraV2),
     }
 
-    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
+    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
     pub struct ChunkExtraV2 {
         /// Post state root after applying give chunk.
         pub state_root: StateRoot,
@@ -824,7 +824,7 @@ pub mod chunk_extra {
 }
 
 /// Information after chunk was processed, used to produce or check next chunk.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
 pub struct ChunkExtraV1 {
     /// Post state root after applying give chunk.
     pub state_root: StateRoot,
