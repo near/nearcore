@@ -854,7 +854,6 @@ fn assert_access_key(
         }
         key
     } else {
-        let _ = (user, result);
         access_key.clone()
     };
     assert_eq!(access_key_view, key.into());
