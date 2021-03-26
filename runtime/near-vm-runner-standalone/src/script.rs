@@ -221,8 +221,6 @@ fn vm_script_smoke_test() {
 
 #[test]
 fn evm_slow_deserialize_repro() {
-    use near_vm_logic::ReturnData;
-
     crate::tracing_timings::enable();
 
     let mut script = Script::default();
