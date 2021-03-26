@@ -50,7 +50,7 @@ assert (initial_balances[1] + 100) % 1000 == new_balances[1] % 1000
 tx = sign_deploy_contract_tx(
     accounts[2],
     load_binary_file(
-        '../runtime/near-vm-runner/tests/res/test_contract_rs.wasm'),
+        '../runtime/near-test-contracts/res/test_contract_rs.wasm'),
     nonces[2] + 1, last_block_hash_decoded)
 nodes[0].send_tx_and_wait(tx, timeout=20)
 
