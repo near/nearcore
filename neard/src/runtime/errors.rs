@@ -1,5 +1,4 @@
 use near_chain::near_chain_primitives::error::QueryError;
-use node_runtime::state_viewer::errors::ViewStateError;
 
 #[easy_ext::ext(FromStateViewerErrors)]
 impl QueryError {
@@ -75,12 +74,12 @@ impl QueryError {
             node_runtime::state_viewer::errors::ViewStateError::InternalError { error_message } => {
                 Self::InternalError { error_message, block_height, block_hash }
             }
-            ViewStateError::AccountDoesNotExist { requested_account_id } => {
-                Self::InvalidAccount { requested_account_id, block_height, block_hash }
-            }
-            ViewStateError::AccountStateTooLarge { requested_account_id } => {
-                Self::InvalidAccount { requested_account_id, block_height, block_hash }
-            }
+            node_runtime::state_viewer::errors::ViewStateError::AccountDoesNotExist {
+                requested_account_id,
+            } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewStateError::AccountStateTooLarge {
+                requested_account_id,
+            } => Self::TooLargeContractState { requested_account_id, block_height, block_hash },
         }
     }
 
