@@ -6,7 +6,7 @@ use std::time::Duration;
 use near_crypto::Signature;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
-use near_primitives::time::{InstantProxy, Instant};
+use near_primitives::time::{Instant, InstantProxy};
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
 
@@ -383,7 +383,7 @@ impl Doomslug {
             //     then error
             // if (timer.started + skip_delay < timer.last_endorsement_sent + endorsement_delay)
             //     then error
-            // timer.last_endorsement_sent + endorsement_delay 
+            // timer.last_endorsement_sent + endorsement_delay
 
             if self.endorsement_pending
                 && cur_time >= self.timer.last_endorsement_sent + self.timer.endorsement_delay
@@ -401,7 +401,16 @@ impl Doomslug {
             }
 
             if cur_time >= self.timer.started + skip_delay {
-                debug_assert!(!self.endorsement_pending, "!self.endorsement_pending {:?} + {:?} < {:?} < {:?} + {:?} @ {}", self.timer.started, skip_delay, cur_time, self.timer.last_endorsement_sent, self.timer.endorsement_delay, i);
+                debug_assert!(
+                    !self.endorsement_pending,
+                    "!self.endorsement_pending {:?} + {:?} < {:?} < {:?} + {:?} @ {}",
+                    self.timer.started,
+                    skip_delay,
+                    cur_time,
+                    self.timer.last_endorsement_sent,
+                    self.timer.endorsement_delay,
+                    i
+                );
 
                 self.largest_target_height =
                     std::cmp::max(self.timer.height + 1, self.largest_target_height);
@@ -418,7 +427,7 @@ impl Doomslug {
             }
             // if i == MAX_TIMER_ITERS - 1 {
             //     // We reached the end of iteration.
-                
+
             // }
         }
 
@@ -917,7 +926,12 @@ mod tests {
         let a2_3 = Approval::new(hash(&[3]), 3, 4, &signers[2]);
 
         // Process first approval, and then process it again and make sure it works
-        tracker.process_approval(Instant::now_in_test(), &a1_1, &stakes, DoomslugThresholdMode::TwoThirds);
+        tracker.process_approval(
+            Instant::now_in_test(),
+            &a1_1,
+            &stakes,
+            DoomslugThresholdMode::TwoThirds,
+        );
 
         assert_eq!(
             tracker
@@ -937,7 +951,12 @@ mod tests {
             0
         );
 
-        tracker.process_approval(Instant::now_in_test(), &a1_1, &stakes, DoomslugThresholdMode::TwoThirds);
+        tracker.process_approval(
+            Instant::now_in_test(),
+            &a1_1,
+            &stakes,
+            DoomslugThresholdMode::TwoThirds,
+        );
 
         assert_eq!(
             tracker
@@ -958,8 +977,18 @@ mod tests {
         );
 
         // Process the remaining two approvals on the first block
-        tracker.process_approval(Instant::now_in_test(), &a1_2, &stakes, DoomslugThresholdMode::TwoThirds);
-        tracker.process_approval(Instant::now_in_test(), &a1_3, &stakes, DoomslugThresholdMode::TwoThirds);
+        tracker.process_approval(
+            Instant::now_in_test(),
+            &a1_2,
+            &stakes,
+            DoomslugThresholdMode::TwoThirds,
+        );
+        tracker.process_approval(
+            Instant::now_in_test(),
+            &a1_3,
+            &stakes,
+            DoomslugThresholdMode::TwoThirds,
+        );
 
         assert_eq!(
             tracker
@@ -980,7 +1009,12 @@ mod tests {
         );
 
         // Process new approvals one by one, expect the approved and endorsed stake to slowly decrease
-        tracker.process_approval(Instant::now_in_test(), &a2_1, &stakes, DoomslugThresholdMode::TwoThirds);
+        tracker.process_approval(
+            Instant::now_in_test(),
+            &a2_1,
+            &stakes,
+            DoomslugThresholdMode::TwoThirds,
+        );
 
         assert_eq!(
             tracker
@@ -1000,7 +1034,12 @@ mod tests {
             5
         );
 
-        tracker.process_approval(Instant::now_in_test(), &a2_2, &stakes, DoomslugThresholdMode::TwoThirds);
+        tracker.process_approval(
+            Instant::now_in_test(),
+            &a2_2,
+            &stakes,
+            DoomslugThresholdMode::TwoThirds,
+        );
 
         assert_eq!(
             tracker
@@ -1021,7 +1060,12 @@ mod tests {
         );
 
         // As we update the last of the three approvals, the tracker for the first block should be completely removed
-        tracker.process_approval(Instant::now_in_test(), &a2_3, &stakes, DoomslugThresholdMode::TwoThirds);
+        tracker.process_approval(
+            Instant::now_in_test(),
+            &a2_3,
+            &stakes,
+            DoomslugThresholdMode::TwoThirds,
+        );
 
         assert!(tracker.approval_trackers.get(&ApprovalInner::Skip(1)).is_none());
 
@@ -1046,7 +1090,12 @@ mod tests {
             5
         );
 
-        tracker.process_approval(Instant::now_in_test(), &a2_3, &stakes, DoomslugThresholdMode::TwoThirds);
+        tracker.process_approval(
+            Instant::now_in_test(),
+            &a2_3,
+            &stakes,
+            DoomslugThresholdMode::TwoThirds,
+        );
 
         assert_eq!(
             tracker

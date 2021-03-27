@@ -30,8 +30,8 @@ use near_network::{
 };
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::time::{Instant, Time, Utc};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::time::{Instant, Utc, Time};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
 };

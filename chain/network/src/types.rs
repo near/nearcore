@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime};
+use chrono::DateTime;
 use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use strum::AsStaticStr;
@@ -31,7 +31,7 @@ use near_primitives::syncing::{
     EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
     ShardStateSyncResponseV1,
 };
-use near_primitives::time::{Utc, Time};
+use near_primitives::time::{Time, Utc};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};

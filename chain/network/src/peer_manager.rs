@@ -19,7 +19,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time::{Instant, Utc, Time};
+use near_primitives::time::{Instant, Time, Utc};
 use near_primitives::types::AccountId;
 use near_primitives::utils::from_timestamp;
 use near_store::Store;

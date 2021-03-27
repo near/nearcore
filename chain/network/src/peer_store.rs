@@ -12,7 +12,7 @@ use rand::thread_rng;
 use tracing::{debug, error};
 
 use near_primitives::network::PeerId;
-use near_primitives::time::{Utc, UtcProxy, Time};
+use near_primitives::time::{Time, Utc, UtcProxy};
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
 
@@ -167,7 +167,10 @@ impl PeerStore {
             // The current time may influence peer removal. We use the time proxy.
             // As for banning, we don't test that.
             peer_state.last_seen = to_timestamp(UtcProxy::now(file!(), line!()));
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, to_timestamp(Utc::system_time(file!(), line!())));
+            peer_state.status = KnownPeerStatus::Banned(
+                ban_reason,
+                to_timestamp(Utc::system_time(file!(), line!())),
+            );
             let mut store_update = self.store.store_update();
             store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
             store_update.commit().map_err(|err| err.into())

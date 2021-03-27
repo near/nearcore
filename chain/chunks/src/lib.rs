@@ -30,7 +30,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkV1, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
     ShardChunkHeader, ShardProof,
 };
-use near_primitives::time::{UtcProxy, InstantProxy, Instant};
+use near_primitives::time::{Instant, InstantProxy, UtcProxy};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -131,12 +131,17 @@ impl RequestPool {
         let mut requests = Vec::new();
         for (chunk_hash, mut chunk_request) in self.requests.iter_mut() {
             // eprintln!("added={:?} now={:?}", chunk_request.added, InstantProxy::now(file!(), line!()));
-            if InstantProxy::now(file!(), line!()).saturating_duration_since(chunk_request.added) > self.max_duration {
+            if InstantProxy::now(file!(), line!()).saturating_duration_since(chunk_request.added)
+                > self.max_duration
+            {
                 debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
                 removed_requests.insert(chunk_hash.clone());
                 continue;
             }
-            if InstantProxy::now(file!(), line!()).saturating_duration_since(chunk_request.last_requested) > self.retry_duration {
+            if InstantProxy::now(file!(), line!())
+                .saturating_duration_since(chunk_request.last_requested)
+                > self.retry_duration
+            {
                 // For request retry logic, we use the time proxy. However, it should not
                 // make a difference either way.
                 chunk_request.last_requested = InstantProxy::now(file!(), line!());
@@ -266,8 +271,12 @@ impl SealsManager {
 
                 let chosen = Self::get_random_part_ords(candidates);
                 // `sent` is not accessed, but will be accessed once #3657 is merged.
-                let demur =
-                    ActiveSealDemur { part_ords: chosen, chunk_producer, sent: UtcProxy::now(file!(), line!()), height };
+                let demur = ActiveSealDemur {
+                    part_ords: chosen,
+                    chunk_producer,
+                    sent: UtcProxy::now(file!(), line!()),
+                    height,
+                };
 
                 Ok(entry.insert(demur))
             }

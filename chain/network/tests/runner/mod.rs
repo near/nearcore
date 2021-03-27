@@ -24,7 +24,7 @@ use near_network::utils::blacklist_from_iter;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::time::{Utc, Time};
+use near_primitives::time::{Time, Utc};
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;

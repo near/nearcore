@@ -14,7 +14,7 @@ use near_crypto::{SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time::{Instant, Utc, Time};
+use near_primitives::time::{Instant, Time, Utc};
 use near_primitives::types::AccountId;
 use near_primitives::utils::index_to_bytes;
 use near_store::{
@@ -493,7 +493,8 @@ impl RoutingTable {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
             }
         } else {
-            self.peer_last_time_reachable.insert(peer_id.clone(), Utc::system_time(file!(), line!()));
+            self.peer_last_time_reachable
+                .insert(peer_id.clone(), Utc::system_time(file!(), line!()));
         }
     }
 
@@ -577,9 +578,12 @@ impl RoutingTable {
         let mut res = None;
 
         if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
-            res = nonces
-                .cache_remove(&(pong.nonce as usize))
-                .and_then(|sent| Some(Instant::system_time(file!(), line!()).duration_since(sent).as_secs_f64() * 1000f64));
+            res = nonces.cache_remove(&(pong.nonce as usize)).and_then(|sent| {
+                Some(
+                    Instant::system_time(file!(), line!()).duration_since(sent).as_secs_f64()
+                        * 1000f64,
+                )
+            });
         }
 
         self.pong_info.cache_set(pong.nonce as usize, pong);

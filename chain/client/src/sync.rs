@@ -536,7 +536,7 @@ impl BlockSync {
         let request = BlockSyncRequest {
             height: next_height,
             hash: next_hash,
-            when: UtcProxy::now(file!(), line!())
+            when: UtcProxy::now(file!(), line!()),
         };
 
         let head = chain.head()?;
@@ -575,7 +575,8 @@ impl BlockSync {
             None => Ok(true),
             Some(request) => Ok(chain.head()?.height >= request.height
                 || chain.is_chunk_orphan(&request.hash)
-                || UtcProxy::now(file!(), line!()) - request.when > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
+                || UtcProxy::now(file!(), line!()) - request.when
+                    > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
         }
     }
 }

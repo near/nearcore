@@ -32,7 +32,7 @@ use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
 use near_network::types::{
-    NetworkAdversarialMessage, NetworkViewClientMessages, AdvTimeTravelPayload
+    AdvTimeTravelPayload, NetworkAdversarialMessage, NetworkViewClientMessages,
 };
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
@@ -1002,9 +1002,9 @@ impl JsonRpcHandler {
         let payload = parse_params::<AdvTimeTravelPayload>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvTimeTravel(payload),
-                ))
+                .send(NetworkClientMessages::Adversarial(NetworkAdversarialMessage::AdvTimeTravel(
+                    payload,
+                )))
                 .map(|_| ()),
         );
         // actix::spawn(

@@ -7,8 +7,8 @@ use std::time;
 
 use chrono;
 
-pub use std::time::Instant;
 pub use chrono::Utc;
+pub use std::time::Instant;
 
 pub struct UtcProxy;
 pub struct InstantProxy;
@@ -71,9 +71,7 @@ impl SingletonReader {
     }
 
     fn set(value: TimeTravelSingleton) {
-        let singleton = SingletonReader {
-            inner: Arc::new(Mutex::new(value)),
-        };
+        let singleton = SingletonReader { inner: Arc::new(Mutex::new(value)) };
         unsafe {
             SINGLETON = mem::transmute(Box::new(singleton));
         }
@@ -107,7 +105,8 @@ impl InstantProxy {
         } else {
             let const_diff = time::Duration::from_millis(time_travel.diff as u64);
             let last_check = time_travel.last_check_instant;
-            let speed_diff = now.saturating_duration_since(last_check).as_millis() as f64 * time_travel.rate;
+            let speed_diff =
+                now.saturating_duration_since(last_check).as_millis() as f64 * time_travel.rate;
             let speed_diff = time::Duration::from_millis(speed_diff as u64);
             last_check + const_diff + speed_diff
         }

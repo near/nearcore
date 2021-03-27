@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use actix::{Actor, Addr, Arbiter, Context, Handler};
 use actix_rt::ArbiterHandle;
-use chrono::Duration as OldDuration;
 use chrono::DateTime;
+use chrono::Duration as OldDuration;
 use log::{debug, error, info, trace, warn};
 
 #[cfg(feature = "delay_detector")]
@@ -37,7 +37,9 @@ use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time::{InstantProxy, Utc, UtcProxy, TimeTravelSingleton, Instant, FileLocation, Time};
+#[cfg(feature = "adversarial")]
+use near_primitives::time::{FileLocation, TimeTravelSingleton};
+use near_primitives::time::{Instant, InstantProxy, Time, Utc, UtcProxy};
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};

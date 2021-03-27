@@ -10,7 +10,7 @@ use near_network::routing::{
 };
 use near_network::test_utils::random_peer_id;
 use near_primitives::network::PeerId;
-use near_primitives::time::{Utc, Time};
+use near_primitives::time::{Time, Utc};
 use near_store::test_utils::create_test_store;
 use near_store::{ColComponentEdges, ColPeerComponent, Store};
 

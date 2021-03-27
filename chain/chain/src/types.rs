@@ -701,7 +701,7 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::merkle::verify_path;
-    use near_primitives::time::{Utc, Time};
+    use near_primitives::time::{Time, Utc};
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;

@@ -1100,7 +1100,11 @@ impl Chain {
                         // we only add blocks that couldn't have been gc'ed to the orphan pool.
                         if block_height >= tail_height {
                             let block_hash = *block.hash();
-                            let orphan = Orphan { block, provenance, added: InstantProxy::now(file!(), line!()) };
+                            let orphan = Orphan {
+                                block,
+                                provenance,
+                                added: InstantProxy::now(file!(), line!()),
+                            };
 
                             self.orphans.add(orphan);
 
@@ -1120,7 +1124,11 @@ impl Chain {
                     ErrorKind::ChunksMissing(missing_chunks) => {
                         let block_hash = *block.hash();
                         block_misses_chunks(missing_chunks.clone());
-                        let orphan = Orphan { block, provenance, added: InstantProxy::now(file!(), line!()) };
+                        let orphan = Orphan {
+                            block,
+                            provenance,
+                            added: InstantProxy::now(file!(), line!()),
+                        };
 
                         self.blocks_with_missing_chunks.add_block_with_missing_chunks(
                             orphan,

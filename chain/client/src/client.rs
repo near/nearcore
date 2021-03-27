@@ -33,7 +33,7 @@ use near_primitives::sharding::{
     ShardChunkHeader,
 };
 use near_primitives::syncing::ReceiptResponse;
-use near_primitives::time::{UtcProxy, InstantProxy, Instant};
+use near_primitives::time::{Instant, InstantProxy, UtcProxy};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -1352,7 +1352,11 @@ impl Client {
         // The time since which we are ready to produce a new block is later compared
         // against current time in `fn ready_to_produce_block`. We use a time proxy,
         // since this is meaningful logic.
-        self.doomslug.on_approval_message(InstantProxy::now(file!(), line!()), &approval, &block_producer_stakes);
+        self.doomslug.on_approval_message(
+            InstantProxy::now(file!(), line!()),
+            &approval,
+            &block_producer_stakes,
+        );
     }
 
     /// Forwards given transaction to upcoming validators.

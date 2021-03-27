@@ -19,9 +19,9 @@ use near_performance_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::time::{Instant, Time};
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
-use near_primitives::time::{Instant, Time};
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
