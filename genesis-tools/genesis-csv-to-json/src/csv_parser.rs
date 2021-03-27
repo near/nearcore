@@ -13,7 +13,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, Account, Function
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
-use near_primitives::time::{Time, Utc};
+use near_primitives::time::Utc;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_runtime_utils::is_valid_account_id;
@@ -291,6 +291,7 @@ mod tests {
 
     use super::*;
     use near_primitives::network::PeerId;
+    use near_primitives::time::Time;
 
     #[test]
     fn test_with_file() {
