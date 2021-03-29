@@ -444,7 +444,7 @@ pub(crate) fn action_deploy_contract(
         state_update,
     )?;
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
-    let _ = (apply_state);
+    let _ = apply_state;
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
