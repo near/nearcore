@@ -134,7 +134,7 @@ pub fn validate_chunk_with_chunk_extra(
     let chunk_extra_proposals = prev_chunk_extra.validator_proposals();
     let chunk_header_proposals = chunk_header.validator_proposals();
     if chunk_header_proposals.len() != chunk_extra_proposals.len()
-        || !chunk_extra_proposals.zip(chunk_header_proposals).all(|(a, b)| a == b)
+        || !chunk_extra_proposals.eq(chunk_header_proposals)
     {
         return Err(ErrorKind::InvalidValidatorProposals.into());
     }
