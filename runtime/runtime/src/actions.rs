@@ -774,10 +774,13 @@ pub fn recalculate_usage(
 #[cfg(test)]
 mod tests {
     use near_store::test_utils::create_tries;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
     use testlib::runtime_utils::alice_account;
 
     use super::*;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
     use near_crypto::Secp256K1PublicKey;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
     use near_primitives::account::AccountV1;
     use near_primitives::hash::hash;
     use near_primitives::trie_key::TrieKey;
