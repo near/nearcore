@@ -443,6 +443,8 @@ pub(crate) fn action_deploy_contract(
         &apply_state.config.transaction_costs.storage_usage_config,
         state_update,
     )?;
+    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    let _ = (apply_state);
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
@@ -727,7 +729,7 @@ pub fn recalculate_usage(
         }
         state_update
             .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id))?
-            .map::<Result<(), StorageError>, _>(|raw_key| {
+            .try_for_each(|raw_key| {
                 let public_key =
                     trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id)
                         .map_err(|_e| {
@@ -743,29 +745,27 @@ pub fn recalculate_usage(
                         .unwrap()
                         .len() as u64;
                 Ok(())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+            })?;
         state_update
             .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]))?
-            .map::<Result<(), StorageError>, _>(|raw_key| {
-                let key =
-                    trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
-                        .map_err(|_e| {
-                            StorageError::StorageInconsistentState(
-                                "Can't parse data key from raw key for ContractData".to_string(),
-                            )
-                        })
-                        .map(Vec::from)?;
-                usage += usage_config.num_extra_bytes_record
-                    + key.len() as u64
-                    + state_update
-                        .get(&TrieKey::ContractData { account_id: account_id.clone(), key })
-                        .unwrap()
-                        .unwrap()
-                        .len() as u64;
-                Ok(())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+            .try_for_each(|raw_key| {
+            let key =
+                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
+                    .map_err(|_e| {
+                        StorageError::StorageInconsistentState(
+                            "Can't parse data key from raw key for ContractData".to_string(),
+                        )
+                    })
+                    .map(Vec::from)?;
+            usage += usage_config.num_extra_bytes_record
+                + key.len() as u64
+                + state_update
+                    .get(&TrieKey::ContractData { account_id: account_id.clone(), key })
+                    .unwrap()
+                    .unwrap()
+                    .len() as u64;
+            Ok(())
+        })?;
         *account = Account::new(account.amount(), account.locked(), account.code_hash(), usage);
     }
     Ok(())
