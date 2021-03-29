@@ -26,11 +26,15 @@ use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
-use near_primitives::epoch_manager::EpochInfo;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::epoch_info::EpochInfoV1;
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::trie_key::TrieKey;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::rc::Rc;
@@ -169,6 +173,15 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
             let chunk: ShardChunkV1 = BorshDeserialize::try_from_slice(&value)
                 .expect("Borsh deserialization should not fail");
             let ShardChunkV1 { chunk_hash, header, transactions, receipts } = chunk;
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            let proposals = header
+                .inner
+                .validator_proposals
+                .iter()
+                .map(|v| ValidatorStake::V1(v.clone()))
+                .collect();
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            let proposals = header.inner.validator_proposals.clone();
             let (encoded_chunk, merkle_paths) = EncodedShardChunk::new(
                 header.inner.prev_block_hash,
                 header.inner.prev_state_root,
@@ -180,7 +193,7 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                 header.inner.gas_limit,
                 header.inner.balance_burnt,
                 header.inner.tx_root,
-                header.inner.validator_proposals.clone(),
+                proposals,
                 transactions,
                 &receipts,
                 header.inner.outgoing_receipts_root,
@@ -276,33 +289,68 @@ pub fn migrate_11_to_12(path: &String) {
     set_store_version(&store, 12);
 }
 
+struct BatchedStoreUpdate<'a> {
+    batch_size_limit: usize,
+    batch_size: usize,
+    store: &'a Store,
+    store_update: Option<StoreUpdate>,
+}
+
+impl<'a> BatchedStoreUpdate<'a> {
+    pub fn new(store: &'a Store, batch_size_limit: usize) -> Self {
+        Self { batch_size_limit, batch_size: 0, store, store_update: Some(store.store_update()) }
+    }
+
+    fn commit(&mut self) -> Result<(), std::io::Error> {
+        let store_update = self.store_update.take().unwrap();
+        store_update.commit()?;
+        self.store_update = Some(self.store.store_update());
+        self.batch_size = 0;
+        Ok(())
+    }
+
+    pub fn set_ser<T: BorshSerialize>(
+        &mut self,
+        col: DBCol,
+        key: &[u8],
+        value: &T,
+    ) -> Result<(), std::io::Error> {
+        let value_bytes = value.try_to_vec()?;
+        self.batch_size += key.as_ref().len() + value_bytes.len() + 8;
+        self.store_update.as_mut().unwrap().set(col, key.as_ref(), &value_bytes);
+
+        if self.batch_size > self.batch_size_limit {
+            self.commit()?;
+        }
+
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Result<(), std::io::Error> {
+        if self.batch_size > 0 {
+            self.commit()?;
+        }
+
+        Ok(())
+    }
+}
+
 fn map_col<T, U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
 where
     T: BorshDeserialize,
     U: BorshSerialize,
     F: Fn(T) -> U,
 {
-    let mut store_update = store.store_update();
-    let batch_size_limit = 10_000_000;
-    let mut batch_size = 0;
     let keys: Vec<_> = store.iter(col).map(|(key, _)| key).collect();
+    let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
+
     for key in keys {
         let value: T = store.get_ser(col, key.as_ref())?.unwrap();
         let new_value = f(value);
-        let new_bytes = new_value.try_to_vec()?;
-        batch_size += key.as_ref().len() + new_bytes.len() + 8;
-        store_update.set(col, key.as_ref(), &new_bytes);
-
-        if batch_size > batch_size_limit {
-            store_update.commit()?;
-            store_update = store.store_update();
-            batch_size = 0;
-        }
+        store_update.set_ser(col, key.as_ref(), &new_value)?;
     }
 
-    if batch_size > 0 {
-        store_update.commit()?;
-    }
+    store_update.finish()?;
 
     Ok(())
 }
@@ -383,7 +431,7 @@ pub fn migrate_14_to_15(path: &String) {
                 .expect("chunk should exist");
 
             let epoch_info = store
-                .get_ser::<EpochInfo>(DBCol::ColEpochInfo, block.header().epoch_id().as_ref())
+                .get_ser::<EpochInfoV1>(DBCol::ColEpochInfo, block.header().epoch_id().as_ref())
                 .unwrap()
                 .expect("epoch id should exist");
             let protocol_version = epoch_info.protocol_version;
@@ -516,7 +564,8 @@ pub fn migrate_17_to_18(path: &String) {
     use std::convert::TryFrom;
 
     use near_primitives::challenge::SlashedValidator;
-    use near_primitives::types::{Balance, BlockHeight, EpochId, ValidatorStake};
+    use near_primitives::types::validator_stake::ValidatorStakeV1;
+    use near_primitives::types::{Balance, BlockHeight, EpochId};
     use near_primitives::version::ProtocolVersion;
 
     // Migrate from OldBlockInfo to NewBlockInfo - add hash
@@ -528,7 +577,7 @@ pub fn migrate_17_to_18(path: &String) {
         pub prev_hash: CryptoHash,
         pub epoch_first_block: CryptoHash,
         pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStake>,
+        pub proposals: Vec<ValidatorStakeV1>,
         pub validator_mask: Vec<bool>,
         pub latest_protocol_version: ProtocolVersion,
         pub slashed: Vec<SlashedValidator>,
@@ -543,7 +592,7 @@ pub fn migrate_17_to_18(path: &String) {
         pub prev_hash: CryptoHash,
         pub epoch_first_block: CryptoHash,
         pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStake>,
+        pub proposals: Vec<ValidatorStakeV1>,
         pub validator_mask: Vec<bool>,
         pub latest_protocol_version: ProtocolVersion,
         pub slashed: Vec<SlashedValidator>,
@@ -585,9 +634,10 @@ pub fn migrate_17_to_18(path: &String) {
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 pub fn migrate_18_to_rectify_inflation(path: &String) {
-    use near_primitives::epoch_manager::BlockInfo;
+    use near_primitives::epoch_manager::block_info::BlockInfoV1;
     use near_primitives::epoch_manager::SlashState;
-    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
+    use near_primitives::types::validator_stake::ValidatorStakeV1;
+    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId};
     use near_primitives::version::ProtocolVersion;
     #[derive(BorshDeserialize)]
     struct OldBlockInfo {
@@ -598,7 +648,7 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
         pub prev_hash: CryptoHash,
         pub epoch_first_block: CryptoHash,
         pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStake>,
+        pub proposals: Vec<ValidatorStakeV1>,
         pub chunk_mask: Vec<bool>,
         pub latest_protocol_version: ProtocolVersion,
         pub slashed: HashMap<AccountId, SlashState>,
@@ -610,13 +660,13 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
             store.get_ser::<BlockHeader>(DBCol::ColBlockHeader, key).unwrap().unwrap();
         let old_block_info =
             store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
-        BlockInfo::new(
+        BlockInfoV1::new(
             *block_header.hash(),
             block_header.height(),
             old_block_info.last_finalized_height,
             *block_header.last_final_block(),
             *block_header.prev_hash(),
-            block_header.validator_proposals().to_vec(),
+            block_header.validator_proposals().map(|v| v.into_v1()).collect(),
             block_header.chunk_mask().to_vec(),
             vec![],
             block_header.total_supply(),
@@ -625,4 +675,91 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
         )
     })
     .unwrap();
+}
+
+#[cfg(feature = "protocol_feature_block_header_v3")]
+pub fn migrate_18_to_new_validator_stake(path: &str) {
+    use near_primitives::epoch_manager::block_info::{BlockInfo, BlockInfoV1};
+    use near_primitives::epoch_manager::epoch_info::EpochSummary;
+    use near_primitives::epoch_manager::AGGREGATOR_KEY;
+    use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV1};
+    use near_primitives::types::validator_stake::ValidatorStakeV1;
+    use near_primitives::types::{
+        AccountId, BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,
+        ValidatorKickoutReason, ValidatorStats,
+    };
+    use std::collections::BTreeMap;
+
+    let store = create_store(path);
+
+    #[derive(BorshDeserialize)]
+    pub struct OldEpochSummary {
+        pub prev_epoch_last_block_hash: CryptoHash,
+        pub all_proposals: Vec<ValidatorStakeV1>,
+        pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+        pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
+        pub next_version: ProtocolVersion,
+    }
+
+    #[derive(BorshDeserialize)]
+    pub struct OldEpochInfoAggregator {
+        pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
+        pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+        pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
+        pub all_proposals: BTreeMap<AccountId, ValidatorStakeV1>,
+        pub epoch_id: EpochId,
+        pub last_block_hash: CryptoHash,
+    }
+    #[derive(BorshSerialize)]
+    pub struct NewEpochInfoAggregator {
+        pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
+        pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+        pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
+        pub all_proposals: BTreeMap<AccountId, ValidatorStake>,
+        pub epoch_id: EpochId,
+        pub last_block_hash: CryptoHash,
+    }
+
+    map_col(&store, DBCol::ColChunkExtra, |extra: ChunkExtraV1| ChunkExtra::V1(extra)).unwrap();
+
+    map_col(&store, DBCol::ColBlockInfo, |info: BlockInfoV1| BlockInfo::V1(info)).unwrap();
+
+    map_col(&store, DBCol::ColEpochValidatorInfo, |info: OldEpochSummary| EpochSummary {
+        prev_epoch_last_block_hash: info.prev_epoch_last_block_hash,
+        all_proposals: info.all_proposals.into_iter().map(ValidatorStake::V1).collect(),
+        validator_kickout: info.validator_kickout,
+        validator_block_chunk_stats: info.validator_block_chunk_stats,
+        next_version: info.next_version,
+    })
+    .unwrap();
+
+    // DBCol::ColEpochInfo has a special key which contains a different type than all other
+    // values (EpochInfoAggregator), so we cannot use `map_col` on it. We need to handle
+    // the AGGREGATOR_KEY differently from all others.
+    let col = DBCol::ColEpochInfo;
+    let keys: Vec<_> = store.iter(col).map(|(key, _)| key).collect();
+    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+    for key in keys {
+        if key.as_ref() == AGGREGATOR_KEY {
+            let value: OldEpochInfoAggregator = store.get_ser(col, key.as_ref()).unwrap().unwrap();
+            let new_value = NewEpochInfoAggregator {
+                block_tracker: value.block_tracker,
+                shard_tracker: value.shard_tracker,
+                version_tracker: value.version_tracker,
+                epoch_id: value.epoch_id,
+                last_block_hash: value.last_block_hash,
+                all_proposals: value
+                    .all_proposals
+                    .into_iter()
+                    .map(|(account, stake)| (account, ValidatorStake::V1(stake)))
+                    .collect(),
+            };
+            store_update.set_ser(col, key.as_ref(), &new_value).unwrap();
+        } else {
+            let value: EpochInfoV1 = store.get_ser(col, key.as_ref()).unwrap().unwrap();
+            let new_value = EpochInfo::V1(value);
+            store_update.set_ser(col, key.as_ref(), &new_value).unwrap();
+        }
+    }
+    store_update.finish().unwrap();
 }
