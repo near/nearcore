@@ -328,6 +328,7 @@ impl Runtime {
             Action::DeployContract(deploy_contract) => {
                 near_metrics::inc_counter(&metrics::ACTION_DEPLOY_CONTRACT_TOTAL);
                 action_deploy_contract(
+                    apply_state,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &account_id,

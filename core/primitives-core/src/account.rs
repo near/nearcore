@@ -39,9 +39,32 @@ pub struct AccountV1 {
 }
 
 #[cfg(feature = "protocol_feature_add_account_versions")]
+impl Default for AccountV1 {
+    fn default() -> Self {
+        AccountV1 { amount: 0, locked: 0, code_hash: CryptoHash::default(), storage_usage: 0 }
+    }
+}
+
+#[cfg(feature = "protocol_feature_add_account_versions")]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct AccountV2 {
+    /// The total not locked tokens.
+    #[serde(with = "u128_dec_format_compatible")]
+    amount: Balance,
+    /// The amount locked due to staking.
+    #[serde(with = "u128_dec_format_compatible")]
+    locked: Balance,
+    /// Hash of the code stored in the storage for this account.
+    code_hash: CryptoHash,
+    /// Storage used by the given account, includes account id, this struct, access keys and other data.
+    storage_usage: StorageUsage,
+}
+
+#[cfg(feature = "protocol_feature_add_account_versions")]
 #[derive(BorshSerialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum Account {
     AccountV1(AccountV1),
+    AccountV2(AccountV2),
 }
 
 impl Account {
@@ -62,7 +85,7 @@ impl Account {
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
     ) -> Self {
-        Account::AccountV1(AccountV1 { amount, locked, code_hash, storage_usage })
+        Account::AccountV2(AccountV2 { amount, locked, code_hash, storage_usage })
     }
 
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
@@ -76,6 +99,7 @@ impl Account {
     pub fn amount(&self) -> Balance {
         match self {
             Account::AccountV1(acc) => acc.amount,
+            Account::AccountV2(acc) => acc.amount,
         }
     }
 
@@ -90,6 +114,7 @@ impl Account {
     pub fn locked(&self) -> Balance {
         match self {
             Account::AccountV1(acc) => acc.locked,
+            Account::AccountV2(acc) => acc.locked,
         }
     }
 
@@ -104,6 +129,7 @@ impl Account {
     pub fn code_hash(&self) -> CryptoHash {
         match self {
             Account::AccountV1(acc) => acc.code_hash,
+            Account::AccountV2(acc) => acc.code_hash,
         }
     }
 
@@ -118,6 +144,7 @@ impl Account {
     pub fn storage_usage(&self) -> StorageUsage {
         match self {
             Account::AccountV1(acc) => acc.storage_usage,
+            Account::AccountV2(acc) => acc.storage_usage,
         }
     }
 
@@ -132,6 +159,9 @@ impl Account {
     pub fn set_amount(&mut self, amount: Balance) {
         match self {
             Account::AccountV1(acc) => {
+                acc.amount = amount;
+            }
+            Account::AccountV2(acc) => {
                 acc.amount = amount;
             }
         }
@@ -150,6 +180,9 @@ impl Account {
             Account::AccountV1(acc) => {
                 acc.locked = locked;
             }
+            Account::AccountV2(acc) => {
+                acc.locked = locked;
+            }
         }
     }
 
@@ -164,6 +197,9 @@ impl Account {
     pub fn set_code_hash(&mut self, code_hash: CryptoHash) {
         match self {
             Account::AccountV1(acc) => {
+                acc.code_hash = code_hash;
+            }
+            Account::AccountV2(acc) => {
                 acc.code_hash = code_hash;
             }
         }
@@ -182,6 +218,9 @@ impl Account {
             Account::AccountV1(acc) => {
                 acc.storage_usage = storage_usage;
             }
+            Account::AccountV2(acc) => {
+                acc.storage_usage = storage_usage;
+            }
         }
     }
 }
@@ -197,10 +236,12 @@ impl BorshDeserialize for Account {
             #[derive(BorshDeserialize)]
             enum DeserializableAccount {
                 AccountV1(AccountV1),
+                AccountV2(AccountV2),
             };
             let deserialized_account = DeserializableAccount::deserialize(buf)?;
             match deserialized_account {
                 DeserializableAccount::AccountV1(account) => Ok(Account::AccountV1(account)),
+                DeserializableAccount::AccountV2(account) => Ok(Account::AccountV2(account)),
             }
         }
     }
@@ -294,15 +335,16 @@ mod tests {
         assert_eq!(to_base(&hash(&bytes)), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
         #[cfg(feature = "protocol_feature_add_account_versions")]
         {
-            assert_eq!(to_base(&hash(&bytes)), "7HBKnu8VPDaVgj6jbGvdVgTzPG3uBdZ97WGhoYpKT7hZ");
+            assert_eq!(to_base(&hash(&bytes)), "CmcDvvgDk1o2f8YbwKxzSEaai6PudNvcFfnP4Xuymv5n");
             match acc {
-                Account::AccountV1(account) => {
+                Account::AccountV2(account) => {
                     let pbytes = account.try_to_vec().unwrap();
                     assert_eq!(
                         to_base(&hash(&pbytes)),
                         "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ"
                     );
                 }
+                _ => assert!(false),
             }
         }
     }

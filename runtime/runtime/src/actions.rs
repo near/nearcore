@@ -8,12 +8,12 @@ use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, Runti
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
+use near_primitives::types::{AccountId, EpochInfoProvider, StorageUsage, ValidatorStake};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
@@ -36,6 +36,7 @@ use near_vm_logic::{VMContext, VMOutcome};
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 
 /// Runs given function call with given context / apply state.
 /// Precompiles:
@@ -164,6 +165,13 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    recalculate_usage(
+        account,
+        account_id,
+        &apply_state.config.transaction_costs.storage_usage_config,
+        state_update,
+    )?;
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
@@ -416,11 +424,19 @@ pub(crate) fn action_implicit_account_creation_transfer(
 }
 
 pub(crate) fn action_deploy_contract(
+    apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
 ) -> Result<(), StorageError> {
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    recalculate_usage(
+        account,
+        account_id,
+        &apply_state.config.transaction_costs.storage_usage_config,
+        state_update,
+    )?;
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
@@ -493,6 +509,8 @@ pub(crate) fn action_delete_key(
     let access_key = get_access_key(state_update, &account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
         let storage_usage_config = &fee_config.storage_usage_config;
+        #[cfg(feature = "protocol_feature_add_account_versions")]
+        recalculate_usage(account, account_id, storage_usage_config, state_update)?;
         let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
         {
             delete_key.public_key.try_to_vec().unwrap().len() as u64
@@ -572,6 +590,8 @@ pub(crate) fn action_add_key(
                 ))
             })?,
     );
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    recalculate_usage(account, account_id, storage_config, state_update)?;
     Ok(())
 }
 
@@ -686,11 +706,73 @@ pub(crate) fn check_account_existence(
     Ok(())
 }
 
+#[cfg(feature = "protocol_feature_add_account_versions")]
+pub fn recalculate_usage(
+    account: &mut Account,
+    account_id: &AccountId,
+    usage_config: &StorageUsageConfig,
+    state_update: &TrieUpdate,
+) -> Result<(), StorageError> {
+    if let Account::AccountV1(_) = account {
+        // As this is valid account that fits into state we can use unchecked operations here
+        let mut usage: StorageUsage = usage_config.num_bytes_account;
+        if let Some(code) = get_code(state_update, account_id, Some(account.code_hash()))? {
+            usage += code.code.len() as u64;
+        }
+        state_update
+            .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id))?
+            .map::<Result<(), StorageError>, _>(|raw_key| {
+                let public_key =
+                    trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id)
+                        .map_err(|_e| {
+                        StorageError::StorageInconsistentState(
+                            "Can't parse public key from raw key for AccessKey".to_string(),
+                        )
+                    })?;
+                usage += usage_config.num_extra_bytes_record
+                    + public_key.try_to_vec().unwrap().len() as u64
+                    + get_access_key(state_update, account_id, &public_key)
+                        .unwrap()
+                        .try_to_vec()
+                        .unwrap()
+                        .len() as u64;
+                Ok(())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        state_update
+            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]))?
+            .map::<Result<(), StorageError>, _>(|raw_key| {
+                let key =
+                    trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
+                        .map_err(|_e| {
+                            StorageError::StorageInconsistentState(
+                                "Can't parse data key from raw key for ContractData".to_string(),
+                            )
+                        })
+                        .map(Vec::from)?;
+                usage += usage_config.num_extra_bytes_record
+                    + key.len() as u64
+                    + state_update
+                        .get(&TrieKey::ContractData { account_id: account_id.clone(), key })
+                        .unwrap()
+                        .unwrap()
+                        .len() as u64;
+                Ok(())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        *account = Account::new(account.amount(), account.locked(), account.code_hash(), usage);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use near_store::test_utils::create_tries;
+    use testlib::runtime_utils::alice_account;
 
     use super::*;
+    use near_crypto::Secp256K1PublicKey;
+    use near_primitives::account::AccountV1;
     use near_primitives::hash::hash;
     use near_primitives::trie_key::TrieKey;
 
@@ -869,5 +951,55 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    fn test_account_migration() -> Result<(), StorageError> {
+        let tries = create_tries();
+        let mut state_update = tries.new_trie_update(0, CryptoHash::default());
+        let mut account = Account::AccountV1(AccountV1::default());
+        let account_id = alice_account();
+        state_update.set(
+            TrieKey::Account { account_id: account_id.clone() },
+            account.try_to_vec().unwrap(),
+        );
+        state_update.set(
+            TrieKey::ContractCode { account_id: account_id.clone() },
+            "some code".try_to_vec().unwrap(),
+        );
+        state_update.set(
+            TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                public_key: PublicKey::SECP256K1(Secp256K1PublicKey::from([0u8; 64])),
+            },
+            AccessKey::full_access().try_to_vec().unwrap(),
+        );
+        state_update.set(
+            TrieKey::ContractData {
+                account_id: account_id.clone(),
+                key: "some_key".try_to_vec().unwrap(),
+            },
+            "some_value".try_to_vec().unwrap(),
+        );
+        recalculate_usage(
+            &mut account,
+            &account_id,
+            &RuntimeFeesConfig::default().storage_usage_config,
+            &state_update,
+        )?;
+        if let Account::AccountV1(_) = account {
+            assert!(false);
+        };
+        assert_eq!(account.storage_usage(), 294);
+        account.set_storage_usage(0);
+        recalculate_usage(
+            &mut account,
+            &account_id,
+            &RuntimeFeesConfig::default().storage_usage_config,
+            &state_update,
+        )?;
+        assert_eq!(account.storage_usage(), 0);
+        Ok(())
     }
 }
