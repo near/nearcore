@@ -177,6 +177,7 @@ pub(crate) fn action_function_call(
         account_id,
         &apply_state.config.transaction_costs.storage_usage_config,
         state_update,
+        apply_state.current_protocol_version,
     )?;
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -442,6 +443,7 @@ pub(crate) fn action_deploy_contract(
         account_id,
         &apply_state.config.transaction_costs.storage_usage_config,
         state_update,
+        apply_state.current_protocol_version,
     )?;
     #[cfg(not(feature = "protocol_feature_add_account_versions"))]
     let _ = apply_state;
@@ -518,7 +520,13 @@ pub(crate) fn action_delete_key(
     if let Some(access_key) = access_key {
         let storage_usage_config = &fee_config.storage_usage_config;
         #[cfg(feature = "protocol_feature_add_account_versions")]
-        recalculate_usage(account, account_id, storage_usage_config, state_update)?;
+        recalculate_usage(
+            account,
+            account_id,
+            storage_usage_config,
+            state_update,
+            current_protocol_version,
+        )?;
         let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
         {
             delete_key.public_key.try_to_vec().unwrap().len() as u64
@@ -599,7 +607,13 @@ pub(crate) fn action_add_key(
             })?,
     );
     #[cfg(feature = "protocol_feature_add_account_versions")]
-    recalculate_usage(account, account_id, storage_config, state_update)?;
+    recalculate_usage(
+        account,
+        account_id,
+        storage_config,
+        state_update,
+        apply_state.current_protocol_version,
+    )?;
     Ok(())
 }
 
@@ -720,53 +734,60 @@ pub fn recalculate_usage(
     account_id: &AccountId,
     usage_config: &StorageUsageConfig,
     state_update: &TrieUpdate,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     if let Account::AccountV1(_) = account {
-        // As this is valid account that fits into state we can use unchecked operations here
-        let mut usage: StorageUsage = usage_config.num_bytes_account;
-        if let Some(code) = get_code(state_update, account_id, Some(account.code_hash()))? {
-            usage += code.code.len() as u64;
-        }
-        state_update
-            .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id))?
-            .try_for_each(|raw_key| {
-                let public_key =
-                    trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id)
-                        .map_err(|_e| {
+        if (current_protocol_version
+            >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::AccountVersions])
+        {
+            // As this is valid account that fits into state we can use unchecked operations here
+            let mut usage: StorageUsage = usage_config.num_bytes_account;
+            if let Some(code) = get_code(state_update, account_id, Some(account.code_hash()))? {
+                usage += code.code.len() as u64;
+            }
+            state_update
+                .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id))?
+                .try_for_each(|raw_key| {
+                    let public_key = trie_key_parsers::parse_public_key_from_access_key_key(
+                        &raw_key?, account_id,
+                    )
+                    .map_err(|_e| {
                         StorageError::StorageInconsistentState(
                             "Can't parse public key from raw key for AccessKey".to_string(),
                         )
                     })?;
-                usage += usage_config.num_extra_bytes_record
-                    + public_key.try_to_vec().unwrap().len() as u64
-                    + get_access_key(state_update, account_id, &public_key)
-                        .unwrap()
-                        .try_to_vec()
-                        .unwrap()
-                        .len() as u64;
-                Ok(())
-            })?;
-        state_update
-            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]))?
-            .try_for_each(|raw_key| {
-            let key =
-                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
+                    usage += usage_config.num_extra_bytes_record
+                        + public_key.try_to_vec().unwrap().len() as u64
+                        + get_access_key(state_update, account_id, &public_key)
+                            .unwrap()
+                            .try_to_vec()
+                            .unwrap()
+                            .len() as u64;
+                    Ok(())
+                })?;
+            state_update
+                .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]))?
+                .try_for_each(|raw_key| {
+                    let key = trie_key_parsers::parse_data_key_from_contract_data_key(
+                        &raw_key?, account_id,
+                    )
                     .map_err(|_e| {
                         StorageError::StorageInconsistentState(
                             "Can't parse data key from raw key for ContractData".to_string(),
                         )
                     })
                     .map(Vec::from)?;
-            usage += usage_config.num_extra_bytes_record
-                + key.len() as u64
-                + state_update
-                    .get(&TrieKey::ContractData { account_id: account_id.clone(), key })
-                    .unwrap()
-                    .unwrap()
-                    .len() as u64;
-            Ok(())
-        })?;
-        *account = Account::new(account.amount(), account.locked(), account.code_hash(), usage);
+                    usage += usage_config.num_extra_bytes_record
+                        + key.len() as u64
+                        + state_update
+                            .get(&TrieKey::ContractData { account_id: account_id.clone(), key })
+                            .unwrap()
+                            .unwrap()
+                            .len() as u64;
+                    Ok(())
+                })?;
+            *account = Account::new(account.amount(), account.locked(), account.code_hash(), usage);
+        }
     }
     Ok(())
 }
@@ -996,6 +1017,7 @@ mod tests {
             &account_id,
             &RuntimeFeesConfig::default().storage_usage_config,
             &state_update,
+            PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::AccountVersions],
         )?;
         if let Account::AccountV1(_) = account {
             assert!(false);
@@ -1007,6 +1029,7 @@ mod tests {
             &account_id,
             &RuntimeFeesConfig::default().storage_usage_config,
             &state_update,
+            PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::AccountVersions],
         )?;
         assert_eq!(account.storage_usage(), 0);
         Ok(())
