@@ -237,7 +237,7 @@ impl BorshDeserialize for Account {
             enum DeserializableAccount {
                 AccountV1(AccountV1),
                 AccountV2(AccountV2),
-            };
+            }
             let deserialized_account = DeserializableAccount::deserialize(buf)?;
             match deserialized_account {
                 DeserializableAccount::AccountV1(account) => Ok(Account::AccountV1(account)),

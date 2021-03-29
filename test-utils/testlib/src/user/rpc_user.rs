@@ -154,6 +154,11 @@ impl User for RpcUser {
             .ok()
     }
 
+    fn get_block_by_hash(&self, block_hash: CryptoHash) -> Option<BlockView> {
+        self.actix(move |client| client.block(BlockReference::BlockId(BlockId::Hash(block_hash))))
+            .ok()
+    }
+
     fn get_chunk(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView> {
         self.actix(move |client| {
             client.chunk(ChunkId::BlockShardId(BlockId::Height(height), shard_id))

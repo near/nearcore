@@ -1081,7 +1081,7 @@ impl TestEnv {
 
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
-        assert!(result.is_ok(), format!("{:?}", result));
+        assert!(result.is_ok(), "{:?}", result);
         let more_accepted_blocks = self.clients[id].run_catchup(&vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {

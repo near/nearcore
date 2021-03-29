@@ -1,0 +1,10 @@
+[package]
+name = "near-test-contracts"
+version = "0.0.0"
+publish = false
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+license = "Apache-2.0"
+
+[dependencies]
+once_cell = "1"

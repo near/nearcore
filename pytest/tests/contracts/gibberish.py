@@ -15,7 +15,7 @@ nodes = start_cluster(
     [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {})
 
 wasm_blob_1 = load_binary_file(
-    '../runtime/near-vm-runner/tests/res/test_contract_rs.wasm')
+    '../runtime/near-test-contracts/res/test_contract_rs.wasm')
 
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']

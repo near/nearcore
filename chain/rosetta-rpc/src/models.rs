@@ -936,7 +936,9 @@ pub(crate) struct SubNetworkIdentifier {
 /// The timestamp of the block in milliseconds since the Unix Epoch. The
 /// timestamp is stored in milliseconds because some blockchains produce blocks
 /// more often than once a second.
-#[derive(Debug, Clone, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(
+    Debug, Clone, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize, Apiv2Schema,
+)]
 pub(crate) struct Timestamp(i64);
 
 /// Transactions contain an array of Operations that are attributable to the

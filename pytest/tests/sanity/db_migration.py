@@ -30,7 +30,7 @@ def deploy_contract(node):
     tx = sign_deploy_contract_tx(
         node.signer_key,
         load_binary_file(
-            '../runtime/near-vm-runner/tests/res/test_contract_rs.wasm'), 10, hash_)
+            '../runtime/near-test-contracts/res/test_contract_rs.wasm'), 10, hash_)
     node.send_tx_and_wait(tx, timeout=15)
     wait_for_blocks_or_timeout(node, 3, 100)
 

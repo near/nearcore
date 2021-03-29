@@ -1,12 +1,9 @@
 #![no_std]
-#![feature(core_intrinsics)]
 
 #[panic_handler]
 #[no_mangle]
 pub fn panic(_info: &::core::panic::PanicInfo) -> ! {
-    unsafe {
-        ::core::intrinsics::abort();
-    }
+    unsafe { core::arch::wasm32::unreachable() }
 }
 
 use core::mem::size_of;
