@@ -3,10 +3,12 @@ use std::collections::{BTreeMap, HashMap};
 use borsh::{BorshDeserialize, BorshSerialize};
 use log::error;
 
-use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
+use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, BlockHeight, EpochId, ShardId, ValidatorId, ValidatorStake, ValidatorStats,
+    AccountId, BlockHeight, EpochId, ShardId, ValidatorId, ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
 
@@ -50,11 +52,13 @@ impl EpochInfoAggregator {
         prev_block_height: BlockHeight,
     ) {
         // Step 1: update block tracer
-        for height in prev_block_height + 1..=block_info.height {
-            let block_producer_id = epoch_info.block_producers_settlement
-                [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
+        let block_info_height = *block_info.height();
+        for height in prev_block_height + 1..=block_info_height {
+            let block_producers_settlement = epoch_info.block_producers_settlement();
+            let block_producer_id = block_producers_settlement
+                [(height as u64 % (block_producers_settlement.len() as u64)) as usize];
             let entry = self.block_tracker.entry(block_producer_id);
-            if height == block_info.height {
+            if height == block_info_height {
                 entry
                     .and_modify(|validator_stats| {
                         validator_stats.produced += 1;
@@ -71,7 +75,7 @@ impl EpochInfoAggregator {
         }
 
         // Step 2: update shard tracker
-        for (i, mask) in block_info.chunk_mask.iter().enumerate() {
+        for (i, mask) in block_info.chunk_mask().iter().enumerate() {
             let chunk_validator_id = EpochManager::chunk_producer_from_info(
                 epoch_info,
                 prev_block_height + 1,
@@ -91,16 +95,14 @@ impl EpochInfoAggregator {
 
         // Step 3: update version tracker
         let block_producer_id =
-            EpochManager::block_producer_from_info(epoch_info, block_info.height);
+            EpochManager::block_producer_from_info(epoch_info, block_info_height);
         self.version_tracker
             .entry(block_producer_id)
-            .or_insert_with(|| block_info.latest_protocol_version);
+            .or_insert_with(|| *block_info.latest_protocol_version());
 
         // Step 4: update proposals
-        for proposal in block_info.proposals.iter() {
-            self.all_proposals
-                .entry(proposal.account_id.clone())
-                .or_insert_with(|| proposal.clone());
+        for proposal in block_info.proposals_iter() {
+            self.all_proposals.entry(proposal.account_id().clone()).or_insert(proposal);
         }
     }
 
