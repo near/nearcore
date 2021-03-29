@@ -8,6 +8,7 @@ mod test {
     #[cfg(feature = "protocol_feature_evm")]
     use testlib::standard_evm_cases::*;
     use testlib::standard_test_cases::*;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     fn create_runtime_node() -> RuntimeNode {
         RuntimeNode::new(&alice_account())
@@ -300,6 +301,12 @@ mod test {
     fn test_delete_account_no_account_runtime() {
         let node = create_runtime_node();
         test_delete_account_no_account(node);
+    }
+
+    #[test]
+    fn test_delete_account_implicit_beneficiary_account_runtime() {
+        let node = create_runtime_node();
+        test_delete_account_implicit_beneficiary_account(node, PROTOCOL_VERSION);
     }
 
     #[test]

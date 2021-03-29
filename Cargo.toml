@@ -115,7 +115,7 @@ protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128", "testlib/proto
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
 protocol_feature_access_key_nonce_range = ["neard/protocol_feature_access_key_nonce_range"]
 protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limit", "node-runtime/protocol_feature_tx_size_limit", "neard/protocol_feature_tx_size_limit"]
-protocol_feature_allow_create_account_on_delete = ["near-primitives/protocol_feature_allow_create_account_on_delete", "node-runtime/protocol_feature_allow_create_account_on_delete", "neard/protocol_feature_allow_create_account_on_delete"]
+protocol_feature_allow_create_account_on_delete = ["testlib/protocol_feature_allow_create_account_on_delete", "near-primitives/protocol_feature_allow_create_account_on_delete", "node-runtime/protocol_feature_allow_create_account_on_delete", "neard/protocol_feature_allow_create_account_on_delete"]
 protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
 
 # enable this to build neard with wasmer 1.0 runner

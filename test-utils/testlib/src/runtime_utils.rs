@@ -26,6 +26,10 @@ pub fn evm_account() -> AccountId {
     "evm".to_string()
 }
 
+pub fn implicit_account() -> AccountId {
+    "3885505359911f2493f0c40a2bf042981936ec5dddd59708581b155a047864d8".to_string()
+}
+
 pub fn default_code_hash() -> CryptoHash {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
