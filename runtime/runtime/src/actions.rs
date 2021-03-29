@@ -8,12 +8,16 @@ use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, Runti
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
-use near_primitives::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+#[cfg(feature = "protocol_feature_add_account_versions")]
+use near_primitives::runtime::fees::StorageUsageConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, EpochInfoProvider, StorageUsage, ValidatorStake};
+#[cfg(feature = "protocol_feature_add_account_versions")]
+use near_primitives::types::StorageUsage;
+use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
@@ -36,6 +40,7 @@ use near_vm_logic::{VMContext, VMOutcome};
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+#[cfg(feature = "protocol_feature_add_account_versions")]
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 
 /// Runs given function call with given context / apply state.
