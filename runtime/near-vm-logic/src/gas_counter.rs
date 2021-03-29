@@ -10,10 +10,25 @@ use near_primitives_core::{
 use std::collections::HashMap;
 use std::fmt;
 
-#[cfg(feature = "costs_counting")]
-thread_local! {
-    #[cfg(feature = "protocol_feature_evm")]
-    pub static EVM_GAS_COUNTER: std::cell::RefCell<EvmGas> = Default::default();
+#[cfg(feature = "protocol_feature_evm")]
+#[inline]
+fn with_evm_gas_counter(f: impl FnOnce(&mut EvmGas)) {
+    #[cfg(feature = "costs_counting")]
+    {
+        thread_local! {
+            static EVM_GAS_COUNTER: std::cell::RefCell<EvmGas> = Default::default();
+        }
+        EVM_GAS_COUNTER.with(|rc| f(&mut *rc.borrow_mut()));
+    }
+    #[cfg(not(feature = "costs_counting"))]
+    let _ = f;
+}
+
+#[cfg(feature = "protocol_feature_evm")]
+pub fn reset_evm_gas_counter() -> u64 {
+    let mut res = 0;
+    with_evm_gas_counter(|counter| std::mem::swap(counter, &mut res));
+    res
 }
 
 #[inline]
@@ -28,11 +43,6 @@ pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
     }
     #[cfg(not(feature = "costs_counting"))]
     let _ = f;
-}
-
-#[cfg(all(feature = "costs_counting", feature = "protocol_feature_evm"))]
-pub fn reset_evm_gas_counter() -> u64 {
-    EVM_GAS_COUNTER.with(|f| f.replace(0))
 }
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
@@ -108,9 +118,7 @@ impl GasCounter {
     #[cfg(feature = "protocol_feature_evm")]
     #[inline]
     pub fn inc_evm_gas_counter(&mut self, value: EvmGas) {
-        #[cfg(feature = "costs_counting")]
-        EVM_GAS_COUNTER.with(|f| *f.borrow_mut() += value);
-        let _ = value;
+        with_evm_gas_counter(|c| *c += value);
     }
 
     #[inline]

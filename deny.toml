@@ -89,12 +89,6 @@ skip = [
     # ethereum-types via old evm (openethereum)
     { name = "ethereum-types", version = "=0.10.0" },
 
-    # wasmtime uses older dependencies
-    { name = "object", version = "0.21.1" },
-    { name = "itertools", version = "=0.8.2" },
-    { name = "dynasm", version = "=0.5.2" },
-    { name = "dynasmrt", version = "=0.5.2" },
-
     # chrono uses old time crate
     { name = "time", version = "=0.1.43" },
 
@@ -112,19 +106,17 @@ skip = [
     { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
 
-    # wasmer 1.0 use some newer version of crates than wasmer 0.17 & wasmtime, old ones are skipped here
-    { name = "cranelift-bforest", version = "=0.67.0" },
-    { name = "cranelift-codegen", version = "=0.67.0" },
-    { name = "cranelift-codegen-meta", version = "=0.67.0" },
-    { name = "cranelift-codegen-shared", version = "=0.67.0" },
-    { name = "cranelift-entity", version = "=0.67.0" },
-    { name = "cranelift-frontend", version = "=0.67.0" },
-    { name = "gimli", version = "=0.21.0" },
+    # wasmer 1.0 use some older version of crates than wasmtime
+    { name = "cranelift-bforest", version = "=0.68.0" },
+    { name = "cranelift-codegen", version = "=0.68.0" },
+    { name = "cranelift-codegen-meta", version = "=0.68.0" },
+    { name = "cranelift-codegen-shared", version = "=0.68.0" },
+    { name = "cranelift-entity", version = "=0.68.0" },
+    { name = "cranelift-frontend", version = "=0.68.0" },
     { name = "libloading", version = "=0.5.2" },
-    { name = "regalloc", version = "=0.0.30" },
-    { name = "wasmparser", version = "=0.57.0" },
+    { name = "wasmparser", version = "=0.65.0" },
     { name = "which", version = "=3.1.1" },
-    { name = "object", version = "=0.23.0" },
+    { name = "object", version = "=0.22.0" },
    
     # cached uses an older version
     { name = "strsim", version = "=0.9.3" },
