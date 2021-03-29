@@ -737,8 +737,8 @@ pub fn recalculate_usage(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     if let Account::AccountV1(_) = account {
-        if (current_protocol_version
-            >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::AccountVersions])
+        if current_protocol_version
+            >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::AccountVersions]
         {
             // As this is valid account that fits into state we can use unchecked operations here
             let mut usage: StorageUsage = usage_config.num_bytes_account;
