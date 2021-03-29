@@ -18,7 +18,7 @@ use near_primitives::transaction::{
 use near_primitives::types::validator_stake::ValidatorStake;
 #[cfg(feature = "protocol_feature_add_account_versions")]
 use near_primitives::types::StorageUsage;
-use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
+use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
