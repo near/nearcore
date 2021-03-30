@@ -368,7 +368,6 @@ impl Doomslug {
             let skip_delay =
                 self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height));
 
-            eprintln!("{:?} @ {}", cur_time, i);
             // The `endorsement_delay` is time to send approval to the block producer at `timer.height`,
             // while the `skip_delay` is the time before sending the approval to BP of `timer_height + 1`,
             // so it makes sense for them to be at least 2x apart
