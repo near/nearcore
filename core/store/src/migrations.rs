@@ -678,7 +678,7 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
-pub fn migrate_18_to_new_validator_stake(path: &str) {
+pub fn migrate_18_to_new_validator_stake(store: &Store) {
     use near_primitives::epoch_manager::block_info::{BlockInfo, BlockInfoV1};
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -689,8 +689,6 @@ pub fn migrate_18_to_new_validator_stake(path: &str) {
         ValidatorKickoutReason, ValidatorStats,
     };
     use std::collections::BTreeMap;
-
-    let store = create_store(path);
 
     #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {
