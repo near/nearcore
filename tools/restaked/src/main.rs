@@ -88,7 +88,8 @@ fn main() {
         //  - don't already have a proposal
         //  - too many missing blocks in current validators
         //  - missing in next validators
-        if validators.current_proposals.iter().any(|proposal| proposal.account_id == account_id) {
+        if validators.current_proposals.iter().any(|proposal| proposal.account_id() == &account_id)
+        {
             continue;
         }
         let mut restake = false;

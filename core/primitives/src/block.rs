@@ -130,6 +130,10 @@ impl Block {
                     ShardChunkHeader::V2(_) => panic!(
                         "Attempted to include VersionedShardChunkHeaderV2 in old protocol version"
                     ),
+                    #[cfg(feature = "protocol_feature_block_header_v3")]
+                    ShardChunkHeader::V3(_) => panic!(
+                        "Attempted to include VersionedShardChunkHeaderV3 in old protocol version"
+                    ),
                 })
                 .collect();
 
@@ -218,7 +222,7 @@ impl Block {
         let mut gas_limit = 0;
         for chunk in chunks.iter() {
             if chunk.height_included() == height {
-                validator_proposals.extend_from_slice(chunk.validator_proposals());
+                validator_proposals.extend(chunk.validator_proposals());
                 gas_used += chunk.gas_used();
                 gas_limit += chunk.gas_limit();
                 balance_burnt += chunk.balance_burnt();
