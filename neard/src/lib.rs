@@ -28,9 +28,6 @@ use near_store::migrations::{
     migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_store::migrations::migrate_18_to_new_validator_stake;
-
 #[cfg(feature = "protocol_feature_rectify_inflation")]
 use near_store::migrations::migrate_18_to_rectify_inflation;
 
@@ -201,12 +198,6 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
     #[cfg(feature = "nightly_protocol")]
     {
         let store = create_store(&path);
-
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        if db_version <= 18 {
-            migrate_18_to_new_validator_stake(&path);
-        }
-
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
     }

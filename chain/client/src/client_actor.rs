@@ -571,7 +571,7 @@ impl Handler<Status> for ClientActor {
             .map_err(|err| err.to_string())?
             .into_iter()
             .map(|(validator_stake, is_slashed)| ValidatorInfo {
-                account_id: validator_stake.take_account_id(),
+                account_id: validator_stake.account_id.clone(),
                 is_slashed,
             })
             .collect();

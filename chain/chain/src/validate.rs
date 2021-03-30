@@ -10,15 +10,11 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
     ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::validator_stake::ValidatorStakeIter;
-use near_primitives::types::{AccountId, EpochId, Nonce};
+use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce};
 use near_store::PartialStorage;
 
 use crate::byzantine_assert;
@@ -35,8 +31,6 @@ pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAd
         ShardChunk::V2(chunk) => match &chunk.header {
             ShardChunkHeader::V1(header) => ShardChunkHeaderV1::compute_hash(&header.inner),
             ShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            ShardChunkHeader::V3(header) => ShardChunkHeaderV3::compute_hash(&header.inner),
         },
     };
 
@@ -57,13 +51,20 @@ pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAd
         byzantine_assert!(false);
         return false;
     }
+    let header_inner = match chunk {
+        ShardChunk::V1(chunk) => &chunk.header.inner,
+        ShardChunk::V2(chunk) => match &chunk.header {
+            ShardChunkHeader::V1(header) => &header.inner,
+            ShardChunkHeader::V2(header) => &header.inner,
+        },
+    };
     let height_created = chunk.height_created();
     let outgoing_receipts_root = chunk.outgoing_receipts_root();
     let (transactions, receipts) = (chunk.transactions(), chunk.receipts());
 
     // 2b. Checking that chunk transactions are valid
     let (tx_root, _) = merklize(transactions);
-    if tx_root != chunk.tx_root() {
+    if tx_root != header_inner.tx_root {
         byzantine_assert!(false);
         return false;
     }
@@ -123,31 +124,27 @@ pub fn validate_chunk_with_chunk_extra(
     prev_chunk_header: &ShardChunkHeader,
     chunk_header: &ShardChunkHeader,
 ) -> Result<(), Error> {
-    if *prev_chunk_extra.state_root() != chunk_header.prev_state_root() {
+    if prev_chunk_extra.state_root != chunk_header.prev_state_root() {
         return Err(ErrorKind::InvalidStateRoot.into());
     }
 
-    if *prev_chunk_extra.outcome_root() != chunk_header.outcome_root() {
+    if prev_chunk_extra.outcome_root != chunk_header.outcome_root() {
         return Err(ErrorKind::InvalidOutcomesProof.into());
     }
 
-    let chunk_extra_proposals = prev_chunk_extra.validator_proposals();
-    let chunk_header_proposals = chunk_header.validator_proposals();
-    if chunk_header_proposals.len() != chunk_extra_proposals.len()
-        || !chunk_extra_proposals.eq(chunk_header_proposals)
-    {
+    if prev_chunk_extra.validator_proposals != chunk_header.validator_proposals() {
         return Err(ErrorKind::InvalidValidatorProposals.into());
     }
 
-    if prev_chunk_extra.gas_limit() != chunk_header.gas_limit() {
+    if prev_chunk_extra.gas_limit != chunk_header.gas_limit() {
         return Err(ErrorKind::InvalidGasLimit.into());
     }
 
-    if prev_chunk_extra.gas_used() != chunk_header.gas_used() {
+    if prev_chunk_extra.gas_used != chunk_header.gas_used() {
         return Err(ErrorKind::InvalidGasUsed.into());
     }
 
-    if prev_chunk_extra.balance_burnt() != chunk_header.balance_burnt() {
+    if prev_chunk_extra.balance_burnt != chunk_header.balance_burnt() {
         return Err(ErrorKind::InvalidBalanceBurnt.into());
     }
 
@@ -163,7 +160,7 @@ pub fn validate_chunk_with_chunk_extra(
         return Err(ErrorKind::InvalidReceiptsProof.into());
     }
 
-    let prev_gas_limit = prev_chunk_extra.gas_limit();
+    let prev_gas_limit = prev_chunk_extra.gas_limit;
     if chunk_header.gas_limit() < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
         || chunk_header.gas_limit() > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
     {
@@ -335,7 +332,7 @@ fn validate_chunk_state_challenge(
             &block_header.hash(),
             &chunk_state.prev_chunk.receipts(),
             &chunk_state.prev_chunk.transactions(),
-            ValidatorStakeIter::empty(),
+            &[],
             prev_block_header.gas_price(),
             prev_chunk_header.gas_limit(),
             &ChallengesResult::default(),
@@ -343,16 +340,9 @@ fn validate_chunk_state_challenge(
         )
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
     let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
-    let proposals_match = result.validator_proposals.len()
-        == chunk_state.chunk_header.validator_proposals().len()
-        && result
-            .validator_proposals
-            .iter()
-            .zip(chunk_state.chunk_header.validator_proposals())
-            .all(|(x, y)| x == &y);
     if result.new_root != chunk_state.chunk_header.prev_state_root()
         || outcome_root != chunk_state.chunk_header.outcome_root()
-        || !proposals_match
+        || result.validator_proposals != chunk_state.chunk_header.validator_proposals()
         || result.total_gas_burnt != chunk_state.chunk_header.gas_used()
     {
         Ok((*block_header.hash(), vec![chunk_producer]))

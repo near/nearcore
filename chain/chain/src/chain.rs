@@ -5,7 +5,6 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use chrono::Utc;
-use itertools::Itertools;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -47,14 +46,11 @@ use near_primitives::syncing::{
     StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
-    ShardId,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, MerkleHash,
+    NumBlocks, ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::version::{ProtocolFeature, PROTOCOL_FEATURES_TO_VERSION_MAPPING};
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
@@ -361,8 +357,8 @@ impl Chain {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
 
-    pub fn compute_collection_hash<T: BorshSerialize>(elems: Vec<T>) -> Result<CryptoHash, Error> {
-        Ok(hash(&elems.try_to_vec()?))
+    pub fn compute_bp_hash_inner(bps: Vec<ValidatorStake>) -> Result<CryptoHash, Error> {
+        Ok(hash(&bps.try_to_vec()?))
     }
 
     pub fn compute_bp_hash(
@@ -371,24 +367,7 @@ impl Chain {
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        {
-            let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
-            Chain::compute_collection_hash(validator_stakes)
-        }
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        {
-            let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-            let block_header_v3_version =
-                PROTOCOL_FEATURES_TO_VERSION_MAPPING.get(&ProtocolFeature::BlockHeaderV3).unwrap();
-            if &protocol_version < block_header_v3_version {
-                let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
-                Chain::compute_collection_hash(validator_stakes)
-            } else {
-                let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
-                Chain::compute_collection_hash(validator_stakes)
-            }
-        }
+        Chain::compute_bp_hash_inner(bps.iter().map(|(bp, _)| bp).cloned().collect::<Vec<_>>())
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
@@ -1083,7 +1062,8 @@ impl Chain {
                 let sum = block
                     .header()
                     .validator_proposals()
-                    .map(|validator_stake| (validator_stake.stake() / NEAR_BASE) as i64)
+                    .iter()
+                    .map(|validator_stake| (validator_stake.stake / NEAR_BASE) as i64)
                     .sum::<i64>();
                 near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED, sum);
 
@@ -1455,8 +1435,6 @@ impl Chain {
                     prev_chunk_header.and_then(|prev_header| match prev_header {
                         ShardChunkHeader::V1(header) => Some(header),
                         ShardChunkHeader::V2(_) => None,
-                        #[cfg(feature = "protocol_feature_block_header_v3")]
-                        ShardChunkHeader::V3(_) => None,
                     });
                 ShardStateSyncResponseHeader::V1(ShardStateSyncResponseHeaderV1 {
                     chunk,
@@ -1702,7 +1680,7 @@ impl Chain {
         let chunk_inner = chunk.take_header().take_inner();
         if !self.runtime_adapter.validate_state_root_node(
             shard_state_header.state_root_node(),
-            chunk_inner.prev_state_root(),
+            &chunk_inner.prev_state_root,
         ) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
@@ -1738,7 +1716,7 @@ impl Chain {
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
-        let state_root = *chunk.take_header().take_inner().prev_state_root();
+        let state_root = chunk.take_header().take_inner().prev_state_root;
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
@@ -2700,16 +2678,16 @@ impl<'a> ChainUpdate<'a> {
             .runtime_adapter
             .apply_transactions_with_optional_storage_proof(
                 chunk_shard_id,
-                prev_chunk_inner.prev_state_root(),
+                &prev_chunk_inner.prev_state_root,
                 prev_chunk.height_included(),
                 prev_block.header().raw_timestamp(),
-                prev_chunk_inner.prev_block_hash(),
+                &prev_chunk_inner.prev_block_hash,
                 &prev_block.hash(),
                 &receipts,
                 prev_chunk.transactions(),
-                prev_chunk_inner.validator_proposals(),
+                &prev_chunk_inner.validator_proposals,
                 prev_block.header().gas_price(),
-                prev_chunk_inner.gas_limit(),
+                prev_chunk_inner.gas_limit,
                 &challenges_result,
                 *block.header().random_value(),
                 true,
@@ -2846,21 +2824,21 @@ impl<'a> ChainUpdate<'a> {
                     );
 
                     let chunk_inner = chunk.cloned_header().take_inner();
-                    let gas_limit = chunk_inner.gas_limit();
+                    let gas_limit = chunk_inner.gas_limit;
 
                     // Apply transactions and receipts.
                     let apply_result = self
                         .runtime_adapter
                         .apply_transactions(
                             shard_id,
-                            chunk_inner.prev_state_root(),
+                            &chunk_inner.prev_state_root,
                             chunk_header.height_included(),
                             block.header().raw_timestamp(),
                             &chunk_header.prev_block_hash(),
                             &block.hash(),
                             &receipts,
                             chunk.transactions(),
-                            chunk_inner.validator_proposals(),
+                            &chunk_inner.validator_proposals,
                             prev_block.header().gas_price(),
                             gas_limit,
                             &block.header().challenges_result(),
@@ -2907,23 +2885,23 @@ impl<'a> ChainUpdate<'a> {
                         .runtime_adapter
                         .apply_transactions(
                             shard_id,
-                            new_extra.state_root(),
+                            &new_extra.state_root,
                             block.header().height(),
                             block.header().raw_timestamp(),
                             &prev_block.hash(),
                             &block.hash(),
                             &[],
                             &[],
-                            new_extra.validator_proposals(),
+                            &new_extra.validator_proposals,
                             block.header().gas_price(),
-                            new_extra.gas_limit(),
+                            new_extra.gas_limit,
                             &block.header().challenges_result(),
                             *block.header().random_value(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
                     self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-                    *new_extra.state_root_mut() = apply_result.new_root;
+                    new_extra.state_root = apply_result.new_root;
 
                     self.chain_store_update.save_chunk_extra(&block.hash(), shard_id, new_extra);
                 }
@@ -3089,27 +3067,14 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Verify that proposals from chunks match block header proposals.
-        let block_height = block.header().height();
-        for pair in block
-            .chunks()
-            .iter()
-            .filter(|chunk| block_height == chunk.height_included())
-            .flat_map(|chunk| chunk.validator_proposals())
-            .zip_longest(block.header().validator_proposals())
-        {
-            match pair {
-                itertools::EitherOrBoth::Both(cp, hp) => {
-                    if hp != cp {
-                        // Proposals differed!
-                        return Err(ErrorKind::InvalidValidatorProposals.into());
-                    }
-                }
-                _ => {
-                    // Can only occur if there were a different number of proposals in the header
-                    // and chunks
-                    return Err(ErrorKind::InvalidValidatorProposals.into());
-                }
+        let mut all_chunk_proposals = vec![];
+        for chunk in block.chunks().iter() {
+            if block.header().height() == chunk.height_included() {
+                all_chunk_proposals.extend(chunk.validator_proposals().iter().cloned());
             }
+        }
+        if all_chunk_proposals.as_slice() != block.header().validator_proposals() {
+            return Err(ErrorKind::InvalidValidatorProposals.into());
         }
 
         // If block checks out, record validator proposals for given block.
@@ -3678,22 +3643,22 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
-            chunk_extra.state_root(),
+            &chunk_extra.state_root,
             block_header.height(),
             block_header.raw_timestamp(),
             &prev_block_header.hash(),
             &block_header.hash(),
             &[],
             &[],
-            chunk_extra.validator_proposals(),
+            &chunk_extra.validator_proposals,
             prev_block_header.gas_price(),
-            chunk_extra.gas_limit(),
+            chunk_extra.gas_limit,
             &block_header.challenges_result(),
             *block_header.random_value(),
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-        *chunk_extra.state_root_mut() = apply_result.new_root;
+        chunk_extra.state_root = apply_result.new_root;
 
         self.chain_store_update.save_chunk_extra(&block_header.hash(), shard_id, chunk_extra);
         Ok(true)
@@ -3749,7 +3714,7 @@ impl<'a> ChainUpdate<'a> {
             &head.last_block_hash,
             &block_producer,
         )?;
-        Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
+        Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
     }
 }
 

@@ -32,11 +32,9 @@ use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
     u128_dec_format, u64_dec_format,
 };
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-use crate::sharding::ShardChunkHeaderV2;
-use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use crate::sharding::{ShardChunkHeaderInnerV2, ShardChunkHeaderV3};
+use crate::sharding::{
+    ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV2,
+};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
@@ -46,10 +44,9 @@ use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
     EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
     StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason,
+    StoreValue, ValidatorKickoutReason, ValidatorStake,
 };
 use crate::version::{ProtocolVersion, Version};
-use validator_stake_view::ValidatorStakeView;
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -405,7 +402,11 @@ impl From<BlockHeader> for BlockHeaderView {
             timestamp: header.raw_timestamp(),
             timestamp_nanosec: header.raw_timestamp(),
             random_value: header.random_value().clone(),
-            validator_proposals: header.validator_proposals().map(Into::into).collect(),
+            validator_proposals: header
+                .validator_proposals()
+                .iter()
+                .map(|v| v.clone().into())
+                .collect(),
             chunk_mask: header.chunk_mask().to_vec(),
             #[cfg(feature = "protocol_feature_block_header_v3")]
             block_ordinal: if header.block_ordinal() != 0 {
@@ -454,15 +455,6 @@ impl From<BlockHeaderView> for BlockHeader {
                 - 1,
         );
         if view.latest_protocol_version <= 29 {
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            let validator_proposals = view
-                .validator_proposals
-                .into_iter()
-                .map(|v| v.into_validator_stake().into_v1())
-                .collect();
-            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-            let validator_proposals =
-                view.validator_proposals.into_iter().map(Into::into).collect();
             let mut header = BlockHeaderV1 {
                 prev_hash: view.prev_hash,
                 inner_lite,
@@ -473,7 +465,11 @@ impl From<BlockHeaderView> for BlockHeader {
                     chunks_included: view.chunks_included,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals,
+                    validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(|v| v.into())
+                        .collect(),
                     chunk_mask: view.chunk_mask,
                     gas_price: view.gas_price,
                     total_supply: view.total_supply,
@@ -491,15 +487,6 @@ impl From<BlockHeaderView> for BlockHeader {
         } else if last_header_v2_version.is_none()
             || view.latest_protocol_version <= last_header_v2_version.unwrap()
         {
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            let validator_proposals = view
-                .validator_proposals
-                .into_iter()
-                .map(|v| v.into_validator_stake().into_v1())
-                .collect();
-            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-            let validator_proposals =
-                view.validator_proposals.into_iter().map(Into::into).collect();
             let mut header = BlockHeaderV2 {
                 prev_hash: view.prev_hash,
                 inner_lite,
@@ -509,7 +496,11 @@ impl From<BlockHeaderView> for BlockHeader {
                     chunk_tx_root: view.chunk_tx_root,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals,
+                    validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(|v| v.into())
+                        .collect(),
                     chunk_mask: view.chunk_mask,
                     gas_price: view.gas_price,
                     total_supply: view.total_supply,
@@ -541,7 +532,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         validator_proposals: view
                             .validator_proposals
                             .into_iter()
-                            .map(Into::into)
+                            .map(|v| v.into())
                             .collect(),
                         chunk_mask: view.chunk_mask,
                         gas_price: view.gas_price,
@@ -674,56 +665,27 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
         let inner = chunk.take_inner();
         ChunkHeaderView {
             chunk_hash: hash.0,
-            prev_block_hash: *inner.prev_block_hash(),
-            outcome_root: *inner.outcome_root(),
-            prev_state_root: *inner.prev_state_root(),
-            encoded_merkle_root: *inner.encoded_merkle_root(),
-            encoded_length: inner.encoded_length(),
-            height_created: inner.height_created(),
+            prev_block_hash: inner.prev_block_hash,
+            outcome_root: inner.outcome_root,
+            prev_state_root: inner.prev_state_root,
+            encoded_merkle_root: inner.encoded_merkle_root,
+            encoded_length: inner.encoded_length,
+            height_created: inner.height_created,
             height_included,
-            shard_id: inner.shard_id(),
-            gas_used: inner.gas_used(),
-            gas_limit: inner.gas_limit(),
+            shard_id: inner.shard_id,
+            gas_used: inner.gas_used,
+            gas_limit: inner.gas_limit,
             rent_paid: 0,
             validator_reward: 0,
-            balance_burnt: inner.balance_burnt(),
-            outgoing_receipts_root: *inner.outgoing_receipts_root(),
-            tx_root: *inner.tx_root(),
-            validator_proposals: inner.validator_proposals().map(Into::into).collect(),
+            balance_burnt: inner.balance_burnt,
+            outgoing_receipts_root: inner.outgoing_receipts_root,
+            tx_root: inner.tx_root,
+            validator_proposals: inner.validator_proposals.into_iter().map(Into::into).collect(),
             signature,
         }
     }
 }
 
-#[cfg(feature = "protocol_feature_block_header_v3")]
-impl From<ChunkHeaderView> for ShardChunkHeader {
-    fn from(view: ChunkHeaderView) -> Self {
-        let mut header = ShardChunkHeaderV3 {
-            inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-                prev_block_hash: view.prev_block_hash,
-                prev_state_root: view.prev_state_root,
-                outcome_root: view.outcome_root,
-                encoded_merkle_root: view.encoded_merkle_root,
-                encoded_length: view.encoded_length,
-                height_created: view.height_created,
-                shard_id: view.shard_id,
-                gas_used: view.gas_used,
-                gas_limit: view.gas_limit,
-                balance_burnt: view.balance_burnt,
-                outgoing_receipts_root: view.outgoing_receipts_root,
-                tx_root: view.tx_root,
-                validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
-            }),
-            height_included: view.height_included,
-            signature: view.signature,
-            hash: ChunkHash::default(),
-        };
-        header.init();
-        ShardChunkHeader::V3(header)
-    }
-}
-
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
         let mut header = ShardChunkHeaderV2 {
@@ -1107,103 +1069,24 @@ impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
     }
 }
 
-#[cfg(feature = "protocol_feature_block_header_v3")]
-pub mod validator_stake_view {
-    use crate::types::validator_stake::ValidatorStake;
-    use borsh::{BorshDeserialize, BorshSerialize};
-    use near_primitives_core::types::AccountId;
-    use serde::{Deserialize, Serialize};
-
-    pub use super::ValidatorStakeViewV1;
-
-    #[derive(
-        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
-    )]
-    #[serde(tag = "validator_stake_struct_version")]
-    pub enum ValidatorStakeView {
-        V1(ValidatorStakeViewV1),
-    }
-
-    impl ValidatorStakeView {
-        pub fn into_validator_stake(self) -> ValidatorStake {
-            self.into()
-        }
-
-        #[inline]
-        pub fn take_account_id(self) -> AccountId {
-            match self {
-                Self::V1(v1) => v1.account_id,
-            }
-        }
-
-        #[inline]
-        pub fn account_id(&self) -> &AccountId {
-            match self {
-                Self::V1(v1) => &v1.account_id,
-            }
-        }
-    }
-
-    impl From<ValidatorStake> for ValidatorStakeView {
-        fn from(stake: ValidatorStake) -> Self {
-            match stake {
-                ValidatorStake::V1(v1) => Self::V1(ValidatorStakeViewV1 {
-                    account_id: v1.account_id,
-                    public_key: v1.public_key,
-                    stake: v1.stake,
-                }),
-            }
-        }
-    }
-
-    impl From<ValidatorStakeView> for ValidatorStake {
-        fn from(view: ValidatorStakeView) -> Self {
-            match view {
-                ValidatorStakeView::V1(v1) => Self::new(v1.account_id, v1.public_key, v1.stake),
-            }
-        }
-    }
-}
-
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-pub mod validator_stake_view {
-    use crate::types::validator_stake::ValidatorStake;
-    use near_primitives_core::types::AccountId;
-
-    pub use super::ValidatorStakeViewV1;
-    pub type ValidatorStakeView = ValidatorStakeViewV1;
-
-    impl ValidatorStakeView {
-        #[inline]
-        pub fn take_account_id(self) -> AccountId {
-            self.account_id
-        }
-
-        #[inline]
-        pub fn account_id(&self) -> &AccountId {
-            &self.account_id
-        }
-    }
-
-    impl From<ValidatorStake> for ValidatorStakeView {
-        fn from(stake: ValidatorStake) -> Self {
-            Self { account_id: stake.account_id, public_key: stake.public_key, stake: stake.stake }
-        }
-    }
-
-    impl From<ValidatorStakeView> for ValidatorStake {
-        fn from(view: ValidatorStakeView) -> Self {
-            Self { account_id: view.account_id, public_key: view.public_key, stake: view.stake }
-        }
-    }
-}
-
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
-pub struct ValidatorStakeViewV1 {
+pub struct ValidatorStakeView {
     pub account_id: AccountId,
     pub public_key: PublicKey,
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
+}
+
+impl From<ValidatorStake> for ValidatorStakeView {
+    fn from(stake: ValidatorStake) -> Self {
+        Self { account_id: stake.account_id, public_key: stake.public_key, stake: stake.stake }
+    }
+}
+
+impl From<ValidatorStakeView> for ValidatorStake {
+    fn from(view: ValidatorStakeView) -> Self {
+        Self { account_id: view.account_id, public_key: view.public_key, stake: view.stake }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

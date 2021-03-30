@@ -35,10 +35,9 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::chunk_extra::ChunkExtra;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::NumBlocks;
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -365,10 +364,8 @@ impl Client {
             &head.last_block_hash,
             &next_block_proposer,
         )?;
-
-        let validator_pk = validator_stake.take_public_key();
-        if validator_pk != validator_signer.public_key() {
-            debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_pk);
+        if validator_stake.public_key != validator_signer.public_key() {
+            debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_stake.public_key);
             #[cfg(not(feature = "adversarial"))]
             return Ok(None);
             #[cfg(feature = "adversarial")]
@@ -584,14 +581,14 @@ impl Client {
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(epoch_id)?;
         let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
-            *chunk_extra.state_root(),
-            *chunk_extra.outcome_root(),
+            chunk_extra.state_root,
+            chunk_extra.outcome_root,
             next_height,
             shard_id,
-            chunk_extra.gas_used(),
-            chunk_extra.gas_limit(),
-            chunk_extra.balance_burnt(),
-            chunk_extra.validator_proposals().collect(),
+            chunk_extra.gas_used,
+            chunk_extra.gas_limit,
+            chunk_extra.balance_burnt,
+            chunk_extra.validator_proposals,
             transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
@@ -633,9 +630,9 @@ impl Client {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime_adapter.prepare_transactions(
                 prev_block_header.gas_price(),
-                chunk_extra.gas_limit(),
+                chunk_extra.gas_limit,
                 shard_id,
-                *chunk_extra.state_root(),
+                chunk_extra.state_root.clone(),
                 // while the height of the next block that includes the chunk might not be prev_height + 1,
                 // passing it will result in a more conservative check and will not accidentally allow
                 // invalid transactions to be included.
@@ -1187,7 +1184,7 @@ impl Client {
                     .get_validator_by_account_id(epoch_id, block_hash, account_id)
                 {
                     Ok((validator_stake, is_slashed)) => {
-                        !is_slashed && validator_stake.take_public_key() == signer.public_key()
+                        !is_slashed && validator_stake.public_key == signer.public_key()
                     }
                     Err(_) => false,
                 }
@@ -1471,7 +1468,7 @@ impl Client {
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
-                Ok(chunk_extra) => *chunk_extra.state_root(),
+                Ok(chunk_extra) => chunk_extra.state_root,
                 Err(_) => {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
@@ -1691,8 +1688,6 @@ mod test {
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::block_header::ApprovalType;
     use near_primitives::network::PeerId;
-    #[cfg(feature = "protocol_feature_block_header_v3")]
-    use near_primitives::sharding::ShardChunkHeaderInner;
     use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
     use near_primitives::utils::MaybeValidated;
 
@@ -1771,18 +1766,6 @@ mod test {
             }
             ShardChunkHeader::V2(ref mut header) => {
                 header.inner.prev_block_hash = hash(b"some_prev_block");
-                header.init();
-            }
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            ShardChunkHeader::V3(header) => {
-                match &mut header.inner {
-                    ShardChunkHeaderInner::V1(inner) => {
-                        inner.prev_block_hash = hash(b"some_prev_block")
-                    }
-                    ShardChunkHeaderInner::V2(inner) => {
-                        inner.prev_block_hash = hash(b"some_prev_block")
-                    }
-                }
                 header.init();
             }
         }

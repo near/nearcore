@@ -12,10 +12,9 @@ use near_jsonrpc_primitives::rpc::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
-use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    StatusResponse,
+    StatusResponse, ValidatorStakeView,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
