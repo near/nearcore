@@ -48,12 +48,6 @@ pub struct RpcStateChangesInBlockResponse {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct RpcBroadcastTxSyncResponse {
-    pub transaction_hash: String,
-    pub is_routed: bool,
-}
-
-#[derive(Serialize, Deserialize)]
 pub struct RpcLightClientExecutionProofRequest {
     #[serde(flatten)]
     pub id: TransactionOrReceiptId,

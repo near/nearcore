@@ -137,7 +137,13 @@ fn test_expired_tx() {
                                 actix::spawn(
                                     client
                                         .broadcast_tx_commit(to_base64(&bytes))
-                                        .map_err(|_| {
+                                        .map_err(|err| {
+                                            assert_eq!(
+                                                err.data.unwrap(),
+                                                serde_json::json!({"TxExecutionError": {
+                                                    "InvalidTxError": "Expired"
+                                                }})
+                                            );
                                             System::current().stop();
                                         })
                                         .map(|_| ()),
