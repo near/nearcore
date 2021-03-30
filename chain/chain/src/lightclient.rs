@@ -2,8 +2,7 @@ use near_chain_primitives::Error;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::EpochId;
-use near_primitives::views::validator_stake_view::ValidatorStakeView;
-use near_primitives::views::{BlockHeaderInnerLiteView, LightClientBlockView};
+use near_primitives::views::{BlockHeaderInnerLiteView, LightClientBlockView, ValidatorStakeView};
 
 use crate::{ChainStoreAccess, RuntimeAdapter};
 

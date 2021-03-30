@@ -460,7 +460,7 @@ fn test_validators_ordered() {
             .await
             .unwrap();
         assert_eq!(
-            validators.into_iter().map(|v| v.take_account_id()).collect::<Vec<_>>(),
+            validators.into_iter().map(|v| v.account_id).collect::<Vec<_>>(),
             vec!["test1".to_string(), "test2".to_string()]
         )
     });

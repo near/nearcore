@@ -8,8 +8,9 @@ use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
-use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks};
+use crate::types::{
+    AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ValidatorStake,
+};
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -49,7 +50,7 @@ pub struct BlockHeaderInnerRest {
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
     /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStakeV1>,
+    pub validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -85,7 +86,7 @@ pub struct BlockHeaderInnerRestV2 {
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
     /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStakeV1>,
+    pub validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -110,7 +111,6 @@ pub struct BlockHeaderInnerRestV2 {
 /// Add `prev_height`
 /// Add `block_ordinal`
 /// Add `epoch_sync_data_hash`
-/// Use new `ValidatorStake` struct
 #[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRestV3 {
@@ -268,7 +268,7 @@ pub struct BlockHeaderV2 {
     pub hash: CryptoHash,
 }
 
-/// V2 -> V3: Add `prev_height` to `inner_rest` and use new `ValidatorStake`
+/// V2 -> V3: Add `prev_height` to `inner_rest`
 // Add `block_ordinal` to `inner_rest`
 #[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
@@ -298,6 +298,7 @@ impl BlockHeaderV2 {
         );
     }
 }
+
 #[cfg(feature = "protocol_feature_block_header_v3")]
 impl BlockHeaderV3 {
     pub fn init(&mut self) {
@@ -392,9 +393,6 @@ impl BlockHeader {
                 chunks_included,
                 challenges_root,
                 random_value,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
-                validator_proposals: validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
-                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                 validator_proposals,
                 chunk_mask,
                 gas_price,
@@ -426,10 +424,7 @@ impl BlockHeader {
                 chunk_tx_root,
                 challenges_root,
                 random_value,
-                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                 validator_proposals,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
-                validator_proposals: validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
                 chunk_mask,
                 gas_price,
                 total_supply,
@@ -781,18 +776,12 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn validator_proposals(&self) -> ValidatorStakeIter {
+    pub fn validator_proposals(&self) -> &[ValidatorStake] {
         match self {
-            BlockHeader::BlockHeaderV1(header) => {
-                ValidatorStakeIter::v1(&header.inner_rest.validator_proposals)
-            }
-            BlockHeader::BlockHeaderV2(header) => {
-                ValidatorStakeIter::v1(&header.inner_rest.validator_proposals)
-            }
+            BlockHeader::BlockHeaderV1(header) => &header.inner_rest.validator_proposals,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.validator_proposals,
             #[cfg(feature = "protocol_feature_block_header_v3")]
-            BlockHeader::BlockHeaderV3(header) => {
-                ValidatorStakeIter::new(&header.inner_rest.validator_proposals)
-            }
+            BlockHeader::BlockHeaderV3(header) => &header.inner_rest.validator_proposals,
         }
     }
 

@@ -2,8 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
 
 use crate::block_header::BlockHeader;
-use crate::epoch_manager::block_info::BlockInfo;
-use crate::epoch_manager::epoch_info::EpochInfo;
+use crate::epoch_manager::{BlockInfo, EpochInfo};
 use crate::hash::CryptoHash;
 use crate::merkle::{MerklePath, PartialMerkleTree};
 use crate::receipt::Receipt;

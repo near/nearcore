@@ -232,11 +232,9 @@ mod tests {
 
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::{EpochManager, RewardCalculator};
-    use near_primitives::epoch_manager::block_info::BlockInfo;
-    use near_primitives::epoch_manager::EpochConfig;
+    use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{BlockHeight, EpochId, NumShards};
+    use near_primitives::types::{BlockHeight, EpochId, NumShards, ValidatorStake};
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
@@ -279,11 +277,11 @@ mod tests {
                 initial_epoch_config,
                 PROTOCOL_VERSION,
                 reward_calculator,
-                vec![ValidatorStake::new(
-                    "test".to_string(),
-                    PublicKey::empty(KeyType::ED25519),
-                    100,
-                )],
+                vec![ValidatorStake {
+                    account_id: "test".to_string(),
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                    stake: 100,
+                }],
             )
             .unwrap(),
         ))

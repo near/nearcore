@@ -31,9 +31,9 @@ use near_primitives::sharding::{
     ShardChunkHeader, ShardProof,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
+    ValidatorStake,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -560,17 +560,16 @@ impl ShardsManager {
         for (validator_stake, is_slashed) in
             self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, parent_hash)?
         {
-            let account_id = validator_stake.take_account_id();
             if !is_slashed
                 && self.cares_about_shard_this_or_next_epoch(
-                    Some(&account_id),
+                    Some(&validator_stake.account_id),
                     &parent_hash,
                     shard_id,
                     false,
                 )
-                && self.me.as_ref() != Some(&account_id)
+                && self.me.as_ref() != Some(&validator_stake.account_id)
             {
-                block_producers.push(account_id);
+                block_producers.push(validator_stake.account_id);
             }
         }
 
@@ -1369,21 +1368,20 @@ impl ShardsManager {
         let block_producers =
             self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, &parent_hash)?;
         for (bp, _) in block_producers {
-            let bp_account_id = bp.take_account_id();
             // no need to send anything to myself
-            if me == &bp_account_id {
+            if me == &bp.account_id {
                 continue;
             }
 
             let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
-                Some(&bp_account_id),
+                Some(&bp.account_id),
                 &parent_hash,
                 shard_id,
                 false,
             );
             if cares_about_shard {
                 self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkForward {
-                    account_id: bp_account_id,
+                    account_id: bp.account_id.clone(),
                     forward: forward.clone(),
                 });
             }
@@ -1524,7 +1522,9 @@ impl ShardsManager {
             ShardChunkHeader::V1(header) => {
                 PartialEncodedChunk::V1(PartialEncodedChunkV1 { header, parts, receipts })
             }
-            header => PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts }),
+            header @ ShardChunkHeader::V2(_) => {
+                PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts })
+            }
         };
 
         store_update.save_partial_chunk(partial_chunk);

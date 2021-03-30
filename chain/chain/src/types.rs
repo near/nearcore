@@ -13,18 +13,16 @@ use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
-use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot, StateRootNode,
+    NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -105,7 +103,7 @@ impl ApplyTransactionResult {
 
 /// Compressed information about block.
 /// Useful for epoch manager.
-#[derive(Default, Clone, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
 pub struct BlockHeaderInfo {
     pub hash: CryptoHash,
     pub prev_hash: CryptoHash,
@@ -131,7 +129,7 @@ impl BlockHeaderInfo {
             random_value: *header.random_value(),
             last_finalized_height,
             last_finalized_block_hash: *header.last_final_block(),
-            proposals: header.validator_proposals().collect(),
+            proposals: header.validator_proposals().to_vec(),
             slashed_validators: vec![],
             chunk_mask: header.chunk_mask().to_vec(),
             total_supply: header.total_supply(),
@@ -510,7 +508,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
+        last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
@@ -544,7 +542,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
+        last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
@@ -563,7 +561,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
+        last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
@@ -715,7 +713,6 @@ mod tests {
         let num_shards = 32;
         let genesis_chunks =
             genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
-        let genesis_bps: Vec<ValidatorStake> = Vec::new();
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
@@ -723,7 +720,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            Chain::compute_collection_hash(genesis_bps).unwrap(),
+            Chain::compute_bp_hash_inner(vec![]).unwrap(),
         );
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
