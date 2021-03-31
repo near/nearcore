@@ -12,7 +12,6 @@ use near_primitives::serialize::to_base64;
 use near_primitives::types::Balance;
 use near_primitives::views::{AccessKeyView, FinalExecutionStatus};
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
-use near_vm_errors::{FunctionCallError, HostError, MethodResolveError};
 use neard::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use crate::fees_utils::FeeHelper;
@@ -81,9 +80,9 @@ pub fn test_smart_contract_panic(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::HostError(
-                    HostError::GuestPanic { panic_msg: "WAT?".to_string() }
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    "Smart contract panicked: WAT?".to_string()
+                )
             }
             .into()
         )
@@ -119,9 +118,7 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodNotFound
-                ))
+                kind: ActionErrorKind::FunctionCallError("MethodNotFound".to_string())
             }
             .into()
         )
@@ -143,9 +140,7 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                ))
+                kind: ActionErrorKind::FunctionCallError("MethodEmptyName".to_string())
             }
             .into()
         )
@@ -167,9 +162,7 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                ))
+                kind: ActionErrorKind::FunctionCallError("MethodEmptyName".to_string())
             }
             .into()
         )

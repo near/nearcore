@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display};
 
 use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::{FunctionCallError, VMLogicError};
+use near_vm_errors::VMLogicError;
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -384,8 +384,8 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         minimum_stake: Balance,
     },
-    /// An error occurred during a `FunctionCall` Action.
-    FunctionCallError(FunctionCallError),
+    /// An error occurred during a `FunctionCall` Action, parameter is debug message.
+    FunctionCallError(String),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),

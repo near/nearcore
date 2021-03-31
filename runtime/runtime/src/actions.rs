@@ -192,10 +192,22 @@ pub(crate) fn action_function_call(
         false,
     );
     let execution_succeeded = match err {
-        Some(VMError::FunctionCallError(err)) => {
-            result.result = Err(ActionErrorKind::FunctionCallError(err).into());
-            false
-        }
+        Some(VMError::FunctionCallError(err)) => match err {
+            FunctionCallError::Nondeterministic(msg) => {
+                panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+            }
+            FunctionCallError::CompilationError(_)
+            | FunctionCallError::LinkError { msg: _ }
+            | FunctionCallError::MethodResolveError(_)
+            | FunctionCallError::WasmTrap(_)
+            // TODO: shall we abort on unknown errors also?
+            | FunctionCallError::WasmUnknownError(_)
+            | FunctionCallError::HostError(_)
+            | FunctionCallError::EvmError(_) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(err.to_string()).into());
+                false
+            }
+        },
         Some(VMError::ExternalError(serialized_error)) => {
             let err: ExternalError = borsh::BorshDeserialize::try_from_slice(&serialized_error)
                 .expect("External error deserialization shouldn't fail");

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use near_rpc_error_macro::RpcError;
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum VMError {
     FunctionCallError(FunctionCallError),
     /// Serialized external error from External trait implementation.
@@ -17,9 +17,7 @@ pub enum VMError {
     CacheError(CacheError),
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -31,15 +29,11 @@ pub enum FunctionCallError {
     MethodResolveError(MethodResolveError),
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
-    WasmUnknownError,
+    WasmUnknownError(String),
     HostError(HostError),
     EvmError(EvmError),
-    /// An error message when wasmer 1.0 returns a wasmer::RuntimeError
-    WasmerRuntimeError(String),
-    /// A trap in Wasmer 1.0, not same as WasmTrap above, String is a machine readable form like "stk_ovf"
-    /// String is used instead of wasmer internal enum is because of BorshSerializable.
-    /// It can be convert back by wasmer_vm::TrapCode::from_str
-    Wasmer1Trap(String),
+    /// Non-deterministic error.
+    Nondeterministic(String),
 }
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
@@ -67,12 +61,12 @@ pub enum WasmTrap {
     IllegalArithmetic,
     /// Misaligned atomic access trap.
     MisalignedAtomicAccess,
-    /// Breakpoint trap.
-    BreakpointTrap,
     /// Stack overflow.
     StackOverflow,
     /// Generic trap.
     GenericTrap,
+    /// Indirect call to null.
+    IndirectCallToNull,
 }
 
 #[derive(
@@ -363,12 +357,13 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
-            FunctionCallError::WasmUnknownError => {
-                write!(f, "Unknown error during Wasm contract execution")
+            FunctionCallError::WasmUnknownError(msg) => {
+                write!(f, "Unknown error during Wasm contract execution: {}", msg)
             }
             FunctionCallError::EvmError(e) => write!(f, "EVM: {:?}", e),
-            FunctionCallError::WasmerRuntimeError(e) => write!(f, "Wasmer Runtime: {}", e),
-            FunctionCallError::Wasmer1Trap(e) => write!(f, "Wasmer 1.0 trap: {}", e),
+            FunctionCallError::Nondeterministic(msg) => {
+                write!(f, "Nondeterministic error during contract execution: {}", msg)
+            }
         }
     }
 }
@@ -387,8 +382,8 @@ impl fmt::Display for WasmTrap {
             }
             WasmTrap::MisalignedAtomicAccess => write!(f, "Misaligned atomic access trap."),
             WasmTrap::GenericTrap => write!(f, "Generic trap."),
-            WasmTrap::BreakpointTrap => write!(f, "Breakpoint trap."),
             WasmTrap::StackOverflow => write!(f, "Stack overflow."),
+            WasmTrap::IndirectCallToNull => write!(f, "Indirect call to null."),
         }
     }
 }

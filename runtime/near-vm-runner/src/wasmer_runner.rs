@@ -6,8 +6,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{
     config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
 };
-use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
-use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
+use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::{ImportObject, Module};
@@ -91,7 +90,6 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
-        use near_vm_errors::WasmTrap::BreakpointTrap;
         use wasmer_runtime::error::InvokeError;
         use wasmer_runtime::error::RuntimeError;
         match &self {
@@ -102,7 +100,9 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 // invoke returns false and doesn't fill error info what Singlepass BE doesn't.
                 // Failed unwinder may happen in the case of deep recursion/stack overflow.
                 // Also can be thrown on unreachable instruction, which is quite unfortunate.
-                InvokeError::FailedWithNoError => VMError::FunctionCallError(WasmUnknownError),
+                InvokeError::FailedWithNoError => VMError::FunctionCallError(
+                    FunctionCallError::Nondeterministic("FailedWithNoError".to_string()),
+                ),
                 // Indicates that a trap occurred that is not known to Wasmer.
                 // As of 0.17.0, thrown only from Cranelift BE.
                 InvokeError::UnknownTrap { address, signal } => {
@@ -113,9 +113,16 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                     );
                 }
                 // A trap that Wasmer knows about occurred.
-                // As of 0.17.1, can be thrown on C signals caught, for example OOM.
-                InvokeError::TrapCode { code: _, srcloc: _ } => {
-                    VMError::FunctionCallError(WasmUnknownError)
+                InvokeError::TrapCode { code, srcloc } => {
+                    VMError::FunctionCallError(match *code as u32 {
+                        0 /* Unreachable */ => FunctionCallError::WasmTrap(WasmTrap::Unreachable),
+                        1 /* IncorrectCallIndirectSignature */ => FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature),
+                        2 /* MemoryOutOfBounds */ => FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
+                        3 /* CallIndirectOOB */ => FunctionCallError::WasmTrap(WasmTrap::CallIndirectOOB),
+                        4 /* IllegalArithmetic */ => FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic),
+                        5 /* MisalignedAtomicAccess */ => FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess),
+                        _ => FunctionCallError::WasmUnknownError(format!("Wasmer trap {} at {}", code, srcloc)),
+                    })
                 }
                 // A trap occurred that Wasmer knows about but it had a trap code that
                 // we weren't expecting or that we do not handle.
@@ -135,7 +142,9 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 // upon the middleware or backend being used.
                 // As of 0.17.0, thrown only from Singlepass BE and wraps RuntimeError
                 // instance.
-                InvokeError::Breakpoint(_) => VMError::FunctionCallError(WasmTrap(BreakpointTrap)),
+                InvokeError::Breakpoint(_) => VMError::FunctionCallError(
+                    FunctionCallError::Nondeterministic("Wasmer breakpoint".to_string()),
+                ),
             },
             // A metering triggered error value.
             // As of 0.17.0, thrown only from Singlepass BE, and as we do not rely

@@ -3628,6 +3628,7 @@ dependencies = [
  "wasmer-runtime-core-near",
  "wasmer-runtime-near",
  "wasmer-types",
+ "wasmer-vm",
  "wasmtime",
 ]
 
