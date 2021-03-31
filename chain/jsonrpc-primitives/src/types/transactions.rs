@@ -7,6 +7,20 @@ pub struct RpcTransactionRequest {
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
 }
 
+#[derive(Debug)]
+pub struct RpcTransactionStatusCommonRequest {
+    pub transaction_info: TransactionInfo,
+}
+
+#[derive(Clone, Debug)]
+pub enum TransactionInfo {
+    Transaction(near_primitives::transaction::SignedTransaction),
+    TransactionId {
+        hash: near_primitives::hash::CryptoHash,
+        account_id: near_primitives::types::AccountId,
+    },
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
@@ -35,6 +49,7 @@ pub struct RpcTransactionResponse {
     pub final_execution_outcome: near_primitives::views::FinalExecutionOutcomeViewEnum,
 }
 
+// TODO: delete it
 #[derive(Debug)]
 pub struct RpcTransactionCheckValidResponse;
 
@@ -42,10 +57,14 @@ pub struct RpcTransactionCheckValidResponse;
 pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: String,
     pub is_routed: bool,
+    // transaction_validation_status: enum {
+    // Valid
+    // Unknown
 }
 
 impl RpcTransactionRequest {
     pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        // TODO: move this code to crate::utils::parse_signed_transaction
         let (encoded,) = crate::utils::parse_params::<(String,)>(value.clone())?;
         let bytes = crate::utils::from_base64_or_parse_err(encoded)?;
         let signed_transaction = near_primitives::transaction::SignedTransaction::try_from_slice(
@@ -58,21 +77,34 @@ impl RpcTransactionRequest {
     }
 }
 
-impl RpcTransactionError {
-    pub fn from_network_client_responses(
-        responses: near_client_primitives::near_network::types::NetworkClientResponses,
-    ) -> Self {
-        match responses {
-            near_client_primitives::near_network::types::NetworkClientResponses::InvalidTx(context) => {
-                Self::InvalidTransaction { context }
+impl RpcTransactionStatusCommonRequest {
+    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        if let Ok((hash, account_id)) =
+            crate::utils::parse_params::<(near_primitives::hash::CryptoHash, String)>(value.clone())
+        {
+            if !near_runtime_utils::is_valid_account_id(&account_id) {
+                return Err(crate::errors::RpcParseError(format!(
+                    "Invalid account id: {}",
+                    account_id
+                )));
             }
-            near_client_primitives::near_network::types::NetworkClientResponses::NoResponse => {
-                Self::TimeoutError
-            }
-            near_client_primitives::near_network::types::NetworkClientResponses::DoesNotTrackShard | near_client_primitives::near_network::types::NetworkClientResponses::RequestRouted => {
-                Self::DoesNotTrackShard
-            }
-            internal_error => Self::InternalError { debug_info: format!("{:?}", internal_error)}
+            let transaction_info = TransactionInfo::TransactionId { hash, account_id };
+            Ok(Self { transaction_info })
+        } else {
+            // TODO: move this code to crate::utils::parse_signed_transaction
+            let (encoded,) = crate::utils::parse_params::<(String,)>(value.clone())?;
+            let bytes = crate::utils::from_base64_or_parse_err(encoded)?;
+            let signed_transaction =
+                near_primitives::transaction::SignedTransaction::try_from_slice(&bytes).map_err(
+                    |err| {
+                        crate::errors::RpcParseError(format!(
+                            "Failed to decode transaction: {}",
+                            err
+                        ))
+                    },
+                )?;
+            let transaction_info = TransactionInfo::Transaction(signed_transaction);
+            Ok(Self { transaction_info })
         }
     }
 }
@@ -94,6 +126,14 @@ impl From<near_client_primitives::types::TxStatusError> for RpcTransactionError 
             }
             near_client_primitives::types::TxStatusError::TimeoutError => Self::TimeoutError,
         }
+    }
+}
+
+impl From<near_primitives::views::FinalExecutionOutcomeViewEnum> for RpcTransactionResponse {
+    fn from(
+        final_execution_outcome: near_primitives::views::FinalExecutionOutcomeViewEnum,
+    ) -> Self {
+        Self { final_execution_outcome }
     }
 }
 

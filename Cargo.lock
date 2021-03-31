@@ -2047,7 +2047,7 @@ dependencies = [
  "near-crypto",
  "near-network",
  "near-primitives",
- "near-runtime-utils",
+ "near-runtime-utils 3.0.0",
  "neard",
  "node-runtime",
  "serde",
@@ -3201,7 +3201,7 @@ dependencies = [
  "lunarity-lexer",
  "near-crypto",
  "near-primitives",
- "near-runtime-utils",
+ "near-runtime-utils 3.0.0",
  "near-vm-errors",
  "near-vm-logic",
  "num-bigint",
@@ -3242,6 +3242,7 @@ dependencies = [
  "actix-cors",
  "actix-web",
  "borsh",
+ "easy-ext",
  "futures",
  "lazy_static",
  "near-actix-test-utils",
@@ -3256,7 +3257,6 @@ dependencies = [
  "near-performance-metrics",
  "near-primitives",
  "near-rpc-error-macro",
- "near-runtime-utils",
  "prometheus",
  "serde",
  "serde_json",
@@ -3290,6 +3290,7 @@ dependencies = [
  "near-metrics",
  "near-primitives",
  "near-primitives-core",
+ "near-runtime-utils 4.0.0-pre.1",
  "serde",
  "serde_json",
  "thiserror",
@@ -3508,6 +3509,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-runtime-utils"
+version = "4.0.0-pre.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a48d80c4ca1d4cf99bc16490e1e3d49826c150dfc4410ac498918e45c7d98e07"
+dependencies = [
+ "lazy_static",
+ "regex",
+]
+
+[[package]]
 name = "near-rust-allocator-proxy"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3590,7 +3601,7 @@ dependencies = [
  "bs58",
  "byteorder",
  "near-primitives-core",
- "near-runtime-utils",
+ "near-runtime-utils 3.0.0",
  "near-vm-errors",
  "serde",
  "serde_json",
@@ -3751,7 +3762,7 @@ dependencies = [
  "near-evm-runner",
  "near-metrics",
  "near-primitives",
- "near-runtime-utils",
+ "near-runtime-utils 3.0.0",
  "near-store",
  "near-test-contracts",
  "near-vm-errors",

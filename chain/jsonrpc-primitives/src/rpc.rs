@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference, MaybeBlockId, TransactionOrReceiptId};
+use near_primitives::types::{BlockReference, MaybeBlockId, TransactionOrReceiptId};
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangeWithCauseView,
     StateChangesKindsView, StateChangesRequestView,
@@ -60,12 +59,6 @@ pub struct RpcLightClientExecutionProofResponse {
     pub outcome_root_proof: MerklePath,
     pub block_header_lite: LightClientBlockLiteView,
     pub block_proof: MerklePath,
-}
-
-#[derive(Clone, Debug)]
-pub enum TransactionInfo {
-    Transaction(SignedTransaction),
-    TransactionId { hash: CryptoHash, account_id: AccountId },
 }
 
 #[derive(Serialize, Deserialize)]
