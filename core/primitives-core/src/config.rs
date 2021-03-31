@@ -536,6 +536,9 @@ pub enum ExtCosts {
     alt_bn128_g1_sum_base,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_byte,
+
+    // NB: this should be the last element of the enum.
+    __count,
 }
 
 // Type of an action, used in fees logic.
@@ -552,6 +555,9 @@ pub enum ActionCosts {
     delete_key,
     value_return,
     new_receipt,
+
+    // NB: this should be the last element of the enum.
+    __count,
 }
 
 impl fmt::Display for ActionCosts {
@@ -562,7 +568,7 @@ impl fmt::Display for ActionCosts {
 
 impl ActionCosts {
     pub const fn count() -> usize {
-        ActionCosts::new_receipt as usize + 1
+        ActionCosts::__count as usize
     }
 
     pub fn name_of(index: usize) -> &'static str {
@@ -654,11 +660,13 @@ impl ExtCosts {
             alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_byte => config.alt_bn128_g1_sum_byte,
+
+            __count => unreachable!(),
         }
     }
 
     pub const fn count() -> usize {
-        ExtCosts::validator_total_stake_base as usize + 1
+        ExtCosts::__count as usize
     }
 
     pub fn name_of(index: usize) -> &'static str {
