@@ -3,7 +3,6 @@ extern crate bencher;
 
 use bencher::Bencher;
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::Utc;
 
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;

@@ -12,7 +12,7 @@ mod test {
 
     use near_primitives::time::{Instant, Time};
     use near_primitives::transaction::SignedTransaction;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
     use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
     use testlib::test_helpers::heavy_test;
 

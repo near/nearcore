@@ -3,6 +3,7 @@
 mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
+    use std::time::Duration;
 
     use rand::{thread_rng, Rng};
 

@@ -5,7 +5,7 @@ mod test {
     use near_logger_utils::init_integration_logger;
     use near_primitives::time::{Instant, Time};
     use near_primitives::transaction::SignedTransaction;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
     use testlib::node::{create_nodes, sample_two_nodes, Node};
     use testlib::test_helpers::{heavy_test, wait};
 
