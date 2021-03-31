@@ -537,7 +537,7 @@ pub enum ExtCosts {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_byte,
 
-    // NB: this should be the last element of the enum.
+    // NOTE: this should be the last element of the enum.
     __count,
 }
 
@@ -556,7 +556,7 @@ pub enum ActionCosts {
     value_return,
     new_receipt,
 
-    // NB: this should be the last element of the enum.
+    // NOTE: this should be the last element of the enum.
     __count,
 }
 

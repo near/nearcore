@@ -134,6 +134,7 @@ fn run_test_ext(
     let fees = RuntimeFeesConfig::default();
     let context = create_context(input.to_vec());
 
+    let profile = ProfileData::new_enabled();
     let (outcome, err) = run_vm(
         &code,
         &method,
@@ -145,8 +146,10 @@ fn run_test_ext(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
-        ProfileData::new_disabled(),
+        profile.clone(),
     );
+
+    assert_eq!(profile.action_gas(), 0);
 
     if let Some(_) = err {
         panic!("Failed execution: {:?}", err);
