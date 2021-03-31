@@ -130,7 +130,6 @@ impl RequestPool {
         let mut removed_requests = HashSet::<ChunkHash>::default();
         let mut requests = Vec::new();
         for (chunk_hash, mut chunk_request) in self.requests.iter_mut() {
-            // eprintln!("added={:?} now={:?}", chunk_request.added, InstantProxy::now(file!(), line!()));
             if InstantProxy::now(file!(), line!()).saturating_duration_since(chunk_request.added)
                 > self.max_duration
             {
@@ -270,7 +269,7 @@ impl SealsManager {
                 };
 
                 let chosen = Self::get_random_part_ords(candidates);
-                // `sent` is not accessed, but will be accessed once #3657 is merged.
+                // `sent` is not accessed, but will be accessed once PR #3657 is merged.
                 let demur = ActiveSealDemur {
                     part_ords: chosen,
                     chunk_producer,

@@ -1392,7 +1392,7 @@ mod test {
             last_added_block_ord += 3;
 
             // We may want to sleep roughly half a second.
-            // In truth we want to sleep A LITTLE LESS than one second,
+            // In truth we want to sleep A LITTLE LESS than 500ms,
             // so that there is margin that skews the result of the comparison
             // 490ms * 2 < 1000ms (where 1000ms is our initial_timeout).
             thread::sleep(TimeDuration::from_millis(490));
@@ -1414,7 +1414,7 @@ mod test {
             last_added_block_ord += 2;
 
             // We may want to sleep roughly half a second.
-            // In truth we want to sleep MORE than one second,
+            // In truth we want to sleep MORE than 500ms,
             // so that there is margin that skews the result of the comparison
             // 510ms * 2 > 1000ms (where 1000ms is our initial_timeout).
             thread::sleep(TimeDuration::from_millis(510));

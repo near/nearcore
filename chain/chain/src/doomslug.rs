@@ -364,7 +364,7 @@ impl Doomslug {
     #[must_use]
     pub fn process_timer(&mut self, cur_time: Instant) -> Vec<Approval> {
         let mut ret = vec![];
-        for i in 0..MAX_TIMER_ITERS {
+        for _ in 0..MAX_TIMER_ITERS {
             let skip_delay =
                 self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height));
 
@@ -374,15 +374,6 @@ impl Doomslug {
             debug_assert!(skip_delay >= 2 * self.timer.endorsement_delay);
 
             let tip_height = self.tip.height;
-
-            // if EP && time >= timer.last_endorsement_sent + endorsement_delay then ...
-            // else if time >= timer.started + skip_delay then error
-
-            // if (time < timer.last_endorsement_sent + endorsement_delay && time >= timer.started + skip_delay)
-            //     then error
-            // if (timer.started + skip_delay < timer.last_endorsement_sent + endorsement_delay)
-            //     then error
-            // timer.last_endorsement_sent + endorsement_delay
 
             if self.endorsement_pending
                 && cur_time >= self.timer.last_endorsement_sent + self.timer.endorsement_delay
@@ -400,16 +391,7 @@ impl Doomslug {
             }
 
             if cur_time >= self.timer.started + skip_delay {
-                debug_assert!(
-                    !self.endorsement_pending,
-                    "!self.endorsement_pending {:?} + {:?} < {:?} < {:?} + {:?} @ {}",
-                    self.timer.started,
-                    skip_delay,
-                    cur_time,
-                    self.timer.last_endorsement_sent,
-                    self.timer.endorsement_delay,
-                    i
-                );
+                debug_assert!(!self.endorsement_pending);
 
                 self.largest_target_height =
                     std::cmp::max(self.timer.height + 1, self.largest_target_height);
@@ -424,10 +406,6 @@ impl Doomslug {
             } else {
                 break;
             }
-            // if i == MAX_TIMER_ITERS - 1 {
-            //     // We reached the end of iteration.
-
-            // }
         }
 
         ret

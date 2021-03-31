@@ -218,10 +218,6 @@ impl JsonRpcHandler {
         #[cfg(feature = "adversarial")]
         {
             let params = request.params.clone();
-
-            // "adv_time_travel"
-            // "adv_disable_doomslug"
-            // println!("{:?}", request.method);
             let res = match request.method.as_ref() {
                 // Adversarial controls
                 "adv_set_weight" => Some(self.adv_set_sync_info(params).await),
@@ -1007,13 +1003,6 @@ impl JsonRpcHandler {
                 )))
                 .map(|_| ()),
         );
-        // actix::spawn(
-        //     self.view_client_addr
-        //         .send(NetworkViewClientMessages::Adversarial(
-        //             NetworkAdversarialMessage::AdvTimeTravel(timestamp),
-        //         ))
-        //         .map(|_| ()),
-        // );
         Ok(Value::String("".to_string()))
     }
 }
