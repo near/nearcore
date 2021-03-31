@@ -1391,7 +1391,11 @@ mod test {
 
             last_added_block_ord += 3;
 
-            thread::sleep(TimeDuration::from_millis(500));
+            // We may want to sleep roughly half a second.
+            // In truth we want to sleep A LITTLE LESS than one second,
+            // so that there is margin that skews the result of the comparison
+            // 490ms * 2 < 1000ms (where 1000ms is our initial_timeout).
+            thread::sleep(TimeDuration::from_millis(490));
         }
         // 6 blocks / second is fast enough, we should not have banned the peer
         assert!(network_adapter.requests.read().unwrap().is_empty());
@@ -1409,7 +1413,11 @@ mod test {
 
             last_added_block_ord += 2;
 
-            thread::sleep(TimeDuration::from_millis(500));
+            // We may want to sleep roughly half a second.
+            // In truth we want to sleep MORE than one second,
+            // so that there is margin that skews the result of the comparison
+            // 510ms * 2 > 1000ms (where 1000ms is our initial_timeout).
+            thread::sleep(TimeDuration::from_millis(510));
         }
         // This time the peer should be banned, because 4 blocks/s is not fast enough
         let ban_peer = network_adapter.requests.write().unwrap().pop_back().unwrap();
