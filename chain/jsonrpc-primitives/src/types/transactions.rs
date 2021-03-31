@@ -9,16 +9,10 @@ pub struct RpcTransactionRequest {
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcTransactionError {
-    // TxStatusError
-    // NetworkClientResponses::InvalidTx
-    //NetworkClientResponses::NoResponse
-    // DoesNotTrackShard,
-    // Ban { ban_reason: ReasonForBan },
-    // ServerError (Timeout, Closed)
-    #[error("The node does not track shard")]
-    DoesNotTrackShard,
     #[error("An error happened during transaction execution: {context:?}")]
     InvalidTransaction { context: near_primitives::errors::InvalidTxError },
+    #[error("The node does not track shard")]
+    DoesNotTrackShard,
     #[error(
         "Requested transaction with hash {requested_transaction_hash} is not found on the node"
     )]
@@ -35,7 +29,6 @@ pub enum RpcTransactionError {
     Unreachable { error_message: String },
 }
 
-// TODO: ask if we want to create From<NetworkClientResponse> for it
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcTransactionResponse {
     #[serde(flatten)]
