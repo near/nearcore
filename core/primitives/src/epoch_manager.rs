@@ -882,7 +882,7 @@ pub mod epoch_info {
                         buffer[32..40].copy_from_slice(&height.to_le_bytes());
                         (hash(&buffer).0).0
                     };
-                    v3.block_producers_sampler.sample(seed)
+                    v3.block_producers_settlement[v3.block_producers_sampler.sample(seed)]
                 }
             }
         }
@@ -909,7 +909,9 @@ pub mod epoch_info {
                         buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
                         (hash(&buffer).0).0
                     };
-                    v3.chunk_producers_sampler[shard_id as usize].sample(seed)
+                    let shard_id = shard_id as usize;
+                    v3.chunk_producers_settlement[shard_id]
+                        [v3.chunk_producers_sampler[shard_id].sample(seed)]
                 }
             }
         }
