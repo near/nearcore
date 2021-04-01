@@ -27,6 +27,8 @@ pub enum RpcTransactionError {
     InvalidTransaction { context: near_primitives::errors::InvalidTxError },
     #[error("The node does not track shard")]
     DoesNotTrackShard,
+    #[error("Transaction with hash {transaction_hash} was routed")]
+    RequestRouted { transaction_hash: String },
     #[error(
         "Requested transaction with hash {requested_transaction_hash} is not found on the node"
     )]
@@ -49,17 +51,10 @@ pub struct RpcTransactionResponse {
     pub final_execution_outcome: near_primitives::views::FinalExecutionOutcomeViewEnum,
 }
 
-// TODO: delete it
-#[derive(Debug)]
-pub struct RpcTransactionCheckValidResponse;
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: String,
     pub is_routed: bool,
-    // transaction_validation_status: enum {
-    // Valid
-    // Unknown
 }
 
 impl RpcTransactionRequest {

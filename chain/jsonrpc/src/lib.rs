@@ -325,9 +325,8 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
                         request.params,
                     )?;
-                // TODO: return RpcBroadcastTxSyncResponse
-                self.check_tx(rpc_transaction_request).await?;
-                serde_json::to_value(Value::Null)
+                let broadcast_tx_sync_response = self.check_tx(rpc_transaction_request).await?;
+                serde_json::to_value(broadcast_tx_sync_response)
                     .map_err(|err| RpcError::parse_error(err.to_string()))
             }
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
@@ -610,9 +609,8 @@ impl JsonRpcHandler {
                 })
             }
             NetworkClientResponses::RequestRouted => {
-                Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
+                Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::RequestRouted {
                     transaction_hash: (request_data.signed_transaction.get_hash()).to_string(),
-                    is_routed: true,
                 })
             }
             network_client_responses=> Err(
@@ -625,12 +623,20 @@ impl JsonRpcHandler {
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionRequest,
     ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcTransactionCheckValidResponse,
+        near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        match self.send_tx(request_data.signed_transaction, true).await? {
+        match self.send_tx(request_data.clone().signed_transaction, true).await? {
             NetworkClientResponses::ValidTx => {
-                Ok(near_jsonrpc_primitives::types::transactions::RpcTransactionCheckValidResponse)
+                Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
+                    transaction_hash: (request_data.signed_transaction.get_hash()).to_string(),
+                    is_routed: false,
+                })
+            }
+            NetworkClientResponses::RequestRouted => {
+                Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::RequestRouted {
+                    transaction_hash: (request_data.signed_transaction.get_hash()).to_string(),
+                })
             }
             network_client_responses => Err(
                 near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(network_client_responses)
