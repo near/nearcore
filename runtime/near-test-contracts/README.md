@@ -1,6 +1,8 @@
 A collection of smart-contract used in nearcore tests.
 
 Rust contracts are build via `build.rs`, the Assembly Script contract is build manually and committed to the git repository.
+`res/near_evm.wasm` and `res/ZombieOwnership.bin` are taken from https://github.com/near/near-evm and it's for reproduce a
+performance issue encountered in evm contracts.
 
 If you want to use a contract from rust core, add
 
