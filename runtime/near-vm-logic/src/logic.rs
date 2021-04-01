@@ -1761,6 +1761,13 @@ impl<'a> VMLogic<'a> {
             ActionCosts::delete_account,
         )?;
 
+        println!("Pay transfer in deletion: {:#?}", self.fees_config.action_creation_config.transfer_cost);
+        self.gas_counter.pay_action_base(
+            &self.fees_config.action_creation_config.transfer_cost,
+            sir,
+            ActionCosts::transfer,
+        )?;
+
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
         Ok(())
     }

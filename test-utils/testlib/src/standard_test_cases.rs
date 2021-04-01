@@ -4,17 +4,17 @@ use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, TxExecutionError,
 };
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, AccountId};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
 use near_vm_errors::{FunctionCallError, HostError, MethodResolveError};
 use neard::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_primitives::checked_feature;
 
 use crate::fees_utils::FeeHelper;
 use crate::node::Node;
@@ -1238,9 +1238,24 @@ pub fn test_delete_account_no_account(node: impl Node) {
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 }
 
-pub fn test_delete_account_implicit_beneficiary_account(node: impl Node, protocol_version: ProtocolVersion) {
+pub fn print_amount(node_user: &Box<dyn User>, account: &AccountId) {
+    let view_account = node_user.view_account(&account);
+    let amount = match view_account {
+        Ok(v) => v.amount,
+        Err(_) => 0,
+    };
+    println!("{}: {}", account, amount);
+}
+
+pub fn test_delete_account_implicit_beneficiary_account(
+    node: impl Node,
+    protocol_version: ProtocolVersion,
+) {
     let money_used = TESTING_INIT_BALANCE / 2;
     let node_user = node.user();
+
+    print_amount(&node_user, &alice_account());
+
     let _ = node_user.create_account(
         alice_account(),
         eve_dot_alice_account(),
@@ -1248,10 +1263,21 @@ pub fn test_delete_account_implicit_beneficiary_account(node: impl Node, protoco
         money_used,
     );
     let beneficiary_id = implicit_account();
-    let transaction_result =
-        node_user.delete_account_with_beneficiary_set(eve_dot_alice_account(), eve_dot_alice_account(),
-                                                      beneficiary_id.clone()).unwrap();
+
+    print_amount(&node_user, &alice_account());
+    print_amount(&node_user, &eve_dot_alice_account());
+
+    let transaction_result = node_user
+        .delete_account_with_beneficiary_set(
+            eve_dot_alice_account(),
+            eve_dot_alice_account(),
+            beneficiary_id.clone(),
+        )
+        .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+
+    print_amount(&node_user, &alice_account());
+    print_amount(&node_user, &beneficiary_id);
 
     let view_result = node_user.view_account(&beneficiary_id);
 
@@ -1264,20 +1290,9 @@ pub fn test_delete_account_implicit_beneficiary_account(node: impl Node, protoco
             assert!(view_result.is_ok());
         },
         {
-            println!("{:#?}", view_result);
             assert!(view_result.is_err());
         }
     );
-    // assert_eq!(
-    //     transaction_result.status,
-    //     FinalExecutionStatus::Failure(
-    //         ActionError {
-    //             index: Some(0),
-    //             kind: ActionErrorKind::AccountDoesNotExist { account_id: implicit_account() }
-    //         }
-    //             .into()
-    //     )
-    // );
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 }
 

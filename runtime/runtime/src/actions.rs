@@ -6,9 +6,9 @@ use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt};
 #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
 use near_primitives::receipt::ReceiptEnum;
+use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
@@ -445,7 +445,6 @@ pub(crate) fn action_delete_account(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
-    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
     action_receipt: &ActionReceipt,
     result: &mut ActionResult,
     account_id: &AccountId,
@@ -481,28 +480,30 @@ pub(crate) fn action_delete_account(
             current_protocol_version,
             {
                 println!("With feature!");
-                result
-                    .new_receipts
-                    .push(Receipt {
-                        predecessor_id: account_id.clone(),
-                        receiver_id: delete_account.beneficiary_id.clone(),
-                        receipt_id: CryptoHash::default(),
+                println!("Gas price: {}", action_receipt.gas_price);
+                result.new_receipts.push(Receipt {
+                    predecessor_id: account_id.clone(),
+                    receiver_id: delete_account.beneficiary_id.clone(),
+                    receipt_id: CryptoHash::default(),
 
-                        receipt: ReceiptEnum::Action(ActionReceipt {
-                            signer_id: action_receipt.signer_id.clone(),
-                            signer_public_key: action_receipt.signer_public_key.clone(),
-                            gas_price: 0,
-                            output_data_receivers: vec![],
-                            input_data_ids: vec![],
-                            actions: vec![Action::Transfer(TransferAction { deposit: account_balance })],
-                        })
-                    });
+                    receipt: ReceiptEnum::Action(ActionReceipt {
+                        signer_id: action_receipt.signer_id.clone(),
+                        signer_public_key: action_receipt.signer_public_key.clone(),
+                        gas_price: action_receipt.gas_price,
+                        output_data_receivers: vec![],
+                        input_data_ids: vec![],
+                        actions: vec![Action::Transfer(TransferAction {
+                            deposit: account_balance,
+                        })],
+                    }),
+                });
             },
             {
                 println!("Without feature!");
-                result
-                    .new_receipts
-                    .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
+                result.new_receipts.push(Receipt::new_balance_refund(
+                    &delete_account.beneficiary_id,
+                    account_balance,
+                ));
             }
         )
     }

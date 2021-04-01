@@ -1,7 +1,7 @@
 //! Settings of the parameters of the runtime.
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::{RuntimeFeesConfig, ActionCreationConfig};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
@@ -68,6 +68,40 @@ macro_rules! safe_add_balance_apply {
     }
 }
 
+
+pub fn exec_transfer_fee(cfg: &ActionCreationConfig,
+                         receiver_id: &AccountId,
+                         current_protocol_version: ProtocolVersion) -> Gas {
+    if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+        && is_account_id_64_len_hex(&receiver_id)
+    {
+        let x = cfg.create_account_cost.exec_fee()
+            + cfg.add_key_cost.full_access_cost.exec_fee()
+            + cfg.transfer_cost.exec_fee();
+        println!("Transfer fee = {}", x);
+        x
+    } else {
+        cfg.transfer_cost.exec_fee()
+    }
+}
+
+pub fn send_transfer_fee(cfg: &ActionCreationConfig,
+                          sender_is_receiver: bool,
+                          receiver_id: &AccountId,
+                          current_protocol_version: ProtocolVersion) -> Gas {
+    if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+        && is_account_id_64_len_hex(&receiver_id)
+    {
+// Transfer action fee for implicit account creation always includes extra fees
+// for the CreateAccount and AddFullAccessKey actions that are implicit.
+        cfg.create_account_cost.send_fee(sender_is_receiver)
+            + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
+            + cfg.transfer_cost.send_fee(sender_is_receiver)
+    } else {
+        cfg.transfer_cost.send_fee(sender_is_receiver)
+    }
+}
+
 /// Total sum of gas that needs to be burnt to send these actions.
 pub fn total_send_fees(
     config: &RuntimeFeesConfig,
@@ -78,6 +112,7 @@ pub fn total_send_fees(
 ) -> Result<Gas, IntegerOverflowError> {
     let cfg = &config.action_creation_config;
     let mut result = 0;
+
     for action in actions {
         use Action::*;
         let delta = match action {
@@ -94,17 +129,7 @@ pub fn total_send_fees(
             }
             Transfer(_) => {
                 // Account for implicit account creation
-                if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-                    && is_account_id_64_len_hex(&receiver_id)
-                {
-                    // Transfer action fee for implicit account creation always includes extra fees
-                    // for the CreateAccount and AddFullAccessKey actions that are implicit.
-                    cfg.create_account_cost.send_fee(sender_is_receiver)
-                        + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
-                        + cfg.transfer_cost.send_fee(sender_is_receiver)
-                } else {
-                    cfg.transfer_cost.send_fee(sender_is_receiver)
-                }
+                send_transfer_fee(cfg, sender_is_receiver, receiver_id, current_protocol_version)
             }
             Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
             AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
@@ -127,7 +152,9 @@ pub fn total_send_fees(
                 }
             },
             DeleteKey(_) => cfg.delete_key_cost.send_fee(sender_is_receiver),
-            DeleteAccount(_) => cfg.delete_account_cost.send_fee(sender_is_receiver),
+            DeleteAccount(_) => {
+                cfg.delete_account_cost.send_fee(sender_is_receiver) + cfg.transfer_cost.send_fee(sender_is_receiver)
+            },
         };
         result = safe_add_gas(result, delta)?;
     }
@@ -142,6 +169,7 @@ pub fn exec_fee(
 ) -> Gas {
     let cfg = &config.action_creation_config;
     use Action::*;
+
     match action {
         CreateAccount(_) => cfg.create_account_cost.exec_fee(),
         DeployContract(DeployContractAction { code }) => {
@@ -156,15 +184,7 @@ pub fn exec_fee(
         }
         Transfer(_) => {
             // Account for implicit account creation
-            if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-                && is_account_id_64_len_hex(&receiver_id)
-            {
-                cfg.create_account_cost.exec_fee()
-                    + cfg.add_key_cost.full_access_cost.exec_fee()
-                    + cfg.transfer_cost.exec_fee()
-            } else {
-                cfg.transfer_cost.exec_fee()
-            }
+            exec_transfer_fee(cfg, receiver_id, current_protocol_version)
         }
         Stake(_) => cfg.stake_cost.exec_fee(),
         AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
@@ -181,7 +201,9 @@ pub fn exec_fee(
             AccessKeyPermission::FullAccess => cfg.add_key_cost.full_access_cost.exec_fee(),
         },
         DeleteKey(_) => cfg.delete_key_cost.exec_fee(),
-        DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
+        DeleteAccount(_) => {
+            cfg.delete_account_cost.exec_fee() + cfg.transfer_cost.exec_fee()
+        },
     }
 }
 /// Returns transaction costs for a given transaction.

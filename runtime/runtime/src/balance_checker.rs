@@ -180,6 +180,7 @@ pub(crate) fn check_balance(
     let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;
     // Sum it up
 
+    println!("Sum: {}", outgoing_receipts_balance as u128 + stats.tx_burnt_amount as u128);
     let initial_balance = safe_add_balance_apply!(
         incoming_validator_rewards,
         initial_accounts_balance,
