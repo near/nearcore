@@ -1254,8 +1254,6 @@ pub fn test_delete_account_implicit_beneficiary_account(
     let money_used = TESTING_INIT_BALANCE / 2;
     let node_user = node.user();
 
-    print_amount(&node_user, &alice_account());
-
     let _ = node_user.create_account(
         alice_account(),
         eve_dot_alice_account(),
@@ -1263,9 +1261,6 @@ pub fn test_delete_account_implicit_beneficiary_account(
         money_used,
     );
     let beneficiary_id = implicit_account();
-
-    print_amount(&node_user, &alice_account());
-    print_amount(&node_user, &eve_dot_alice_account());
 
     let transaction_result = node_user
         .delete_account_with_beneficiary_set(
@@ -1275,9 +1270,6 @@ pub fn test_delete_account_implicit_beneficiary_account(
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
-
-    print_amount(&node_user, &alice_account());
-    print_amount(&node_user, &beneficiary_id);
 
     let view_result = node_user.view_account(&beneficiary_id);
 

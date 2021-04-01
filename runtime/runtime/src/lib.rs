@@ -1159,7 +1159,6 @@ impl Runtime {
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         for receipt in local_receipts.iter() {
-            println!("Process {:#?}", receipt);
             if total_gas_burnt < gas_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
@@ -1215,8 +1214,6 @@ impl Runtime {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         }
 
-        println!("With balance!");
-        println!("Outgoing: {:#?}", outgoing_receipts);
         check_balance(
             &apply_state.config.transaction_costs,
             &initial_state,
