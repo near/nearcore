@@ -40,6 +40,12 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("State of contract {contract_account_id} is too large to be viewed")]
+    TooLargeContractState {
+        contract_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Access key for public key {public_key} has never been observed on the node")]
     UnknownAccessKey {
         public_key: near_crypto::PublicKey,
@@ -201,6 +207,11 @@ impl From<near_client_primitives::types::QueryError> for RpcQueryError {
                 );
                 Self::Unreachable { error_message }
             }
+            near_client_primitives::types::QueryError::TooLargeContractState {
+                contract_account_id,
+                block_height,
+                block_hash,
+            } => Self::TooLargeContractState { contract_account_id, block_height, block_hash },
         }
     }
 }

@@ -306,6 +306,15 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 },
+                near_chain::near_chain_primitives::error::QueryError::TooLargeContractState {
+                    requested_account_id,
+                    block_height,
+                    block_hash,
+                } => QueryError::TooLargeContractState {
+                    contract_account_id: requested_account_id,
+                    block_height,
+                    block_hash,
+                },
             }),
         }
     }
