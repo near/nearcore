@@ -74,6 +74,12 @@ impl QueryError {
             node_runtime::state_viewer::errors::ViewStateError::InternalError { error_message } => {
                 Self::InternalError { error_message, block_height, block_hash }
             }
+            node_runtime::state_viewer::errors::ViewStateError::AccountDoesNotExist {
+                requested_account_id,
+            } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewStateError::AccountStateTooLarge {
+                requested_account_id,
+            } => Self::TooLargeContractState { requested_account_id, block_height, block_hash },
         }
     }
 
