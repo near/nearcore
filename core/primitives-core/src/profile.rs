@@ -120,10 +120,6 @@ impl ProfileData {
         self.all_gas() - self.host_gas() - self.action_gas()
     }
 
-    pub fn unaccounted_gas(&self) -> u64 {
-        self.all_gas() - self.wasm_gas() - self.action_gas() - self.host_gas()
-    }
-
     pub fn set_burnt_gas(&self, burnt_gas: u64) {
         self.with_slot(0, |slot| slot.set(burnt_gas));
     }
@@ -168,15 +164,6 @@ impl fmt::Debug for ProfileData {
             wasm_gas,
             Ratio::new(wasm_gas * 100, all_gas).to_integer()
         )?;
-        let unaccounted_gas = self.unaccounted_gas();
-        if unaccounted_gas > 0 {
-            writeln!(
-                f,
-                "Unaccounted: {} [{}% total]",
-                unaccounted_gas,
-                Ratio::new(unaccounted_gas * 100, all_gas).to_integer()
-            )?;
-        }
         writeln!(f, "------ Host functions --------")?;
         for e in 0..ExtCosts::count() {
             let d = self.get_ext_cost(e);
