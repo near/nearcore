@@ -79,7 +79,7 @@ def main():
     tx = sign_deploy_contract_tx(
         nodes[0].signer_key,
         load_binary_file(
-            '../runtime/near-vm-runner/tests/res/test_contract_rs.wasm'), 1,
+            '../runtime/near-test-contracts/res/test_contract_rs.wasm'), 1,
         base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res

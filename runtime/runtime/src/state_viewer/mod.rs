@@ -352,7 +352,8 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             err.to_string().contains(r#"Account ID "bad!contract" is invalid"#),
-            format!("Got different error that doesn't match: {}", err)
+            "Got different error that doesn't match: {}",
+            err
         );
     }
 
@@ -385,7 +386,8 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             err.to_string().contains(r#"ProhibitedInView { method_name: "storage_write" }"#),
-            format!("Got different error that doesn't match: {}", err)
+            "Got different error that doesn't match: {}",
+            err
         );
     }
 

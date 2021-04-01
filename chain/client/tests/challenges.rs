@@ -706,7 +706,7 @@ fn test_challenge_in_different_epoch() {
             if let Err(e) = result {
                 match e.kind() {
                     ErrorKind::ChunksMissing(_) => {}
-                    _ => panic!(format!("unexpected error: {}", e)),
+                    _ => panic!("unexpected error: {}", e),
                 }
             }
         }

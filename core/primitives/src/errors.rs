@@ -411,7 +411,9 @@ impl Display for InvalidTxError {
             InvalidTxError::SignerDoesNotExist { signer_id } => {
                 write!(f, "Signer {:?} does not exist", signer_id)
             }
-            InvalidTxError::InvalidAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
+            InvalidTxError::InvalidAccessKeyError(access_key_error) => {
+                Display::fmt(&access_key_error, f)
+            }
             InvalidTxError::InvalidNonce { tx_nonce, ak_nonce } => write!(
                 f,
                 "Transaction nonce {} must be larger than nonce of the used access key {}",
@@ -443,13 +445,17 @@ impl Display for InvalidTxError {
             InvalidTxError::ActionsValidation(error) => {
                 write!(f, "Transaction actions validation error: {}", error)
             }
-            InvalidTxError::NonceTooLarge { tx_nonce, upper_bound } => { write!(f, "Transaction nonce {} must be smaller than the access key nonce upper bound {}", tx_nonce, upper_bound) }
+            InvalidTxError::NonceTooLarge { tx_nonce, upper_bound } => {
+                write!(
+                    f,
+                    "Transaction nonce {} must be smaller than the access key nonce upper bound {}",
+                    tx_nonce, upper_bound
+                )
+            }
             #[cfg(feature = "protocol_feature_tx_size_limit")]
-            InvalidTxError::TransactionSizeExceeded { size, limit } => write!(
-                f,
-                "Size of serialized transaction {} exceeded the limit {}",
-                size, limit
-            ),
+            InvalidTxError::TransactionSizeExceeded { size, limit } => {
+                write!(f, "Size of serialized transaction {} exceeded the limit {}", size, limit)
+            }
         }
     }
 }

@@ -1,13 +1,10 @@
 #![no_std]
-#![feature(core_intrinsics)]
 #![allow(non_snake_case)]
 
 #[panic_handler]
 #[no_mangle]
 pub fn panic(_info: &::core::panic::PanicInfo) -> ! {
-    unsafe {
-        ::core::intrinsics::abort();
-    }
+    unsafe { core::arch::wasm32::unreachable() }
 }
 
 #[allow(unused)]

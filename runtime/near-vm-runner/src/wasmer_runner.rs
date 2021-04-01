@@ -43,7 +43,7 @@ impl IntoVMError for wasmer_runtime::error::Error {
             Error::RuntimeError(err) => err.into_vm_error(),
             Error::ResolveError(err) => err.into_vm_error(),
             Error::CallError(err) => err.into_vm_error(),
-            Error::CreationError(err) => panic!(err),
+            Error::CreationError(err) => panic!("{}", err),
         }
     }
 }
