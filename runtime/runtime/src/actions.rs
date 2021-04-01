@@ -35,7 +35,7 @@ use near_vm_errors::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 
-use crate::config::{safe_add_gas, RuntimeConfig};
+use crate::config::{exec_transfer_fee, safe_add_gas, send_transfer_fee, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 
@@ -450,6 +450,7 @@ pub(crate) fn action_delete_account(
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     current_protocol_version: ProtocolVersion,
+    config: &RuntimeFeesConfig,
 ) -> Result<(), StorageError> {
     if current_protocol_version
         >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
@@ -481,6 +482,23 @@ pub(crate) fn action_delete_account(
             {
                 println!("With feature!");
                 println!("Gas price: {}", action_receipt.gas_price);
+                let sender_is_receiver = account_id == &delete_account.beneficiary_id;
+                let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
+                    + send_transfer_fee(
+                        &config.action_creation_config,
+                        sender_is_receiver,
+                        &delete_account.beneficiary_id,
+                        current_protocol_version,
+                    );
+                result.gas_burnt += exec_gas;
+                result.gas_used += exec_gas
+                    + config.action_receipt_creation_config.exec_fee()
+                    + exec_transfer_fee(
+                        &config.action_creation_config,
+                        &delete_account.beneficiary_id,
+                        current_protocol_version,
+                    );
+
                 result.new_receipts.push(Receipt {
                     predecessor_id: account_id.clone(),
                     receiver_id: delete_account.beneficiary_id.clone(),

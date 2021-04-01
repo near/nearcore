@@ -44,8 +44,8 @@ pub use near_vm_runner::with_ext_cost_counter;
 use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
-    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, RuntimeConfig,
+    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit,
+    total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig,
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
@@ -429,6 +429,7 @@ impl Runtime {
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
+                    &apply_state.config.transaction_costs,
                 )?;
             }
         };
@@ -727,8 +728,8 @@ impl Runtime {
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
-        let exec_gas = safe_add_gas(
-            total_exec_fees(
+        let prepaid_exec_gas = safe_add_gas(
+            total_prepaid_exec_fees(
                 &transaction_costs,
                 &action_receipt.actions,
                 &receipt.receiver_id,
@@ -738,9 +739,9 @@ impl Runtime {
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
-            safe_add_gas(prepaid_gas, exec_gas)? - result.gas_burnt
+            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_burnt
         } else {
-            safe_add_gas(prepaid_gas, exec_gas)? - result.gas_used
+            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
         };
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
         let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;

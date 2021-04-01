@@ -1,7 +1,7 @@
 use crate::safe_add_balance_apply;
 
 use crate::config::{
-    safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
+    safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_prepaid_exec_fees,
     total_prepaid_gas,
 };
 use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate};
@@ -105,7 +105,7 @@ pub(crate) fn check_balance(
                 if receipt.predecessor_id != system_account() {
                     let mut total_gas = safe_add_gas(
                         transaction_costs.action_receipt_creation_config.exec_fee(),
-                        total_exec_fees(
+                        total_prepaid_exec_fees(
                             transaction_costs,
                             &action_receipt.actions,
                             &receipt.receiver_id,

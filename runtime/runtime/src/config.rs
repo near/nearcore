@@ -1,9 +1,10 @@
 //! Settings of the parameters of the runtime.
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
-use near_primitives::runtime::fees::{RuntimeFeesConfig, ActionCreationConfig};
+use near_primitives::runtime::fees::{ActionCreationConfig, RuntimeFeesConfig};
 use near_primitives::transaction::{
-    Action, AddKeyAction, DeployContractAction, DeleteAccountAction, FunctionCallAction, Transaction,
+    Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
+    Transaction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
 
@@ -68,14 +69,18 @@ macro_rules! safe_add_balance_apply {
     }
 }
 
-
-pub fn exec_transfer_fee(cfg: &ActionCreationConfig,
-                         receiver_id: &AccountId,
-                         current_protocol_version: ProtocolVersion) -> Gas {
+pub fn exec_transfer_fee(
+    cfg: &ActionCreationConfig,
+    receiver_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
+) -> Gas {
     println!("-------");
-    println!("{}", cfg.create_account_cost.exec_fee()
-        + cfg.add_key_cost.full_access_cost.exec_fee()
-        + cfg.transfer_cost.exec_fee());
+    println!(
+        "{}",
+        cfg.create_account_cost.exec_fee()
+            + cfg.add_key_cost.full_access_cost.exec_fee()
+            + cfg.transfer_cost.exec_fee()
+    );
     println!("{}", cfg.transfer_cost.exec_fee());
     if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
         && is_account_id_64_len_hex(&receiver_id)
@@ -90,20 +95,25 @@ pub fn exec_transfer_fee(cfg: &ActionCreationConfig,
     }
 }
 
-pub fn send_transfer_fee(cfg: &ActionCreationConfig,
-                          sender_is_receiver: bool,
-                          receiver_id: &AccountId,
-                          current_protocol_version: ProtocolVersion) -> Gas {
+pub fn send_transfer_fee(
+    cfg: &ActionCreationConfig,
+    sender_is_receiver: bool,
+    receiver_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
+) -> Gas {
     println!("-------");
-    println!("{}", cfg.create_account_cost.send_fee(sender_is_receiver)
-        + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
-        + cfg.transfer_cost.send_fee(sender_is_receiver));
+    println!(
+        "{}",
+        cfg.create_account_cost.send_fee(sender_is_receiver)
+            + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
+            + cfg.transfer_cost.send_fee(sender_is_receiver)
+    );
     println!("{}", cfg.transfer_cost.send_fee(sender_is_receiver));
     if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
         && is_account_id_64_len_hex(&receiver_id)
     {
-// Transfer action fee for implicit account creation always includes extra fees
-// for the CreateAccount and AddFullAccessKey actions that are implicit.
+        // Transfer action fee for implicit account creation always includes extra fees
+        // for the CreateAccount and AddFullAccessKey actions that are implicit.
         cfg.create_account_cost.send_fee(sender_is_receiver)
             + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
             + cfg.transfer_cost.send_fee(sender_is_receiver)
@@ -162,10 +172,10 @@ pub fn total_send_fees(
                 }
             },
             DeleteKey(_) => cfg.delete_key_cost.send_fee(sender_is_receiver),
-            DeleteAccount(DeleteAccountAction {beneficiary_id}) => {
+            DeleteAccount(_) => {
                 // TODO add cfg[feature]
-                cfg.delete_account_cost.send_fee(sender_is_receiver) + send_transfer_fee(cfg, false, beneficiary_id, current_protocol_version)
-            },
+                cfg.delete_account_cost.send_fee(sender_is_receiver)
+            }
         };
         result = safe_add_gas(result, delta)?;
     }
@@ -212,12 +222,42 @@ pub fn exec_fee(
             AccessKeyPermission::FullAccess => cfg.add_key_cost.full_access_cost.exec_fee(),
         },
         DeleteKey(_) => cfg.delete_key_cost.exec_fee(),
-        DeleteAccount(DeleteAccountAction {beneficiary_id}) => {
-            // TODO add cfg[feature]
-            cfg.delete_account_cost.exec_fee() + exec_transfer_fee(cfg, beneficiary_id, current_protocol_version)
-        },
+        DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
     }
 }
+
+pub fn prepaid_exec_fee(
+    config: &RuntimeFeesConfig,
+    action: &Action,
+    receiver_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
+) -> Gas {
+    let exec_gas = exec_fee(config, action, receiver_id, current_protocol_version);
+
+    let extra_prepaid_gas = match action {
+        Action::DeleteAccount(DeleteAccountAction { beneficiary_id }) => {
+            // TODO add cfg[feature]
+            let sender_is_receiver = beneficiary_id == receiver_id;
+            config.action_receipt_creation_config.send_fee(sender_is_receiver)
+                + config.action_receipt_creation_config.exec_fee()
+                + send_transfer_fee(
+                    &config.action_creation_config,
+                    sender_is_receiver,
+                    beneficiary_id,
+                    current_protocol_version,
+                )
+                + exec_transfer_fee(
+                    &config.action_creation_config,
+                    beneficiary_id,
+                    current_protocol_version,
+                )
+        }
+        _ => 0,
+    };
+
+    exec_gas + extra_prepaid_gas
+}
+
 /// Returns transaction costs for a given transaction.
 pub fn tx_cost(
     config: &RuntimeFeesConfig,
@@ -261,7 +301,7 @@ pub fn tx_cost(
         safe_add_gas(prepaid_gas, config.action_receipt_creation_config.exec_fee())?;
     gas_remaining = safe_add_gas(
         gas_remaining,
-        total_exec_fees(
+        total_prepaid_exec_fees(
             &config,
             &transaction.actions,
             &transaction.receiver_id,
@@ -276,7 +316,7 @@ pub fn tx_cost(
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.
-pub fn total_exec_fees(
+pub fn total_prepaid_exec_fees(
     config: &RuntimeFeesConfig,
     actions: &[Action],
     receiver_id: &AccountId,
@@ -284,7 +324,7 @@ pub fn total_exec_fees(
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
     for action in actions {
-        let delta = exec_fee(&config, action, receiver_id, current_protocol_version);
+        let delta = prepaid_exec_fee(&config, action, receiver_id, current_protocol_version);
         result = safe_add_gas(result, delta)?;
     }
     Ok(result)
