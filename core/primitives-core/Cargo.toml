@@ -15,7 +15,6 @@ base64 = "0.11"
 borsh = "0.8.1"
 bs58 = "0.4"
 hex = "0.4"
-derive_more = "0.99.3"
 num-rational = { version = "0.3.1", features = ["serde"]}
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

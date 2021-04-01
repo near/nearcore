@@ -3440,7 +3440,6 @@ dependencies = [
  "base64 0.11.0",
  "borsh",
  "bs58",
- "derive_more",
  "hex",
  "lazy_static",
  "num-rational",
