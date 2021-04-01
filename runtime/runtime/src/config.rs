@@ -153,6 +153,7 @@ pub fn total_send_fees(
             },
             DeleteKey(_) => cfg.delete_key_cost.send_fee(sender_is_receiver),
             DeleteAccount(_) => {
+                // TODO add cfg[feature]
                 cfg.delete_account_cost.send_fee(sender_is_receiver) + cfg.transfer_cost.send_fee(sender_is_receiver)
             },
         };
@@ -202,6 +203,7 @@ pub fn exec_fee(
         },
         DeleteKey(_) => cfg.delete_key_cost.exec_fee(),
         DeleteAccount(_) => {
+            // TODO add cfg[feature]
             cfg.delete_account_cost.exec_fee() + cfg.transfer_cost.exec_fee()
         },
     }
