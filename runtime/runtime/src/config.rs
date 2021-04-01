@@ -3,7 +3,7 @@ use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
 use near_primitives::runtime::fees::{RuntimeFeesConfig, ActionCreationConfig};
 use near_primitives::transaction::{
-    Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
+    Action, AddKeyAction, DeployContractAction, DeleteAccountAction, FunctionCallAction, Transaction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
 
@@ -72,6 +72,11 @@ macro_rules! safe_add_balance_apply {
 pub fn exec_transfer_fee(cfg: &ActionCreationConfig,
                          receiver_id: &AccountId,
                          current_protocol_version: ProtocolVersion) -> Gas {
+    println!("-------");
+    println!("{}", cfg.create_account_cost.exec_fee()
+        + cfg.add_key_cost.full_access_cost.exec_fee()
+        + cfg.transfer_cost.exec_fee());
+    println!("{}", cfg.transfer_cost.exec_fee());
     if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
         && is_account_id_64_len_hex(&receiver_id)
     {
@@ -89,6 +94,11 @@ pub fn send_transfer_fee(cfg: &ActionCreationConfig,
                           sender_is_receiver: bool,
                           receiver_id: &AccountId,
                           current_protocol_version: ProtocolVersion) -> Gas {
+    println!("-------");
+    println!("{}", cfg.create_account_cost.send_fee(sender_is_receiver)
+        + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
+        + cfg.transfer_cost.send_fee(sender_is_receiver));
+    println!("{}", cfg.transfer_cost.send_fee(sender_is_receiver));
     if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
         && is_account_id_64_len_hex(&receiver_id)
     {
@@ -152,9 +162,9 @@ pub fn total_send_fees(
                 }
             },
             DeleteKey(_) => cfg.delete_key_cost.send_fee(sender_is_receiver),
-            DeleteAccount(_) => {
+            DeleteAccount(DeleteAccountAction {beneficiary_id}) => {
                 // TODO add cfg[feature]
-                cfg.delete_account_cost.send_fee(sender_is_receiver) + send_transfer_fee(cfg, sender_is_receiver, receiver_id, current_protocol_version)
+                cfg.delete_account_cost.send_fee(sender_is_receiver) + send_transfer_fee(cfg, false, beneficiary_id, current_protocol_version)
             },
         };
         result = safe_add_gas(result, delta)?;
@@ -202,9 +212,9 @@ pub fn exec_fee(
             AccessKeyPermission::FullAccess => cfg.add_key_cost.full_access_cost.exec_fee(),
         },
         DeleteKey(_) => cfg.delete_key_cost.exec_fee(),
-        DeleteAccount(_) => {
+        DeleteAccount(DeleteAccountAction {beneficiary_id}) => {
             // TODO add cfg[feature]
-            cfg.delete_account_cost.exec_fee() + exec_transfer_fee(cfg, receiver_id, current_protocol_version)
+            cfg.delete_account_cost.exec_fee() + exec_transfer_fee(cfg, beneficiary_id, current_protocol_version)
         },
     }
 }
