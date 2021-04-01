@@ -2373,6 +2373,9 @@ mod test {
     /// Test two shards: the first shard has 2 validators (test1, test4) and the second shard
     /// has 4 validators (test1, test2, test3, test4). Test that kickout and stake change
     /// work properly.
+    // This test only makes sense with the old validator selection because it requires
+    // specific control over what validators are assigned to each shard.
+    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
     #[test]
     fn test_multiple_shards() {
         init_test_logger();
