@@ -56,7 +56,20 @@ fn test_tx_propagation() {
                         .unwrap()
                 })
                 .collect::<Vec<_>>();
-            let (genesis, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
+            let (genesis, rpc_addrs, clients) = start_nodes_with_validator_selection_config(
+                4,
+                &dirs,
+                2,
+                2,
+                10,
+                0,
+                near_primitives::epoch_manager::ValidatorSelectionConfig {
+                    num_chunk_only_producer_seats: 300,
+                    // this test only works when both validators are in both shards
+                    minimum_validators_per_shard: 2,
+                    minimum_stake_ratio: (160, 1_000_000).into(),
+                },
+            );
             let view_client = clients[0].1.clone();
 
             let genesis_hash = *genesis_block(&genesis).hash();
@@ -231,7 +244,20 @@ fn test_tx_status_with_light_client() {
                         .unwrap()
                 })
                 .collect::<Vec<_>>();
-            let (genesis, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
+            let (genesis, rpc_addrs, clients) = start_nodes_with_validator_selection_config(
+                4,
+                &dirs,
+                2,
+                2,
+                10,
+                0,
+                near_primitives::epoch_manager::ValidatorSelectionConfig {
+                    num_chunk_only_producer_seats: 300,
+                    // this test only works when both validators are in both shards
+                    minimum_validators_per_shard: 2,
+                    minimum_stake_ratio: (160, 1_000_000).into(),
+                },
+            );
             let view_client = clients[0].1.clone();
 
             let genesis_hash = *genesis_block(&genesis).hash();
