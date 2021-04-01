@@ -71,7 +71,7 @@ impl ProfileData {
     fn add_val(&self, index: usize, value: u64) {
         self.with_slot(index, |slot| {
             let old = slot.get();
-            slot.set(old + value);
+            slot.set(old.saturating_add(value));
         })
     }
 
@@ -220,5 +220,15 @@ mod test {
     fn test_profile_data_debug_no_data() {
         let profile_data = ProfileData::new_enabled();
         println!("{:#?}", &profile_data);
+    }
+
+    #[test]
+    fn test_no_panic_on_overflow() {
+        let profile_data = ProfileData::new_enabled();
+        profile_data.add_action_cost(ActionCosts::function_call, u64::MAX);
+        profile_data.add_action_cost(ActionCosts::function_call, u64::MAX);
+
+        let res = profile_data.get_action_cost(ActionCosts::function_call as usize);
+        assert_eq!(res, u64::MAX);
     }
 }
