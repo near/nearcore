@@ -52,6 +52,12 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("The state of account {requested_account_id} is too large")]
+    TooLargeContractState {
+        requested_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
 }
 
 #[derive(Debug)]

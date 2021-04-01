@@ -305,6 +305,12 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("State of contract {contract_account_id} is too large to be viewed")]
+    TooLargeContractState {
+        contract_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Access key for public key {public_key} has never been observed on the node at block #{block_height}")]
     UnknownAccessKey {
         public_key: near_crypto::PublicKey,

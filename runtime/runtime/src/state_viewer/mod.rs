@@ -25,6 +25,9 @@ pub mod errors;
 pub struct TrieViewer {}
 
 impl TrieViewer {
+    /// Upper bound of the size of contract state that is still viewable.
+    const CONTRACT_STATE_SIZE_LIMIT: u64 = 50_000;
+
     pub fn new() -> Self {
         Self {}
     }
@@ -124,6 +127,24 @@ impl TrieViewer {
                 requested_account_id: account_id.clone(),
             });
         }
+        match get_account(state_update, account_id)? {
+            Some(account) => {
+                let code_len = get_code(state_update, account_id, Some(account.code_hash()))?
+                    .map(|c| c.code.len() as u64)
+                    .unwrap_or_default();
+                if account.storage_usage() > Self::CONTRACT_STATE_SIZE_LIMIT + code_len {
+                    return Err(errors::ViewStateError::AccountStateTooLarge {
+                        requested_account_id: account_id.clone(),
+                    });
+                }
+            }
+            None => {
+                return Err(errors::ViewStateError::AccountDoesNotExist {
+                    requested_account_id: account_id.clone(),
+                })
+            }
+        };
+
         let mut values = vec![];
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
@@ -269,6 +290,7 @@ mod tests {
     };
 
     use super::*;
+    use near_store::set_account;
 
     #[test]
     fn test_view_call() {
@@ -453,6 +475,38 @@ mod tests {
                 proof: vec![]
             }]
         );
+    }
+
+    #[test]
+    fn test_view_state_too_large() {
+        let (_, tries, root) = get_runtime_and_trie();
+        let mut state_update = tries.new_trie_update(0, root);
+        set_account(
+            &mut state_update,
+            alice_account(),
+            &Account::new(0, 0, CryptoHash::default(), TrieViewer::CONTRACT_STATE_SIZE_LIMIT + 1),
+        );
+        let trie_viewer = TrieViewer::new();
+        let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
+        assert!(matches!(result, Err(errors::ViewStateError::AccountStateTooLarge { .. })));
+    }
+
+    #[test]
+    fn test_view_state_with_large_contract() {
+        let (_, tries, root) = get_runtime_and_trie();
+        let mut state_update = tries.new_trie_update(0, root);
+        set_account(
+            &mut state_update,
+            alice_account(),
+            &Account::new(0, 0, CryptoHash::default(), TrieViewer::CONTRACT_STATE_SIZE_LIMIT + 1),
+        );
+        state_update.set(
+            TrieKey::ContractCode { account_id: alice_account() },
+            [0; Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE as usize].to_vec(),
+        );
+        let trie_viewer = TrieViewer::new();
+        let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
+        assert!(result.is_ok());
     }
 
     #[test]
