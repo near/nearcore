@@ -1,4 +1,5 @@
 //! Settings of the parameters of the runtime.
+use near_primitives::checked_feature;
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
 use near_primitives::runtime::fees::{ActionCreationConfig, RuntimeFeesConfig};
@@ -12,7 +13,7 @@ use near_primitives::types::{AccountId, Balance, Gas};
 pub use near_primitives::num_rational::Rational;
 pub use near_primitives::runtime::config::RuntimeConfig;
 
-use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_utils::is_account_id_64_len_hex;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
@@ -218,21 +219,30 @@ pub fn prepaid_exec_fee(
 
     let extra_prepaid_gas = match action {
         Action::DeleteAccount(DeleteAccountAction { beneficiary_id }) => {
-            // TODO add cfg[feature]
-            let sender_is_receiver = beneficiary_id == receiver_id;
-            config.action_receipt_creation_config.send_fee(sender_is_receiver)
-                + config.action_receipt_creation_config.exec_fee()
-                + send_transfer_fee(
-                    &config.action_creation_config,
-                    sender_is_receiver,
-                    beneficiary_id,
-                    current_protocol_version,
-                )
-                + exec_transfer_fee(
-                    &config.action_creation_config,
-                    beneficiary_id,
-                    current_protocol_version,
-                )
+            checked_feature!(
+                "protocol_feature_allow_create_account_on_delete",
+                AllowCreateAccountOnDelete,
+                current_protocol_version,
+            {
+                let sender_is_receiver = beneficiary_id == receiver_id;
+                config.action_receipt_creation_config.send_fee(sender_is_receiver)
+                    + config.action_receipt_creation_config.exec_fee()
+                    + send_transfer_fee(
+                        &config.action_creation_config,
+                        sender_is_receiver,
+                        beneficiary_id,
+                        current_protocol_version,
+                    )
+                    + exec_transfer_fee(
+                        &config.action_creation_config,
+                        beneficiary_id,
+                        current_protocol_version,
+                    )
+            },
+            {
+            0
+            }
+            )
         }
         _ => 0,
     };

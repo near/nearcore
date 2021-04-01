@@ -445,6 +445,7 @@ pub(crate) fn action_delete_account(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
     action_receipt: &ActionReceipt,
     result: &mut ActionResult,
     account_id: &AccountId,
@@ -480,8 +481,6 @@ pub(crate) fn action_delete_account(
             AllowCreateAccountOnDelete,
             current_protocol_version,
             {
-                println!("With feature!");
-                println!("Gas price: {}", action_receipt.gas_price);
                 let sender_is_receiver = account_id == &delete_account.beneficiary_id;
                 let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
                     + send_transfer_fee(
@@ -517,7 +516,6 @@ pub(crate) fn action_delete_account(
                 });
             },
             {
-                println!("Without feature!");
                 result.new_receipts.push(Receipt::new_balance_refund(
                     &delete_account.beneficiary_id,
                     account_balance,
@@ -853,11 +851,17 @@ mod tests {
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
+        let action_receipt = match receipt.receipt {
+            ReceiptEnum::Action(ref action_receipt) => action_receipt,
+            _ => unreachable!("Balance refund should be an action receipt"),
+        };
         let res = action_delete_account(
             state_update,
             &mut account,
             &mut actor_id,
             &receipt,
+            #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+            &action_receipt,
             &mut action_result,
             account_id,
             &DeleteAccountAction { beneficiary_id: "bob".to_string() },
