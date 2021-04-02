@@ -17,7 +17,8 @@ use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::Approval;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use neard::config::{GenesisExt, TESTING_INIT_STAKE};
@@ -74,11 +75,11 @@ fn add_blocks(
             vec![],
             vec![],
             signer,
-            Chain::compute_bp_hash_inner(vec![ValidatorStake {
-                account_id: "other".to_string(),
-                public_key: signer.public_key(),
-                stake: TESTING_INIT_STAKE,
-            }])
+            Chain::compute_collection_hash(vec![ValidatorStake::new(
+                "other".to_string(),
+                signer.public_key(),
+                TESTING_INIT_STAKE,
+            )])
             .unwrap(),
             block_merkle_tree.root(),
         );

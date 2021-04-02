@@ -20,7 +20,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{BlockHeight, ChunkExtra, ShardId, StateRoot};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
 use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
@@ -237,16 +238,16 @@ fn apply_block_at_height(
     let apply_result = runtime
         .apply_transactions(
             shard_id,
-            &chunk_inner.prev_state_root,
+            chunk_inner.prev_state_root(),
             height,
             block.header().raw_timestamp(),
             block.header().prev_hash(),
             block.hash(),
             &receipts,
             chunk.transactions(),
-            &chunk_inner.validator_proposals,
+            chunk_inner.validator_proposals(),
             prev_block.header().gas_price(),
-            chunk_inner.gas_limit,
+            chunk_inner.gas_limit(),
             &block.header().challenges_result(),
             *block.header().random_value(),
         )
@@ -257,7 +258,7 @@ fn apply_block_at_height(
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
-        chunk_inner.gas_limit,
+        chunk_inner.gas_limit(),
         apply_result.total_balance_burnt,
     );
 

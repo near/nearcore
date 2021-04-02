@@ -729,7 +729,7 @@ impl RocksDB {
 fn available_space<P: AsRef<Path> + std::fmt::Debug>(
     path: P,
 ) -> std::io::Result<bytesize::ByteSize> {
-    let available = fs2::available_space(dbg!(path))?;
+    let available = fs2::available_space(path)?;
     Ok(bytesize::ByteSize::b(available))
 }
 

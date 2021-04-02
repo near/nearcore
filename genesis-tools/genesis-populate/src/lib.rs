@@ -18,9 +18,8 @@ use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{
-    AccountId, Balance, ChunkExtra, EpochId, ShardId, StateChangeCause, StateRoot,
-};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
