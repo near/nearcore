@@ -1186,7 +1186,7 @@ pub fn test_delete_account_ok(node: impl Node) {
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
 }
 
-pub fn test_delete_account_fail(node: impl Node) {
+pub fn test_delete_account_fail(node: impl Node, protocol_version: ProtocolVersion) {
     let money_used = TESTING_INIT_BALANCE / 2;
     let node_user = node.user();
     let _ = node_user.create_account(
@@ -1197,7 +1197,18 @@ pub fn test_delete_account_fail(node: impl Node) {
     );
     let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
     let fee_helper = fee_helper(&node);
-    let delete_account_cost = fee_helper.delete_account_cost();
+    let delete_account_cost = checked_feature!(
+        "protocol_feature_allow_create_account_on_delete",
+        AllowCreateAccountOnDelete,
+        protocol_version,
+        {
+            fee_helper.prepaid_delete_account_cost() - fee_helper.transfer_cost()
+        },
+        {
+            fee_helper.prepaid_delete_account_cost()
+        }
+    );
+
     let transaction_result =
         node_user.delete_account(alice_account(), eve_dot_alice_account()).unwrap();
     assert_eq!(
@@ -1288,7 +1299,7 @@ pub fn test_delete_account_implicit_beneficiary_account(
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 }
 
-pub fn test_delete_account_while_staking(node: impl Node) {
+pub fn test_delete_account_while_staking(node: impl Node, protocol_version: ProtocolVersion) {
     let money_used = TESTING_INIT_BALANCE / 2;
     let node_user = node.user();
     let _ = node_user.create_account(
@@ -1299,7 +1310,7 @@ pub fn test_delete_account_while_staking(node: impl Node) {
     );
     let fee_helper = fee_helper(&node);
     let stake_fee = fee_helper.stake_cost();
-    let delete_account_fee = fee_helper.delete_account_cost();
+    let delete_account_fee = fee_helper.prepaid_delete_account_cost();
     let transaction_result = node_user
         .stake(
             eve_dot_alice_account(),
@@ -1321,7 +1332,16 @@ pub fn test_delete_account_while_staking(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(
+        transaction_result.receipts_outcome.len(),
+        checked_feature!(
+            "protocol_feature_allow_create_account_on_delete",
+            AllowCreateAccountOnDelete,
+            protocol_version,
+            {2},
+            {1}
+        )
+    );
     assert!(node.user().view_account(&eve_dot_alice_account()).is_ok());
 }
 

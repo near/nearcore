@@ -294,7 +294,7 @@ mod test {
     #[test]
     fn test_delete_account_has_enough_money_runtime() {
         let node = create_runtime_node();
-        test_delete_account_fail(node);
+        test_delete_account_fail(node, PROTOCOL_VERSION);
     }
 
     #[test]
@@ -312,7 +312,7 @@ mod test {
     #[test]
     fn test_delete_account_while_staking_runtime() {
         let node = create_runtime_node();
-        test_delete_account_while_staking(node);
+        test_delete_account_while_staking(node, PROTOCOL_VERSION);
     }
 
     #[test]

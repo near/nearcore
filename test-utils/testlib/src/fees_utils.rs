@@ -97,12 +97,16 @@ impl FeeHelper {
         self.gas_to_balance(exec_gas + send_gas + prepaid_gas)
     }
 
-    pub fn transfer_cost(&self) -> Balance {
+    pub fn transfer_fee(&self) -> Gas {
         let exec_gas = self.cfg.action_receipt_creation_config.exec_fee()
             + self.cfg.action_creation_config.transfer_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(false)
             + self.cfg.action_creation_config.transfer_cost.send_fee(false);
-        self.gas_to_balance(exec_gas + send_gas)
+        exec_gas + send_gas
+    }
+
+    pub fn transfer_cost(&self) -> Balance {
+        self.gas_to_balance(self.transfer_fee())
     }
 
     pub fn transfer_cost_64len_hex(&self) -> Balance {
@@ -155,11 +159,17 @@ impl FeeHelper {
         self.gas_to_balance(exec_gas + send_gas)
     }
 
-    pub fn delete_account_cost(&self) -> Balance {
+    pub fn prepaid_delete_account_cost(&self) -> Balance {
         let exec_gas = self.cfg.action_receipt_creation_config.exec_fee()
             + self.cfg.action_creation_config.delete_account_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(false)
             + self.cfg.action_creation_config.delete_account_cost.send_fee(false);
-        self.gas_to_balance(exec_gas + send_gas)
+
+        #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+        let total_fee = exec_gas + send_gas + self.transfer_fee();
+        #[cfg(not(feature = "protocol_feature_allow_create_account_on_delete"))]
+        let total_fee = exec_gas + send_gas;
+
+        self.gas_to_balance(total_fee)
     }
 }
