@@ -20,6 +20,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{BlockHeight, ChunkExtra, ShardId, StateRoot};
+use near_primitives::trie_key::TrieKey;
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
 use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
@@ -487,6 +488,30 @@ fn main() {
                 )
                 .help("dump deployed contract code of given account to wasm file"),
         )
+        .subcommand(
+            SubCommand::with_name("dump_account_storage")
+                .arg(
+                    Arg::with_name("account")
+                        .long("account")
+                        .help("account name")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("storage_key")
+                        .long("storage_key")
+                        .help("account storage key")
+                        .takes_value(true)
+                        .default_value("STATE")
+                )
+                .arg(
+                    Arg::with_name("output")
+                        .long("output")
+                        .help("output binary file")
+                        .takes_value(true)
+                        .default_value("output.bin"),
+                )
+                .help("dump contract data in stroage of given account to binary file"),
+        )
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
@@ -509,7 +534,8 @@ fn main() {
                 let trie = TrieIterator::new(&trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
-                    if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
+                    if let Some(state_record) = StateRecord::from_raw_key_value(key.clone(), value.clone()) {
+                        println!("key : {:?}", key);
                         println!("{}", state_record);
                     }
                 }
@@ -584,6 +610,30 @@ fn main() {
                 "Account {} does not exist or do not have contract deployed in all shards",
                 account_id
             );
+        }
+        ("dump_account_storage", Some(args)) => {
+            let account_id = args.value_of("account").expect("account is required");
+            let storage_key = args.value_of("storage_key").unwrap();
+            let output = args.value_of("output").unwrap();
+            let (runtime, state_roots, _header) = load_trie(store, &home_dir, &near_config);
+            for (shard_id, state_root) in state_roots.iter().enumerate() {
+                let trie = runtime.get_trie_for_shard(shard_id as u64);
+                let key = TrieKey::ContractData { account_id: account_id.to_string(), key: storage_key.as_bytes().to_vec() };
+                let item = trie.get(state_root, &key.to_vec());
+                let value = item.unwrap();
+                if let Some(value) = value {
+                    let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
+                    match record {
+                        StateRecord::Data { account_id: _, data_key: _, value} => {
+                            let mut file = File::create(output).unwrap();
+                            file.write_all(&value).unwrap();
+                            println!("Dump contract storage under key {} of account {} into file {}", storage_key, account_id, output);
+                            return;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
         }
         (_, _) => unreachable!(),
     }
