@@ -460,7 +460,7 @@ pub mod epoch_info {
     use std::collections::{BTreeMap, HashMap};
 
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    use crate::{epoch_manager::RngSeed, rand::WeightedIndex};
+    use crate::{checked_feature, epoch_manager::RngSeed, rand::WeightedIndex};
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     use near_primitives_core::{
         hash::hash,
@@ -599,36 +599,61 @@ pub mod epoch_info {
             protocol_version: ProtocolVersion,
             rng_seed: RngSeed,
         ) -> Self {
-            let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {
-                WeightedIndex::new(
-                    ids.iter()
-                        .copied()
-                        .map(|validator_id| validators[validator_id as usize].stake())
-                        .collect(),
-                )
-            };
-            let block_producers_sampler = stake_weights(&block_producers_settlement);
-            let chunk_producers_sampler =
-                chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-            Self::V3(EpochInfoV3 {
-                epoch_height,
-                validators,
-                fishermen,
-                validator_to_index,
-                block_producers_settlement,
-                chunk_producers_settlement,
-                hidden_validators_settlement,
-                stake_change,
-                validator_reward,
-                validator_kickout,
-                fishermen_to_index,
-                minted_amount,
-                seat_price,
+            checked_feature!(
+                "protocol_feature_chunk_only_producers",
+                ChunkOnlyProducers,
                 protocol_version,
-                rng_seed,
-                block_producers_sampler,
-                chunk_producers_sampler,
-            })
+                {
+                    let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {
+                        WeightedIndex::new(
+                            ids.iter()
+                                .copied()
+                                .map(|validator_id| validators[validator_id as usize].stake())
+                                .collect(),
+                        )
+                    };
+                    let block_producers_sampler = stake_weights(&block_producers_settlement);
+                    let chunk_producers_sampler =
+                        chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
+                    return Self::V3(EpochInfoV3 {
+                        epoch_height,
+                        validators,
+                        fishermen,
+                        validator_to_index,
+                        block_producers_settlement,
+                        chunk_producers_settlement,
+                        hidden_validators_settlement,
+                        stake_change,
+                        validator_reward,
+                        validator_kickout,
+                        fishermen_to_index,
+                        minted_amount,
+                        seat_price,
+                        protocol_version,
+                        rng_seed,
+                        block_producers_sampler,
+                        chunk_producers_sampler,
+                    });
+                },
+                {
+                    return Self::V2(EpochInfoV2 {
+                        epoch_height,
+                        validators,
+                        fishermen,
+                        validator_to_index,
+                        block_producers_settlement,
+                        chunk_producers_settlement,
+                        hidden_validators_settlement,
+                        stake_change,
+                        validator_reward,
+                        validator_kickout,
+                        fishermen_to_index,
+                        minted_amount,
+                        seat_price,
+                        protocol_version,
+                    });
+                }
+            )
         }
 
         #[inline]

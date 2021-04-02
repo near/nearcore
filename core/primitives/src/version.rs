@@ -99,6 +99,8 @@ pub enum ProtocolFeature {
     AccountVersions,
     #[cfg(feature = "protocol_feature_tx_size_limit")]
     TransactionSizeLimit,
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    ChunkOnlyProducers,
 }
 
 /// Current latest stable version of the protocol.
@@ -107,7 +109,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 109;
+pub const PROTOCOL_VERSION: ProtocolVersion = 110;
 
 lazy_static! {
     static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
@@ -152,6 +154,8 @@ lazy_static! {
             (ProtocolFeature::TransactionSizeLimit, 108),
             #[cfg(feature = "protocol_feature_block_header_v3")]
             (ProtocolFeature::BlockHeaderV3, 109),
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            (ProtocolFeature::ChunkOnlyProducers, 110),
         ]
         .into_iter()
         .collect();

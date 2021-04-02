@@ -1,5 +1,13 @@
+use std::collections::HashMap;
+
+use near_primitives::checked_feature;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::{EpochConfig, RngSeed};
 use near_primitives::errors::EpochError;
-use near_primitives::types::{Balance, NumSeats};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{
+    AccountId, Balance, NumSeats, ProtocolVersion, ValidatorKickoutReason,
+};
 
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
 pub(crate) fn find_threshold(
@@ -28,15 +36,49 @@ pub(crate) fn find_threshold(
     }
 }
 
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
-pub use crate::validator_selection::proposals_to_epoch_info;
-
 /// Calculates new seat assignments based on current seat assignments and proposals.
-#[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-pub use validator_selection::proposals_to_epoch_info;
+pub fn proposals_to_epoch_info(
+    epoch_config: &EpochConfig,
+    rng_seed: RngSeed,
+    prev_epoch_info: &EpochInfo,
+    proposals: Vec<ValidatorStake>,
+    validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    validator_reward: HashMap<AccountId, Balance>,
+    minted_amount: Balance,
+    next_version: ProtocolVersion,
+) -> Result<EpochInfo, EpochError> {
+    checked_feature!(
+        "protocol_feature_chunk_only_producers",
+        ChunkOnlyProducers,
+        next_version,
+        {
+            return crate::validator_selection::proposals_to_epoch_info(
+                epoch_config,
+                rng_seed,
+                prev_epoch_info,
+                proposals,
+                validator_kickout,
+                validator_reward,
+                minted_amount,
+                next_version,
+            );
+        },
+        {
+            return old_validator_selection::proposals_to_epoch_info(
+                epoch_config,
+                rng_seed,
+                prev_epoch_info,
+                proposals,
+                validator_kickout,
+                validator_reward,
+                minted_amount,
+                next_version,
+            );
+        }
+    )
+}
 
-#[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-mod validator_selection {
+mod old_validator_selection {
     use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     use std::iter;
 
@@ -229,6 +271,8 @@ mod validator_selection {
             minted_amount,
             threshold,
             next_version,
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            rng_seed,
         ))
     }
 }
@@ -394,7 +438,15 @@ mod tests {
             HashMap::default(),
             0,
         );
-        epoch_info.validator_kickout = HashMap::default();
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        match &mut epoch_info {
+            EpochInfo::V1(info) => info.validator_kickout = HashMap::default(),
+            EpochInfo::V2(info) => info.validator_kickout = HashMap::default(),
+        }
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        {
+            epoch_info.validator_kickout = HashMap::default();
+        }
         assert_eq!(
             proposals_to_epoch_info(
                 &epoch_config(2, 2, 1, 0, 90, 60, 10),
