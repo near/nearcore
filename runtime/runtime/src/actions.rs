@@ -440,28 +440,20 @@ pub(crate) fn action_deploy_contract(
     Ok(())
 }
 
-pub(crate) fn sum_4(
-    a: u64,
-    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] b: u64,
-    c: u64,
-    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] d: u64,
-) -> u64 {
-    a + b + c + d
-}
-
 pub(crate) fn action_delete_account(
     state_update: &mut TrieUpdate,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
-    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] action_receipt: &ActionReceipt,
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+    // Comment to work-around rustfmt bug
+    action_receipt: &ActionReceipt,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     current_protocol_version: ProtocolVersion,
     #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] config: &RuntimeFeesConfig,
 ) -> Result<(), StorageError> {
-    println!("{}", sum_3(1, 2, 3));
     if current_protocol_version
         >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
     {
@@ -479,6 +471,96 @@ pub(crate) fn action_delete_account(
                 account_id: account_id.clone(),
             }
             .into());
+            return Ok(());
+        }
+    }
+    // We use current amount as a pay out to beneficiary.
+    let account_balance = account.as_ref().unwrap().amount();
+    if account_balance > 0 {
+        checked_feature!(
+            "protocol_feature_allow_create_account_on_delete",
+            AllowCreateAccountOnDelete,
+            current_protocol_version,
+            {
+                let sender_is_receiver = account_id == &delete_account.beneficiary_id;
+                let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
+                    + send_transfer_fee(
+                        &config.action_creation_config,
+                        sender_is_receiver,
+                        &delete_account.beneficiary_id,
+                        current_protocol_version,
+                    );
+                result.gas_burnt += exec_gas;
+                result.gas_used += exec_gas
+                    + config.action_receipt_creation_config.exec_fee()
+                    + exec_transfer_fee(
+                        &config.action_creation_config,
+                        &delete_account.beneficiary_id,
+                        current_protocol_version,
+                    );
+
+                result.new_receipts.push(Receipt {
+                    predecessor_id: account_id.clone(),
+                    receiver_id: delete_account.beneficiary_id.clone(),
+                    receipt_id: CryptoHash::default(),
+
+                    receipt: ReceiptEnum::Action(ActionReceipt {
+                        signer_id: action_receipt.signer_id.clone(),
+                        signer_public_key: action_receipt.signer_public_key.clone(),
+                        gas_price: action_receipt.gas_price,
+                        output_data_receivers: vec![],
+                        input_data_ids: vec![],
+                        actions: vec![Action::Transfer(TransferAction {
+                            deposit: account_balance,
+                        })],
+                    }),
+                });
+            },
+            {
+                result.new_receipts.push(Receipt::new_balance_refund(
+                    &delete_account.beneficiary_id,
+                    account_balance,
+                ));
+            }
+        )
+    }
+    remove_account(state_update, account_id)?;
+    *actor_id = receipt.predecessor_id.clone();
+    *account = None;
+    Ok(())
+}
+
+pub(crate) fn action_delete_account_test_rustfmt(
+    state_update: &mut TrieUpdate,
+    account: &mut Option<Account>,
+    actor_id: &mut AccountId,
+    receipt: &Receipt,
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+    // Comment to work-around rustfmt bug: https://github.com/rust-lang/rustfmt/issues/4783
+    action_receipt: &ActionReceipt,
+    result: &mut ActionResult,
+    account_id: &AccountId,
+    delete_account: &DeleteAccountAction,
+    current_protocol_version: ProtocolVersion,
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] config: &RuntimeFeesConfig,
+) -> Result<(), StorageError> {
+    if current_protocol_version
+        >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
+    {
+        let account = account.as_ref().unwrap();
+        let mut account_storage_usage = account.storage_usage();
+        let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
+        if let Some(code) = contract_code {
+            // account storage usage should be larger than code size
+            let code_len = code.code.len() as u64;
+            debug_assert!(account_storage_usage > code_len);
+            account_storage_usage = account_storage_usage.saturating_sub(code_len);
+        }
+        if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
+            result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
+                account_id: account_id.clone(),
+            }
+                .into());
             return Ok(());
         }
     }
@@ -749,6 +831,7 @@ mod tests {
 
     use super::*;
     use near_primitives::hash::hash;
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
     use near_primitives::receipt::ReceiptEnum;
     use near_primitives::trie_key::TrieKey;
 
@@ -861,6 +944,7 @@ mod tests {
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
+        #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
             _ => unreachable!("Balance refund should be an action receipt"),
