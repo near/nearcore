@@ -8,9 +8,12 @@ use near_epoch_manager::test_utils::{
 };
 use near_epoch_manager::EpochManager;
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_manager::{BlockInfo, EpochInfo, SlashState};
+use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::SlashState;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, EpochId, ValidatorKickoutReason, ValidatorStake};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, Balance, EpochId, ValidatorKickoutReason};
 
 const DEBUG_PRINT: bool = false;
 
@@ -174,7 +177,11 @@ fn validate(
         println!("== End epoch infos ==");
         println!("== Begin block infos ==");
         for block_info in &block_infos {
-            println!("height: {:?}, proposals: {:?}", block_info.height, block_info.proposals);
+            println!(
+                "height: {:?}, proposals: {:?}",
+                block_info.height(),
+                block_info.proposals_iter().collect::<Vec<_>>()
+            );
         }
         println!("== End block infos ==");
     }
@@ -190,8 +197,8 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
         let epoch_info = &epoch_infos[i];
         let prev_epoch_info = &epoch_infos[i - 1];
         assert_eq!(
-            epoch_info.epoch_height,
-            prev_epoch_info.epoch_height + 1,
+            epoch_info.epoch_height(),
+            prev_epoch_info.epoch_height() + 1,
             "epoch height increases by 1"
         );
         let stakes_before_change = get_stakes_map(prev_epoch_info);
@@ -201,12 +208,12 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
         }
         let stakes_after_change = get_stakes_map(epoch_info);
         let mut stakes_with_change = stakes_before_change.clone();
-        for (account_id, new_stake) in &epoch_info.stake_change {
+        for (account_id, new_stake) in epoch_info.stake_change() {
             if *new_stake == 0 {
                 if stakes_before_change.get(account_id).is_none() {
                     // Stake change from 0 to 0
-                    assert!(prev_epoch_info.validator_kickout.contains_key(account_id));
-                    assert!(epoch_info.validator_kickout.contains_key(account_id));
+                    assert!(prev_epoch_info.validator_kickout().contains_key(account_id));
+                    assert!(epoch_info.validator_kickout().contains_key(account_id));
                 }
                 stakes_with_change.remove(account_id);
             } else {
@@ -214,14 +221,15 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
             }
         }
         assert_eq!(
-            stakes_with_change, stakes_after_change,
+            stakes_with_change,
+            stakes_after_change,
             "stake change: {:?}",
-            epoch_info.stake_change
+            epoch_info.stake_change()
         );
 
         for account_id in stakes_after_change.keys() {
             assert!(
-                epoch_info.validator_kickout.get(account_id).is_none(),
+                epoch_info.validator_kickout().get(account_id).is_none(),
                 "cannot be in both validator and kickout set"
             );
         }
@@ -229,10 +237,10 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
         if is_possible_bad_epochs_case(&epoch_infos[i - 1], &epoch_infos[i]) {
             continue;
         }
-        for (account_id, reason) in &epoch_info.validator_kickout {
+        for (account_id, reason) in epoch_info.validator_kickout() {
             let was_validaror_2_ago = (i >= 2
-                && epoch_infos[i - 2].validator_to_index.contains_key(account_id))
-                || (i == 1 && epoch_infos[0].validator_to_index.contains_key(account_id));
+                && epoch_infos[i - 2].account_is_validator(account_id))
+                || (i == 1 && epoch_infos[0].account_is_validator(account_id));
             let in_slashes_set = reason == &ValidatorKickoutReason::Slashed;
             assert!(
                 was_validaror_2_ago || in_slashes_set,
@@ -247,32 +255,32 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
     for i in 1..block_infos.len() {
         let prev_block_info = &block_infos[i - 1];
         let block_info = &block_infos[i];
-        assert!(block_info.last_finalized_height >= prev_block_info.last_finalized_height);
-        if epoch_manager.is_next_block_epoch_start(&block_infos[i].prev_hash).unwrap() {
-            assert_ne!(prev_block_info.epoch_first_block, block_info.epoch_first_block);
-            if prev_block_info.height == 0 {
+        assert!(block_info.last_finalized_height() >= prev_block_info.last_finalized_height());
+        if epoch_manager.is_next_block_epoch_start(block_infos[i].prev_hash()).unwrap() {
+            assert_ne!(prev_block_info.epoch_first_block(), block_info.epoch_first_block());
+            if *prev_block_info.height() == 0 {
                 // special case: epochs 0 and 1
                 assert_eq!(
-                    prev_block_info.epoch_id, block_info.epoch_id,
+                    prev_block_info.epoch_id(),
+                    block_info.epoch_id(),
                     "first two epochs have same id"
                 );
             } else {
-                assert_ne!(prev_block_info.epoch_id, block_info.epoch_id, "epoch id changes");
+                assert_ne!(prev_block_info.epoch_id(), block_info.epoch_id(), "epoch id changes");
             }
             let aggregator = epoch_manager
                 .get_and_update_epoch_info_aggregator(
-                    &prev_block_info.epoch_id,
-                    &block_info.prev_hash,
+                    prev_block_info.epoch_id(),
+                    block_info.prev_hash(),
                     true,
                 )
                 .unwrap();
             assert_eq!(aggregator.all_proposals, proposals, "Proposals do not match");
             proposals = BTreeMap::from_iter(
-                block_info.proposals.iter().map(|p| (p.account_id.clone(), p.clone())),
+                block_info.proposals_iter().map(|p| (p.account_id().clone(), p)),
             );
         } else {
-            proposals
-                .extend(block_info.proposals.iter().map(|p| (p.account_id.clone(), p.clone())));
+            proposals.extend(block_info.proposals_iter().map(|p| (p.account_id().clone(), p)));
         }
     }
 }
@@ -283,8 +291,8 @@ fn verify_slashes(
     slashes_per_block: &Vec<Vec<SlashedValidator>>,
 ) {
     for i in 1..block_infos.len() {
-        let prev_slashes_set = &block_infos[i - 1].slashed;
-        let slashes_set = &block_infos[i].slashed;
+        let prev_slashes_set = block_infos[i - 1].slashed();
+        let slashes_set = block_infos[i].slashed();
 
         let this_block_slashes = slashes_per_block[i]
             .iter()
@@ -295,8 +303,8 @@ fn verify_slashes(
                 )
             })
             .collect::<HashMap<_, _>>();
-        if epoch_manager.is_next_block_epoch_start(&block_infos[i].prev_hash).unwrap() {
-            let epoch_info = epoch_manager.get_epoch_info(&block_infos[i].epoch_id).unwrap();
+        if epoch_manager.is_next_block_epoch_start(block_infos[i].prev_hash()).unwrap() {
+            let epoch_info = epoch_manager.get_epoch_info(block_infos[i].epoch_id()).unwrap();
 
             // Epoch boundary.
             // DoubleSign or Other => become AlreadySlashed
@@ -308,7 +316,7 @@ fn verify_slashes(
                     continue;
                 }
                 if slash_state == &SlashState::AlreadySlashed {
-                    if epoch_info.stake_change.contains_key(account) {
+                    if epoch_info.stake_change().contains_key(account) {
                         assert_eq!(slashes_set.get(account), Some(&SlashState::AlreadySlashed));
                     } else {
                         assert_eq!(slashes_set.get(account), None);
@@ -342,25 +350,26 @@ fn verify_block_stats(
 ) {
     for i in 1..block_infos.len() {
         let prev_epoch_end =
-            epoch_manager.get_block_info(&block_infos[i].epoch_first_block).unwrap().prev_hash;
-        let prev_epoch_end_height = epoch_manager.get_block_info(&prev_epoch_end).unwrap().height;
+            *epoch_manager.get_block_info(block_infos[i].epoch_first_block()).unwrap().prev_hash();
+        let prev_epoch_end_height =
+            *epoch_manager.get_block_info(&prev_epoch_end).unwrap().height();
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;
         {
             let aggregator = epoch_manager
                 .get_and_update_epoch_info_aggregator(
-                    &block_infos[i].epoch_id,
+                    block_infos[i].epoch_id(),
                     &block_hashes[i],
                     true,
                 )
                 .unwrap();
-            let epoch_info = epoch_manager.get_epoch_info(&block_infos[i].epoch_id).unwrap();
+            let epoch_info = epoch_manager.get_epoch_info(block_infos[i].epoch_id()).unwrap();
             for key in aggregator.block_tracker.keys().copied() {
-                assert!(key < epoch_info.validators.len() as u64);
+                assert!(key < epoch_info.validators_iter().len() as u64);
             }
             for shard_stats in aggregator.shard_tracker.values() {
                 for key in shard_stats.keys().copied() {
-                    assert!(key < epoch_info.validators.len() as u64);
+                    assert!(key < epoch_info.validators_iter().len() as u64);
                 }
             }
             let sum_produced =
@@ -394,15 +403,14 @@ fn verify_block_stats(
 // Bad epoch case: All validators are kicked out.
 fn is_possible_bad_epochs_case(prev: &EpochInfo, curr: &EpochInfo) -> bool {
     let mut copy = prev.clone();
-    copy.epoch_height += 1;
+    *copy.epoch_height_mut() += 1;
     &copy == curr
 }
 
 fn get_stakes_map(epoch_info: &EpochInfo) -> HashMap<AccountId, Balance> {
     epoch_info
-        .validators
-        .iter()
-        .chain(epoch_info.fishermen.iter())
-        .map(|stake| (stake.account_id.clone(), stake.stake))
+        .validators_iter()
+        .chain(epoch_info.fishermen_iter())
+        .map(|stake| stake.account_and_stake())
         .collect::<HashMap<_, _>>()
 }
