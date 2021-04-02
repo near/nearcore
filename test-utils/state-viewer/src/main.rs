@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -494,7 +494,8 @@ fn main() {
                     Arg::with_name("account")
                         .long("account")
                         .help("account name")
-                        .takes_value(true),
+                        .takes_value(true)
+                        .required(true)
                 )
                 .arg(
                     Arg::with_name("storage_key")
@@ -534,8 +535,7 @@ fn main() {
                 let trie = TrieIterator::new(&trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
-                    if let Some(state_record) = StateRecord::from_raw_key_value(key.clone(), value.clone()) {
-                        println!("key : {:?}", key);
+                    if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
                         println!("{}", state_record);
                     }
                 }
@@ -612,7 +612,7 @@ fn main() {
             );
         }
         ("dump_account_storage", Some(args)) => {
-            let account_id = args.value_of("account").expect("account is required");
+            let account_id = args.value_of("account").unwrap();
             let storage_key = args.value_of("storage_key").unwrap();
             let output = args.value_of("output").unwrap();
             let (runtime, state_roots, _header) = load_trie(store, &home_dir, &near_config);
@@ -625,8 +625,7 @@ fn main() {
                     let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
                     match record {
                         StateRecord::Data { account_id: _, data_key: _, value} => {
-                            let mut file = File::create(output).unwrap();
-                            file.write_all(&value).unwrap();
+                            fs::write(output, &value).unwrap();
                             println!("Dump contract storage under key {} of account {} into file {}", storage_key, account_id, output);
                             return;
                         }
