@@ -20,11 +20,12 @@ use near_primitives::types::{
     TransactionOrReceiptId,
 };
 use near_primitives::utils::generate_random_string;
+use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
     QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
-    StateChangesView, ValidatorStakeView,
+    StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
