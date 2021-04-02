@@ -26,9 +26,10 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, GCCount, NumBlocks, ShardId,
-    StateChanges, StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    AccountId, BlockExtra, BlockHeight, EpochId, GCCount, NumBlocks, ShardId, StateChanges,
+    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -2953,7 +2954,7 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
     #[cfg(feature = "expensive_tests")]
-    use near_primitives::epoch_manager::BlockInfo;
+    use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
     use near_primitives::types::{BlockHeight, EpochId, GCCount, NumBlocks};

@@ -300,6 +300,10 @@ impl Block {
                         ShardChunkHeader::V2(_) => {
                             panic!("Attempted to set V1 block chunks with V2")
                         }
+                        #[cfg(feature = "protocol_feature_block_header_v3")]
+                        ShardChunkHeader::V3(_) => {
+                            panic!("Attempted to set V1 block chunks with V3")
+                        }
                     })
                     .collect();
                 block.as_mut().chunks = legacy_chunks;

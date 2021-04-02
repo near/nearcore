@@ -3003,6 +3003,7 @@ dependencies = [
  "delay-detector",
  "failure",
  "failure_derive",
+ "itertools 0.10.0",
  "lazy_static",
  "near-chain-configs",
  "near-chain-primitives",
