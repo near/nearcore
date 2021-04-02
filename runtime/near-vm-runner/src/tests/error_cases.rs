@@ -132,6 +132,12 @@ fn trap_contract() -> Vec<u8> {
 #[test]
 fn test_trap_contract() {
     with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
         assert_eq!(
             make_simple_contract_call_vm(&trap_contract(), "hello", vm_kind),
             (
@@ -161,6 +167,12 @@ fn trap_initializer() -> Vec<u8> {
 fn test_trap_initializer() {
     // See the comment is test_stack_overflow.
     with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
         assert_eq!(
             make_simple_contract_call_vm(&trap_initializer(), "hello", vm_kind),
             (

@@ -99,52 +99,48 @@ impl IntoVMError for wasmer::RuntimeError {
             Ok(e) => return (&e).into(),
             _ => {}
         }
+        let trap_code = trap_code.unwrap_or_else(|| panic!("Unknown error: {}", error_msg));
         let error = match trap_code {
-            Some(TrapCode::StackOverflow) => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
-            Some(TrapCode::HeapSetterOutOfBounds) => {
+            TrapCode::StackOverflow => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
+            TrapCode::HeapSetterOutOfBounds => {
                 FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
             }
-            Some(TrapCode::HeapAccessOutOfBounds) => {
+            TrapCode::HeapAccessOutOfBounds => {
                 FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
             }
-            Some(TrapCode::HeapMisaligned) => {
+            TrapCode::HeapMisaligned => {
                 FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
             }
-            Some(TrapCode::TableSetterOutOfBounds) => {
+            TrapCode::TableSetterOutOfBounds => {
                 FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
             }
-            Some(TrapCode::TableAccessOutOfBounds) => {
+            TrapCode::TableAccessOutOfBounds => {
                 FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
             }
-            Some(TrapCode::OutOfBounds) => FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
-            Some(TrapCode::IndirectCallToNull) => {
+            TrapCode::OutOfBounds => FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
+            TrapCode::IndirectCallToNull => {
                 FunctionCallError::WasmTrap(WasmTrap::IndirectCallToNull)
             }
-            Some(TrapCode::BadSignature) => {
+            TrapCode::BadSignature => {
                 FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature)
             }
-            Some(TrapCode::IntegerOverflow) => {
+            TrapCode::IntegerOverflow => FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic),
+            TrapCode::IntegerDivisionByZero => {
                 FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
             }
-            Some(TrapCode::IntegerDivisionByZero) => {
+            TrapCode::BadConversionToInteger => {
                 FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
             }
-            Some(TrapCode::BadConversionToInteger) => {
-                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
-            }
-            Some(TrapCode::UnreachableCodeReached) => {
-                FunctionCallError::WasmTrap(WasmTrap::Unreachable)
-            }
-            Some(TrapCode::UnalignedAtomic) => {
+            TrapCode::UnreachableCodeReached => FunctionCallError::WasmTrap(WasmTrap::Unreachable),
+            TrapCode::UnalignedAtomic => {
                 FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
             }
-            Some(TrapCode::Interrupt) => {
+            TrapCode::Interrupt => {
                 FunctionCallError::Nondeterministic("Wasmer interrupt".to_string())
             }
-            Some(TrapCode::VMOutOfMemory) => {
+            TrapCode::VMOutOfMemory => {
                 FunctionCallError::Nondeterministic("Wasmer out of memory".to_string())
             }
-            None => panic!("Unknown error: {}", error_msg),
         };
         VMError::FunctionCallError(error)
     }
