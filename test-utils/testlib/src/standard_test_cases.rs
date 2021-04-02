@@ -11,8 +11,9 @@ use near_primitives::errors::{
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::views::{AccessKeyView, FinalExecutionStatus};
-use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
+use near_primitives::views::{
+    AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
+};
 use near_vm_errors::{FunctionCallError, HostError, MethodResolveError};
 use neard::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
