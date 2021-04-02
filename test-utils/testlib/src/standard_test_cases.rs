@@ -10,7 +10,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::Balance;
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
@@ -1221,8 +1221,13 @@ pub fn test_delete_account_fail(node: impl Node, protocol_version: ProtocolVersi
         "protocol_feature_allow_create_account_on_delete",
         AllowCreateAccountOnDelete,
         protocol_version,
-        { fee_helper.prepaid_delete_account_cost() - fee_helper.transfer_cost() },
-        { fee_helper.prepaid_delete_account_cost() }
+        { fee_helper.prepaid_delete_account_cost(false) - fee_helper.transfer_cost() },
+        {
+            fee_helper.prepaid_delete_account_cost(
+                #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+                false,
+            )
+        }
     );
 
     let transaction_result =
@@ -1265,15 +1270,6 @@ pub fn test_delete_account_no_account(node: impl Node) {
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 }
 
-pub fn print_amount(node_user: &Box<dyn User>, account: &AccountId) {
-    let view_account = node_user.view_account(&account);
-    let amount = match view_account {
-        Ok(v) => v.amount,
-        Err(_) => 0,
-    };
-    println!("{}: {}", account, amount);
-}
-
 pub fn test_delete_account_implicit_beneficiary_account(
     node: impl Node,
     protocol_version: ProtocolVersion,
@@ -1287,6 +1283,10 @@ pub fn test_delete_account_implicit_beneficiary_account(
         node.signer().public_key(),
         money_used,
     );
+
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+    let eve_dot_alice_account_balance =
+        node.user().view_account(&eve_dot_alice_account().clone()).unwrap().amount;
     let beneficiary_id = implicit_account();
 
     let transaction_result = node_user
@@ -1305,8 +1305,12 @@ pub fn test_delete_account_implicit_beneficiary_account(
         AllowCreateAccountOnDelete,
         protocol_version,
         {
-            println!("{:#?}", view_result);
-            assert!(view_result.is_ok());
+            let fee_helper = fee_helper(&node);
+            let delete_account_cost = fee_helper.prepaid_delete_account_cost(true);
+            assert_eq!(
+                node.user().view_account(&implicit_account().clone()).unwrap().amount,
+                eve_dot_alice_account_balance - delete_account_cost
+            );
         },
         {
             assert!(view_result.is_err());
@@ -1326,7 +1330,10 @@ pub fn test_delete_account_while_staking(node: impl Node, protocol_version: Prot
     );
     let fee_helper = fee_helper(&node);
     let stake_fee = fee_helper.stake_cost();
-    let delete_account_fee = fee_helper.prepaid_delete_account_cost();
+    let delete_account_fee = fee_helper.prepaid_delete_account_cost(
+        #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+        false,
+    );
     let transaction_result = node_user
         .stake(
             eve_dot_alice_account(),

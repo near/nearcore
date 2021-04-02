@@ -37,7 +37,7 @@ impl FeeHelper {
         self.gas_to_balance(exec_gas + send_gas)
     }
 
-    pub fn create_account_transfer_full_key_cost(&self) -> Balance {
+    pub fn create_account_transfer_full_key_fee(&self) -> Gas {
         let exec_gas = self.cfg.action_receipt_creation_config.exec_fee()
             + self.cfg.action_creation_config.create_account_cost.exec_fee()
             + self.cfg.action_creation_config.transfer_cost.exec_fee()
@@ -46,7 +46,11 @@ impl FeeHelper {
             + self.cfg.action_creation_config.create_account_cost.send_fee(false)
             + self.cfg.action_creation_config.transfer_cost.send_fee(false)
             + self.cfg.action_creation_config.add_key_cost.full_access_cost.send_fee(false);
-        self.gas_to_balance(exec_gas + send_gas)
+        exec_gas + send_gas
+    }
+
+    pub fn create_account_transfer_full_key_cost(&self) -> Balance {
+        self.gas_to_balance(self.create_account_transfer_full_key_fee())
     }
 
     pub fn create_account_transfer_full_key_cost_no_reward(&self) -> Balance {
@@ -159,14 +163,24 @@ impl FeeHelper {
         self.gas_to_balance(exec_gas + send_gas)
     }
 
-    pub fn prepaid_delete_account_cost(&self) -> Balance {
+    pub fn prepaid_delete_account_cost(
+        &self,
+        #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+        implicit_account_created: bool,
+    ) -> Balance {
         let exec_gas = self.cfg.action_receipt_creation_config.exec_fee()
             + self.cfg.action_creation_config.delete_account_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(false)
             + self.cfg.action_creation_config.delete_account_cost.send_fee(false);
 
         #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
-        let total_fee = exec_gas + send_gas + self.transfer_fee();
+        let total_fee = exec_gas
+            + send_gas
+            + if implicit_account_created {
+                self.create_account_transfer_full_key_fee()
+            } else {
+                self.transfer_fee()
+            };
         #[cfg(not(feature = "protocol_feature_allow_create_account_on_delete"))]
         let total_fee = exec_gas + send_gas;
 
