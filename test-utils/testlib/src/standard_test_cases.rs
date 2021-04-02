@@ -1201,12 +1201,8 @@ pub fn test_delete_account_fail(node: impl Node, protocol_version: ProtocolVersi
         "protocol_feature_allow_create_account_on_delete",
         AllowCreateAccountOnDelete,
         protocol_version,
-        {
-            fee_helper.prepaid_delete_account_cost() - fee_helper.transfer_cost()
-        },
-        {
-            fee_helper.prepaid_delete_account_cost()
-        }
+        { fee_helper.prepaid_delete_account_cost() - fee_helper.transfer_cost() },
+        { fee_helper.prepaid_delete_account_cost() }
     );
 
     let transaction_result =
@@ -1338,8 +1334,8 @@ pub fn test_delete_account_while_staking(node: impl Node, protocol_version: Prot
             "protocol_feature_allow_create_account_on_delete",
             AllowCreateAccountOnDelete,
             protocol_version,
-            {2},
-            {1}
+            { 2 },
+            { 1 }
         )
     );
     assert!(node.user().view_account(&eve_dot_alice_account()).is_ok());
