@@ -16,7 +16,6 @@ serde_json = "1"
 reqwest = { version = "0.11", features = ["rustls-tls", "blocking", "json"] }
 git-version = "0.3.2"
 byteorder = "1.2"
-lazy-static-include = "3"
 
 borsh = "0.8.1"
 
@@ -26,5 +25,6 @@ node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
+near-test-contracts = { path = "../../runtime/near-test-contracts" }
 neard = { path = "../../neard" }
 testlib = { path = "../testlib" }

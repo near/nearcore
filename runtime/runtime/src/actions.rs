@@ -15,7 +15,8 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
@@ -274,11 +275,11 @@ pub(crate) fn action_stake(
             }
         }
 
-        result.validator_proposals.push(ValidatorStake {
-            account_id: account_id.clone(),
-            public_key: stake.public_key.clone(),
-            stake: stake.stake,
-        });
+        result.validator_proposals.push(ValidatorStake::new(
+            account_id.clone(),
+            stake.public_key.clone(),
+            stake.stake,
+        ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
             account.set_amount(account.amount() - increment);

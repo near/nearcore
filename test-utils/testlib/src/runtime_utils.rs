@@ -1,6 +1,3 @@
-use std::fs;
-use std::path::PathBuf;
-
 use byteorder::{ByteOrder, LittleEndian};
 
 use near_chain_configs::Genesis;
@@ -31,18 +28,11 @@ pub fn implicit_account() -> AccountId {
 }
 
 pub fn default_code_hash() -> CryptoHash {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
-    let genesis_wasm = fs::read(path).unwrap();
-    hash(&genesis_wasm)
+    hash(&near_test_contracts::rs_contract())
 }
 
 lazy_static::lazy_static! {
-    static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(&DEFAULT_TEST_CONTRACT);
-}
-
-lazy_static_include::lazy_static_include_bytes! {
-    DEFAULT_TEST_CONTRACT => "../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm"
+    static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(near_test_contracts::rs_contract());
 }
 
 pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
@@ -63,7 +53,7 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
     }
     genesis.records.as_mut().push(StateRecord::Contract {
         account_id: account_id.clone(),
-        code: DEFAULT_TEST_CONTRACT.to_vec(),
+        code: near_test_contracts::rs_contract().to_vec(),
     });
 }
 

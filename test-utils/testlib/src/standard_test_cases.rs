@@ -11,7 +11,7 @@ use near_primitives::errors::{
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::views::FinalExecutionStatus;
+use near_primitives::views::{AccessKeyView, FinalExecutionStatus};
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
 use near_vm_errors::{FunctionCallError, HostError, MethodResolveError};
 use neard::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -842,6 +842,25 @@ pub fn test_delete_key_last(node: impl Node) {
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_err());
 }
 
+fn assert_access_key(
+    access_key: &AccessKey,
+    access_key_view: AccessKeyView,
+    result: &FinalExecutionOutcomeView,
+    user: &dyn User,
+) {
+    let key = if cfg!(feature = "protocol_feature_access_key_nonce_range") {
+        let mut key = access_key.clone();
+        let block = user.get_block_by_hash(result.transaction_outcome.block_hash);
+        if let Some(b) = block {
+            key.nonce = (b.header.height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+        }
+        key
+    } else {
+        access_key.clone()
+    };
+    assert_eq!(access_key_view, key.into());
+}
+
 pub fn test_add_access_key_function_call(node: impl Node) {
     let node_user = node.user();
     let account_id = &node.account_id().unwrap();
@@ -854,12 +873,12 @@ pub fn test_add_access_key_function_call(node: impl Node) {
         }),
     };
     let signer2 = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
-    add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
+    let result = add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
 
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
-    assert_eq!(view_access_key, access_key.into());
+    assert_access_key(&access_key, view_access_key, &result, node_user.as_ref());
 }
 
 pub fn test_delete_access_key(node: impl Node) {
@@ -907,14 +926,14 @@ pub fn test_add_access_key_with_allowance(node: impl Node) {
     let initial_balance = account.amount;
     let fee_helper = fee_helper(&node);
     let add_access_key_cost = fee_helper.add_key_cost(0);
-    add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
+    let result = add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.amount, initial_balance - add_access_key_cost);
 
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
-    assert_eq!(view_access_key, access_key.into());
+    assert_access_key(&access_key, view_access_key, &result, node_user.as_ref());
 }
 
 pub fn test_delete_access_key_with_allowance(node: impl Node) {
@@ -995,7 +1014,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     assert_eq!(
         view_access_key,
         AccessKey {
-            nonce: 1,
+            nonce: view_access_key.nonce,
             permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                 allowance: Some(FUNCTION_CALL_AMOUNT - function_call_cost + gas_refund),
                 receiver_id: bob_account(),

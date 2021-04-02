@@ -521,7 +521,7 @@ impl Database for RocksDB {
             if check.is_io() {
                 warn!("unable to verify remaing disk space: {}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
             } else {
-                panic!(check)
+                panic!("{}", check)
             }
         }
 
@@ -729,7 +729,7 @@ impl RocksDB {
 fn available_space<P: AsRef<Path> + std::fmt::Debug>(
     path: P,
 ) -> std::io::Result<bytesize::ByteSize> {
-    let available = fs2::available_space(dbg!(path))?;
+    let available = fs2::available_space(path)?;
     Ok(bytesize::ByteSize::b(available))
 }
 

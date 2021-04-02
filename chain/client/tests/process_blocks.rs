@@ -37,14 +37,18 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash, Digest};
 use near_primitives::merkle::verify_hash;
-use near_primitives::sharding::{
-    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderV2,
-};
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+use near_primitives::sharding::ShardChunkHeaderV2;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
+
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
 };
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ValidatorStake};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -480,6 +484,10 @@ fn invalid_blocks_common(is_requested: bool) {
                 ShardChunkHeader::V2(chunk) => {
                     chunk.signature = some_signature;
                 }
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                ShardChunkHeader::V3(chunk) => {
+                    chunk.signature = some_signature;
+                }
             };
             block.set_chunks(chunks);
             client.do_send(NetworkClientMessages::Block(
@@ -590,15 +598,17 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 InvalidBlockMode::InvalidBlock => {
                                     // produce an invalid block whose invalidity cannot be verified by just
                                     // having its header.
+                                    let proposals = vec![ValidatorStake::new(
+                                        "test1".to_string(),
+                                        PublicKey::empty(KeyType::ED25519),
+                                        0,
+                                    )];
+
                                     block_mut
                                         .mut_header()
                                         .get_mut()
                                         .inner_rest
-                                        .validator_proposals = vec![ValidatorStake {
-                                        account_id: "test1".to_string(),
-                                        public_key: PublicKey::empty(KeyType::ED25519),
-                                        stake: 0,
-                                    }];
+                                        .validator_proposals = proposals;
                                     block_mut.mut_header().resign(&validator_signer1);
                                 }
                             }
@@ -998,10 +1008,30 @@ fn test_bad_orphan() {
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                 ShardChunkHeader::V2(chunk) => chunk,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                ShardChunkHeader::V2(_) => unreachable!(),
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                ShardChunkHeader::V3(chunk) => chunk,
             };
-            chunk.inner.outcome_root = CryptoHash(Digest([1; 32]));
-            chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            {
+                chunk.inner.outcome_root = CryptoHash(Digest([1; 32]));
+                chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
+            }
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            {
+                match &mut chunk.inner {
+                    ShardChunkHeaderInner::V1(inner) => {
+                        inner.outcome_root = CryptoHash(Digest([1; 32]))
+                    }
+                    ShardChunkHeaderInner::V2(inner) => {
+                        inner.outcome_root = CryptoHash(Digest([1; 32]))
+                    }
+                }
+                chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
+            }
         }
         block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
         block.mut_header().resign(&*signer);
@@ -1030,10 +1060,22 @@ fn test_bad_orphan() {
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                 ShardChunkHeader::V2(chunk) => chunk,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                ShardChunkHeader::V2(_) => unreachable!(),
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                ShardChunkHeader::V3(chunk) => chunk,
             };
             chunk.signature = some_signature;
-            chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
+            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+            {
+                chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
+            }
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            {
+                chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
+            }
         }
         block.mut_header().get_mut().prev_hash = CryptoHash(Digest([4; 32]));
         block.mut_header().resign(&*signer);
@@ -1352,8 +1394,10 @@ fn test_process_block_after_state_sync() {
     let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap().clone();
     let sync_hash = *sync_block.hash();
     let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
-    let state_part =
-        env.clients[0].runtime_adapter.obtain_state_part(0, &chunk_extra.state_root, 0, 1).unwrap();
+    let state_part = env.clients[0]
+        .runtime_adapter
+        .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
+        .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
@@ -1362,7 +1406,7 @@ fn test_process_block_after_state_sync() {
     env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
     env.clients[0]
         .runtime_adapter
-        .apply_state_part(0, &chunk_extra.state_root, 0, 1, &state_part)
+        .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
     let (_, res) = env.clients[0].process_block(block, Provenance::PRODUCED);
@@ -1822,11 +1866,9 @@ fn test_not_process_height_twice() {
     let mut invalid_block = block.clone();
     env.process_block(0, block, Provenance::PRODUCED);
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
-    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = vec![ValidatorStake {
-        account_id: "test1".to_string(),
-        public_key: PublicKey::empty(KeyType::ED25519),
-        stake: 0,
-    }];
+    let proposals =
+        vec![ValidatorStake::new("test1".to_string(), PublicKey::empty(KeyType::ED25519), 0)];
+    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
     invalid_block.mut_header().resign(&validator_signer);
     let (accepted_blocks, res) = env.clients[0].process_block(invalid_block, Provenance::NONE);
     assert!(accepted_blocks.is_empty());
@@ -1845,10 +1887,6 @@ fn test_block_height_processed_orphan() {
     let (_, tip) = env.clients[0].process_block(orphan_block, Provenance::NONE);
     assert!(matches!(tip.unwrap_err().kind(), ErrorKind::Orphan));
     assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
-}
-
-lazy_static_include::lazy_static_include_bytes! {
-    TEST_CONTRACT => "../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm"
 }
 
 #[test]
@@ -1871,7 +1909,9 @@ fn test_validate_chunk_extra() {
         "test0".to_string(),
         "test0".to_string(),
         &signer,
-        vec![Action::DeployContract(DeployContractAction { code: TEST_CONTRACT.to_vec() })],
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
         *genesis_block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
@@ -2051,7 +2091,7 @@ fn test_catchup_gas_price_change() {
     let state_root = match &state_sync_header {
         ShardStateSyncResponseHeader::V1(header) => header.chunk.header.inner.prev_state_root,
         ShardStateSyncResponseHeader::V2(header) => {
-            header.chunk.cloned_header().take_inner().prev_state_root
+            *header.chunk.cloned_header().take_inner().prev_state_root()
         }
     };
     //let state_root = state_sync_header.chunk.header.inner.prev_state_root;

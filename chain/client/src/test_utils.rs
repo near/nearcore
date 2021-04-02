@@ -1081,7 +1081,7 @@ impl TestEnv {
 
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
-        assert!(result.is_ok(), format!("{:?}", result));
+        assert!(result.is_ok(), "{:?}", result);
         let more_accepted_blocks = self.clients[id].run_catchup(&vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
@@ -1226,7 +1226,7 @@ pub fn create_chunk(
             header.gas_limit(),
             header.balance_burnt(),
             tx_root,
-            header.validator_proposals().iter().cloned().collect(),
+            header.validator_proposals().collect(),
             transactions,
             decoded_chunk.receipts(),
             header.outgoing_receipts_root(),

@@ -13,7 +13,7 @@ RUN apt-get update -qq && apt-get install -y \
     clang \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ./stable.rust-toolchain /tmp/rust-toolchain
+COPY ./rust-toolchain /tmp/rust-toolchain
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \

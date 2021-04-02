@@ -22,6 +22,6 @@ I.e. persistent state could be passed across runs via `--state` parameter.
 There are some test contracts in this repository, for example:
 
 ```
-   cargo run -- --wasm-file=../near-vm-runner/tests/res/test_contract_rs.wasm \
+   cargo run -- --wasm-file=../near-test-contracts/res/test_contract_rs.wasm \
                 --method-name=log_something
 ```
