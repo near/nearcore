@@ -20,11 +20,12 @@ use near_primitives::types::{
     TransactionOrReceiptId,
 };
 use near_primitives::utils::generate_random_string;
+use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
     QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
-    StateChangesView, ValidatorStakeView,
+    StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -300,6 +301,12 @@ pub enum QueryError {
         "Contract code for contract ID {contract_account_id} has never been observed on the node at block #{block_height}"
     )]
     NoContractCode {
+        contract_account_id: near_primitives::types::AccountId,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("State of contract {contract_account_id} is too large to be viewed")]
+    TooLargeContractState {
         contract_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,

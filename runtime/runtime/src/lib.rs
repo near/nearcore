@@ -23,8 +23,8 @@ use near_primitives::{
     },
     trie_key::TrieKey,
     types::{
-        AccountId, Balance, EpochInfoProvider, Gas, MerkleHash, RawStateChangesWithTrieKey,
-        ShardId, StateChangeCause, StateRoot, ValidatorStake,
+        validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas, MerkleHash,
+        RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
     },
     utils::{
         create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
@@ -1232,8 +1232,9 @@ impl Runtime {
         let mut unique_proposals = vec![];
         let mut account_ids = HashSet::new();
         for proposal in validator_proposals.into_iter().rev() {
-            if !account_ids.contains(&proposal.account_id) {
-                account_ids.insert(proposal.account_id.clone());
+            let account_id = proposal.account_id();
+            if !account_ids.contains(account_id) {
+                account_ids.insert(account_id.clone());
                 unique_proposals.push(proposal);
             }
         }

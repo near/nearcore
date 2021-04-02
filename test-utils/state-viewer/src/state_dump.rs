@@ -27,7 +27,8 @@ pub fn state_dump(
         .into_iter()
         .filter_map(|(info, is_slashed)| {
             if !is_slashed {
-                Some((info.account_id, (info.public_key, info.stake)))
+                let (account_id, public_key, stake) = info.destructure();
+                Some((account_id, (public_key, stake)))
             } else {
                 None
             }
@@ -127,7 +128,7 @@ mod test {
             .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
             .unwrap();
         assert_eq!(
-            block_producers.into_iter().map(|(r, _)| r.account_id).collect::<HashSet<_>>(),
+            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".to_string(), "test1".to_string()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
@@ -267,7 +268,7 @@ mod test {
             .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
             .unwrap();
         assert_eq!(
-            block_producers.into_iter().map(|(r, _)| r.account_id).collect::<HashSet<_>>(),
+            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".to_string(), "test1".to_string()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();

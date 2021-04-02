@@ -47,11 +47,12 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, TransactionOrReceiptId,
 };
+use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
     LightClientBlockView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
-    StateChangesView, ValidatorStakeView,
+    StateChangesView,
 };
 
 use crate::{
@@ -260,10 +261,10 @@ impl ViewClientActor {
             }
         })?;
 
-        let state_root = chunk_extra.state_root;
+        let state_root = chunk_extra.state_root();
         match self.runtime_adapter.query(
             shard_id,
-            &state_root,
+            state_root,
             header.height(),
             header.raw_timestamp(),
             header.prev_hash(),
@@ -303,6 +304,15 @@ impl ViewClientActor {
                     block_height,
                 } => QueryError::ContractExecutionError {
                     vm_error: error_message,
+                    block_height,
+                    block_hash,
+                },
+                near_chain::near_chain_primitives::error::QueryError::TooLargeContractState {
+                    requested_account_id,
+                    block_height,
+                    block_hash,
+                } => QueryError::TooLargeContractState {
+                    contract_account_id: requested_account_id,
                     block_height,
                     block_hash,
                 },
@@ -593,11 +603,11 @@ impl Handler<GetChunk> for ViewClientActor {
 
         let chunk_inner = chunk.cloned_header().take_inner();
         let epoch_id =
-            self.runtime_adapter.get_epoch_id_from_prev_block(&chunk_inner.prev_block_hash)?;
+            self.runtime_adapter.get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())?;
         let author = self.runtime_adapter.get_chunk_producer(
             &epoch_id,
-            chunk_inner.height_created,
-            chunk_inner.shard_id,
+            chunk_inner.height_created(),
+            chunk_inner.shard_id(),
         )?;
 
         Ok(ChunkView::from_author_chunk(author, chunk))
