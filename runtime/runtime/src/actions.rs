@@ -6,8 +6,6 @@ use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-#[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
-use near_primitives::receipt::ReceiptEnum;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -35,7 +33,9 @@ use near_vm_errors::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 
-use crate::config::{exec_transfer_fee, safe_add_gas, send_transfer_fee, RuntimeConfig};
+#[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+use crate::config::{exec_transfer_fee, send_transfer_fee};
+use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 
@@ -440,19 +440,28 @@ pub(crate) fn action_deploy_contract(
     Ok(())
 }
 
+pub(crate) fn sum_4(
+    a: u64,
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] b: u64,
+    c: u64,
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] d: u64,
+) -> u64 {
+    a + b + c + d
+}
+
 pub(crate) fn action_delete_account(
     state_update: &mut TrieUpdate,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
-    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
-    action_receipt: &ActionReceipt,
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] action_receipt: &ActionReceipt,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     current_protocol_version: ProtocolVersion,
-    config: &RuntimeFeesConfig,
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] config: &RuntimeFeesConfig,
 ) -> Result<(), StorageError> {
+    println!("{}", sum_3(1, 2, 3));
     if current_protocol_version
         >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
     {
@@ -740,6 +749,7 @@ mod tests {
 
     use super::*;
     use near_primitives::hash::hash;
+    use near_primitives::receipt::ReceiptEnum;
     use near_primitives::trie_key::TrieKey;
 
     fn test_action_create_account(
@@ -866,6 +876,8 @@ mod tests {
             account_id,
             &DeleteAccountAction { beneficiary_id: "bob".to_string() },
             PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction],
+            #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+            &RuntimeFeesConfig::default(),
         );
         assert!(res.is_ok());
         action_result
@@ -893,7 +905,6 @@ mod tests {
     }
 
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
-        println!("Hey 0!");
         let tries = create_tries();
         let mut state_update = tries.new_trie_update(0, CryptoHash::default());
         let account_id = "alice".to_string();

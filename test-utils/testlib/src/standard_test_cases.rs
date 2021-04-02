@@ -10,7 +10,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{Balance, AccountId};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
 use near_vm_errors::{FunctionCallError, HostError, MethodResolveError};

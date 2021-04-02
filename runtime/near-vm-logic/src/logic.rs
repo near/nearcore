@@ -1762,7 +1762,10 @@ impl<'a> VMLogic<'a> {
         )?;
 
         // TODO add cfg[feature]
-        println!("Pay transfer in deletion: {:#?}", self.fees_config.action_creation_config.transfer_cost);
+        println!(
+            "Pay transfer in deletion: {:#?}",
+            self.fees_config.action_creation_config.transfer_cost
+        );
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.transfer_cost,
             sir,

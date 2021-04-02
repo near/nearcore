@@ -429,6 +429,7 @@ impl Runtime {
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
+                    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
                     &apply_state.config.transaction_costs,
                 )?;
             }
@@ -2117,7 +2118,7 @@ mod tests {
 
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-            total_exec_fees(
+            total_prepaid_exec_fees(
                 &apply_state.config.transaction_costs,
                 &actions,
                 &alice_account(),
@@ -2186,7 +2187,7 @@ mod tests {
 
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-            total_exec_fees(
+            total_prepaid_exec_fees(
                 &apply_state.config.transaction_costs,
                 &actions,
                 &alice_account(),
