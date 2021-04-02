@@ -193,6 +193,12 @@ fn div_by_zero_contract() -> Vec<u8> {
 #[test]
 fn test_div_by_zero_contract() {
     with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
         assert_eq!(
             make_simple_contract_call_vm(&div_by_zero_contract(), "hello", vm_kind),
             (
