@@ -1,21 +1,11 @@
+use std::{cell::Cell, fmt};
+
 use crate::config::{ActionCosts, ExtCosts};
 use crate::types::Gas;
-use std::{cell::RefCell, fmt, rc::Rc};
 
-const PROFILE_DATA_LEN: usize = 1 + ActionCosts::count() + ExtCosts::count();
-
-/// Data for total gas burnt (index 0), and then each action and external cost
-pub type InternalProfileData<T> = [T; PROFILE_DATA_LEN];
-
-pub struct FixedArray<T> {
-    pub data: Rc<RefCell<InternalProfileData<T>>>,
-}
-
-impl<T> Clone for FixedArray<T> {
-    fn clone(&self) -> Self {
-        Self { data: Rc::clone(&self.data) }
-    }
-}
+/// Data for total gas burnt (index 0), and then each external cost and action
+#[allow(dead_code)]
+type DataArray = [Cell<u64>; ProfileData::LEN];
 
 /// Profile of gas consumption.
 #[derive(Clone)]
@@ -27,7 +17,7 @@ pub struct ProfileData {
 enum Repr {
     #[cfg(feature = "costs_counting")]
     Enabled {
-        data: FixedArray<u64>,
+        data: std::rc::Rc<DataArray>,
     },
     Disabled,
 }
@@ -44,13 +34,15 @@ impl Default for ProfileData {
 impl ProfileData {
     const EXT_START: usize = 1;
     const ACTION_START: usize = ProfileData::EXT_START + ExtCosts::count();
-    // const LENGTH: usize = PROFILE_DATA_LEN;
+    const LEN: usize = 1 + ActionCosts::count() + ExtCosts::count();
 
     #[inline]
     #[cfg(feature = "costs_counting")]
     pub fn new_enabled() -> Self {
-        let data = Rc::new(RefCell::new([0u64; 1 + ExtCosts::count() + ActionCosts::count()]));
-        let data = FixedArray { data };
+        // We must manually promote to a constant for array literal to work.
+        const ZERO: Cell<u64> = Cell::new(0);
+
+        let data = std::rc::Rc::new([ZERO; ProfileData::LEN]);
         let repr = Repr::Enabled { data };
         ProfileData { repr }
     }
@@ -77,20 +69,23 @@ impl ProfileData {
     }
     #[inline]
     fn add_val(&self, index: usize, value: u64) {
-        self.with_data(|data| data[index] += value)
+        self.with_slot(index, |slot| {
+            let old = slot.get();
+            slot.set(old + value);
+        })
     }
 
     #[inline]
-    fn with_data(&self, f: impl FnOnce(&mut InternalProfileData<u64>)) {
+    fn with_slot(&self, index: usize, f: impl FnOnce(&Cell<u64>)) {
         match &self.repr {
             #[cfg(feature = "costs_counting")]
-            Repr::Enabled { data } => f(&mut data.data.borrow_mut()),
-            Repr::Disabled => drop(f),
+            Repr::Enabled { data } => f(&data[index]),
+            Repr::Disabled => drop((index, f)),
         }
     }
     fn read(&self, index: usize) -> u64 {
         let mut res = 0;
-        self.with_data(|data| res = data[index]);
+        self.with_slot(index, |slot| res = slot.get());
         res
     }
 
@@ -130,7 +125,7 @@ impl ProfileData {
     }
 
     pub fn set_burnt_gas(&self, burnt_gas: u64) {
-        self.with_data(|data| data[0] = burnt_gas);
+        self.with_slot(0, |slot| slot.set(burnt_gas));
     }
 }
 
