@@ -1812,7 +1812,7 @@ impl<'a> VMLogic<'a> {
             let mut send_transfer_fee = self.fees_config.action_creation_config.transfer_cost.send_fee(sir);
             if self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION {
                 // Need to check if the receiver_id can be an implicit account.
-                if is_account_id_64_len_hex(&receiver_id) {
+                if is_account_id_64_len_hex(&beneficiary_id) {
                     send_transfer_fee = send_transfer_fee + self.fees_config.action_creation_config.create_account_cost.send_fee(sir);
                     send_transfer_fee = send_transfer_fee + self.fees_config.action_creation_config.add_key_cost.full_access_cost.send_fee(sir);
                 }
@@ -1820,17 +1820,16 @@ impl<'a> VMLogic<'a> {
             let mut exec_transfer_fee = self.fees_config.action_creation_config.transfer_cost.exec_fee();
             if self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION {
                 // Need to check if the receiver_id can be an implicit account.
-                if is_account_id_64_len_hex(&receiver_id) {
+                if is_account_id_64_len_hex(&beneficiary_id) {
                     exec_transfer_fee = exec_transfer_fee + self.fees_config.action_creation_config.create_account_cost.exec_fee();
                     exec_transfer_fee = exec_transfer_fee + self.fees_config.action_creation_config.add_key_cost.full_access_cost.exec_fee();
                 }
-            } else {
-                exec_transfer_fee += cfg.transfer_cost.send_fee(sender_is_receiver)
             }
 
             let burn_gas = self.fees_config.action_creation_config.delete_account_cost.send_fee(sir) + send_transfer_fee;
             let use_gas = burn_gas + self.fees_config.action_creation_config.delete_account_cost.exec_fee() + exec_transfer_fee;
             self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::delete_account)?;
+            self.pay_gas_for_new_receipt(sir, &[])?;
 
             // self.gas_counter.pay_action_base(
             //     &self.fees_config.action_creation_config.delete_account_cost,
