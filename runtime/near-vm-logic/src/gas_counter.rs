@@ -205,6 +205,21 @@ impl GasCounter {
         self.deduct_gas(burn_gas, use_gas)
     }
 
+    // TODO document
+    pub fn pay_action_base_prepaid(
+        &mut self,
+        base_fee: &Fee,
+        prepaid: Gas,
+        sir: bool,
+        action: ActionCosts,
+    ) -> Result<()> {
+        let burn_gas = base_fee.send_fee(sir);
+        let use_gas =
+            burn_gas.checked_add(base_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?;
+        let use_gas_prepaid =  use_gas.checked_add(prepaid).ok_or(HostError::IntegerOverflow)?;
+        self.update_profile_action(action, burn_gas);
+        self.deduct_gas(burn_gas, use_gas_prepaid)
+    }
     /// A helper function to pay base cost gas fee for batching an action.
     /// # Args:
     /// * `burn_gas`: amount of gas to burn;
