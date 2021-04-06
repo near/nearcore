@@ -22,14 +22,21 @@ use crate::{actions::execute_function_call, ext::RuntimeExt};
 
 pub mod errors;
 
-pub struct TrieViewer {}
+pub struct TrieViewer {
+    /// Upper bound of the byte size of contract state that is still viewable. None is no limit
+    state_size_limit: Option<u64>,
+}
 
 impl TrieViewer {
-    /// Upper bound of the size of contract state that is still viewable.
-    const CONTRACT_STATE_SIZE_LIMIT: u64 = 50_000;
+    pub const DEFAULT_CONTRACT_STATE_SIZE_LIMIT: Option<u64> = Some(50_000);
 
     pub fn new() -> Self {
-        Self {}
+        Self { state_size_limit: Self::DEFAULT_CONTRACT_STATE_SIZE_LIMIT }
+    }
+
+    pub fn state_size_limit(mut self, limit: Option<u64>) -> Self {
+        self.state_size_limit = limit;
+        self
     }
 
     pub fn view_account(
@@ -132,10 +139,12 @@ impl TrieViewer {
                 let code_len = get_code(state_update, account_id, Some(account.code_hash()))?
                     .map(|c| c.code.len() as u64)
                     .unwrap_or_default();
-                if account.storage_usage() > Self::CONTRACT_STATE_SIZE_LIMIT + code_len {
-                    return Err(errors::ViewStateError::AccountStateTooLarge {
-                        requested_account_id: account_id.clone(),
-                    });
+                if let Some(limit) = self.state_size_limit {
+                    if account.storage_usage() > limit + code_len {
+                        return Err(errors::ViewStateError::AccountStateTooLarge {
+                            requested_account_id: account_id.clone(),
+                        });
+                    }
                 }
             }
             None => {
@@ -484,7 +493,12 @@ mod tests {
         set_account(
             &mut state_update,
             alice_account(),
-            &Account::new(0, 0, CryptoHash::default(), TrieViewer::CONTRACT_STATE_SIZE_LIMIT + 1),
+            &Account::new(
+                0,
+                0,
+                CryptoHash::default(),
+                TrieViewer::DEFAULT_CONTRACT_STATE_SIZE_LIMIT + 1,
+            ),
         );
         let trie_viewer = TrieViewer::new();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
@@ -498,7 +512,12 @@ mod tests {
         set_account(
             &mut state_update,
             alice_account(),
-            &Account::new(0, 0, CryptoHash::default(), TrieViewer::CONTRACT_STATE_SIZE_LIMIT + 1),
+            &Account::new(
+                0,
+                0,
+                CryptoHash::default(),
+                TrieViewer::DEFAULT_CONTRACT_STATE_SIZE_LIMIT + 1,
+            ),
         );
         state_update.set(
             TrieKey::ContractCode { account_id: alice_account() },
