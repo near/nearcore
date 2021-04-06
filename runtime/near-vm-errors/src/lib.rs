@@ -29,7 +29,9 @@ pub enum FunctionCallError {
     MethodResolveError(MethodResolveError),
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
-    WasmUnknownError(String),
+    WasmUnknownError {
+        debug_message: String,
+    },
     HostError(HostError),
     EvmError(EvmError),
     /// Non-deterministic error.
@@ -357,8 +359,8 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
-            FunctionCallError::WasmUnknownError(msg) => {
-                write!(f, "Unknown error during Wasm contract execution: {}", msg)
+            FunctionCallError::WasmUnknownError { debug_message } => {
+                write!(f, "Unknown error during Wasm contract execution: {}", debug_message)
             }
             FunctionCallError::EvmError(e) => write!(f, "EVM: {:?}", e),
             FunctionCallError::Nondeterministic(msg) => {

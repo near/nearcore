@@ -119,9 +119,9 @@ pub mod wasmtime_runner {
                 Some(TrapCode::Interrupt) => VMError::FunctionCallError(
                     FunctionCallError::Nondeterministic("interrupt".to_string()),
                 ),
-                _ => VMError::FunctionCallError(FunctionCallError::WasmUnknownError(
-                    "unknown trap".to_string(),
-                )),
+                _ => VMError::FunctionCallError(FunctionCallError::WasmUnknownError {
+                    debug_message: "unknown trap".to_string(),
+                }),
             }
         }
     }

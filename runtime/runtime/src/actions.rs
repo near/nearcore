@@ -212,7 +212,7 @@ pub(crate) fn action_function_call(
             }
             FunctionCallError::WasmTrap(_)
             // TODO: shall we abort on unknown errors also?
-            | FunctionCallError::WasmUnknownError(_)
+            | FunctionCallError::WasmUnknownError { debug_message: _ }
             | FunctionCallError::HostError(_)
             | FunctionCallError::EvmError(_) => {
                 result.result = Err(ActionErrorKind::FunctionCallError(ContractError::ExecutionError(err.to_string())).into());
