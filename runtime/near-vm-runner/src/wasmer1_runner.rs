@@ -95,9 +95,8 @@ impl IntoVMError for wasmer::RuntimeError {
         // so we cannot clone self
         let error_msg = self.message();
         let trap_code = self.clone().to_trap();
-        match self.downcast::<VMLogicError>() {
-            Ok(e) => return (&e).into(),
-            _ => {}
+        if let Ok(e) = self.downcast::<VMLogicError>() {
+            return (&e).into();
         }
         let trap_code = trap_code.unwrap_or_else(|| panic!("Unknown error: {}", error_msg));
         let error = match trap_code {

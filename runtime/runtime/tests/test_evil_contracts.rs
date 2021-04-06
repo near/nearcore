@@ -1,4 +1,4 @@
-use near_primitives::errors::{ActionError, ActionErrorKind};
+use near_primitives::errors::{ActionError, ActionErrorKind, ContractError};
 use near_primitives::serialize::to_base64;
 use near_primitives::views::FinalExecutionStatus;
 use std::mem::size_of;
@@ -136,9 +136,9 @@ fn test_evil_abort() {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(
+                kind: ActionErrorKind::FunctionCallError(ContractError::ExecutionError(
                     "String encoding is bad UTF-16 sequence.".to_string()
-                )
+                ))
             }
             .into()
         ),

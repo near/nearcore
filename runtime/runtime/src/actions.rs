@@ -4,7 +4,9 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ContractError, ExternalError, RuntimeError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
@@ -196,15 +198,24 @@ pub(crate) fn action_function_call(
             FunctionCallError::Nondeterministic(msg) => {
                 panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
             }
-            FunctionCallError::CompilationError(_)
-            | FunctionCallError::LinkError { msg: _ }
-            | FunctionCallError::MethodResolveError(_)
-            | FunctionCallError::WasmTrap(_)
+            FunctionCallError::CompilationError(err) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(ContractError::CompilationError(err)).into());
+                false
+            }
+            FunctionCallError::LinkError { msg } => {
+                result.result = Err(ActionErrorKind::FunctionCallError(ContractError::LinkError(msg)).into());
+                false
+            }
+            FunctionCallError::MethodResolveError(err) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(ContractError::MethodResolveError(err)).into());
+                false
+            }
+            FunctionCallError::WasmTrap(_)
             // TODO: shall we abort on unknown errors also?
             | FunctionCallError::WasmUnknownError(_)
             | FunctionCallError::HostError(_)
             | FunctionCallError::EvmError(_) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(err.to_string()).into());
+                result.result = Err(ActionErrorKind::FunctionCallError(ContractError::ExecutionError(err.to_string())).into());
                 false
             }
         },

@@ -8,7 +8,7 @@ use near_evm_runner::types::WithdrawArgs;
 use near_evm_runner::utils::{
     address_from_arr, encode_call_function_args, encode_view_call_function_args, u256_to_arr,
 };
-use near_primitives::errors::{ActionError, ActionErrorKind};
+use near_primitives::errors::{ActionError, ActionErrorKind, ContractError};
 use near_primitives::views::FinalExecutionStatus;
 
 use_contract!(cryptozombies, "../../runtime/near-evm-runner/tests/build/ZombieOwnership.abi");
@@ -80,7 +80,9 @@ pub fn test_evm_infinite_loop_gas_limit(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError("EVM: OutOfGas".to_string())
+                kind: ActionErrorKind::FunctionCallError(ContractError::ExecutionError(
+                    "EVM: OutOfGas".to_string()
+                ))
             }
             .into()
         )
@@ -103,7 +105,9 @@ pub fn test_evm_fibonacci_gas_limit(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError("EVM: OutOfGas".to_string())
+                kind: ActionErrorKind::FunctionCallError(ContractError::ExecutionError(
+                    "EVM: OutOfGas".to_string()
+                ))
             }
             .into()
         )

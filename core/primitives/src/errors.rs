@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display};
 
 use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::VMLogicError;
+use near_vm_errors::{CompilationError, MethodResolveError, VMLogicError};
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -335,6 +335,16 @@ pub struct ActionError {
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
+pub enum ContractError {
+    MethodResolveError(MethodResolveError),
+    CompilationError(CompilationError),
+    LinkError(String),
+    ExecutionError(String),
+}
+
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+)]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
     AccountAlreadyExists { account_id: AccountId },
@@ -385,7 +395,7 @@ pub enum ActionErrorKind {
         minimum_stake: Balance,
     },
     /// An error occurred during a `FunctionCall` Action, parameter is debug message.
-    FunctionCallError(String),
+    FunctionCallError(ContractError),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
@@ -689,7 +699,7 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DeleteAccountStaking { account_id } => {
                 write!(f, "Account {:?} is staking and can not be deleted", account_id)
             }
-            ActionErrorKind::FunctionCallError(s) => write!(f, "{}", s),
+            ActionErrorKind::FunctionCallError(s) => write!(f, "{:?}", s),
             ActionErrorKind::NewReceiptValidationError(e) => {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }
