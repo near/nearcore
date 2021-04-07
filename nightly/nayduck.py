@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# This script runs integration tests in the could.  You can see the runs here:
+# This script runs integration tests in the cloud.  You can see the runs here:
 #
 #     http://nayduck.eastus.cloudapp.azure.com:3000/
 #
