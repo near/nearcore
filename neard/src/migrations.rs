@@ -1,8 +1,10 @@
 use crate::{NearConfig, NightshadeRuntime};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::types::ApplyTransactionResult;
+use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
+use near_epoch_manager::{EpochManager, RewardCalculator};
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -118,4 +120,38 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
         }
     }
     set_store_version(&store, 13);
+}
+
+pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
+    if near_config.client_config.archive {
+        let store = create_store(path);
+        let genesis_height = near_config.genesis.config.genesis_height;
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let mut epoch_manager = EpochManager::new(
+            store.clone(),
+            EpochConfig::from(&near_config.genesis.config),
+            near_config.genesis.config.protocol_version,
+            RewardCalculator::from(&near_config.genesis.config),
+            near_config.genesis.config.validators(),
+        )
+        .unwrap();
+        for (_, value) in store.iter(DBCol::ColEpochStart) {
+            let epoch_start_height = u64::try_from_slice(&value).unwrap();
+            let block_hash = chain_store.get_block_hash_by_height(epoch_start_height).unwrap();
+            let block_header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            let prev_header = chain_store.get_previous_header(&block_header).unwrap().clone();
+            let last_finalized_height = chain_store
+                .get_block_header(prev_header.last_final_block())
+                .map(|h| h.height())
+                .unwrap_or(genesis_height);
+            let mut store_update = store.store_update();
+            epoch_manager
+                .migrate_18_to_19(
+                    &BlockHeaderInfo::new(&prev_header, last_finalized_height),
+                    &mut store_update,
+                )
+                .unwrap();
+            store_update.commit().unwrap();
+        }
+    }
 }

@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -59,9 +58,6 @@ use node_runtime::{
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_primitives::runtime::config::RuntimeConfig;
-
-#[cfg(feature = "protocol_feature_rectify_inflation")]
-use near_epoch_manager::NUM_SECONDS_IN_A_YEAR;
 
 use errors::FromStateViewerErrors;
 
@@ -150,38 +146,8 @@ impl NightshadeRuntime {
         let genesis_config = genesis.config.clone();
         let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
-        let initial_epoch_config = EpochConfig {
-            epoch_length: genesis.config.epoch_length,
-            num_shards,
-            num_block_producer_seats: genesis.config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: genesis
-                .config
-                .num_block_producer_seats_per_shard
-                .clone(),
-            avg_hidden_validator_seats_per_shard: genesis
-                .config
-                .avg_hidden_validator_seats_per_shard
-                .clone(),
-            block_producer_kickout_threshold: genesis.config.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: genesis.config.chunk_producer_kickout_threshold,
-            fishermen_threshold: genesis.config.fishermen_threshold,
-            online_min_threshold: genesis.config.online_min_threshold,
-            online_max_threshold: genesis.config.online_max_threshold,
-            protocol_upgrade_num_epochs: genesis.config.protocol_upgrade_num_epochs,
-            protocol_upgrade_stake_threshold: genesis.config.protocol_upgrade_stake_threshold,
-            minimum_stake_divisor: genesis.config.minimum_stake_divisor,
-        };
-        let reward_calculator = RewardCalculator {
-            max_inflation_rate: genesis.config.max_inflation_rate,
-            num_blocks_per_year: genesis.config.num_blocks_per_year,
-            epoch_length: genesis.config.epoch_length,
-            protocol_reward_rate: genesis.config.protocol_reward_rate,
-            protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
-            online_max_threshold: genesis.config.online_max_threshold,
-            online_min_threshold: genesis.config.online_min_threshold,
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
-            num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
-        };
+        let initial_epoch_config = EpochConfig::from(&genesis_config);
+        let reward_calculator = RewardCalculator::from(&genesis_config);
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let tries = ShardTries::new(
@@ -194,21 +160,7 @@ impl NightshadeRuntime {
                 initial_epoch_config,
                 genesis_config.protocol_version,
                 reward_calculator,
-                genesis_config
-                    .validators
-                    .iter()
-                    .map(|account_info| {
-                        ValidatorStake::new(
-                            account_info.account_id.clone(),
-                            account_info
-                                .public_key
-                                .clone()
-                                .try_into()
-                                .expect("Failed to deserialize validator public key"),
-                            account_info.amount,
-                        )
-                    })
-                    .collect(),
+                genesis_config.validators(),
             )
             .expect("Failed to start Epoch Manager"),
         ));
@@ -1643,6 +1595,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 #[cfg(test)]
 mod test {
     use std::collections::BTreeSet;
+    use std::convert::TryInto;
 
     use num_rational::Rational;
 

@@ -116,6 +116,12 @@ impl From<&CryptoHash> for Vec<u8> {
     }
 }
 
+impl From<CryptoHash> for [u8; 32] {
+    fn from(hash: CryptoHash) -> [u8; 32] {
+        (hash.0).0
+    }
+}
+
 impl fmt::Debug for CryptoHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", pretty_hash(&String::from(self)))

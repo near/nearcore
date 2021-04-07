@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use num_rational::Rational;
 use primitive_types::U256;
 
+use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 use near_primitives::version::{ProtocolVersion, ENABLE_INFLATION_PROTOCOL_VERSION};
@@ -23,6 +24,22 @@ pub struct RewardCalculator {
     pub online_max_threshold: Rational,
     #[cfg(feature = "protocol_feature_rectify_inflation")]
     pub num_seconds_per_year: u64,
+}
+
+impl From<&GenesisConfig> for RewardCalculator {
+    fn from(config: &GenesisConfig) -> Self {
+        RewardCalculator {
+            max_inflation_rate: config.max_inflation_rate,
+            num_blocks_per_year: config.num_blocks_per_year,
+            epoch_length: config.epoch_length,
+            protocol_reward_rate: config.protocol_reward_rate,
+            protocol_treasury_account: config.protocol_treasury_account.to_string(),
+            online_max_threshold: config.online_max_threshold,
+            online_min_threshold: config.online_min_threshold,
+            #[cfg(feature = "protocol_feature_rectify_inflation")]
+            num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
+        }
+    }
 }
 
 impl RewardCalculator {
