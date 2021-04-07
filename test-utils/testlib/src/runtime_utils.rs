@@ -23,10 +23,6 @@ pub fn evm_account() -> AccountId {
     "evm".to_string()
 }
 
-pub fn default_code_hash() -> CryptoHash {
-    hash(&near_test_contracts::rs_contract())
-}
-
 lazy_static::lazy_static! {
     static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(near_test_contracts::rs_contract());
 }
