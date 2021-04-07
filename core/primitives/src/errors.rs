@@ -335,10 +335,9 @@ pub struct ActionError {
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
-pub enum ContractError {
+pub enum ContractCallError {
     MethodResolveError(MethodResolveError),
     CompilationError(CompilationError),
-    LinkError(String),
     ExecutionError(String),
 }
 
@@ -395,7 +394,7 @@ pub enum ActionErrorKind {
         minimum_stake: Balance,
     },
     /// An error occurred during a `FunctionCall` Action, parameter is debug message.
-    FunctionCallError(ContractError),
+    FunctionCallError(ContractCallError),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),

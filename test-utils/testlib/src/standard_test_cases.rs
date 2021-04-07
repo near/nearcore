@@ -5,7 +5,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ContractError, InvalidAccessKeyError, InvalidTxError,
+    ActionError, ActionErrorKind, ContractCallError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
 };
 use near_primitives::hash::hash;
@@ -82,7 +82,7 @@ pub fn test_smart_contract_panic(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractError::ExecutionError(
+                kind: ActionErrorKind::FunctionCallError(ContractCallError::ExecutionError(
                     "Smart contract panicked: WAT?".to_string()
                 ))
             }
@@ -120,7 +120,7 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractError::MethodResolveError(
+                kind: ActionErrorKind::FunctionCallError(ContractCallError::MethodResolveError(
                     MethodResolveError::MethodNotFound
                 ))
             }
@@ -144,7 +144,7 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractError::MethodResolveError(
+                kind: ActionErrorKind::FunctionCallError(ContractCallError::MethodResolveError(
                     MethodResolveError::MethodEmptyName
                 ))
             }
@@ -168,7 +168,7 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractError::MethodResolveError(
+                kind: ActionErrorKind::FunctionCallError(ContractCallError::MethodResolveError(
                     MethodResolveError::MethodEmptyName
                 ))
             }

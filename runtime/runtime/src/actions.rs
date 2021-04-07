@@ -5,7 +5,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ContractError, ExternalError, RuntimeError,
+    ActionError, ActionErrorKind, ContractCallError, ExternalError, RuntimeError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
@@ -202,27 +202,31 @@ pub(crate) fn action_function_call(
                 panic!("Wasmer returned unknown message: {}", debug_message)
             }
             FunctionCallError::CompilationError(err) => {
-                result.result =
-                    Err(ActionErrorKind::FunctionCallError(ContractError::CompilationError(err))
-                        .into());
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::CompilationError(err),
+                )
+                .into());
                 false
             }
             FunctionCallError::LinkError { msg } => {
-                result.result =
-                    Err(ActionErrorKind::FunctionCallError(ContractError::LinkError(msg)).into());
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError(format!("Link Error: {}", msg)),
+                )
+                .into());
                 false
             }
             FunctionCallError::MethodResolveError(err) => {
-                result.result =
-                    Err(ActionErrorKind::FunctionCallError(ContractError::MethodResolveError(err))
-                        .into());
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::MethodResolveError(err),
+                )
+                .into());
                 false
             }
             FunctionCallError::WasmTrap(_)
             | FunctionCallError::HostError(_)
             | FunctionCallError::EvmError(_) => {
                 result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractError::ExecutionError(err.to_string()),
+                    ContractCallError::ExecutionError(err.to_string()),
                 )
                 .into());
                 false
