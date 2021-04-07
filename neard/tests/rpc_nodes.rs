@@ -992,6 +992,7 @@ fn test_check_unknown_tx_must_return_error() {
             );
 
             let client = new_client(&format!("http://{}", rpc_addrs[0]));
+            let tx_hash = transaction.get_hash();
             let bytes = transaction.try_to_vec().unwrap();
 
             actix::spawn(async move {
@@ -1002,11 +1003,9 @@ fn test_check_unknown_tx_must_return_error() {
                             let _ = client
                                 .EXPERIMENTAL_tx_status(to_base64(&bytes))
                                 .map_err(|err| {
-                                    assert!(err
-                                        .data
-                                        .unwrap()
-                                        .to_string()
-                                        .contains("doesn't exist"));
+                                    assert!(err.data.unwrap().to_string().contains(
+                                        format!("Transaction {} doesn't exist", tx_hash).as_str()
+                                    ));
                                     System::current().stop();
                                 })
                                 .map_ok(move |_| panic!("Transaction must be unknown"))
