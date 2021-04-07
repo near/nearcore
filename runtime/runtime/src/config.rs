@@ -70,7 +70,7 @@ macro_rules! safe_add_balance_apply {
     }
 }
 
-pub fn exec_transfer_fee(
+pub fn transfer_exec_fee(
     cfg: &ActionCreationConfig,
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
@@ -86,7 +86,7 @@ pub fn exec_transfer_fee(
     }
 }
 
-pub fn send_transfer_fee(
+pub fn transfer_send_fee(
     cfg: &ActionCreationConfig,
     sender_is_receiver: bool,
     receiver_id: &AccountId,
@@ -132,7 +132,7 @@ pub fn total_send_fees(
             }
             Transfer(_) => {
                 // Account for implicit account creation
-                send_transfer_fee(cfg, sender_is_receiver, receiver_id, current_protocol_version)
+                transfer_send_fee(cfg, sender_is_receiver, receiver_id, current_protocol_version)
             }
             Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
             AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
@@ -185,7 +185,7 @@ pub fn exec_fee(
         }
         Transfer(_) => {
             // Account for implicit account creation
-            exec_transfer_fee(cfg, receiver_id, current_protocol_version)
+            transfer_exec_fee(cfg, receiver_id, current_protocol_version)
         }
         Stake(_) => cfg.stake_cost.exec_fee(),
         AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
@@ -223,13 +223,13 @@ pub fn prepaid_exec_fee(
                 let sender_is_receiver = beneficiary_id == receiver_id;
                 config.action_receipt_creation_config.send_fee(sender_is_receiver)
                     + config.action_receipt_creation_config.exec_fee()
-                    + send_transfer_fee(
+                    + transfer_send_fee(
                         &config.action_creation_config,
                         sender_is_receiver,
                         beneficiary_id,
                         current_protocol_version,
                     )
-                    + exec_transfer_fee(
+                    + transfer_exec_fee(
                         &config.action_creation_config,
                         beneficiary_id,
                         current_protocol_version,

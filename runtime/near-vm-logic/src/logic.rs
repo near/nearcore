@@ -9,7 +9,7 @@ use near_primitives::checked_feature;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::runtime::fees::{RuntimeFeesConfig, ActionCreationConfig};
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
@@ -25,6 +25,42 @@ pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 const LEGACY_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
 const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
+
+
+pub fn transfer_exec_fee(
+    cfg: &ActionCreationConfig,
+    receiver_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
+) -> Gas {
+    if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+        && is_account_id_64_len_hex(&receiver_id)
+    {
+        cfg.create_account_cost.exec_fee()
+            + cfg.add_key_cost.full_access_cost.exec_fee()
+            + cfg.transfer_cost.exec_fee()
+    } else {
+        cfg.transfer_cost.exec_fee()
+    }
+}
+
+pub fn transfer_send_fee(
+    cfg: &ActionCreationConfig,
+    sender_is_receiver: bool,
+    receiver_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
+) -> Gas {
+    if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+        && is_account_id_64_len_hex(&receiver_id)
+    {
+        // Transfer action fee for implicit account creation always includes extra fees
+        // for the CreateAccount and AddFullAccessKey actions that are implicit.
+        cfg.create_account_cost.send_fee(sender_is_receiver)
+            + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
+            + cfg.transfer_cost.send_fee(sender_is_receiver)
+    } else {
+        cfg.transfer_cost.send_fee(sender_is_receiver)
+    }
+}
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -1527,6 +1563,7 @@ impl<'a> VMLogic<'a> {
         promise_idx: u64,
         amount_ptr: u64,
     ) -> Result<()> {
+        println!("!!!!");
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
             return Err(HostError::ProhibitedInView {
@@ -1541,6 +1578,7 @@ impl<'a> VMLogic<'a> {
         self.pay_action_transfer(sir, &receiver_id)?;
 
         self.deduct_balance(amount)?;
+        println!("Paid {} to {}", amount, receiver_id);
 
         self.ext.append_action_transfer(receipt_idx, amount)?;
         Ok(())
@@ -1793,43 +1831,37 @@ impl<'a> VMLogic<'a> {
             AllowCreateAccountOnDelete,
             self.current_protocol_version
         ) {
-            println!(
-                "Pay transfer in deletion: {:#?}",
-                self.fees_config.action_creation_config.transfer_cost
-            );
             // TODO ?
             let receiver_id = self.get_account_by_receipt(receipt_idx);
             let sir = receiver_id == beneficiary_id;
             println!("account: {}", self.context.current_account_id);
             println!("receiver: {}", receiver_id);
             println!("beneficiary: {}", beneficiary_id);
+            println!("sir: {}", sir);
+            println!("fees: {:#?}", self.fees_config.action_receipt_creation_config);
+            println!("fees: {:#?}", self.fees_config.action_creation_config.transfer_cost);
 
-            // let prepaid = self.transfer_fee(sir, &beneficiary_id);
-            // self.gas_counter.pay_action_base_prepaid(&self.fees_config.action_creation_config.delete_account_cost,
-            //                                          prepaid,
-            //                                          sir,
-            //                                          ActionCosts::delete_account)?;
-            let mut send_transfer_fee = self.fees_config.action_creation_config.transfer_cost.send_fee(sir);
-            if self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION {
-                // Need to check if the receiver_id can be an implicit account.
-                if is_account_id_64_len_hex(&beneficiary_id) {
-                    send_transfer_fee = send_transfer_fee + self.fees_config.action_creation_config.create_account_cost.send_fee(sir);
-                    send_transfer_fee = send_transfer_fee + self.fees_config.action_creation_config.add_key_cost.full_access_cost.send_fee(sir);
-                }
-            }
-            let mut exec_transfer_fee = self.fees_config.action_creation_config.transfer_cost.exec_fee();
-            if self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION {
-                // Need to check if the receiver_id can be an implicit account.
-                if is_account_id_64_len_hex(&beneficiary_id) {
-                    exec_transfer_fee = exec_transfer_fee + self.fees_config.action_creation_config.create_account_cost.exec_fee();
-                    exec_transfer_fee = exec_transfer_fee + self.fees_config.action_creation_config.add_key_cost.full_access_cost.exec_fee();
-                }
-            }
+            let exec_gas = self.fees_config.action_creation_config.delete_account_cost.send_fee(sir)
+                + self.fees_config.action_receipt_creation_config.send_fee(sir);
+            let burn_gas = exec_gas;
+            let use_gas = exec_gas
+                + self.fees_config.action_creation_config.delete_account_cost.exec_fee()
+                + self.fees_config.action_receipt_creation_config.exec_fee()
+                + self.fees_config.action_receipt_creation_config.send_fee(sir)
+                + transfer_send_fee(
+                &self.fees_config.action_creation_config,
+                sir,
+                &beneficiary_id,
+                self.current_protocol_version,
+                )
+                + transfer_exec_fee(
+                &self.fees_config.action_creation_config,
+                &beneficiary_id,
+                self.current_protocol_version,
+            );
 
-            let burn_gas = self.fees_config.action_creation_config.delete_account_cost.send_fee(sir) + send_transfer_fee;
-            let use_gas = burn_gas + self.fees_config.action_creation_config.delete_account_cost.exec_fee() + exec_transfer_fee;
-            self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::delete_account)?;
-            self.pay_gas_for_new_receipt(sir, &[])?;
+            self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;
+            // self.pay_gas_for_new_receipt(sir, &[])?;
 
             // self.gas_counter.pay_action_base(
             //     &self.fees_config.action_creation_config.delete_account_cost,
@@ -1846,6 +1878,7 @@ impl<'a> VMLogic<'a> {
         }
 
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
+        println!("It works!");
         Ok(())
     }
 

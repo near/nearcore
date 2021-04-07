@@ -894,6 +894,8 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         h.join().unwrap();
     }
 
+    println!("no panic!");
+
     use near_primitives::transaction::*;
     assert_receipts!(group, signed_transaction => [r0]);
     assert_receipts!(group, "near_0" => r0 @ "near_1",

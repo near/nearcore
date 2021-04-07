@@ -22,9 +22,14 @@ pub fn random_config() -> RuntimeConfig {
         send_not_sir: rng.next_u64() % 1000,
         execution: rng.next_u64() % 1000,
     };
+    let mut random_fee_0 = || Fee {
+        send_sir: 0,
+        send_not_sir: 0,
+        execution: 0,
+    };
     RuntimeConfig {
         transaction_costs: RuntimeFeesConfig {
-            action_receipt_creation_config: random_fee(),
+            action_receipt_creation_config: random_fee(), // !
             data_receipt_creation_config: DataReceiptCreationConfig {
                 base_cost: random_fee(),
                 cost_per_byte: random_fee(),
@@ -35,7 +40,7 @@ pub fn random_config() -> RuntimeConfig {
                 deploy_contract_cost_per_byte: random_fee(),
                 function_call_cost: random_fee(),
                 function_call_cost_per_byte: random_fee(),
-                transfer_cost: random_fee(),
+                transfer_cost: random_fee(), // !
                 stake_cost: random_fee(),
                 add_key_cost: AccessKeyCreationConfig {
                     full_access_cost: random_fee(),

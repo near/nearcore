@@ -37,7 +37,7 @@ use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 
 #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
-use crate::config::{exec_transfer_fee, send_transfer_fee};
+use crate::config::{transfer_exec_fee, transfer_send_fee};
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
@@ -231,12 +231,14 @@ pub(crate) fn action_function_call(
         // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
         // `FunctionCall`s error.
         result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+        println!("Outcome: {:#?}", outcome);
         result.logs.extend(outcome.logs.into_iter());
         if execution_succeeded {
             account.set_amount(outcome.balance);
             account.set_storage_usage(outcome.storage_usage);
             result.result = Ok(outcome.return_data);
             result.new_receipts.extend(runtime_ext.into_receipts(account_id));
+            println!("Into receipts: {:#?}", result.new_receipts);
         }
     } else {
         assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")
@@ -487,7 +489,7 @@ pub(crate) fn action_delete_account(
             {
                 let sender_is_receiver = account_id == &delete_account.beneficiary_id;
                 let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
-                    + send_transfer_fee(
+                    + transfer_send_fee(
                         &config.action_creation_config,
                         sender_is_receiver,
                         &delete_account.beneficiary_id,
@@ -496,7 +498,7 @@ pub(crate) fn action_delete_account(
                 result.gas_burnt += exec_gas;
                 result.gas_used += exec_gas
                     + config.action_receipt_creation_config.exec_fee()
-                    + exec_transfer_fee(
+                    + transfer_exec_fee(
                         &config.action_creation_config,
                         &delete_account.beneficiary_id,
                         current_protocol_version,

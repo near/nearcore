@@ -197,7 +197,7 @@ pub(crate) fn check_balance(
         stats.other_burnt_amount
     );
     if initial_balance != final_balance {
-        println!("{} vs. {}", initial_balance, final_balance);
+        println!("{} - {}", initial_balance, final_balance);
         Err(BalanceMismatchError {
             // Inputs
             incoming_validator_rewards,
