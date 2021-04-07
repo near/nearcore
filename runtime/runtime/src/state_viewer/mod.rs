@@ -497,7 +497,7 @@ mod tests {
                 0,
                 0,
                 CryptoHash::default(),
-                TrieViewer::DEFAULT_CONTRACT_STATE_SIZE_LIMIT + 1,
+                TrieViewer::DEFAULT_CONTRACT_STATE_SIZE_LIMIT.unwrap() + 1,
             ),
         );
         let trie_viewer = TrieViewer::new();
@@ -516,7 +516,7 @@ mod tests {
                 0,
                 0,
                 CryptoHash::default(),
-                TrieViewer::DEFAULT_CONTRACT_STATE_SIZE_LIMIT + 1,
+                TrieViewer::DEFAULT_CONTRACT_STATE_SIZE_LIMIT.unwrap() + 1,
             ),
         );
         state_update.set(
