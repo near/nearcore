@@ -9,7 +9,7 @@ use near_primitives::checked_feature;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
-use near_primitives_core::runtime::fees::{RuntimeFeesConfig, ActionCreationConfig};
+use near_primitives_core::runtime::fees::{ActionCreationConfig, RuntimeFeesConfig};
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
@@ -19,13 +19,11 @@ use near_vm_errors::{HostError, VMLogicError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
-use near_primitives::runtime::fees::Fee;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 const LEGACY_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
 const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
-
 
 pub fn transfer_exec_fee(
     cfg: &ActionCreationConfig,
@@ -1032,24 +1030,6 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_receipt)
     }
 
-    fn total_fee(&self, sir: bool, fee: &Fee) -> Gas {
-        // TODO check overflow
-        // fee.send_fee(sir).checked_add(fee.exec_fee()).ok_or(HostError::IntegerOverflow)?
-        fee.send_fee(sir) + fee.exec_fee()
-    }
-
-    fn transfer_fee(&self, sir: bool, receiver_id: &AccountId) -> Gas {
-        let mut fee = self.total_fee(sir, &self.fees_config.action_creation_config.transfer_cost);
-        if self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION {
-            // Need to check if the receiver_id can be an implicit account.
-            if is_account_id_64_len_hex(&receiver_id) {
-                fee = fee + self.total_fee(sir, &self.fees_config.action_creation_config.create_account_cost);
-                fee = fee + self.total_fee(sir, &self.fees_config.action_creation_config.add_key_cost.full_access_cost);
-            }
-        }
-        fee
-    }
-
     /// A helper function paying for transfer action.
     /// # Args:
     /// * `sir`: whether contract call is addressed to itself;
@@ -1536,10 +1516,10 @@ impl<'a> VMLogic<'a> {
 
     // TODO document
     fn get_account_by_receipt(&self, receipt_idx: ReceiptIndex) -> AccountId {
-        self
-            .receipt_to_account
+        self.receipt_to_account
             .get(&receipt_idx)
-            .expect("promises and receipt_to_account should be consistent.").clone()
+            .expect("promises and receipt_to_account should be consistent.")
+            .clone()
     }
 
     /// Appends `Transfer` action to the batch of actions for the given promise pointed by
@@ -1578,7 +1558,6 @@ impl<'a> VMLogic<'a> {
         self.pay_action_transfer(sir, &receiver_id)?;
 
         self.deduct_balance(amount)?;
-        println!("Paid {} to {}", amount, receiver_id);
 
         self.ext.append_action_transfer(receipt_idx, amount)?;
         Ok(())
@@ -1831,6 +1810,12 @@ impl<'a> VMLogic<'a> {
             AllowCreateAccountOnDelete,
             self.current_protocol_version
         ) {
+            self.gas_counter.pay_action_base(
+                &self.fees_config.action_creation_config.delete_account_cost,
+                sir,
+                ActionCosts::delete_account,
+            )?;
+
             // TODO ?
             let receiver_id = self.get_account_by_receipt(receipt_idx);
             let sir = receiver_id == beneficiary_id;
@@ -1841,34 +1826,21 @@ impl<'a> VMLogic<'a> {
             println!("fees: {:#?}", self.fees_config.action_receipt_creation_config);
             println!("fees: {:#?}", self.fees_config.action_creation_config.transfer_cost);
 
-            let exec_gas = self.fees_config.action_creation_config.delete_account_cost.send_fee(sir)
-                + self.fees_config.action_receipt_creation_config.send_fee(sir);
-            let burn_gas = exec_gas;
-            let use_gas = exec_gas
-                + self.fees_config.action_creation_config.delete_account_cost.exec_fee()
-                + self.fees_config.action_receipt_creation_config.exec_fee()
-                + self.fees_config.action_receipt_creation_config.send_fee(sir)
+            let use_gas = self.fees_config.action_receipt_creation_config.send_fee(sir)
                 + transfer_send_fee(
-                &self.fees_config.action_creation_config,
-                sir,
-                &beneficiary_id,
-                self.current_protocol_version,
+                    &self.fees_config.action_creation_config,
+                    sir,
+                    &beneficiary_id,
+                    self.current_protocol_version,
                 )
                 + transfer_exec_fee(
-                &self.fees_config.action_creation_config,
-                &beneficiary_id,
-                self.current_protocol_version,
-            );
+                    &self.fees_config.action_creation_config,
+                    &beneficiary_id,
+                    self.current_protocol_version,
+                );
 
-            self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;
-            // self.pay_gas_for_new_receipt(sir, &[])?;
-
-            // self.gas_counter.pay_action_base(
-            //     &self.fees_config.action_creation_config.delete_account_cost,
-            //     sir,
-            //     ActionCosts::delete_account,
-            // )?;
-            // self.pay_action_transfer(sir, &beneficiary_id)?;
+            self.gas_counter.pay_action_accumulated(0, use_gas, ActionCosts::transfer)?;
+            self.pay_gas_for_new_receipt(sir, &[])?;
         } else {
             self.gas_counter.pay_action_base(
                 &self.fees_config.action_creation_config.delete_account_cost,

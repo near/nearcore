@@ -36,9 +36,9 @@ use near_vm_errors::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 
+use crate::config::{safe_add_gas, RuntimeConfig};
 #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
 use crate::config::{transfer_exec_fee, transfer_send_fee};
-use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 

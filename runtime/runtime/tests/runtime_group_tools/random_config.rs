@@ -9,8 +9,8 @@ use near_primitives::runtime::fees::{
     EvmBls12ConstOpCost, EvmBn128PairingCost, EvmCostConfig, EvmLinearCost, EvmModexpCost,
     EvmPrecompileCostConfig,
 };
-use rand::{thread_rng, RngCore, SeedableRng};
 use rand::rngs::StdRng;
+use rand::{thread_rng, RngCore, SeedableRng};
 use std::convert::TryInto;
 
 pub fn random_config() -> RuntimeConfig {
@@ -21,11 +21,6 @@ pub fn random_config() -> RuntimeConfig {
         send_sir: rng.next_u64() % 1000,
         send_not_sir: rng.next_u64() % 1000,
         execution: rng.next_u64() % 1000,
-    };
-    let mut random_fee_0 = || Fee {
-        send_sir: 0,
-        send_not_sir: 0,
-        execution: 0,
     };
     RuntimeConfig {
         transaction_costs: RuntimeFeesConfig {
