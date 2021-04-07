@@ -98,6 +98,7 @@ impl IntoVMError for wasmer::RuntimeError {
         if let Ok(e) = self.downcast::<VMLogicError>() {
             return (&e).into();
         }
+        // If we panic here - it means we encountered an issue in Wasmer.
         let trap_code = trap_code.unwrap_or_else(|| panic!("Unknown error: {}", error_msg));
         let error = match trap_code {
             TrapCode::StackOverflow => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
