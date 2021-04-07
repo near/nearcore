@@ -35,7 +35,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_telemetry::TelemetryConfig;
-use node_runtime::state_viewer::TrieViewer;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -322,7 +321,7 @@ fn default_view_client_throttle_period() -> Duration {
 }
 
 fn default_trie_viewer_state_size_limit() -> Option<u64> {
-    TrieViewer::DEFAULT_CONTRACT_STATE_SIZE_LIMIT
+    Some(50_000)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

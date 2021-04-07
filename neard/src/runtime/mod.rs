@@ -147,7 +147,7 @@ impl NightshadeRuntime {
         trie_viewer_state_size_limit: Option<u64>,
     ) -> Self {
         let runtime = Runtime::new();
-        let trie_viewer = TrieViewer::new().state_size_limit(trie_viewer_state_size_limit);
+        let trie_viewer = TrieViewer::new_with_state_size_limit(trie_viewer_state_size_limit);
         let genesis_config = genesis.config.clone();
         let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;

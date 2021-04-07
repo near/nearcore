@@ -28,15 +28,8 @@ pub struct TrieViewer {
 }
 
 impl TrieViewer {
-    pub const DEFAULT_CONTRACT_STATE_SIZE_LIMIT: Option<u64> = Some(50_000);
-
-    pub fn new() -> Self {
-        Self { state_size_limit: Self::DEFAULT_CONTRACT_STATE_SIZE_LIMIT }
-    }
-
-    pub fn state_size_limit(mut self, limit: Option<u64>) -> Self {
-        self.state_size_limit = limit;
-        self
+    pub fn new_with_state_size_limit(state_size_limit: Option<u64>) -> Self {
+        Self { state_size_limit }
     }
 
     pub fn view_account(
@@ -455,7 +448,7 @@ mod tests {
         db_changes.commit().unwrap();
 
         let state_update = tries.new_trie_update(0, new_root);
-        let trie_viewer = TrieViewer::new();
+        let trie_viewer = TrieViewer::new_with_state_size_limit(None);
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
         assert_eq!(result.proof, Vec::<String>::new());
         assert_eq!(
@@ -493,14 +486,9 @@ mod tests {
         set_account(
             &mut state_update,
             alice_account(),
-            &Account::new(
-                0,
-                0,
-                CryptoHash::default(),
-                TrieViewer::DEFAULT_CONTRACT_STATE_SIZE_LIMIT.unwrap() + 1,
-            ),
+            &Account::new(0, 0, CryptoHash::default(), 50_001),
         );
-        let trie_viewer = TrieViewer::new();
+        let trie_viewer = TrieViewer::new_with_state_size_limit(None);
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
         assert!(matches!(result, Err(errors::ViewStateError::AccountStateTooLarge { .. })));
     }
@@ -512,18 +500,13 @@ mod tests {
         set_account(
             &mut state_update,
             alice_account(),
-            &Account::new(
-                0,
-                0,
-                CryptoHash::default(),
-                TrieViewer::DEFAULT_CONTRACT_STATE_SIZE_LIMIT.unwrap() + 1,
-            ),
+            &Account::new(0, 0, CryptoHash::default(), 50_001),
         );
         state_update.set(
             TrieKey::ContractCode { account_id: alice_account() },
             [0; Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE as usize].to_vec(),
         );
-        let trie_viewer = TrieViewer::new();
+        let trie_viewer = TrieViewer::new_with_state_size_limit(Some(50_000));
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
         assert!(result.is_ok());
     }
