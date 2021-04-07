@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -19,6 +19,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
@@ -492,6 +493,38 @@ fn main() {
                 )
                 .help("dump deployed contract code of given account to wasm file"),
         )
+        .subcommand(
+            SubCommand::with_name("dump_account_storage")
+                .arg(
+                    Arg::with_name("account")
+                        .long("account")
+                        .help("account name")
+                        .takes_value(true)
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("storage_key")
+                        .long("storage_key")
+                        .help("account storage key")
+                        .takes_value(true)
+                        .default_value("STATE"),
+                )
+                .arg(
+                    Arg::with_name("output")
+                        .long("output")
+                        .help("output binary file")
+                        .takes_value(true)
+                        .default_value("output.bin"),
+                )
+                .arg(
+                    Arg::with_name("block_height")
+                        .long("block_height")
+                        .help("block height of the state to dump, number or \"latest\"")
+                        .takes_value(true)
+                        .default_value("latest"),
+                )
+                .help("dump contract data in storage of given account to binary file"),
+        )
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
@@ -589,6 +622,46 @@ fn main() {
                 "Account {} does not exist or do not have contract deployed in all shards",
                 account_id
             );
+        }
+        ("dump_account_storage", Some(args)) => {
+            let account_id = args.value_of("account").unwrap();
+            let storage_key = args.value_of("storage_key").unwrap();
+            let output = args.value_of("output").unwrap();
+            let block_height = args.value_of("block_height").unwrap();
+            let block_height = if block_height == "latest" {
+                LoadTrieMode::Latest
+            } else if let Ok(height) = block_height.parse::<u64>() {
+                LoadTrieMode::Height(height)
+            } else {
+                panic!("block_height shoulb be either number or \"latest\"")
+            };
+            let (runtime, state_roots, _header) =
+                load_trie_stop_at_height(store, &home_dir, &near_config, block_height);
+            for (shard_id, state_root) in state_roots.iter().enumerate() {
+                let trie = runtime.get_trie_for_shard(shard_id as u64);
+                let key = TrieKey::ContractData {
+                    account_id: account_id.to_string(),
+                    key: storage_key.as_bytes().to_vec(),
+                };
+                let item = trie.get(state_root, &key.to_vec());
+                let value = item.unwrap();
+                if let Some(value) = value {
+                    let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
+                    match record {
+                        StateRecord::Data { account_id: _, data_key: _, value } => {
+                            fs::write(output, &value).unwrap();
+                            println!(
+                                "Dump contract storage under key {} of account {} into file {}",
+                                storage_key, account_id, output
+                            );
+                            std::process::exit(0);
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            println!("Storage under key {} of account {} not found", storage_key, account_id);
+            std::process::exit(1);
         }
         (_, _) => unreachable!(),
     }
