@@ -488,7 +488,7 @@ mod tests {
             alice_account(),
             &Account::new(0, 0, CryptoHash::default(), 50_001),
         );
-        let trie_viewer = TrieViewer::new_with_state_size_limit(None);
+        let trie_viewer = TrieViewer::new_with_state_size_limit(Some(50_000));
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
         assert!(matches!(result, Err(errors::ViewStateError::AccountStateTooLarge { .. })));
     }
