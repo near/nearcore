@@ -32,11 +32,12 @@ use near_vm_errors::{
     CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_logic::{VMContext, VMKind, VMOutcome};
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use near_vm_runner::cache_contract;
 
 /// Runs given function call with given context / apply state.
 /// Precompiles:
@@ -421,6 +422,7 @@ pub(crate) fn action_deploy_contract(
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
+    apply_state: &ApplyState,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
@@ -436,7 +438,16 @@ pub(crate) fn action_deploy_contract(
     );
     account.set_code_hash(code.get_hash());
     set_code(state_update, account_id.clone(), &code);
-    Ok(())
+    // Precompile the contract.
+    match cache_contract(
+        VMKind::default(),
+        &code,
+        &apply_state.config.wasm_config,
+        apply_state.cache.as_deref(),
+    ) {
+        Ok(_) => Ok(()),
+        Err(vm_err) => Err(StorageError::StorageInconsistentState(vm_err.to_string())),
+    }
 }
 
 pub(crate) fn action_delete_account(

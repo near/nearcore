@@ -1,6 +1,6 @@
 use crate::errors::IntoVMError;
 use crate::prepare;
-use crate::wasmer1_runner::wasmer1_vm_hash;
+use crate::wasmer1_runner::{default_wasmer1_store, wasmer1_vm_hash};
 use crate::wasmer_runner::wasmer0_vm_hash;
 use crate::wasmtime_runner::wasmtime_vm_hash;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -289,6 +289,49 @@ pub mod wasmer1_cache {
                 None => compile_and_serialize_wasmer1(wasm_code, &key, config, cache, store),
             },
             Err(_) => Err(VMError::CacheError(ReadError)),
+        }
+    }
+}
+
+pub fn cache_contract(
+    vm_kind: VMKind,
+    wasm_code: &ContractCode,
+    config: &VMConfig,
+    cache: Option<&dyn CompiledContractCache>,
+) -> Result<bool, VMError> {
+    if cache.is_none() {
+        return Ok(false);
+    }
+    let cache = cache.unwrap();
+    let key = get_key(wasm_code, vm_kind, config);
+    // Check if we already cached with such a key.
+    match cache.get(&(key.0).0) {
+        // If so - do not override.
+        // TODO: is it correct?
+        Ok(_) => return Ok(false),
+        Err(_) => {}
+    };
+    match vm_kind {
+        VMKind::Wasmer0 => wasmer0_cache::compile_and_serialize_wasmer(
+            wasm_code.code.as_slice(),
+            config,
+            &key,
+            cache,
+        )
+        .map(|_| true),
+        VMKind::Wasmer1 => {
+            let store = default_wasmer1_store();
+            wasmer1_cache::compile_and_serialize_wasmer1(
+                wasm_code.code.as_slice(),
+                &key,
+                config,
+                cache,
+                &store,
+            )
+            .map(|_| true)
+        }
+        VMKind::Wasmtime => {
+            panic!("Not yet supported")
         }
     }
 }
