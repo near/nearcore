@@ -231,6 +231,31 @@ fn process_query_response(
     }
 }
 
+/// This function processes response from tx related methods to introduce
+/// backward compatible response in case of specific errors
+fn process_tx_response<S>(
+    tx_response: Result<S, near_jsonrpc_primitives::types::transactions::RpcTransactionError>,
+) -> Result<Value, RpcError>
+where
+    S: Serialize,
+{
+    // This match is used here to give backward compatible error message for specific
+    // error variants. Should be refactored once structured errors fully shipped
+    match tx_response {
+        Ok(response) => serde_json::to_value(response)
+            .map_err(|err| RpcError::parse_error(err.to_string())),
+        Err(err) => match err {
+            near_jsonrpc_primitives::types::transactions::RpcTransactionError::InvalidTransaction { context } => Err(RpcError::new(
+            -32_000,
+            "Server_error".to_string(),
+            Some(serde_json::to_value(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(context)))
+                .map_err(|err| RpcError::parse_error(err.to_string()))?,
+            ))),
+            _ => Err(err.into())
+        }
+    }
+}
+
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
@@ -299,9 +324,8 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
                         request.params,
                     )?;
-                let final_execution_outcome = self.send_tx_commit(rpc_transaction_request).await?;
-                serde_json::to_value(final_execution_outcome)
-                    .map_err(|err| RpcError::parse_error(err.to_string()))
+                let send_tx_response = self.send_tx_commit(rpc_transaction_request).await;
+                process_tx_response(send_tx_response)
             }
             "chunk" => {
                 let rpc_chunk_request =
@@ -314,9 +338,8 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
                         request.params,
                     )?;
-                let broadcast_tx_sync_response = self.send_tx_sync(rpc_transaction_request).await?;
-                serde_json::to_value(broadcast_tx_sync_response)
-                    .map_err(|err| RpcError::parse_error(err.to_string()))
+                let broadcast_tx_sync_response = self.send_tx_sync(rpc_transaction_request).await;
+                process_tx_response(broadcast_tx_sync_response)
             }
             "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
             "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
@@ -325,9 +348,8 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
                         request.params,
                     )?;
-                let broadcast_tx_sync_response = self.check_tx(rpc_transaction_request).await?;
-                serde_json::to_value(broadcast_tx_sync_response)
-                    .map_err(|err| RpcError::parse_error(err.to_string()))
+                let broadcast_tx_sync_response = self.check_tx(rpc_transaction_request).await;
+                process_tx_response(broadcast_tx_sync_response)
             }
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
             "EXPERIMENTAL_light_client_proof" => {
@@ -352,9 +374,8 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_tx_status" => {
                 let rpc_transaction_status_common_request = near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
                 let rpc_transaction_response =
-                    self.tx_status_common(rpc_transaction_status_common_request, true).await?;
-                serde_json::to_value(rpc_transaction_response)
-                    .map_err(|err| RpcError::parse_error(err.to_string()))
+                    self.tx_status_common(rpc_transaction_status_common_request, true).await;
+                process_tx_response(rpc_transaction_response)
             }
             "EXPERIMENTAL_validators_ordered" => self.validators_ordered(request.params).await,
             "gas_price" => {
@@ -380,9 +401,8 @@ impl JsonRpcHandler {
             "tx" => {
                 let rpc_transaction_status_common_request = near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
                 let rpc_transaction_response =
-                    self.tx_status_common(rpc_transaction_status_common_request, false).await?;
-                serde_json::to_value(rpc_transaction_response)
-                    .map_err(|err| RpcError::parse_error(err.to_string()))
+                    self.tx_status_common(rpc_transaction_status_common_request, false).await;
+                process_tx_response(rpc_transaction_response)
             }
             "validators" => {
                 let rpc_validator_request =

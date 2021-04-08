@@ -25,13 +25,11 @@ pub enum TransactionInfo {
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
     InvalidTransaction { context: near_primitives::errors::InvalidTxError },
-    #[error("The node does not track shard")]
+    #[error("Node doesn't track this shard. Cannot determine whether the transaction is valid")]
     DoesNotTrackShard,
     #[error("Transaction with hash {transaction_hash} was routed")]
     RequestRouted { transaction_hash: String },
-    #[error(
-        "Requested transaction with hash {requested_transaction_hash} is not found on the node"
-    )]
+    #[error("Transaction {requested_transaction_hash} doesn't exist")]
     UnknownTransaction { requested_transaction_hash: near_primitives::hash::CryptoHash },
     #[error("The node reached its limits. Try again later. More details: {debug_info}")]
     InternalError { debug_info: String },
