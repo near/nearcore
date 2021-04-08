@@ -3687,7 +3687,6 @@ dependencies = [
  "git-version",
  "jemallocator",
  "lazy-static-include",
- "lazy_static",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
