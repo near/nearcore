@@ -9,14 +9,11 @@ use near_primitives::runtime::fees::{
     EvmBls12ConstOpCost, EvmBn128PairingCost, EvmCostConfig, EvmLinearCost, EvmModexpCost,
     EvmPrecompileCostConfig,
 };
-use rand::rngs::StdRng;
-use rand::{thread_rng, RngCore, SeedableRng};
+use rand::{thread_rng, RngCore};
 use std::convert::TryInto;
 
 pub fn random_config() -> RuntimeConfig {
-    // let mut rng = thread_rng();
-    let seed: [u8; 32] = [2; 32];
-    let mut rng: StdRng = SeedableRng::from_seed(seed);
+    let mut rng = thread_rng();
     let mut random_fee = || Fee {
         send_sir: rng.next_u64() % 1000,
         send_not_sir: rng.next_u64() % 1000,
@@ -24,7 +21,7 @@ pub fn random_config() -> RuntimeConfig {
     };
     RuntimeConfig {
         transaction_costs: RuntimeFeesConfig {
-            action_receipt_creation_config: random_fee(), // !
+            action_receipt_creation_config: random_fee(),
             data_receipt_creation_config: DataReceiptCreationConfig {
                 base_cost: random_fee(),
                 cost_per_byte: random_fee(),
@@ -35,7 +32,7 @@ pub fn random_config() -> RuntimeConfig {
                 deploy_contract_cost_per_byte: random_fee(),
                 function_call_cost: random_fee(),
                 function_call_cost_per_byte: random_fee(),
-                transfer_cost: random_fee(), // !
+                transfer_cost: random_fee(),
                 stake_cost: random_fee(),
                 add_key_cost: AccessKeyCreationConfig {
                     full_access_cost: random_fee(),

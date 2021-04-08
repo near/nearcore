@@ -1525,7 +1525,6 @@ impl<'a> VMLogic<'a> {
         promise_idx: u64,
         amount_ptr: u64,
     ) -> Result<()> {
-        println!("!!!!");
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
             return Err(HostError::ProhibitedInView {
@@ -1813,10 +1812,6 @@ impl<'a> VMLogic<'a> {
         ) {
             let receiver_id = self.get_account_by_receipt(receipt_idx);
             let sir = receiver_id == beneficiary_id;
-            println!("account: {}", self.context.current_account_id);
-            println!("receiver: {}", receiver_id);
-            println!("beneficiary: {}", beneficiary_id);
-            println!("sir: {}", sir);
 
             let transfer_to_beneficiary_send_fee = transfer_send_fee(
                 &self.fees_config.action_creation_config,

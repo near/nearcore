@@ -231,14 +231,12 @@ pub(crate) fn action_function_call(
         // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
         // `FunctionCall`s error.
         result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
-        println!("Outcome: {:#?}", outcome);
         result.logs.extend(outcome.logs.into_iter());
         if execution_succeeded {
             account.set_amount(outcome.balance);
             account.set_storage_usage(outcome.storage_usage);
             result.result = Ok(outcome.return_data);
             result.new_receipts.extend(runtime_ext.into_receipts(account_id));
-            println!("Into receipts: {:#?}", result.new_receipts);
         }
     } else {
         assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")
