@@ -132,8 +132,15 @@ impl From<near_primitives::views::FinalExecutionOutcomeViewEnum> for RpcTransact
 
 impl From<RpcTransactionError> for crate::errors::RpcError {
     fn from(error: RpcTransactionError) -> Self {
-        let error_data = Some(Value::String(error.to_string()));
-
+        let error_data = match error {
+            RpcTransactionError::InvalidTransaction { ref context } => Some(
+                serde_json::to_value(crate::errors::ServerError::TxExecutionError(
+                    near_primitives::errors::TxExecutionError::InvalidTxError(context.clone()),
+                ))
+                .unwrap_or(Value::String(error.to_string())),
+            ),
+            _ => Some(Value::String(error.to_string())),
+        };
         Self::new(-32_000, "Server error".to_string(), error_data)
     }
 }

@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::string::FromUtf8Error;
 use std::time::Duration;
 
@@ -34,7 +33,6 @@ use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
-use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
@@ -116,47 +114,6 @@ fn jsonify<T: serde::Serialize>(
         .map_err(|err| RpcError::server_error(Some(err)))
 }
 
-/// A general Server Error
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, near_rpc_error_macro::RpcError)]
-pub enum ServerError {
-    TxExecutionError(TxExecutionError),
-    Timeout,
-    Closed,
-    InternalError,
-}
-
-impl Display for ServerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match self {
-            ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
-            ServerError::Timeout => write!(f, "ServerError: Timeout"),
-            ServerError::Closed => write!(f, "ServerError: Closed"),
-            ServerError::InternalError => write!(f, "ServerError: Internal Error"),
-        }
-    }
-}
-
-impl From<InvalidTxError> for ServerError {
-    fn from(e: InvalidTxError) -> ServerError {
-        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
-    }
-}
-
-impl From<MailboxError> for ServerError {
-    fn from(e: MailboxError) -> Self {
-        match e {
-            MailboxError::Closed => ServerError::Closed,
-            MailboxError::Timeout => ServerError::Timeout,
-        }
-    }
-}
-
-impl From<ServerError> for RpcError {
-    fn from(e: ServerError) -> RpcError {
-        RpcError::server_error(Some(e))
-    }
-}
-
 #[easy_ext::ext(FromNetworkClientResponses)]
 impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
     pub fn from_network_client_responses(responses: NetworkClientResponses) -> Self {
@@ -231,31 +188,6 @@ fn process_query_response(
     }
 }
 
-/// This function processes response from tx related methods to introduce
-/// backward compatible response in case of specific errors
-fn process_tx_response<S>(
-    tx_response: Result<S, near_jsonrpc_primitives::types::transactions::RpcTransactionError>,
-) -> Result<Value, RpcError>
-where
-    S: Serialize,
-{
-    // This match is used here to give backward compatible error message for specific
-    // error variants. Should be refactored once structured errors fully shipped
-    match tx_response {
-        Ok(response) => serde_json::to_value(response)
-            .map_err(|err| RpcError::parse_error(err.to_string())),
-        Err(err) => match err {
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError::InvalidTransaction { context } => Err(RpcError::new(
-            -32_000,
-            "Server_error".to_string(),
-            Some(serde_json::to_value(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(context)))
-                .map_err(|err| RpcError::parse_error(err.to_string()))?,
-            ))),
-            _ => Err(err.into())
-        }
-    }
-}
-
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
@@ -324,8 +256,9 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
                         request.params,
                     )?;
-                let send_tx_response = self.send_tx_commit(rpc_transaction_request).await;
-                process_tx_response(send_tx_response)
+                let send_tx_response = self.send_tx_commit(rpc_transaction_request).await?;
+                serde_json::to_value(send_tx_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
             }
             "chunk" => {
                 let rpc_chunk_request =
@@ -338,8 +271,9 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
                         request.params,
                     )?;
-                let broadcast_tx_sync_response = self.send_tx_sync(rpc_transaction_request).await;
-                process_tx_response(broadcast_tx_sync_response)
+                let broadcast_tx_sync_response = self.send_tx_sync(rpc_transaction_request).await?;
+                serde_json::to_value(broadcast_tx_sync_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
             }
             "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
             "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
@@ -348,8 +282,9 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
                         request.params,
                     )?;
-                let broadcast_tx_sync_response = self.check_tx(rpc_transaction_request).await;
-                process_tx_response(broadcast_tx_sync_response)
+                let broadcast_tx_sync_response = self.check_tx(rpc_transaction_request).await?;
+                serde_json::to_value(broadcast_tx_sync_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
             }
             "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
             "EXPERIMENTAL_light_client_proof" => {
@@ -374,8 +309,9 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_tx_status" => {
                 let rpc_transaction_status_common_request = near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
                 let rpc_transaction_response =
-                    self.tx_status_common(rpc_transaction_status_common_request, true).await;
-                process_tx_response(rpc_transaction_response)
+                    self.tx_status_common(rpc_transaction_status_common_request, true).await?;
+                serde_json::to_value(rpc_transaction_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
             }
             "EXPERIMENTAL_validators_ordered" => self.validators_ordered(request.params).await,
             "gas_price" => {
@@ -401,8 +337,9 @@ impl JsonRpcHandler {
             "tx" => {
                 let rpc_transaction_status_common_request = near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
                 let rpc_transaction_response =
-                    self.tx_status_common(rpc_transaction_status_common_request, false).await;
-                process_tx_response(rpc_transaction_response)
+                    self.tx_status_common(rpc_transaction_status_common_request, false).await?;
+                serde_json::to_value(rpc_transaction_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
             }
             "validators" => {
                 let rpc_validator_request =
@@ -872,7 +809,7 @@ impl JsonRpcHandler {
             .view_client_addr
             .send(GetExecutionOutcome { id })
             .await
-            .map_err(|e| RpcError::from(ServerError::from(e)))?
+            .map_err(|e| RpcError::from(near_jsonrpc_primitives::errors::ServerError::from(e)))?
             .map_err(|e| RpcError::server_error(Some(e)))?;
         let block_proof = self
             .view_client_addr
@@ -881,7 +818,7 @@ impl JsonRpcHandler {
                 head_block_hash: light_client_head,
             })
             .await
-            .map_err(|e| RpcError::from(ServerError::from(e)))?;
+            .map_err(|e| RpcError::from(near_jsonrpc_primitives::errors::ServerError::from(e)))?;
         let res = block_proof.map(|block_proof| RpcLightClientExecutionProofResponse {
             outcome_proof: execution_outcome_proof.outcome_proof,
             outcome_root_proof: execution_outcome_proof.outcome_root_proof,
