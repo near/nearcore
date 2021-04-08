@@ -29,16 +29,21 @@ pub fn transfer_exec_fee(
     cfg: &ActionCreationConfig,
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
-) -> Gas {
-    if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-        && is_account_id_64_len_hex(&receiver_id)
-    {
-        cfg.create_account_cost.exec_fee()
-            + cfg.add_key_cost.full_access_cost.exec_fee()
-            + cfg.transfer_cost.exec_fee()
-    } else {
-        cfg.transfer_cost.exec_fee()
-    }
+) -> Result<Gas> {
+    Ok(
+        if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+            && is_account_id_64_len_hex(&receiver_id)
+        {
+            cfg.create_account_cost
+                .exec_fee()
+                .checked_add(cfg.add_key_cost.full_access_cost.exec_fee())
+                .ok_or(HostError::IntegerOverflow)?
+                .checked_add(cfg.transfer_cost.exec_fee())
+                .ok_or(HostError::IntegerOverflow)?
+        } else {
+            cfg.transfer_cost.exec_fee()
+        },
+    )
 }
 
 pub fn transfer_send_fee(
@@ -46,18 +51,23 @@ pub fn transfer_send_fee(
     sender_is_receiver: bool,
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
-) -> Gas {
-    if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-        && is_account_id_64_len_hex(&receiver_id)
-    {
-        // Transfer action fee for implicit account creation always includes extra fees
-        // for the CreateAccount and AddFullAccessKey actions that are implicit.
-        cfg.create_account_cost.send_fee(sender_is_receiver)
-            + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
-            + cfg.transfer_cost.send_fee(sender_is_receiver)
-    } else {
-        cfg.transfer_cost.send_fee(sender_is_receiver)
-    }
+) -> Result<Gas> {
+    Ok(
+        if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+            && is_account_id_64_len_hex(&receiver_id)
+        {
+            // Transfer action fee for implicit account creation always includes extra fees
+            // for the CreateAccount and AddFullAccessKey actions that are implicit.
+            cfg.create_account_cost
+                .send_fee(sender_is_receiver)
+                .checked_add(cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver))
+                .ok_or(HostError::IntegerOverflow)?
+                .checked_add(cfg.transfer_cost.send_fee(sender_is_receiver))
+                .ok_or(HostError::IntegerOverflow)?
+        } else {
+            cfg.transfer_cost.send_fee(sender_is_receiver)
+        },
+    )
 }
 
 pub struct VMLogic<'a> {
@@ -1030,34 +1040,6 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_receipt)
     }
 
-    /// A helper function paying for transfer action.
-    /// # Args:
-    /// * `sir`: whether contract call is addressed to itself;
-    /// * `receiver_id`: receiver of the transfer action.
-    fn pay_action_transfer(&mut self, sir: bool, receiver_id: &AccountId) -> Result<()> {
-        if self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION {
-            // Need to check if the receiver_id can be an implicit account.
-            if is_account_id_64_len_hex(&receiver_id) {
-                self.gas_counter.pay_action_base(
-                    &self.fees_config.action_creation_config.create_account_cost,
-                    sir,
-                    ActionCosts::transfer,
-                )?;
-                self.gas_counter.pay_action_base(
-                    &self.fees_config.action_creation_config.add_key_cost.full_access_cost,
-                    sir,
-                    ActionCosts::transfer,
-                )?;
-            }
-        }
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.transfer_cost,
-            sir,
-            ActionCosts::transfer,
-        )?;
-        Ok(())
-    }
-
     /// A helper function to subtract balance on transfer or attached deposit for promises.
     /// # Args:
     /// * `amount`: the amount to deduct from the current account balance.
@@ -1555,7 +1537,21 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.get_account_by_receipt(receipt_idx);
-        self.pay_action_transfer(sir, &receiver_id)?;
+
+        let send_fee = transfer_send_fee(
+            &self.fees_config.action_creation_config,
+            sir,
+            &receiver_id,
+            self.current_protocol_version,
+        )?;
+        let exec_fee = transfer_exec_fee(
+            &self.fees_config.action_creation_config,
+            &receiver_id,
+            self.current_protocol_version,
+        )?;
+        let burn_gas = send_fee;
+        let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
+        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;
 
         self.deduct_balance(amount)?;
 
@@ -1804,53 +1800,50 @@ impl<'a> VMLogic<'a> {
             self.read_and_parse_account_id(beneficiary_id_ptr, beneficiary_id_len)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+        self.gas_counter.pay_action_base(
+            &self.fees_config.action_creation_config.delete_account_cost,
+            sir,
+            ActionCosts::delete_account,
+        )?;
 
         if checked_feature!(
             "protocol_feature_allow_create_account_on_delete",
             AllowCreateAccountOnDelete,
             self.current_protocol_version
         ) {
-            self.gas_counter.pay_action_base(
-                &self.fees_config.action_creation_config.delete_account_cost,
-                sir,
-                ActionCosts::delete_account,
-            )?;
-
-            // TODO ?
             let receiver_id = self.get_account_by_receipt(receipt_idx);
             let sir = receiver_id == beneficiary_id;
             println!("account: {}", self.context.current_account_id);
             println!("receiver: {}", receiver_id);
             println!("beneficiary: {}", beneficiary_id);
             println!("sir: {}", sir);
-            println!("fees: {:#?}", self.fees_config.action_receipt_creation_config);
-            println!("fees: {:#?}", self.fees_config.action_creation_config.transfer_cost);
 
-            let use_gas = self.fees_config.action_receipt_creation_config.send_fee(sir)
-                + transfer_send_fee(
-                    &self.fees_config.action_creation_config,
-                    sir,
-                    &beneficiary_id,
-                    self.current_protocol_version,
-                )
-                + transfer_exec_fee(
-                    &self.fees_config.action_creation_config,
-                    &beneficiary_id,
-                    self.current_protocol_version,
-                );
+            let transfer_to_beneficiary_send_fee = transfer_send_fee(
+                &self.fees_config.action_creation_config,
+                sir,
+                &beneficiary_id,
+                self.current_protocol_version,
+            )?;
+            let transfer_to_beneficiary_exec_fee = transfer_exec_fee(
+                &self.fees_config.action_creation_config,
+                &beneficiary_id,
+                self.current_protocol_version,
+            )?;
+            let use_gas = self
+                .fees_config
+                .action_receipt_creation_config
+                .send_fee(sir)
+                .checked_add(self.fees_config.action_receipt_creation_config.exec_fee())
+                .ok_or(HostError::IntegerOverflow)?
+                .checked_add(transfer_to_beneficiary_send_fee)
+                .ok_or(HostError::IntegerOverflow)?
+                .checked_add(transfer_to_beneficiary_exec_fee)
+                .ok_or(HostError::IntegerOverflow)?;
 
             self.gas_counter.pay_action_accumulated(0, use_gas, ActionCosts::transfer)?;
-            self.pay_gas_for_new_receipt(sir, &[])?;
-        } else {
-            self.gas_counter.pay_action_base(
-                &self.fees_config.action_creation_config.delete_account_cost,
-                sir,
-                ActionCosts::delete_account,
-            )?;
         }
 
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
-        println!("It works!");
         Ok(())
     }
 
