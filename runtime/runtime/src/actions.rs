@@ -20,7 +20,7 @@ use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION, PROTOCOL_FEATURES_TO_VERSION_MAPPING,
+    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
 };
 use near_runtime_utils::{
     is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
@@ -457,9 +457,7 @@ pub(crate) fn action_delete_account(
     current_protocol_version: ProtocolVersion,
     #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] config: &RuntimeFeesConfig,
 ) -> Result<(), StorageError> {
-    if current_protocol_version
-        >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
-    {
+    if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
         let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
@@ -870,7 +868,7 @@ mod tests {
             &mut action_result,
             account_id,
             &DeleteAccountAction { beneficiary_id: "bob".to_string() },
-            PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction],
+            ProtocolFeature::DeleteActionRestriction.protocol_version(),
             #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
             &RuntimeFeesConfig::default(),
         );
