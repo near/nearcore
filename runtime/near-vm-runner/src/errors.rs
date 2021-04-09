@@ -5,6 +5,7 @@ pub trait IntoVMError {
     fn into_vm_error(self) -> VMError;
 }
 
+#[derive(Debug, PartialEq)]
 pub struct ContractPrecompilatonError {
     // TODO: actually make this a distinct error
     inner: VMError,

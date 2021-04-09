@@ -293,7 +293,8 @@ pub mod wasmer1_cache {
     }
 }
 
-pub fn precompile_contract(
+pub(crate) fn precompile_contract_impl(
+    vm_kind: VMKind,
     wasm_code: &ContractCode,
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
@@ -302,14 +303,13 @@ pub fn precompile_contract(
         None => return Ok(false),
         Some(it) => it,
     };
-    let vm_kind = VMKind::default();
     let key = get_key(wasm_code, vm_kind, config);
     // Check if we already cached with such a key.
     match cache.get(&(key.0).0) {
         // If so - do not override.
         // TODO: is it correct?
-        Ok(None) => return Ok(false),
-        Ok(Some(_)) | Err(_) => {}
+        Ok(Some(_)) => return Ok(false),
+        Ok(None) | Err(_) => {}
     };
     match vm_kind {
         VMKind::Wasmer0 => match wasmer0_cache::compile_and_serialize_wasmer(
@@ -338,4 +338,15 @@ pub fn precompile_contract(
             panic!("Not yet supported")
         }
     }
+}
+
+/// Precompiles contract for the current default VM, and stores result to the cache.
+/// Returns `Ok(true)` if compiled code was added to the cache, and `Ok(false)` if element
+/// is already in the cache, or if cache is `None`.
+pub fn precompile_contract(
+    wasm_code: &ContractCode,
+    config: &VMConfig,
+    cache: Option<&dyn CompiledContractCache>,
+) -> Result<bool, ContractPrecompilatonError> {
+    precompile_contract_impl(VMKind::default(), wasm_code, config, cache)
 }

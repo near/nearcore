@@ -3,11 +3,13 @@ use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
 
+use crate::cache::precompile_contract_impl;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::profile::ProfileData;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
@@ -45,6 +47,10 @@ impl MockCompiledContractCache {
             store: Arc::new(Mutex::new(HashMap::new())),
             delay: Duration::from_millis(delay as u64),
         }
+    }
+
+    pub fn len(self: MockCompiledContractCache) -> usize {
+        self.store.lock().unwrap().len()
     }
 }
 
@@ -187,4 +193,35 @@ pub fn test_run_preloaded() {
     test_vm_runner(true, VMKind::Wasmer0, 100);
     #[cfg(feature = "wasmer1_vm")]
     test_vm_runner(true, VMKind::Wasmer1, 100);
+}
+
+fn test_precompile_vm(vm_kind: VMKind) {
+    let cache: Option<Arc<dyn CompiledContractCache>> =
+        Some(Arc::new(MockCompiledContractCache::new(0)));
+    let vm_config = VMConfig::default();
+    let code1 = Arc::new(ContractCode::new(near_test_contracts::rs_contract().to_vec(), None));
+    let code2 = Arc::new(ContractCode::new(near_test_contracts::ts_contract().to_vec(), None));
+    let result = precompile_contract_impl(vm_kind, code1.deref(), &vm_config, cache.as_deref());
+    assert_eq!(result, Result::Ok(true));
+    //assert_eq!(cache.len(), 1);
+    let result = precompile_contract_impl(vm_kind, code1.deref(), &vm_config, cache.as_deref());
+    assert_eq!(result, Result::Ok(false));
+    //assert_eq!(cache.len(), 1);
+    let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, None);
+    assert_eq!(result, Result::Ok(false));
+    //assert_eq!(cache.len(), 1);
+    let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, cache.as_deref());
+    assert_eq!(result, Result::Ok(true));
+    //assert_eq!(cache.len(), 2);
+    let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, cache.as_deref());
+    assert_eq!(result, Result::Ok(false));
+    //assert_eq!(cache.len(), 2);
+}
+
+#[test]
+pub fn test_precompile() {
+    #[cfg(feature = "wasmer0_vm")]
+    test_precompile_vm(VMKind::Wasmer0);
+    #[cfg(feature = "wasmer1_vm")]
+    test_precompile_vm(VMKind::Wasmer1);
 }
