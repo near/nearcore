@@ -844,8 +844,8 @@ mod tests {
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
-        let action_receipt = match receipt.receipt {
-            ReceiptEnum::Action(ref action_receipt) => action_receipt,
+        let action_receipt = match &receipt.receipt {
+            ReceiptEnum::Action(action_receipt) => action_receipt,
             _ => unreachable!("Balance refund should be an action receipt"),
         };
         let res = action_delete_account(

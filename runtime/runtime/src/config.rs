@@ -215,11 +215,12 @@ pub fn prepaid_exec_fee(
     let exec_gas = exec_fee(config, action, receiver_id, current_protocol_version);
 
     let extra_prepaid_gas = match action {
-        Action::DeleteAccount(DeleteAccountAction { beneficiary_id }) => checked_feature!(
-            "protocol_feature_allow_create_account_on_delete",
-            AllowCreateAccountOnDelete,
-            current_protocol_version,
-            {
+        Action::DeleteAccount(DeleteAccountAction { beneficiary_id }) => {
+            if checked_feature!(
+                "protocol_feature_allow_create_account_on_delete",
+                AllowCreateAccountOnDelete,
+                current_protocol_version
+            ) {
                 let sender_is_receiver = beneficiary_id == receiver_id;
                 config.action_receipt_creation_config.send_fee(sender_is_receiver)
                     + config.action_receipt_creation_config.exec_fee()
@@ -234,13 +235,10 @@ pub fn prepaid_exec_fee(
                         beneficiary_id,
                         current_protocol_version,
                     )
-            },
-            {
-                // Workaround unused variable warning
-                let _ = beneficiary_id;
+            } else {
                 0
             }
-        ),
+        }
         _ => 0,
     };
 

@@ -1297,12 +1297,7 @@ impl<'a> VMLogic<'a> {
         let sir = account_id == self.context.current_account_id;
         let deps: Vec<_> = receipt_dependencies
             .iter()
-            .map(|receipt_idx| {
-                self.receipt_to_account
-                    .get(receipt_idx)
-                    .expect("promises and receipt_to_account should be consistent.")
-                    == &account_id
-            })
+            .map(|receipt_idx| self.get_account_by_receipt(receipt_idx) == account_id)
             .collect();
         self.pay_gas_for_new_receipt(sir, &deps)?;
 
@@ -1310,6 +1305,14 @@ impl<'a> VMLogic<'a> {
         self.receipt_to_account.insert(new_receipt_idx, account_id);
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
+    }
+
+    /// Helper function to return the account id towards which the receipt is directed.
+    fn get_account_by_receipt(&self, receipt_idx: &ReceiptIndex) -> AccountId {
+        self.receipt_to_account
+            .get(receipt_idx)
+            .expect("promises and receipt_to_account should be consistent.")
+            .clone()
     }
 
     /// Helper function to return the receipt index corresponding to the given promise index.
@@ -1328,11 +1331,8 @@ impl<'a> VMLogic<'a> {
             Promise::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
         }?;
 
-        let account_id = self
-            .receipt_to_account
-            .get(&receipt_idx)
-            .expect("promises and receipt_to_account should be consistent.");
-        let sir = account_id == &self.context.current_account_id;
+        let account_id = self.get_account_by_receipt(&receipt_idx);
+        let sir = account_id == self.context.current_account_id;
         Ok((receipt_idx, sir))
     }
 
@@ -1494,14 +1494,6 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    // TODO document
-    fn get_account_by_receipt(&self, receipt_idx: ReceiptIndex) -> AccountId {
-        self.receipt_to_account
-            .get(&receipt_idx)
-            .expect("promises and receipt_to_account should be consistent.")
-            .clone()
-    }
-
     /// Appends `Transfer` action to the batch of actions for the given promise pointed by
     /// `promise_idx`.
     ///
@@ -1533,7 +1525,7 @@ impl<'a> VMLogic<'a> {
         let amount = self.memory_get_u128(amount_ptr)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
-        let receiver_id = self.get_account_by_receipt(receipt_idx);
+        let receiver_id = self.get_account_by_receipt(&receipt_idx);
 
         let send_fee = transfer_send_fee(
             &self.fees_config.action_creation_config,
@@ -1808,7 +1800,7 @@ impl<'a> VMLogic<'a> {
             AllowCreateAccountOnDelete,
             self.current_protocol_version
         ) {
-            let receiver_id = self.get_account_by_receipt(receipt_idx);
+            let receiver_id = self.get_account_by_receipt(&receipt_idx);
             let sir = receiver_id == beneficiary_id;
 
             let transfer_to_beneficiary_send_fee = transfer_send_fee(
