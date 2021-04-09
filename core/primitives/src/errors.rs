@@ -341,9 +341,9 @@ pub enum ContractCallError {
     ExecutionError(String),
 }
 
-impl Into<FunctionCallErrorSer> for ContractCallError {
-    fn into(self) -> FunctionCallErrorSer {
-        match self {
+impl From<ContractCallError> for FunctionCallErrorSer {
+    fn from(e: ContractCallError) -> Self {
+        match e {
             ContractCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
             ContractCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
             ContractCallError::ExecutionError(e) => FunctionCallErrorSer::ExecutionError(e),
@@ -351,9 +351,9 @@ impl Into<FunctionCallErrorSer> for ContractCallError {
     }
 }
 
-impl Into<ContractCallError> for FunctionCallErrorSer {
-    fn into(self) -> ContractCallError {
-        match self {
+impl From<FunctionCallErrorSer> for ContractCallError {
+    fn from(e: FunctionCallErrorSer) -> Self {
+        match e {
             FunctionCallErrorSer::CompilationError(e) => ContractCallError::CompilationError(e),
             FunctionCallErrorSer::MethodResolveError(e) => ContractCallError::MethodResolveError(e),
             FunctionCallErrorSer::ExecutionError(e) => ContractCallError::ExecutionError(e),
