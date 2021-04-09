@@ -438,12 +438,12 @@ pub(crate) fn action_deploy_contract(
     );
     account.set_code_hash(code.get_hash());
     set_code(state_update, account_id.clone(), &code);
-    // Precompile the contract.
-    match precompile_contract(&code, &apply_state.config.wasm_config, apply_state.cache.as_deref())
+    // Precompile the contract and store result (compiled code or error) in the database.
+    #[allow(unused_must_use)]
     {
-        Ok(_) => Ok(()),
-        Err(vm_err) => Err(StorageError::StorageInconsistentState(vm_err.to_string())),
+        precompile_contract(&code, &apply_state.config.wasm_config, apply_state.cache.as_deref());
     }
+    Ok(())
 }
 
 pub(crate) fn action_delete_account(
