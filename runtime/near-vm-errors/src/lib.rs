@@ -39,8 +39,9 @@ pub enum FunctionCallError {
     Nondeterministic(String),
 }
 
-/// Serializable version of FunctionCallError. Must never reorder/remove elements, can only
-/// add new variants at the end (but do that very carefully).
+/// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
+/// add new variants at the end (but do that very carefully). This type must be never used
+/// directly, and must be converted to `ContractCallError` instead using `into()` converter.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallErrorSer {
     /// Wasm compilation error
@@ -85,12 +86,12 @@ pub enum WasmTrap {
     IllegalArithmetic,
     /// Misaligned atomic access trap.
     MisalignedAtomicAccess,
+    /// Indirect call to null.
+    IndirectCallToNull,
     /// Stack overflow.
     StackOverflow,
     /// Generic trap.
     GenericTrap,
-    /// Indirect call to null.
-    IndirectCallToNull,
 }
 
 #[derive(

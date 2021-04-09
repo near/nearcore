@@ -351,6 +351,29 @@ impl Into<FunctionCallErrorSer> for ContractCallError {
     }
 }
 
+impl Into<ContractCallError> for FunctionCallErrorSer {
+    fn into(self) -> ContractCallError {
+        match self {
+            FunctionCallErrorSer::CompilationError(e) => ContractCallError::CompilationError(e),
+            FunctionCallErrorSer::MethodResolveError(e) => ContractCallError::MethodResolveError(e),
+            FunctionCallErrorSer::ExecutionError(e) => ContractCallError::ExecutionError(e),
+            FunctionCallErrorSer::LinkError { msg } => ContractCallError::ExecutionError(msg),
+            FunctionCallErrorSer::WasmUnknownError => {
+                ContractCallError::ExecutionError("unknown error".to_string())
+            }
+            FunctionCallErrorSer::EvmError(e) => {
+                ContractCallError::ExecutionError(format!("EVM: {:?}", e))
+            }
+            FunctionCallErrorSer::WasmTrap(e) => {
+                ContractCallError::ExecutionError(format!("WASM: {:?}", e))
+            }
+            FunctionCallErrorSer::HostError(e) => {
+                ContractCallError::ExecutionError(format!("Host: {:?}", e))
+            }
+        }
+    }
+}
+
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
