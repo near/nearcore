@@ -341,7 +341,7 @@ fn produce_block_with_approvals_arrived_early() {
             key_pairs,
             1,
             true,
-            100,
+            2000,
             false,
             false,
             100,
@@ -392,7 +392,7 @@ fn produce_block_with_approvals_arrived_early() {
                 }
             });
 
-        near_network::test_utils::wait_or_panic(5000);
+        near_network::test_utils::wait_or_panic(10000);
     });
 }
 
