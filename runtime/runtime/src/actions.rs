@@ -6,7 +6,6 @@ use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-#[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
 use near_primitives::receipt::ReceiptEnum;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
@@ -37,7 +36,6 @@ use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 
 use crate::config::{safe_add_gas, RuntimeConfig};
-#[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
 use crate::config::{transfer_exec_fee, transfer_send_fee};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
@@ -448,14 +446,12 @@ pub(crate) fn action_delete_account(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
-    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
-    // Comment to work-around rustfmt bug: https://github.com/rust-lang/rustfmt/issues/4783
     action_receipt: &ActionReceipt,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     current_protocol_version: ProtocolVersion,
-    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")] config: &RuntimeFeesConfig,
+    config: &RuntimeFeesConfig,
 ) -> Result<(), StorageError> {
     if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
@@ -478,52 +474,47 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account.as_ref().unwrap().amount();
     if account_balance > 0 {
-        checked_feature!(
+        if checked_feature!(
             "protocol_feature_allow_create_account_on_delete",
             AllowCreateAccountOnDelete,
-            current_protocol_version,
-            {
-                let sender_is_receiver = account_id == &delete_account.beneficiary_id;
-                let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
-                    + transfer_send_fee(
-                        &config.action_creation_config,
-                        sender_is_receiver,
-                        &delete_account.beneficiary_id,
-                        current_protocol_version,
-                    );
-                result.gas_burnt += exec_gas;
-                result.gas_used += exec_gas
-                    + config.action_receipt_creation_config.exec_fee()
-                    + transfer_exec_fee(
-                        &config.action_creation_config,
-                        &delete_account.beneficiary_id,
-                        current_protocol_version,
-                    );
-
-                result.new_receipts.push(Receipt {
-                    predecessor_id: account_id.clone(),
-                    receiver_id: delete_account.beneficiary_id.clone(),
-                    receipt_id: CryptoHash::default(),
-
-                    receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: action_receipt.signer_id.clone(),
-                        signer_public_key: action_receipt.signer_public_key.clone(),
-                        gas_price: action_receipt.gas_price,
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: vec![Action::Transfer(TransferAction {
-                            deposit: account_balance,
-                        })],
-                    }),
-                });
-            },
-            {
-                result.new_receipts.push(Receipt::new_balance_refund(
+            current_protocol_version
+        ) {
+            let sender_is_receiver = account_id == &delete_account.beneficiary_id;
+            let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
+                + transfer_send_fee(
+                    &config.action_creation_config,
+                    sender_is_receiver,
                     &delete_account.beneficiary_id,
-                    account_balance,
-                ));
-            }
-        )
+                    current_protocol_version,
+                );
+            result.gas_burnt += exec_gas;
+            result.gas_used += exec_gas
+                + config.action_receipt_creation_config.exec_fee()
+                + transfer_exec_fee(
+                    &config.action_creation_config,
+                    &delete_account.beneficiary_id,
+                    current_protocol_version,
+                );
+
+            result.new_receipts.push(Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id: delete_account.beneficiary_id.clone(),
+                receipt_id: CryptoHash::default(),
+
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: action_receipt.signer_id.clone(),
+                    signer_public_key: action_receipt.signer_public_key.clone(),
+                    gas_price: action_receipt.gas_price,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: vec![Action::Transfer(TransferAction { deposit: account_balance })],
+                }),
+            });
+        } else {
+            result
+                .new_receipts
+                .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
+        }
     }
     remove_account(state_update, account_id)?;
     *actor_id = receipt.predecessor_id.clone();
@@ -853,7 +844,6 @@ mod tests {
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
-        #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
             _ => unreachable!("Balance refund should be an action receipt"),
@@ -863,13 +853,11 @@ mod tests {
             &mut account,
             &mut actor_id,
             &receipt,
-            #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
             &action_receipt,
             &mut action_result,
             account_id,
             &DeleteAccountAction { beneficiary_id: "bob".to_string() },
             ProtocolFeature::DeleteActionRestriction.protocol_version(),
-            #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
             &RuntimeFeesConfig::default(),
         );
         assert!(res.is_ok());

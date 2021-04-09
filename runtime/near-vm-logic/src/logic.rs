@@ -30,20 +30,19 @@ pub fn transfer_exec_fee(
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
 ) -> Result<Gas> {
-    Ok(
-        if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-            && is_account_id_64_len_hex(&receiver_id)
-        {
-            cfg.create_account_cost
-                .exec_fee()
-                .checked_add(cfg.add_key_cost.full_access_cost.exec_fee())
-                .ok_or(HostError::IntegerOverflow)?
-                .checked_add(cfg.transfer_cost.exec_fee())
-                .ok_or(HostError::IntegerOverflow)?
-        } else {
-            cfg.transfer_cost.exec_fee()
-        },
-    )
+    let res = if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+        && is_account_id_64_len_hex(&receiver_id)
+    {
+        cfg.create_account_cost
+            .exec_fee()
+            .checked_add(cfg.add_key_cost.full_access_cost.exec_fee())
+            .ok_or(HostError::IntegerOverflow)?
+            .checked_add(cfg.transfer_cost.exec_fee())
+            .ok_or(HostError::IntegerOverflow)?
+    } else {
+        cfg.transfer_cost.exec_fee()
+    };
+    Ok(res)
 }
 
 pub fn transfer_send_fee(
@@ -52,22 +51,21 @@ pub fn transfer_send_fee(
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
 ) -> Result<Gas> {
-    Ok(
-        if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-            && is_account_id_64_len_hex(&receiver_id)
-        {
-            // Transfer action fee for implicit account creation always includes extra fees
-            // for the CreateAccount and AddFullAccessKey actions that are implicit.
-            cfg.create_account_cost
-                .send_fee(sender_is_receiver)
-                .checked_add(cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver))
-                .ok_or(HostError::IntegerOverflow)?
-                .checked_add(cfg.transfer_cost.send_fee(sender_is_receiver))
-                .ok_or(HostError::IntegerOverflow)?
-        } else {
-            cfg.transfer_cost.send_fee(sender_is_receiver)
-        },
-    )
+    let res = if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+        && is_account_id_64_len_hex(&receiver_id)
+    {
+        // Transfer action fee for implicit account creation always includes extra fees
+        // for the CreateAccount and AddFullAccessKey actions that are implicit.
+        cfg.create_account_cost
+            .send_fee(sender_is_receiver)
+            .checked_add(cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver))
+            .ok_or(HostError::IntegerOverflow)?
+            .checked_add(cfg.transfer_cost.send_fee(sender_is_receiver))
+            .ok_or(HostError::IntegerOverflow)?
+    } else {
+        cfg.transfer_cost.send_fee(sender_is_receiver)
+    };
+    Ok(res)
 }
 
 pub struct VMLogic<'a> {

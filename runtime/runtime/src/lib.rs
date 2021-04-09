@@ -423,13 +423,11 @@ impl Runtime {
                     account,
                     actor_id,
                     receipt,
-                    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
                     action_receipt,
                     &mut result,
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
-                    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
                     &apply_state.config.transaction_costs,
                 )?;
             }
