@@ -196,26 +196,28 @@ pub fn test_run_preloaded() {
 }
 
 fn test_precompile_vm(vm_kind: VMKind) {
-    let cache: Option<Arc<dyn CompiledContractCache>> =
-        Some(Arc::new(MockCompiledContractCache::new(0)));
+    let mock_cache = Box::new(MockCompiledContractCache::new(0));
+    let clone = mock_cache.clone();
+    let cache: Option<&dyn CompiledContractCache> = Some(clone.as_ref());
+
     let vm_config = VMConfig::default();
     let code1 = Arc::new(ContractCode::new(near_test_contracts::rs_contract().to_vec(), None));
     let code2 = Arc::new(ContractCode::new(near_test_contracts::ts_contract().to_vec(), None));
-    let result = precompile_contract_impl(vm_kind, code1.deref(), &vm_config, cache.as_deref());
+    let result = precompile_contract_impl(vm_kind, code1.deref(), &vm_config, cache);
     assert_eq!(result, Result::Ok(true));
-    //assert_eq!(cache.len(), 1);
-    let result = precompile_contract_impl(vm_kind, code1.deref(), &vm_config, cache.as_deref());
+    assert_eq!(mock_cache.clone().len(), 1);
+    let result = precompile_contract_impl(vm_kind, code1.deref(), &vm_config, cache);
     assert_eq!(result, Result::Ok(false));
-    //assert_eq!(cache.len(), 1);
+    assert_eq!(mock_cache.clone().len(), 1);
     let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, None);
     assert_eq!(result, Result::Ok(false));
-    //assert_eq!(cache.len(), 1);
-    let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, cache.as_deref());
+    assert_eq!(mock_cache.clone().len(), 1);
+    let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, cache);
     assert_eq!(result, Result::Ok(true));
-    //assert_eq!(cache.len(), 2);
-    let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, cache.as_deref());
+    assert_eq!(mock_cache.clone().len(), 2);
+    let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, cache);
     assert_eq!(result, Result::Ok(false));
-    //assert_eq!(cache.len(), 2);
+    assert_eq!(mock_cache.clone().len(), 2);
 }
 
 #[test]
