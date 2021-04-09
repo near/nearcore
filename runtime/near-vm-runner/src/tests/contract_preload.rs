@@ -9,7 +9,6 @@ use near_vm_errors::VMError::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::profile::ProfileData;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
@@ -49,7 +48,7 @@ impl MockCompiledContractCache {
         }
     }
 
-    pub fn len(self: MockCompiledContractCache) -> usize {
+    pub fn len(&self) -> usize {
         self.store.lock().unwrap().len()
     }
 }
@@ -196,28 +195,27 @@ pub fn test_run_preloaded() {
 }
 
 fn test_precompile_vm(vm_kind: VMKind) {
-    let mock_cache = Box::new(MockCompiledContractCache::new(0));
-    let clone = mock_cache.clone();
-    let cache: Option<&dyn CompiledContractCache> = Some(clone.as_ref());
-
+    let mock_cache = MockCompiledContractCache::new(0);
+    let cache: Option<&dyn CompiledContractCache> = Some(&mock_cache);
     let vm_config = VMConfig::default();
-    let code1 = Arc::new(ContractCode::new(near_test_contracts::rs_contract().to_vec(), None));
-    let code2 = Arc::new(ContractCode::new(near_test_contracts::ts_contract().to_vec(), None));
-    let result = precompile_contract_impl(vm_kind, code1.deref(), &vm_config, cache);
+    let code1 = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let code2 = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
+
+    let result = precompile_contract_impl(vm_kind, &code1, &vm_config, cache);
     assert_eq!(result, Result::Ok(true));
-    assert_eq!(mock_cache.clone().len(), 1);
-    let result = precompile_contract_impl(vm_kind, code1.deref(), &vm_config, cache);
+    assert_eq!(mock_cache.len(), 1);
+    let result = precompile_contract_impl(vm_kind, &code1, &vm_config, cache);
     assert_eq!(result, Result::Ok(false));
-    assert_eq!(mock_cache.clone().len(), 1);
-    let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, None);
+    assert_eq!(mock_cache.len(), 1);
+    let result = precompile_contract_impl(vm_kind, &code2, &vm_config, None);
     assert_eq!(result, Result::Ok(false));
-    assert_eq!(mock_cache.clone().len(), 1);
-    let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, cache);
+    assert_eq!(mock_cache.len(), 1);
+    let result = precompile_contract_impl(vm_kind, &code2, &vm_config, cache);
     assert_eq!(result, Result::Ok(true));
-    assert_eq!(mock_cache.clone().len(), 2);
-    let result = precompile_contract_impl(vm_kind, code2.deref(), &vm_config, cache);
+    assert_eq!(mock_cache.len(), 2);
+    let result = precompile_contract_impl(vm_kind, &code2, &vm_config, cache);
     assert_eq!(result, Result::Ok(false));
-    assert_eq!(mock_cache.clone().len(), 2);
+    assert_eq!(mock_cache.len(), 2);
 }
 
 #[test]
