@@ -28,5 +28,5 @@ pub use runner::run_vm;
 
 pub use near_vm_logic::with_ext_cost_counter;
 
-pub use cache::cache_contract;
+pub use cache::precompile_contract;
 pub use cache::MockCompiledContractCache;

@@ -1,4 +1,4 @@
-use crate::errors::IntoVMError;
+use crate::errors::{ContractPrecompilatonError, IntoVMError};
 use crate::prepare;
 use crate::wasmer1_runner::{default_wasmer1_store, wasmer1_vm_hash};
 use crate::wasmer_runner::wasmer0_vm_hash;
@@ -293,42 +293,46 @@ pub mod wasmer1_cache {
     }
 }
 
-pub fn cache_contract(
-    vm_kind: VMKind,
+pub fn precompile_contract(
     wasm_code: &ContractCode,
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
-) -> Result<bool, VMError> {
-    if cache.is_none() {
-        return Ok(false);
-    }
-    let cache = cache.unwrap();
+) -> Result<bool, ContractPrecompilatonError> {
+    let cache = match cache {
+        None => return Ok(false),
+        Some(it) => it,
+    };
+    let vm_kind = VMKind::default();
     let key = get_key(wasm_code, vm_kind, config);
     // Check if we already cached with such a key.
     match cache.get(&(key.0).0) {
         // If so - do not override.
         // TODO: is it correct?
-        Ok(_) => return Ok(false),
-        Err(_) => {}
+        Ok(None) => return Ok(false),
+        Ok(Some(_)) | Err(_) => {}
     };
     match vm_kind {
-        VMKind::Wasmer0 => wasmer0_cache::compile_and_serialize_wasmer(
+        VMKind::Wasmer0 => match wasmer0_cache::compile_and_serialize_wasmer(
             wasm_code.code.as_slice(),
             config,
             &key,
             cache,
-        )
-        .map(|_| true),
+        ) {
+            Ok(_) => Ok(true),
+            Err(err) => Err(ContractPrecompilatonError::new(err)),
+        },
         VMKind::Wasmer1 => {
             let store = default_wasmer1_store();
-            wasmer1_cache::compile_and_serialize_wasmer1(
+            match wasmer1_cache::compile_and_serialize_wasmer1(
                 wasm_code.code.as_slice(),
                 &key,
                 config,
                 cache,
                 &store,
-            )
-            .map(|_| true)
+            ) {
+                Ok(_) => Ok(true),
+                Err(err) => Err(ContractPrecompilatonError::new(err)),
+            }
         }
         VMKind::Wasmtime => {
             panic!("Not yet supported")
