@@ -203,21 +203,21 @@ pub(crate) fn action_function_call(
             }
             FunctionCallError::CompilationError(err) => {
                 result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::CompilationError(err),
+                    ContractCallError::CompilationError(err).into(),
                 )
                 .into());
                 false
             }
             FunctionCallError::LinkError { msg } => {
                 result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError(format!("Link Error: {}", msg)),
+                    ContractCallError::ExecutionError(format!("Link Error: {}", msg)).into(),
                 )
                 .into());
                 false
             }
             FunctionCallError::MethodResolveError(err) => {
                 result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::MethodResolveError(err),
+                    ContractCallError::MethodResolveError(err).into(),
                 )
                 .into());
                 false
@@ -226,7 +226,7 @@ pub(crate) fn action_function_call(
             | FunctionCallError::HostError(_)
             | FunctionCallError::EvmError(_) => {
                 result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError(err.to_string()),
+                    ContractCallError::ExecutionError(err.to_string()).into(),
                 )
                 .into());
                 false

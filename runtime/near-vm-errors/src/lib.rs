@@ -1,10 +1,10 @@
 use std::fmt::{self, Error, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
 
-use near_rpc_error_macro::RpcError;
-
+// TODO: remove serialization derives, once fix compilation caching.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum VMError {
     FunctionCallError(FunctionCallError),
@@ -17,6 +17,7 @@ pub enum VMError {
     CacheError(CacheError),
 }
 
+// TODO: remove serialization derives, once fix compilation caching.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallError {
     /// Wasm compilation error
@@ -37,6 +38,27 @@ pub enum FunctionCallError {
     /// Non-deterministic error.
     Nondeterministic(String),
 }
+
+/// Serializable version of FunctionCallError. Must never reorder/remove elements, can only
+/// add new variants at the end (but do that very carefully).
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+pub enum FunctionCallErrorSer {
+    /// Wasm compilation error
+    CompilationError(CompilationError),
+    /// Wasm binary env link error
+    LinkError {
+        msg: String,
+    },
+    /// Import/export resolve error
+    MethodResolveError(MethodResolveError),
+    /// A trap happened during execution of a binary
+    WasmTrap(WasmTrap),
+    WasmUnknownError,
+    HostError(HostError),
+    EvmError(EvmError),
+    ExecutionError(String),
+}
+
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]

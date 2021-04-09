@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display};
 
 use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::{CompilationError, MethodResolveError, VMLogicError};
+use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError, VMLogicError};
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -341,6 +341,16 @@ pub enum ContractCallError {
     ExecutionError(String),
 }
 
+impl Into<FunctionCallErrorSer> for ContractCallError {
+    fn into(self) -> FunctionCallErrorSer {
+        match self {
+            ContractCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
+            ContractCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
+            ContractCallError::ExecutionError(e) => FunctionCallErrorSer::ExecutionError(e),
+        }
+    }
+}
+
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -394,7 +404,7 @@ pub enum ActionErrorKind {
         minimum_stake: Balance,
     },
     /// An error occurred during a `FunctionCall` Action, parameter is debug message.
-    FunctionCallError(ContractCallError),
+    FunctionCallError(FunctionCallErrorSer),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),

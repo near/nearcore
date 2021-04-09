@@ -82,9 +82,10 @@ pub fn test_smart_contract_panic(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractCallError::ExecutionError(
-                    "Smart contract panicked: WAT?".to_string()
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError("Smart contract panicked: WAT?".to_string())
+                        .into()
+                )
             }
             .into()
         )
@@ -120,9 +121,10 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractCallError::MethodResolveError(
-                    MethodResolveError::MethodNotFound
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::MethodResolveError(MethodResolveError::MethodNotFound)
+                        .into()
+                )
             }
             .into()
         )
@@ -144,9 +146,10 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::MethodResolveError(MethodResolveError::MethodEmptyName)
+                        .into()
+                )
             }
             .into()
         )
@@ -168,9 +171,10 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::MethodResolveError(MethodResolveError::MethodEmptyName)
+                        .into()
+                )
             }
             .into()
         )
