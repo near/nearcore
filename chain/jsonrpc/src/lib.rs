@@ -244,7 +244,7 @@ impl JsonRpcHandler {
             }
             "broadcast_tx_async" => {
                 let rpc_transaction_request =
-                    near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
+                    near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest::parse(
                         request.params,
                     )?;
                 let transaction_hash = self.send_tx_async(rpc_transaction_request).await;
@@ -253,7 +253,7 @@ impl JsonRpcHandler {
             }
             "broadcast_tx_commit" => {
                 let rpc_transaction_request =
-                    near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
+                    near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest::parse(
                         request.params,
                     )?;
                 let send_tx_response = self.send_tx_commit(rpc_transaction_request).await?;
@@ -268,7 +268,7 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_broadcast_tx_sync" => {
                 let rpc_transaction_request =
-                    near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
+                    near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest::parse(
                         request.params,
                     )?;
                 let broadcast_tx_sync_response = self.send_tx_sync(rpc_transaction_request).await?;
@@ -279,7 +279,7 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
             "EXPERIMENTAL_check_tx" => {
                 let rpc_transaction_request =
-                    near_jsonrpc_primitives::types::transactions::RpcTransactionRequest::parse(
+                    near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest::parse(
                         request.params,
                     )?;
                 let broadcast_tx_sync_response = self.check_tx(rpc_transaction_request).await?;
@@ -365,7 +365,7 @@ impl JsonRpcHandler {
 
     async fn send_tx_async(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionRequest,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
     ) -> CryptoHash {
         let tx = request_data.signed_transaction;
         let hash = tx.get_hash().clone();
@@ -553,7 +553,7 @@ impl JsonRpcHandler {
 
     async fn send_tx_sync(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionRequest,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
@@ -578,7 +578,7 @@ impl JsonRpcHandler {
 
     async fn check_tx(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionRequest,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
@@ -603,7 +603,7 @@ impl JsonRpcHandler {
 
     async fn send_tx_commit(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionRequest,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,

@@ -1,9 +1,8 @@
-use near_primitives::borsh::BorshDeserialize;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
-pub struct RpcTransactionRequest {
+pub struct RpcBroadcastTransactionRequest {
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
 }
 
@@ -55,17 +54,9 @@ pub struct RpcBroadcastTxSyncResponse {
     pub is_routed: bool,
 }
 
-impl RpcTransactionRequest {
+impl RpcBroadcastTransactionRequest {
     pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        // TODO: move this code to crate::utils::parse_signed_transaction
-        let (encoded,) = crate::utils::parse_params::<(String,)>(value.clone())?;
-        let bytes = crate::utils::from_base64_or_parse_err(encoded)?;
-        let signed_transaction = near_primitives::transaction::SignedTransaction::try_from_slice(
-            &bytes,
-        )
-        .map_err(|err| {
-            crate::errors::RpcParseError(format!("Failed to decode transaction: {}", err))
-        })?;
+        let signed_transaction = crate::utils::parse_signed_transaction(value)?;
         Ok(Self { signed_transaction })
     }
 }
@@ -84,18 +75,7 @@ impl RpcTransactionStatusCommonRequest {
             let transaction_info = TransactionInfo::TransactionId { hash, account_id };
             Ok(Self { transaction_info })
         } else {
-            // TODO: move this code to crate::utils::parse_signed_transaction
-            let (encoded,) = crate::utils::parse_params::<(String,)>(value.clone())?;
-            let bytes = crate::utils::from_base64_or_parse_err(encoded)?;
-            let signed_transaction =
-                near_primitives::transaction::SignedTransaction::try_from_slice(&bytes).map_err(
-                    |err| {
-                        crate::errors::RpcParseError(format!(
-                            "Failed to decode transaction: {}",
-                            err
-                        ))
-                    },
-                )?;
+            let signed_transaction = crate::utils::parse_signed_transaction(value)?;
             let transaction_info = TransactionInfo::Transaction(signed_transaction);
             Ok(Self { transaction_info })
         }
