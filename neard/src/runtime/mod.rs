@@ -147,7 +147,7 @@ impl NightshadeRuntime {
         let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
         let initial_epoch_config = EpochConfig::from(&genesis_config);
-        let reward_calculator = RewardCalculator::from(&genesis_config);
+        let reward_calculator = RewardCalculator::new(&genesis_config);
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let tries = ShardTries::new(

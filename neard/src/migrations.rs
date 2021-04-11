@@ -123,15 +123,15 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
 }
 
 pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
+    let store = create_store(path);
     if near_config.client_config.archive {
-        let store = create_store(path);
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let mut epoch_manager = EpochManager::new(
             store.clone(),
             EpochConfig::from(&near_config.genesis.config),
             near_config.genesis.config.protocol_version,
-            RewardCalculator::from(&near_config.genesis.config),
+            RewardCalculator::new(&near_config.genesis.config),
             near_config.genesis.config.validators(),
         )
         .unwrap();
@@ -154,4 +154,5 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
             store_update.commit().unwrap();
         }
     }
+    set_store_version(&store, 19);
 }

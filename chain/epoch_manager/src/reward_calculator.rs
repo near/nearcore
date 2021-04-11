@@ -26,8 +26,8 @@ pub struct RewardCalculator {
     pub num_seconds_per_year: u64,
 }
 
-impl From<&GenesisConfig> for RewardCalculator {
-    fn from(config: &GenesisConfig) -> Self {
+impl RewardCalculator {
+    pub fn new(config: &GenesisConfig) -> Self {
         RewardCalculator {
             max_inflation_rate: config.max_inflation_rate,
             num_blocks_per_year: config.num_blocks_per_year,
@@ -40,9 +40,6 @@ impl From<&GenesisConfig> for RewardCalculator {
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         }
     }
-}
-
-impl RewardCalculator {
     /// Calculate validator reward for an epoch based on their block and chunk production stats.
     /// Returns map of validators with their rewards and amount of newly minted tokens including to protocol's treasury.
     /// See spec https://nomicon.io/Economics/README.html#rewards-calculation
