@@ -34,12 +34,6 @@ pub enum RpcTransactionError {
     InternalError { debug_info: String },
     #[error("Timeout")]
     TimeoutError,
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
-    Unreachable { error_message: String },
 }
 
 #[derive(Serialize, Deserialize, Debug)]

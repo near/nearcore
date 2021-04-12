@@ -13,10 +13,8 @@
 ## Breaking changes
 
 Response from `EXPERIMENTAL_broadcast_tx_sync` and `EXPERIMENTAL_check_tx` doesn't return `is_routed` 
-field anymore. In case if transaction wes routes an error will be returned. Also `EXPERIMENTAL_check_tx` 
+field anymore. In case of a transaction getting routed an error will be returned. Also, `EXPERIMENTAL_check_tx` 
 returns response with transaction hash instead of empty body.
-
-## Unreleased
 
 * Added `EXPERIMENTAL_tx_status` endpoint exposing receipts in addition to all
   the rest data available in `tx` endpoint

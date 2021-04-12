@@ -570,7 +570,9 @@ impl JsonRpcHandler {
                 })
             }
             network_client_responses=> Err(
-                near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(network_client_responses)
+                near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
+                    network_client_responses
+                )
             )
         }
     }
@@ -633,7 +635,11 @@ impl JsonRpcHandler {
                 self.tx_polling(near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx)).await
             }
             network_client_response=> {
-                Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(network_client_response))
+                Err(
+                    near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
+                        network_client_response
+                    )
+                )
             }
         }
     }
