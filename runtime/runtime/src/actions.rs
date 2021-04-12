@@ -440,7 +440,7 @@ pub(crate) fn action_deploy_contract(
     set_code(state_update, account_id.clone(), &code);
     // Precompile the contract and store result (compiled code or error) in the database.
     #[allow(unused_must_use)]
-    {
+    if false {
         precompile_contract(&code, &apply_state.config.wasm_config, apply_state.cache.as_deref());
     }
     Ok(())
