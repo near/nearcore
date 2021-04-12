@@ -34,8 +34,7 @@ impl From<near_primitives::views::StatusResponse> for RpcStatusResponse {
 impl From<near_client_primitives::types::StatusError> for RpcStatusError {
     fn from(error: near_client_primitives::types::StatusError) -> Self {
         match error {
-            near_client_primitives::types::StatusError::IOError { error_message }
-            | near_client_primitives::types::StatusError::InternalError { error_message } => {
+            near_client_primitives::types::StatusError::InternalError { error_message } => {
                 Self::InternalError { error_message }
             }
             near_client_primitives::types::StatusError::NodeIsSyncing => Self::NodeIsSyncing,

@@ -788,15 +788,12 @@ impl JsonRpcHandler {
         let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
 
         let block_hash = block.header.hash.clone();
+        let changes = self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await??;
 
-        Ok(self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await.map(|v| {
-            v.map(|changes| {
-                near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
-                    block_hash: block.header.hash,
-                    changes,
-                }
-            })
-        })??)
+        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
+            block_hash: block.header.hash,
+            changes,
+        })
     }
 
     async fn changes_in_block_by_type(
@@ -809,19 +806,18 @@ impl JsonRpcHandler {
         let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
 
         let block_hash = block.header.hash.clone();
-        Ok(self
+        let changes = self
             .view_client_addr
             .send(GetStateChanges {
                 block_hash,
                 state_changes_request: request.state_changes_request,
             })
-            .await
-            .map(|v| {
-                v.map(|changes| near_jsonrpc_primitives::types::changes::RpcStateChangesResponse {
-                    block_hash: block.header.hash,
-                    changes,
-                })
-            })??)
+            .await??;
+
+        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesResponse {
+            block_hash: block.header.hash,
+            changes,
+        })
     }
 
     async fn next_light_client_block(&self, params: Option<Value>) -> Result<Value, RpcError> {

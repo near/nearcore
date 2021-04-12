@@ -341,8 +341,6 @@ pub struct Status {
 
 #[derive(thiserror::Error, Debug)]
 pub enum StatusError {
-    #[error("IO Error: {error_message}")]
-    IOError { error_message: String },
     #[error("Node is syncing")]
     NodeIsSyncing,
     #[error("No blocks for {elapsed:?}")]
@@ -362,17 +360,13 @@ pub enum StatusError {
 impl From<near_chain_primitives::error::Error> for StatusError {
     fn from(error: near_chain_primitives::error::Error) -> Self {
         match error.kind() {
-            near_chain_primitives::error::ErrorKind::IOErr(error_message) => {
-                Self::IOError { error_message }
-            }
-            near_chain_primitives::error::ErrorKind::DBNotFoundErr(error_message) => {
+            near_chain_primitives::error::ErrorKind::DBNotFoundErr(error_message)
+            | near_chain_primitives::error::ErrorKind::IOErr(error_message)
+            | near_chain_primitives::error::ErrorKind::ValidatorError(error_message) => {
                 Self::InternalError { error_message }
             }
             near_chain_primitives::error::ErrorKind::EpochOutOfBounds(epoch_id) => {
                 Self::EpochOutOfBounds { epoch_id }
-            }
-            near_chain_primitives::error::ErrorKind::ValidatorError(error_message) => {
-                Self::InternalError { error_message }
             }
             _ => Self::Unreachable { error_message: error.to_string() },
         }
