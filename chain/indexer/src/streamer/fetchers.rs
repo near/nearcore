@@ -19,7 +19,7 @@ pub(crate) async fn fetch_status(
     client
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(FailedToFetchData::String)
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetches the status to retrieve `latest_block_height` to determine if we need to fetch

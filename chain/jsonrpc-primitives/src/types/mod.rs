@@ -5,5 +5,6 @@ pub mod config;
 pub mod gas_price;
 pub mod query;
 pub mod receipts;
+pub mod status;
 pub mod transactions;
 pub mod validator;

@@ -343,7 +343,10 @@ impl JsonRpcHandler {
                 serde_json::to_value(gas_price)
                     .map_err(|err| RpcError::parse_error(err.to_string()))
             }
-            "health" => self.health().await,
+            "health" => match self.health().await {
+                Ok(_) => Ok(Value::Null),
+                Err(err) => Err(RpcError::new(-32_001, err.to_string(), None)),
+            },
             "light_client_proof" => self.light_client_execution_outcome_proof(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
@@ -353,7 +356,11 @@ impl JsonRpcHandler {
                 let query_response = self.query(rpc_query_request).await;
                 process_query_response(query_response)
             }
-            "status" => self.status().await,
+            "status" => {
+                let status_response = self.status().await?;
+                serde_json::to_value(status_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "tx" => {
                 let rpc_transaction_status_common_request = near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
                 let rpc_transaction_response =
@@ -664,20 +671,22 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn health(&self) -> Result<Value, RpcError> {
-        match self.client_addr.send(Status { is_health_check: true }).await {
-            Ok(Ok(_)) => Ok(Value::Null),
-            Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
-            Err(_) => Err(RpcError::server_error::<()>(None)),
-        }
+    async fn health(
+        &self,
+    ) -> Result<
+        near_jsonrpc_primitives::types::status::RpcStatusResponse,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        Ok(self.client_addr.send(Status { is_health_check: true }).await??.into())
     }
 
-    pub async fn status(&self) -> Result<Value, RpcError> {
-        match self.client_addr.send(Status { is_health_check: false }).await {
-            Ok(Ok(result)) => jsonify(Ok(Ok(result))),
-            Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
-            Err(_) => Err(RpcError::server_error::<()>(None)),
-        }
+    pub async fn status(
+        &self,
+    ) -> Result<
+        near_jsonrpc_primitives::types::status::RpcStatusResponse,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        Ok(self.client_addr.send(Status { is_health_check: false }).await??.into())
     }
 
     /// Expose Genesis Config (with internal Runtime Config) without state records to keep the
