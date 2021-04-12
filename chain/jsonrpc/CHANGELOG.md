@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.1
+
+* Refactored methods:
+  * `broadcast_tx_async`
+  * `broadcast_tx_commit`
+  * `EXPERIMENTAL_broadcast_tx_sync`
+  * `EXPERIMENTAL_check_tx`
+  * `EXPERIMENTAL_tx_status`
+  * `tx`
+
+## Breaking changes
+
+Response from `EXPERIMENTAL_broadcast_tx_sync` and `EXPERIMENTAL_check_tx` doesn't return `is_routed` 
+field anymore. In case if transaction wes routes an error will be returned. Also `EXPERIMENTAL_check_tx` 
+returns response with transaction hash instead of empty body.
+
 ## Unreleased
 
 * Added `EXPERIMENTAL_tx_status` endpoint exposing receipts in addition to all

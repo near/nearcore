@@ -51,7 +51,6 @@ pub struct RpcTransactionResponse {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: String,
-    pub is_routed: bool,
 }
 
 impl RpcBroadcastTransactionRequest {
@@ -94,8 +93,8 @@ impl From<near_client_primitives::types::TxStatusError> for RpcTransactionError 
             near_client_primitives::types::TxStatusError::InvalidTx(context) => {
                 Self::InvalidTransaction { context }
             }
-            near_client_primitives::types::TxStatusError::InternalError => {
-                Self::InternalError { debug_info: format!("Internal error") }
+            near_client_primitives::types::TxStatusError::InternalError(debug_info) => {
+                Self::InternalError { debug_info }
             }
             near_client_primitives::types::TxStatusError::TimeoutError => Self::TimeoutError,
         }

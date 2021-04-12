@@ -459,7 +459,7 @@ impl JsonRpcHandler {
                         break Err(err);
                     }
                     Ok(Err(err)) => break Err(err),
-                    Err(_) => break Err(TxStatusError::InternalError),
+                    Err(err) => break Err(TxStatusError::InternalError(err.to_string())),
                 }
                 let _ = sleep(self.polling_config.polling_interval).await;
             }
@@ -562,7 +562,6 @@ impl JsonRpcHandler {
             NetworkClientResponses::ValidTx => {
                 Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
                     transaction_hash: (request_data.signed_transaction.get_hash()).to_string(),
-                    is_routed: false,
                 })
             }
             NetworkClientResponses::RequestRouted => {
@@ -587,7 +586,6 @@ impl JsonRpcHandler {
             NetworkClientResponses::ValidTx => {
                 Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
                     transaction_hash: (request_data.signed_transaction.get_hash()).to_string(),
-                    is_routed: false,
                 })
             }
             NetworkClientResponses::RequestRouted => {
