@@ -25,8 +25,7 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::rpc::{
     RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse,
-    RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse, RpcStateChangesRequest,
-    RpcStateChangesResponse, RpcValidatorsOrderedRequest,
+    RpcValidatorsOrderedRequest,
 };
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
@@ -275,8 +274,25 @@ impl JsonRpcHandler {
                 serde_json::to_value(broadcast_tx_sync_response)
                     .map_err(|err| RpcError::parse_error(err.to_string()))
             }
-            "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
-            "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
+            "EXPERIMENTAL_changes" => {
+                let rpc_state_changes_request =
+                    near_jsonrpc_primitives::types::changes::RpcStateChangesRequest::parse(
+                        request.params,
+                    )?;
+                let state_changes =
+                    self.changes_in_block_by_type(rpc_state_changes_request).await?;
+                serde_json::to_value(state_changes)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
+            "EXPERIMENTAL_changes_in_block" => {
+                let rpc_state_changes_request =
+                    near_jsonrpc_primitives::types::changes::RpcStateChangesRequest::parse(
+                        request.params,
+                    )?;
+                let state_changes = self.changes_in_block(rpc_state_changes_request).await?;
+                serde_json::to_value(state_changes)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "EXPERIMENTAL_check_tx" => {
                 let rpc_transaction_request =
                     near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest::parse(
@@ -286,7 +302,11 @@ impl JsonRpcHandler {
                 serde_json::to_value(broadcast_tx_sync_response)
                     .map_err(|err| RpcError::parse_error(err.to_string()))
             }
-            "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
+            "EXPERIMENTAL_genesis_config" => {
+                let genesis_config = self.genesis_config().await;
+                serde_json::to_value(genesis_config)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "EXPERIMENTAL_light_client_proof" => {
                 self.light_client_execution_outcome_proof(request.params).await
             }
@@ -664,8 +684,8 @@ impl JsonRpcHandler {
     /// output at a reasonable size.
     ///
     /// See also `genesis_records` API.
-    pub async fn genesis_config(&self) -> Result<Value, RpcError> {
-        jsonify(Ok(Ok(&self.genesis_config)))
+    pub async fn genesis_config(&self) -> &GenesisConfig {
+        &self.genesis_config
     }
 
     pub async fn protocol_config(
@@ -749,54 +769,50 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn changes_in_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let RpcStateChangesInBlockRequest { block_reference } = parse_params(params)?;
-        // TODO refactor it. Changed to keep it working before refactoring
-        let result = self.view_client_addr.send(GetBlock(block_reference)).await?;
-        let block = match result {
-            Ok(block) => block,
-            Err(err) => {
-                return Err(RpcError::from(
-                    near_jsonrpc_primitives::types::blocks::RpcBlockError::from(err),
-                ))
-            }
-        };
+    async fn changes_in_block(
+        &self,
+        request: near_jsonrpc_primitives::types::changes::RpcStateChangesRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
+        near_jsonrpc_primitives::types::changes::RpcStateChangesError,
+    > {
+        let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
 
         let block_hash = block.header.hash.clone();
-        jsonify(self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await.map(|v| {
-            v.map(|changes| RpcStateChangesInBlockResponse {
-                block_hash: block.header.hash,
-                changes,
+
+        Ok(self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await.map(|v| {
+            v.map(|changes| {
+                near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
+                    block_hash: block.header.hash,
+                    changes,
+                }
             })
-        }))
+        })??)
     }
 
-    async fn changes_in_block_by_type(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let RpcStateChangesRequest { block_reference, state_changes_request } =
-            parse_params(params)?;
-        // TODO refactor it. Changed to keep it working before refactoring
-        let result = self.view_client_addr.send(GetBlock(block_reference)).await?;
-        let block = match result {
-            Ok(block) => block,
-            Err(err) => {
-                return Err(RpcError::from(
-                    near_jsonrpc_primitives::types::blocks::RpcBlockError::from(err),
-                ))
-            }
-        };
+    async fn changes_in_block_by_type(
+        &self,
+        request: near_jsonrpc_primitives::types::changes::RpcStateChangesRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::changes::RpcStateChangesResponse,
+        near_jsonrpc_primitives::types::changes::RpcStateChangesError,
+    > {
+        let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
 
         let block_hash = block.header.hash.clone();
-        jsonify(
-            self.view_client_addr
-                .send(GetStateChanges { block_hash, state_changes_request })
-                .await
-                .map(|v| {
-                    v.map(|changes| RpcStateChangesResponse {
-                        block_hash: block.header.hash,
-                        changes,
-                    })
-                }),
-        )
+        Ok(self
+            .view_client_addr
+            .send(GetStateChanges {
+                block_hash,
+                state_changes_request: request.state_changes_request,
+            })
+            .await
+            .map(|v| {
+                v.map(|changes| near_jsonrpc_primitives::types::changes::RpcStateChangesResponse {
+                    block_hash: block.header.hash,
+                    changes,
+                })
+            })??)
     }
 
     async fn next_light_client_block(&self, params: Option<Value>) -> Result<Value, RpcError> {

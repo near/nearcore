@@ -1,4 +1,5 @@
 pub mod blocks;
+pub mod changes;
 pub mod chunks;
 pub mod config;
 pub mod gas_price;

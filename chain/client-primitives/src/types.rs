@@ -490,8 +490,38 @@ pub struct GetStateChanges {
     pub state_changes_request: StateChangesRequestView,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum GetStateChangesError {
+    #[error("IO Error: {error_message}")]
+    IOError { error_message: String },
+    #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
+    UnknownBlock { error_message: String },
+    #[error("There are no fully synchronized blocks yet")]
+    NotSyncedYet,
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
+    Unreachable { error_message: String },
+}
+
+impl From<near_chain_primitives::Error> for GetStateChangesError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                Self::IOError { error_message }
+            }
+            near_chain_primitives::ErrorKind::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            _ => Self::Unreachable { error_message: error.to_string() },
+        }
+    }
+}
+
 impl Message for GetStateChanges {
-    type Result = Result<StateChangesView, String>;
+    type Result = Result<StateChangesView, GetStateChangesError>;
 }
 
 pub struct GetStateChangesInBlock {
@@ -499,7 +529,7 @@ pub struct GetStateChangesInBlock {
 }
 
 impl Message for GetStateChangesInBlock {
-    type Result = Result<StateChangesKindsView, String>;
+    type Result = Result<StateChangesKindsView, GetStateChangesError>;
 }
 
 pub struct GetStateChangesWithCauseInBlock {
@@ -507,7 +537,7 @@ pub struct GetStateChangesWithCauseInBlock {
 }
 
 impl Message for GetStateChangesWithCauseInBlock {
-    type Result = Result<StateChangesView, String>;
+    type Result = Result<StateChangesView, GetStateChangesError>;
 }
 
 pub struct GetExecutionOutcome {

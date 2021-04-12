@@ -8,31 +8,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::types::{BlockReference, MaybeBlockId, TransactionOrReceiptId};
 use near_primitives::views::{
-    ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangeWithCauseView,
-    StateChangesKindsView, StateChangesRequestView,
+    ExecutionOutcomeWithIdView, LightClientBlockLiteView, StateChangesKindsView,
 };
-
-#[derive(Serialize, Deserialize)]
-pub struct RpcQueryRequest {
-    #[serde(flatten)]
-    pub block_reference: BlockReference,
-    #[serde(flatten)]
-    pub request: QueryRequest,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct RpcStateChangesRequest {
-    #[serde(flatten)]
-    pub block_reference: BlockReference,
-    #[serde(flatten)]
-    pub state_changes_request: StateChangesRequestView,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct RpcStateChangesResponse {
-    pub block_hash: CryptoHash,
-    pub changes: Vec<StateChangeWithCauseView>,
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct RpcStateChangesInBlockRequest {
