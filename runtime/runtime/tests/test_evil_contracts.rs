@@ -136,9 +136,12 @@ fn test_evil_abort() {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractCallError::ExecutionError(
-                    "String encoding is bad UTF-16 sequence.".to_string()
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError {
+                        msg: "String encoding is bad UTF-16 sequence.".to_string()
+                    }
+                    .into()
+                )
             }
             .into()
         ),
