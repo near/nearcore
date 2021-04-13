@@ -923,6 +923,7 @@ impl EpochManager {
             ValidatorInfoIdentifier::BlockHash(ref b) => self.get_block_info(b)?.epoch_id().clone(),
         };
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?.clone();
+        let epoch_height = cur_epoch_info.epoch_height();
         let epoch_start_height = self.get_epoch_start_from_epoch_id(&epoch_id)?;
         let mut validator_to_shard = (0..cur_epoch_info.validators_len())
             .map(|_| HashSet::default())
@@ -1051,6 +1052,7 @@ impl EpochManager {
             current_proposals: all_proposals,
             prev_epoch_kickout,
             epoch_start_height,
+            epoch_height,
         })
     }
 
