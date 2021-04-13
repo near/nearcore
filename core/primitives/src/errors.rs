@@ -332,13 +332,11 @@ pub struct ActionError {
     pub kind: ActionErrorKind,
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, RpcError)]
 pub enum ContractCallError {
     MethodResolveError(MethodResolveError),
     CompilationError(CompilationError),
-    ExecutionError(String),
+    ExecutionError { msg: String },
 }
 
 impl From<ContractCallError> for FunctionCallErrorSer {
@@ -346,7 +344,7 @@ impl From<ContractCallError> for FunctionCallErrorSer {
         match e {
             ContractCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
             ContractCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
-            ContractCallError::ExecutionError(e) => FunctionCallErrorSer::ExecutionError(e),
+            ContractCallError::ExecutionError { msg } => FunctionCallErrorSer::ExecutionError(msg),
         }
     }
 }
@@ -356,19 +354,19 @@ impl From<FunctionCallErrorSer> for ContractCallError {
         match e {
             FunctionCallErrorSer::CompilationError(e) => ContractCallError::CompilationError(e),
             FunctionCallErrorSer::MethodResolveError(e) => ContractCallError::MethodResolveError(e),
-            FunctionCallErrorSer::ExecutionError(e) => ContractCallError::ExecutionError(e),
-            FunctionCallErrorSer::LinkError { msg } => ContractCallError::ExecutionError(msg),
+            FunctionCallErrorSer::ExecutionError(msg) => ContractCallError::ExecutionError { msg },
+            FunctionCallErrorSer::LinkError { msg } => ContractCallError::ExecutionError { msg },
             FunctionCallErrorSer::WasmUnknownError => {
-                ContractCallError::ExecutionError("unknown error".to_string())
+                ContractCallError::ExecutionError { msg: "unknown error".to_string() }
             }
             FunctionCallErrorSer::EvmError(e) => {
-                ContractCallError::ExecutionError(format!("EVM: {:?}", e))
+                ContractCallError::ExecutionError { msg: format!("EVM: {:?}", e) }
             }
             FunctionCallErrorSer::WasmTrap(e) => {
-                ContractCallError::ExecutionError(format!("WASM: {:?}", e))
+                ContractCallError::ExecutionError { msg: format!("WASM: {:?}", e) }
             }
             FunctionCallErrorSer::HostError(e) => {
-                ContractCallError::ExecutionError(format!("Host: {:?}", e))
+                ContractCallError::ExecutionError { msg: format!("Host: {:?}", e) }
             }
         }
     }

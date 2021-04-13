@@ -17,7 +17,7 @@ pub enum VMError {
     CacheError(CacheError),
 }
 
-// TODO: remove serialization derives, once fix compilation caching.
+// TODO(4217): remove serialization derives, once fix compilation caching.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallError {
     /// Wasm compilation error
@@ -42,6 +42,7 @@ pub enum FunctionCallError {
 /// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
 /// add new variants at the end (but do that very carefully). This type must be never used
 /// directly, and must be converted to `ContractCallError` instead using `into()` converter.
+/// It describes stable serialization format, and only used by serialization logic.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallErrorSer {
     /// Wasm compilation error

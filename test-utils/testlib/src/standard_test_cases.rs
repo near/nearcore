@@ -83,8 +83,10 @@ pub fn test_smart_contract_panic(node: impl Node) {
             ActionError {
                 index: Some(0),
                 kind: ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError("Smart contract panicked: WAT?".to_string())
-                        .into()
+                    ContractCallError::ExecutionError {
+                        msg: "Smart contract panicked: WAT?".to_string()
+                    }
+                    .into()
                 )
             }
             .into()

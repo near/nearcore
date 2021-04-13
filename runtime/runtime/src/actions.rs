@@ -210,7 +210,8 @@ pub(crate) fn action_function_call(
             }
             FunctionCallError::LinkError { msg } => {
                 result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError(format!("Link Error: {}", msg)).into(),
+                    ContractCallError::ExecutionError { msg: format!("Link Error: {}", msg) }
+                        .into(),
                 )
                 .into());
                 false
@@ -226,7 +227,7 @@ pub(crate) fn action_function_call(
             | FunctionCallError::HostError(_)
             | FunctionCallError::EvmError(_) => {
                 result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError(err.to_string()).into(),
+                    ContractCallError::ExecutionError { msg: err.to_string() }.into(),
                 )
                 .into());
                 false
