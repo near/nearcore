@@ -171,10 +171,7 @@ impl FeeHelper {
         self.prepaid_delete_account_cost(false)
     }
 
-    fn prepaid_delete_account_cost(
-        &self,
-        implicit_account_created: bool,
-    ) -> Balance {
+    fn prepaid_delete_account_cost(&self, implicit_account_created: bool) -> Balance {
         let exec_gas = self.cfg.action_receipt_creation_config.exec_fee()
             + self.cfg.action_creation_config.delete_account_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(false)

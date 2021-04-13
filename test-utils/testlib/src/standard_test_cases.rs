@@ -1217,11 +1217,16 @@ pub fn test_delete_account_fail(node: impl Node, protocol_version: ProtocolVersi
     );
     let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
     let fee_helper = fee_helper(&node);
-    let delete_account_cost = fee_helper.prepaid_delete_account_cost_for_explicit_account() - if checked_feature!(
-        "protocol_feature_allow_create_account_on_delete",
-        AllowCreateAccountOnDelete,
-        protocol_version)
-        { fee_helper.transfer_cost() } else {0};
+    let delete_account_cost = fee_helper.prepaid_delete_account_cost_for_explicit_account()
+        - if checked_feature!(
+            "protocol_feature_allow_create_account_on_delete",
+            AllowCreateAccountOnDelete,
+            protocol_version
+        ) {
+            fee_helper.transfer_cost()
+        } else {
+            0
+        };
 
     let transaction_result =
         node_user.delete_account(alice_account(), eve_dot_alice_account()).unwrap();
