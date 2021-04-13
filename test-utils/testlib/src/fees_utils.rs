@@ -163,9 +163,16 @@ impl FeeHelper {
         self.gas_to_balance(exec_gas + send_gas)
     }
 
-    pub fn prepaid_delete_account_cost(
+    pub fn prepaid_delete_account_cost_for_implicit_account(&self) -> Balance {
+        self.prepaid_delete_account_cost(true)
+    }
+
+    pub fn prepaid_delete_account_cost_for_explicit_account(&self) -> Balance {
+        self.prepaid_delete_account_cost(false)
+    }
+
+    fn prepaid_delete_account_cost(
         &self,
-        #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
         implicit_account_created: bool,
     ) -> Balance {
         let exec_gas = self.cfg.action_receipt_creation_config.exec_fee()
@@ -182,6 +189,8 @@ impl FeeHelper {
                 self.transfer_fee()
             };
         #[cfg(not(feature = "protocol_feature_allow_create_account_on_delete"))]
+        // Workaround unused variable warning
+        let _ = implicit_account_created;
         let total_fee = exec_gas + send_gas;
 
         self.gas_to_balance(total_fee)
