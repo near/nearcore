@@ -89,7 +89,7 @@ pub struct KeyValueRuntime {
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
-    u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
+    u64::from((hash(&account_id.clone().into_bytes()).0)[0]) % num_shards
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize)]

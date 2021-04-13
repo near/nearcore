@@ -7,19 +7,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode};
 
-#[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord, derive_more::AsRef)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
 #[as_ref(forward)]
-pub struct Digest(pub [u8; 32]);
-
-#[derive(Copy, Clone, PartialOrd, Ord, derive_more::AsRef)]
-#[as_ref(forward)]
-pub struct CryptoHash(pub Digest);
-
-impl CryptoHash {
-    pub fn raw_bytes(&self) -> &[u8; 32] {
-        &self.0 .0
-    }
-}
+#[as_mut(forward)]
+pub struct CryptoHash(pub [u8; 32]);
 
 impl<'a> From<&'a CryptoHash> for String {
     fn from(h: &'a CryptoHash) -> Self {
@@ -29,13 +20,7 @@ impl<'a> From<&'a CryptoHash> for String {
 
 impl Default for CryptoHash {
     fn default() -> Self {
-        CryptoHash(Digest(Default::default()))
-    }
-}
-
-impl AsMut<[u8]> for CryptoHash {
-    fn as_mut(&mut self) -> &mut [u8] {
-        (self.0).0.as_mut()
+        CryptoHash(Default::default())
     }
 }
 
@@ -43,14 +28,14 @@ impl BaseDecode for CryptoHash {}
 
 impl borsh::BorshSerialize for CryptoHash {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        writer.write_all(&(self.0).0)?;
+        writer.write_all(&self.0)?;
         Ok(())
     }
 }
 
 impl borsh::BorshDeserialize for CryptoHash {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-        Ok(CryptoHash(Digest(borsh::BorshDeserialize::deserialize(buf)?)))
+        Ok(CryptoHash(borsh::BorshDeserialize::deserialize(buf)?))
     }
 }
 
@@ -98,7 +83,7 @@ impl TryFrom<&[u8]> for CryptoHash {
         }
         let mut buf = [0; 32];
         buf.copy_from_slice(bytes);
-        Ok(CryptoHash(Digest(buf)))
+        Ok(CryptoHash(buf))
     }
 }
 
@@ -112,13 +97,13 @@ impl TryFrom<Vec<u8>> for CryptoHash {
 
 impl From<CryptoHash> for Vec<u8> {
     fn from(hash: CryptoHash) -> Vec<u8> {
-        (hash.0).0.to_vec()
+        hash.0.to_vec()
     }
 }
 
 impl From<&CryptoHash> for Vec<u8> {
     fn from(hash: &CryptoHash) -> Vec<u8> {
-        (hash.0).0.to_vec()
+        hash.0.to_vec()
     }
 }
 
@@ -146,14 +131,6 @@ impl Hash for CryptoHash {
     }
 }
 
-impl PartialEq for CryptoHash {
-    fn eq(&self, other: &CryptoHash) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl Eq for CryptoHash {}
-
 /// Calculates a hash of a bytes slice.
 ///
 /// # Examples
@@ -166,7 +143,7 @@ impl Eq for CryptoHash {}
 /// ```
 pub fn hash(data: &[u8]) -> CryptoHash {
     use sha2::Digest;
-    CryptoHash(Digest(sha2::Sha256::digest(data).into()))
+    CryptoHash(sha2::Sha256::digest(data).into())
 }
 
 #[cfg(test)]
