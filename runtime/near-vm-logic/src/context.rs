@@ -2,6 +2,7 @@ use crate::types::PublicKey;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
 };
+use near_primitives_core::serialize::u64_dec_format;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -29,6 +30,7 @@ pub struct VMContext {
     // TODO #1903 rename to `block_height`
     pub block_index: BlockHeight,
     /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    #[serde(with = "u64_dec_format")]
     pub block_timestamp: u64,
     /// The current epoch height.
     pub epoch_height: EpochHeight,
