@@ -6,7 +6,9 @@ use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
 use crate::types::{AccountId, Balance, Nonce, StorageUsage};
 #[cfg(feature = "protocol_feature_add_account_versions")]
 use borsh::maybestd::io::Error;
+#[cfg(feature = "protocol_feature_add_account_versions")]
 use borsh::maybestd::io::Write;
+#[cfg(feature = "protocol_feature_add_account_versions")]
 use std::io;
 
 #[cfg(not(feature = "protocol_feature_add_account_versions"))]
