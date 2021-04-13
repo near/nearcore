@@ -244,9 +244,12 @@ fn indirect_call_to_null_contract() -> Vec<u8> {
 fn test_indirect_call_to_null_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer1 | VMKind::Wasmtime => {}
+            VMKind::Wasmer1 => {}
             // Wasmer 0.x cannot distinguish indirect calls to null and calls with incorrect signature.
             VMKind::Wasmer0 => return,
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Check if can restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
         }
         assert_eq!(
             make_simple_contract_call_vm(&indirect_call_to_null_contract(), "hello", vm_kind),
@@ -286,6 +289,12 @@ fn indirect_call_to_wrong_signature_contract() -> Vec<u8> {
 #[test]
 fn test_indirect_call_to_wrong_signature_contract() {
     with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Check if can restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
         assert_eq!(
             make_simple_contract_call_vm(
                 &indirect_call_to_wrong_signature_contract(),
