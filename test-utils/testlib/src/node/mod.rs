@@ -3,7 +3,7 @@ use std::sync::RwLock;
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
-use near_jsonrpc::ServerError;
+use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
