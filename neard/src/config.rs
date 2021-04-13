@@ -13,7 +13,6 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use lazy_static::lazy_static;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
@@ -140,21 +139,19 @@ pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.mainnet.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
 
-lazy_static! {
-    /// The rate at which the gas price can be adjusted (alpha in the formula).
-    /// The formula is
-    /// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
-    pub static ref GAS_PRICE_ADJUSTMENT_RATE: Rational = Rational::new(1, 100);
+/// The rate at which the gas price can be adjusted (alpha in the formula).
+/// The formula is
+/// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
+pub const GAS_PRICE_ADJUSTMENT_RATE: Rational = Rational::new_raw(1, 100);
 
-    /// Protocol treasury reward
-    pub static ref PROTOCOL_REWARD_RATE: Rational = Rational::new(1, 10);
+/// Protocol treasury reward
+pub const PROTOCOL_REWARD_RATE: Rational = Rational::new_raw(1, 10);
 
-    /// Maximum inflation rate per year
-    pub static ref MAX_INFLATION_RATE: Rational = Rational::new(5, 100);
+/// Maximum inflation rate per year
+pub const MAX_INFLATION_RATE: Rational = Rational::new_raw(1, 20);
 
-    /// Protocol upgrade stake threshold.
-    pub static ref PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational = Rational::new(8, 10);
-}
+/// Protocol upgrade stake threshold.
+pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational = Rational::new_raw(4, 5);
 
 /// Maximum number of active peers. Hard limit.
 fn default_max_num_peers() -> u32 {
@@ -513,15 +510,15 @@ impl Genesis {
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
             avg_hidden_validator_seats_per_shard: vec![0; num_validator_seats_per_shard.len()],
             dynamic_resharding: false,
-            protocol_upgrade_stake_threshold: *PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+            protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
             protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
-            gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
+            gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             validators,
-            protocol_reward_rate: *PROTOCOL_REWARD_RATE,
-            max_inflation_rate: *MAX_INFLATION_RATE,
+            protocol_reward_rate: PROTOCOL_REWARD_RATE,
+            max_inflation_rate: MAX_INFLATION_RATE,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
@@ -882,11 +879,11 @@ pub fn init_configs(
                 ),
                 avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
-                protocol_upgrade_stake_threshold: *PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+                protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
                 protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
-                gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
+                gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
                 online_max_threshold: Rational::new(99, 100),
@@ -898,8 +895,8 @@ pub fn init_configs(
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-                protocol_reward_rate: *PROTOCOL_REWARD_RATE,
-                max_inflation_rate: *MAX_INFLATION_RATE,
+                protocol_reward_rate: PROTOCOL_REWARD_RATE,
+                max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: 0,
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
