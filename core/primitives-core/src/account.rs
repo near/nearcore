@@ -6,6 +6,8 @@ use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
 use crate::types::{AccountId, Balance, Nonce, StorageUsage};
 #[cfg(feature = "protocol_feature_add_account_versions")]
 use borsh::maybestd::io::Error;
+use borsh::maybestd::io::Write;
+use std::io;
 
 #[cfg(not(feature = "protocol_feature_add_account_versions"))]
 /// Per account information stored in the state.
@@ -39,7 +41,7 @@ pub struct AccountV1 {
 }
 
 #[cfg(feature = "protocol_feature_add_account_versions")]
-#[derive(BorshSerialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum Account {
     AccountV1(AccountV1),
 }
@@ -194,14 +196,16 @@ impl BorshDeserialize for Account {
             // See test_account_size
             Ok(Account::AccountV1(<AccountV1 as BorshDeserialize>::deserialize(buf)?))
         } else {
-            #[derive(BorshDeserialize)]
-            enum DeserializableAccount {
-                AccountV1(AccountV1),
-            }
-            let deserialized_account = DeserializableAccount::deserialize(buf)?;
-            match deserialized_account {
-                DeserializableAccount::AccountV1(account) => Ok(Account::AccountV1(account)),
-            }
+            unreachable!();
+        }
+    }
+}
+
+#[cfg(feature = "protocol_feature_add_account_versions")]
+impl BorshSerialize for Account {
+    fn serialize<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        match self {
+            Account::AccountV1(account) => BorshSerialize::serialize(&account, writer),
         }
     }
 }
@@ -290,33 +294,7 @@ mod tests {
     fn test_account_serialization() {
         let acc = Account::new(1_000_000, 1_000_000, CryptoHash::default(), 100);
         let bytes = acc.try_to_vec().unwrap();
-        #[cfg(not(feature = "protocol_feature_add_account_versions"))]
         assert_eq!(to_base(&hash(&bytes)), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
-        #[cfg(feature = "protocol_feature_add_account_versions")]
-        {
-            assert_eq!(to_base(&hash(&bytes)), "7HBKnu8VPDaVgj6jbGvdVgTzPG3uBdZ97WGhoYpKT7hZ");
-            match acc {
-                Account::AccountV1(account) => {
-                    let pbytes = account.try_to_vec().unwrap();
-                    assert_eq!(
-                        to_base(&hash(&pbytes)),
-                        "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    fn test_account_size() {
-        let new_account = Account::new(0, 0, CryptoHash::default(), 0);
-        let old_account =
-            AccountV1 { amount: 0, locked: 0, code_hash: CryptoHash::default(), storage_usage: 0 };
-        let new_bytes = new_account.try_to_vec().unwrap();
-        let old_bytes = old_account.try_to_vec().unwrap();
-        assert!(new_bytes.len() > old_bytes.len());
-        assert_eq!(old_bytes.len(), std::mem::size_of::<AccountV1>());
     }
 
     #[test]
