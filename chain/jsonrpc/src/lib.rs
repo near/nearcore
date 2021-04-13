@@ -347,8 +347,15 @@ impl JsonRpcHandler {
                 let health_response = self.health().await?;
                 serde_json::to_value(health_response)
                     .map_err(|err| RpcError::parse_error(err.to_string()))
-            },
-            "light_client_proof" => self.light_client_execution_outcome_proof(request.params).await,
+            }
+            "light_client_proof" => {
+                let rpc_light_client_execution_proof_request = near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest::parse(request.params)?;
+                let rpc_light_client_execution_proof_response = self
+                    .light_client_execution_outcome_proof(rpc_light_client_execution_proof_request)
+                    .await?;
+                serde_json::to_value(rpc_light_client_execution_proof_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
             "query" => {
@@ -828,30 +835,33 @@ impl JsonRpcHandler {
 
     async fn light_client_execution_outcome_proof(
         &self,
-        params: Option<Value>,
-    ) -> Result<Value, RpcError> {
-        let RpcLightClientExecutionProofRequest { id, light_client_head } = parse_params(params)?;
-        let execution_outcome_proof = self
-            .view_client_addr
-            .send(GetExecutionOutcome { id })
-            .await
-            .map_err(|e| RpcError::from(near_jsonrpc_primitives::errors::ServerError::from(e)))?
-            .map_err(|e| RpcError::server_error(Some(e)))?;
+        request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse,
+        near_jsonrpc_primitives::types::light_client::RpcLightClientProofError,
+    > {
+        let near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest {
+            id,
+            light_client_head,
+        } = request;
+
+        let execution_outcome_proof =
+            self.view_client_addr.send(GetExecutionOutcome { id }).await??;
+
         let block_proof = self
             .view_client_addr
             .send(GetBlockProof {
                 block_hash: execution_outcome_proof.outcome_proof.block_hash,
                 head_block_hash: light_client_head,
             })
-            .await
-            .map_err(|e| RpcError::from(near_jsonrpc_primitives::errors::ServerError::from(e)))?;
-        let res = block_proof.map(|block_proof| RpcLightClientExecutionProofResponse {
+            .await??;
+
+        Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse {
             outcome_proof: execution_outcome_proof.outcome_proof,
             outcome_root_proof: execution_outcome_proof.outcome_root_proof,
             block_header_lite: block_proof.block_header_lite,
             block_proof: block_proof.proof,
-        });
-        jsonify(Ok(res))
+        })
     }
 
     async fn network_info(&self) -> Result<Value, RpcError> {

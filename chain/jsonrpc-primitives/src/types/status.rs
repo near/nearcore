@@ -15,7 +15,7 @@ pub enum RpcStatusError {
     #[error("Node is syncing")]
     NodeIsSyncing,
     #[error("No blocks for {elapsed:?}")]
-    NoBlocks { elapsed: std::time::Duration },
+    NoNewBlocks { elapsed: std::time::Duration },
     #[error("Epoch Out Of Bounds {epoch_id:?}")]
     EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
@@ -48,7 +48,7 @@ impl From<near_client_primitives::types::StatusError> for RpcStatusError {
             }
             near_client_primitives::types::StatusError::NodeIsSyncing => Self::NodeIsSyncing,
             near_client_primitives::types::StatusError::NoBlocks { elapsed } => {
-                Self::NoBlocks { elapsed }
+                Self::NoNewBlocks { elapsed }
             }
             near_client_primitives::types::StatusError::EpochOutOfBounds { epoch_id } => {
                 Self::EpochOutOfBounds { epoch_id }

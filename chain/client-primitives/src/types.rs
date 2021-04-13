@@ -578,13 +578,66 @@ pub struct GetExecutionOutcome {
     pub id: TransactionOrReceiptId,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum GetExecutionOutcomeError {
+    #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
+    UnknownBlock { error_message: String },
+    #[error("Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_id}")]
+    InconsistentState {
+        number_or_shards: usize,
+        execution_outcome_shard_id: near_primitives::types::ShardId,
+    },
+    #[error("{transaction_or_receipt_id} has not been confirmed")]
+    NotConfirmed { transaction_or_receipt_id: near_primitives::hash::CryptoHash },
+    #[error("{transaction_or_receipt_id} does not exist")]
+    UnknownTransactionOrReceipt { transaction_or_receipt_id: near_primitives::hash::CryptoHash },
+    #[error("Node doesn't track the shard where {transaction_or_receipt_id} is executed")]
+    UnavailableShard {
+        transaction_or_receipt_id: near_primitives::hash::CryptoHash,
+        shard_id: near_primitives::types::ShardId,
+    },
+    #[error("Internal error: {error_message}")]
+    InternalError { error_message: String },
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
+    Unreachable { error_message: String },
+}
+
+impl From<TxStatusError> for GetExecutionOutcomeError {
+    fn from(error: TxStatusError) -> Self {
+        match error {
+            TxStatusError::ChainError(err) => {
+                Self::InternalError { error_message: err.to_string() }
+            }
+            _ => Self::Unreachable { error_message: format!("{:?}", error) },
+        }
+    }
+}
+
+impl From<near_chain_primitives::error::Error> for GetExecutionOutcomeError {
+    fn from(error: near_chain_primitives::error::Error) -> Self {
+        match error.kind() {
+            near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                Self::InternalError { error_message }
+            }
+            near_chain_primitives::ErrorKind::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            _ => Self::Unreachable { error_message: error.to_string() },
+        }
+    }
+}
+
 pub struct GetExecutionOutcomeResponse {
     pub outcome_proof: ExecutionOutcomeWithIdView,
     pub outcome_root_proof: MerklePath,
 }
 
 impl Message for GetExecutionOutcome {
-    type Result = Result<GetExecutionOutcomeResponse, String>;
+    type Result = Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>;
 }
 
 pub struct GetExecutionOutcomesForBlock {
@@ -605,8 +658,36 @@ pub struct GetBlockProofResponse {
     pub proof: MerklePath,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum GetBlockProofError {
+    #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
+    UnknownBlock { error_message: String },
+    #[error("Internal error: {error_message}")]
+    InternalError { error_message: String },
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable { error_message: String },
+}
+
+impl From<near_chain_primitives::error::Error> for GetBlockProofError {
+    fn from(error: near_chain_primitives::error::Error) -> Self {
+        match error.kind() {
+            near_chain_primitives::error::ErrorKind::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            near_chain_primitives::error::ErrorKind::Other(error_message) => {
+                Self::InternalError { error_message }
+            }
+            err => Self::Unreachable { error_message: err.to_string() },
+        }
+    }
+}
+
 impl Message for GetBlockProof {
-    type Result = Result<GetBlockProofResponse, String>;
+    type Result = Result<GetBlockProofResponse, GetBlockProofError>;
 }
 
 pub struct GetReceipt {

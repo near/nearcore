@@ -19,11 +19,12 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
-    GetGasPriceError, GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError,
-    GetStateChangesError, GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query,
-    QueryError, TxStatus, TxStatusError,
+    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
+    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetProtocolConfig,
+    GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
+    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
+    TxStatusError,
 };
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
@@ -779,7 +780,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
 }
 
 impl Handler<GetExecutionOutcome> for ViewClientActor {
-    type Result = Result<GetExecutionOutcomeResponse, String>;
+    type Result = Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>;
 
     #[perf]
     fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Self::Context) -> Self::Result {
@@ -796,8 +797,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                 let mut outcome_proof = outcome.clone();
                 let next_block_hash = self
                     .chain
-                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)
-                    .map_err(|e| e.to_string())?
+                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)?
                     .cloned();
                 match next_block_hash {
                     Some(h) => {
@@ -806,14 +806,16 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                         // should be fast
                         let outcome_roots = self
                             .chain
-                            .get_block(&h)
-                            .map_err(|e| e.to_string())?
+                            .get_block(&h)?
                             .chunks()
                             .iter()
                             .map(|header| header.outcome_root())
                             .collect::<Vec<_>>();
                         if target_shard_id >= (outcome_roots.len() as u64) {
-                            return Err(format!("Inconsistent state. Total number of shards is {} but the execution outcome is in shard {}", outcome_roots.len(), target_shard_id));
+                            return Err(GetExecutionOutcomeError::InconsistentState {
+                                number_or_shards: outcome_roots.len(),
+                                execution_outcome_shard_id: target_shard_id,
+                            });
                         }
                         Ok(GetExecutionOutcomeResponse {
                             outcome_proof: outcome_proof.into(),
@@ -822,7 +824,9 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                                 .clone(),
                         })
                     }
-                    None => Err(format!("{} has not been confirmed", id)),
+                    None => Err(GetExecutionOutcomeError::NotConfirmed {
+                        transaction_or_receipt_id: id,
+                    }),
                 }
             }
             Err(e) => match e.kind() {
@@ -834,12 +838,17 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                         target_shard_id,
                         true,
                     ) {
-                        Err(format!("{} does not exist", id))
+                        Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
+                            transaction_or_receipt_id: id,
+                        })
                     } else {
-                        Err(format!("Node doesn't track the shard where {} is executed", id))
+                        Err(GetExecutionOutcomeError::UnavailableShard {
+                            transaction_or_receipt_id: id,
+                            shard_id: target_shard_id,
+                        })
                     }
                 }
-                _ => Err(e.to_string()),
+                _ => Err(e.into()),
             },
         }
     }
@@ -876,20 +885,14 @@ impl Handler<GetReceipt> for ViewClientActor {
 }
 
 impl Handler<GetBlockProof> for ViewClientActor {
-    type Result = Result<GetBlockProofResponse, String>;
+    type Result = Result<GetBlockProofResponse, GetBlockProofError>;
 
     #[perf]
     fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
-        self.chain.check_block_final_and_canonical(&msg.block_hash).map_err(|e| e.to_string())?;
-        self.chain
-            .check_block_final_and_canonical(&msg.head_block_hash)
-            .map_err(|e| e.to_string())?;
-        let block_header_lite =
-            self.chain.get_block_header(&msg.block_hash).map_err(|e| e.to_string())?.clone().into();
-        let block_proof = self
-            .chain
-            .get_block_proof(&msg.block_hash, &msg.head_block_hash)
-            .map_err(|e| e.to_string())?;
+        self.chain.check_block_final_and_canonical(&msg.block_hash)?;
+        self.chain.check_block_final_and_canonical(&msg.head_block_hash)?;
+        let block_header_lite = self.chain.get_block_header(&msg.block_hash)?.clone().into();
+        let block_proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
         Ok(GetBlockProofResponse { block_header_lite, proof: block_proof })
     }
 }
