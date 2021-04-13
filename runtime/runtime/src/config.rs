@@ -11,9 +11,7 @@ use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 pub use near_primitives::num_rational::Rational;
 pub use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::runtime::fees::{
-    transfer_exec_fee, transfer_send_fee, ActionCreationConfig, RuntimeFeesConfig,
-};
+use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
     Transaction,
@@ -84,7 +82,6 @@ pub fn total_send_fees(
     let mut result = 0;
 
     for action in actions {
-        use near_primitives::runtime::fees;
         use Action::*;
         let delta = match action {
             CreateAccount(_) => cfg.create_account_cost.send_fee(sender_is_receiver),
@@ -140,7 +137,6 @@ pub fn exec_fee(
     current_protocol_version: ProtocolVersion,
 ) -> Gas {
     let cfg = &config.action_creation_config;
-    use near_primitives::runtime::fees;
     use Action::*;
 
     match action {

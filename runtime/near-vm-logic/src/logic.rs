@@ -10,7 +10,7 @@ use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::{
-    transfer_exec_fee, transfer_send_fee, ActionCreationConfig, RuntimeFeesConfig,
+    transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
 };
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
