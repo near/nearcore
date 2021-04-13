@@ -939,6 +939,7 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
             );
 
             let client = new_client(&format!("http://{}", rpc_addrs[1]));
+            let tx_hash = transaction.get_hash();
             let bytes = transaction.try_to_vec().unwrap();
 
             actix::spawn(async move {
@@ -949,12 +950,16 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
                             let _ = client
                                 .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))
                                 .map_err(|err| {
-                                    panic_on_rpc_error!(err);
-                                })
-                                .map_ok(move |response| {
-                                    assert_eq!(response["is_routed"], true);
+                                    assert_eq!(
+                                        err.data.unwrap(),
+                                        serde_json::json!(format!(
+                                            "Transaction with hash {} was routed",
+                                            tx_hash
+                                        ))
+                                    );
                                     System::current().stop();
                                 })
+                                .map_ok(move |_| panic!("Transaction must not succeed"))
                                 .await;
                             break;
                         }
@@ -1003,9 +1008,13 @@ fn test_check_unknown_tx_must_return_error() {
                             let _ = client
                                 .EXPERIMENTAL_tx_status(to_base64(&bytes))
                                 .map_err(|err| {
-                                    assert!(err.data.unwrap().to_string().contains(
-                                        format!("Transaction {} doesn't exist", tx_hash).as_str()
-                                    ));
+                                    assert_eq!(
+                                        err.data.unwrap(),
+                                        serde_json::json!(format!(
+                                            "Transaction {} doesn't exist",
+                                            tx_hash
+                                        ))
+                                    );
                                     System::current().stop();
                                 })
                                 .map_ok(move |_| panic!("Transaction must be unknown"))
@@ -1060,8 +1069,8 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
                                 .EXPERIMENTAL_check_tx(to_base64(&bytes))
                                 .map_err(|err| {
                                     assert_eq!(
-                                        err.data.unwrap().to_string(),
-                                        "\"Node doesn\'t track this shard. Cannot determine whether the transaction is valid\"".to_string()
+                                        err.data.unwrap(),
+                                        serde_json::json!("Node doesn't track this shard. Cannot determine whether the transaction is valid")
                                     );
                                     System::current().stop();
                                 })
