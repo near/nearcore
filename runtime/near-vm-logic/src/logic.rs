@@ -9,7 +9,7 @@ use near_primitives::checked_feature;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
-use near_primitives_core::runtime::fees::{ActionCreationConfig, RuntimeFeesConfig};
+use near_primitives_core::runtime::fees::{ActionCreationConfig, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
@@ -24,49 +24,6 @@ pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 const LEGACY_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
 const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
-
-pub fn transfer_exec_fee(
-    cfg: &ActionCreationConfig,
-    receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Result<Gas> {
-    let res = if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-        && is_account_id_64_len_hex(&receiver_id)
-    {
-        cfg.create_account_cost
-            .exec_fee()
-            .checked_add(cfg.add_key_cost.full_access_cost.exec_fee())
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(cfg.transfer_cost.exec_fee())
-            .ok_or(HostError::IntegerOverflow)?
-    } else {
-        cfg.transfer_cost.exec_fee()
-    };
-    Ok(res)
-}
-
-pub fn transfer_send_fee(
-    cfg: &ActionCreationConfig,
-    sender_is_receiver: bool,
-    receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Result<Gas> {
-    let res = if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-        && is_account_id_64_len_hex(&receiver_id)
-    {
-        // Transfer action fee for implicit account creation always includes extra fees
-        // for the CreateAccount and AddFullAccessKey actions that are implicit.
-        cfg.create_account_cost
-            .send_fee(sender_is_receiver)
-            .checked_add(cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver))
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(cfg.transfer_cost.send_fee(sender_is_receiver))
-            .ok_or(HostError::IntegerOverflow)?
-    } else {
-        cfg.transfer_cost.send_fee(sender_is_receiver)
-    };
-    Ok(res)
-}
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -1526,18 +1483,17 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.get_account_by_receipt(&receipt_idx);
+        let is_receiver_implicit = self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&receiver_id);
 
         let send_fee = transfer_send_fee(
             &self.fees_config.action_creation_config,
             sir,
-            &receiver_id,
-            self.current_protocol_version,
-        )?;
+            is_receiver_implicit,
+        );
         let exec_fee = transfer_exec_fee(
             &self.fees_config.action_creation_config,
-            &receiver_id,
-            self.current_protocol_version,
-        )?;
+            is_receiver_implicit,
+        );
         let burn_gas = send_fee;
         let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;
@@ -1802,18 +1758,17 @@ impl<'a> VMLogic<'a> {
         ) {
             let receiver_id = self.get_account_by_receipt(&receipt_idx);
             let sir = receiver_id == beneficiary_id;
+            let is_receiver_implicit = self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&receiver_id);
 
             let transfer_to_beneficiary_send_fee = transfer_send_fee(
                 &self.fees_config.action_creation_config,
                 sir,
-                &beneficiary_id,
-                self.current_protocol_version,
-            )?;
+                is_receiver_implicit,
+            );
             let transfer_to_beneficiary_exec_fee = transfer_exec_fee(
                 &self.fees_config.action_creation_config,
-                &beneficiary_id,
-                self.current_protocol_version,
-            )?;
+                is_receiver_implicit,
+            );
             let use_gas = self
                 .fees_config
                 .action_receipt_creation_config

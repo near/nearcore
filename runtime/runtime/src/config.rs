@@ -1,24 +1,24 @@
 //! Settings of the parameters of the runtime.
+use std::convert::TryFrom;
+
+use num_bigint::BigUint;
+use num_traits::cast::ToPrimitive;
+use num_traits::pow::Pow;
+
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::checked_feature;
 use near_primitives::errors::IntegerOverflowError;
-use near_primitives::runtime::fees::{ActionCreationConfig, RuntimeFeesConfig};
+// Just re-exporting RuntimeConfig for backwards compatibility.
+pub use near_primitives::num_rational::Rational;
+pub use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::fees::{ActionCreationConfig, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
     Transaction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-
-// Just re-exporting RuntimeConfig for backwards compatibility.
-pub use near_primitives::num_rational::Rational;
-pub use near_primitives::runtime::config::RuntimeConfig;
-
-use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_primitives::version::{IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION, ProtocolVersion};
 use near_runtime_utils::is_account_id_64_len_hex;
-use num_bigint::BigUint;
-use num_traits::cast::ToPrimitive;
-use num_traits::pow::Pow;
-use std::convert::TryFrom;
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
@@ -70,41 +70,6 @@ macro_rules! safe_add_balance_apply {
     }
 }
 
-pub fn transfer_exec_fee(
-    cfg: &ActionCreationConfig,
-    receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Gas {
-    if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-        && is_account_id_64_len_hex(&receiver_id)
-    {
-        cfg.create_account_cost.exec_fee()
-            + cfg.add_key_cost.full_access_cost.exec_fee()
-            + cfg.transfer_cost.exec_fee()
-    } else {
-        cfg.transfer_cost.exec_fee()
-    }
-}
-
-pub fn transfer_send_fee(
-    cfg: &ActionCreationConfig,
-    sender_is_receiver: bool,
-    receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Gas {
-    if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-        && is_account_id_64_len_hex(&receiver_id)
-    {
-        // Transfer action fee for implicit account creation always includes extra fees
-        // for the CreateAccount and AddFullAccessKey actions that are implicit.
-        cfg.create_account_cost.send_fee(sender_is_receiver)
-            + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
-            + cfg.transfer_cost.send_fee(sender_is_receiver)
-    } else {
-        cfg.transfer_cost.send_fee(sender_is_receiver)
-    }
-}
-
 /// Total sum of gas that needs to be burnt to send these actions.
 pub fn total_send_fees(
     config: &RuntimeFeesConfig,
@@ -118,6 +83,7 @@ pub fn total_send_fees(
 
     for action in actions {
         use Action::*;
+        use near_primitives::runtime::fees;
         let delta = match action {
             CreateAccount(_) => cfg.create_account_cost.send_fee(sender_is_receiver),
             DeployContract(DeployContractAction { code }) => {
@@ -132,7 +98,8 @@ pub fn total_send_fees(
             }
             Transfer(_) => {
                 // Account for implicit account creation
-                transfer_send_fee(cfg, sender_is_receiver, receiver_id, current_protocol_version)
+                let is_receiver_implicit = current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&receiver_id);
+                transfer_send_fee(cfg, sender_is_receiver, is_receiver_implicit)
             }
             Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
             AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
@@ -170,6 +137,7 @@ pub fn exec_fee(
 ) -> Gas {
     let cfg = &config.action_creation_config;
     use Action::*;
+    use near_primitives::runtime::fees;
 
     match action {
         CreateAccount(_) => cfg.create_account_cost.exec_fee(),
@@ -185,7 +153,8 @@ pub fn exec_fee(
         }
         Transfer(_) => {
             // Account for implicit account creation
-            transfer_exec_fee(cfg, receiver_id, current_protocol_version)
+            let is_receiver_implicit = current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&receiver_id);
+            transfer_exec_fee(cfg, is_receiver_implicit)
         }
         Stake(_) => cfg.stake_cost.exec_fee(),
         AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
@@ -222,18 +191,17 @@ pub fn prepaid_exec_fee(
                 current_protocol_version
             ) {
                 let sender_is_receiver = beneficiary_id == receiver_id;
+                let is_receiver_implicit = current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&beneficiary_id);
                 config.action_receipt_creation_config.send_fee(sender_is_receiver)
                     + config.action_receipt_creation_config.exec_fee()
                     + transfer_send_fee(
                         &config.action_creation_config,
                         sender_is_receiver,
-                        beneficiary_id,
-                        current_protocol_version,
+                        is_receiver_implicit,
                     )
                     + transfer_exec_fee(
                         &config.action_creation_config,
-                        beneficiary_id,
-                        current_protocol_version,
+                        is_receiver_implicit,
                     )
             } else {
                 0
