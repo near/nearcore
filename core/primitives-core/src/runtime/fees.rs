@@ -404,10 +404,7 @@ impl RuntimeFeesConfig {
 /// In case of implicit account creation they always include extra fees for the CreateAccount and
 /// AddFullAccessKey actions that are implicit.
 /// We can assume that no overflow will happen here.
-pub fn transfer_exec_fee(
-    cfg: &ActionCreationConfig,
-    is_receiver_implicit: bool,
-) -> Gas {
+pub fn transfer_exec_fee(cfg: &ActionCreationConfig, is_receiver_implicit: bool) -> Gas {
     if is_receiver_implicit {
         cfg.create_account_cost.exec_fee()
             + cfg.add_key_cost.full_access_cost.exec_fee()
@@ -436,8 +433,8 @@ pub fn transfer_send_fee(
 /// It is required as this module doesn't depend on primitives.
 /// TODO(3384): move basic primitives into a separate module and use in runtime.
 pub mod u128_dec_format {
-    use serde::{Deserialize, Deserializer, Serializer};
     use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(num: &u128, serializer: S) -> Result<S::Ok, S::Error>
     where

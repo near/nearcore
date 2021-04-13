@@ -9,7 +9,9 @@ use near_primitives::checked_feature;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
-use near_primitives_core::runtime::fees::{ActionCreationConfig, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee};
+use near_primitives_core::runtime::fees::{
+    transfer_exec_fee, transfer_send_fee, ActionCreationConfig, RuntimeFeesConfig,
+};
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
@@ -1483,17 +1485,14 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.get_account_by_receipt(&receipt_idx);
-        let is_receiver_implicit = self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&receiver_id);
+        let is_receiver_implicit = self.current_protocol_version
+            >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+            && is_account_id_64_len_hex(&receiver_id);
 
-        let send_fee = transfer_send_fee(
-            &self.fees_config.action_creation_config,
-            sir,
-            is_receiver_implicit,
-        );
-        let exec_fee = transfer_exec_fee(
-            &self.fees_config.action_creation_config,
-            is_receiver_implicit,
-        );
+        let send_fee =
+            transfer_send_fee(&self.fees_config.action_creation_config, sir, is_receiver_implicit);
+        let exec_fee =
+            transfer_exec_fee(&self.fees_config.action_creation_config, is_receiver_implicit);
         let burn_gas = send_fee;
         let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;
@@ -1758,17 +1757,17 @@ impl<'a> VMLogic<'a> {
         ) {
             let receiver_id = self.get_account_by_receipt(&receipt_idx);
             let sir = receiver_id == beneficiary_id;
-            let is_receiver_implicit = self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&receiver_id);
+            let is_receiver_implicit = self.current_protocol_version
+                >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                && is_account_id_64_len_hex(&receiver_id);
 
             let transfer_to_beneficiary_send_fee = transfer_send_fee(
                 &self.fees_config.action_creation_config,
                 sir,
                 is_receiver_implicit,
             );
-            let transfer_to_beneficiary_exec_fee = transfer_exec_fee(
-                &self.fees_config.action_creation_config,
-                is_receiver_implicit,
-            );
+            let transfer_to_beneficiary_exec_fee =
+                transfer_exec_fee(&self.fees_config.action_creation_config, is_receiver_implicit);
             let use_gas = self
                 .fees_config
                 .action_receipt_creation_config

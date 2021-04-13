@@ -6,20 +6,20 @@ use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::receipt::ReceiptEnum;
+use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
-use near_primitives::runtime::fees::{RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee};
+use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
-    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION, ProtocolFeature,
-    ProtocolVersion,
+    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
 };
 use near_runtime_utils::{
     is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
@@ -32,12 +32,12 @@ use near_store::{
 use near_vm_errors::{
     CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
 };
-use near_vm_logic::{VMContext, VMOutcome};
 use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{VMContext, VMOutcome};
 
-use crate::{ActionResult, ApplyState};
-use crate::config::{RuntimeConfig, safe_add_gas};
+use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
+use crate::{ActionResult, ApplyState};
 
 /// Runs given function call with given context / apply state.
 /// Precompiles:
@@ -479,7 +479,9 @@ pub(crate) fn action_delete_account(
             current_protocol_version
         ) {
             let sender_is_receiver = account_id == &delete_account.beneficiary_id;
-            let is_receiver_implicit = current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&delete_account.beneficiary_id);
+            let is_receiver_implicit = current_protocol_version
+                >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                && is_account_id_64_len_hex(&delete_account.beneficiary_id);
             let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
                 + transfer_send_fee(
                     &config.action_creation_config,
@@ -489,10 +491,7 @@ pub(crate) fn action_delete_account(
             result.gas_burnt += exec_gas;
             result.gas_used += exec_gas
                 + config.action_receipt_creation_config.exec_fee()
-                + transfer_exec_fee(
-                    &config.action_creation_config,
-                    is_receiver_implicit,
-                );
+                + transfer_exec_fee(&config.action_creation_config, is_receiver_implicit);
 
             result.new_receipts.push(Receipt {
                 predecessor_id: account_id.clone(),

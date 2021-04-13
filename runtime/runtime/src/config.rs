@@ -11,13 +11,15 @@ use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 pub use near_primitives::num_rational::Rational;
 pub use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::runtime::fees::{ActionCreationConfig, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee};
+use near_primitives::runtime::fees::{
+    transfer_exec_fee, transfer_send_fee, ActionCreationConfig, RuntimeFeesConfig,
+};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
     Transaction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::version::{IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use near_runtime_utils::is_account_id_64_len_hex;
 
 /// Describes the cost of converting this transaction into a receipt.
@@ -82,8 +84,8 @@ pub fn total_send_fees(
     let mut result = 0;
 
     for action in actions {
-        use Action::*;
         use near_primitives::runtime::fees;
+        use Action::*;
         let delta = match action {
             CreateAccount(_) => cfg.create_account_cost.send_fee(sender_is_receiver),
             DeployContract(DeployContractAction { code }) => {
@@ -98,7 +100,9 @@ pub fn total_send_fees(
             }
             Transfer(_) => {
                 // Account for implicit account creation
-                let is_receiver_implicit = current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&receiver_id);
+                let is_receiver_implicit = current_protocol_version
+                    >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    && is_account_id_64_len_hex(&receiver_id);
                 transfer_send_fee(cfg, sender_is_receiver, is_receiver_implicit)
             }
             Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
@@ -136,8 +140,8 @@ pub fn exec_fee(
     current_protocol_version: ProtocolVersion,
 ) -> Gas {
     let cfg = &config.action_creation_config;
-    use Action::*;
     use near_primitives::runtime::fees;
+    use Action::*;
 
     match action {
         CreateAccount(_) => cfg.create_account_cost.exec_fee(),
@@ -153,7 +157,9 @@ pub fn exec_fee(
         }
         Transfer(_) => {
             // Account for implicit account creation
-            let is_receiver_implicit = current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&receiver_id);
+            let is_receiver_implicit = current_protocol_version
+                >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                && is_account_id_64_len_hex(&receiver_id);
             transfer_exec_fee(cfg, is_receiver_implicit)
         }
         Stake(_) => cfg.stake_cost.exec_fee(),
@@ -191,7 +197,9 @@ pub fn prepaid_exec_fee(
                 current_protocol_version
             ) {
                 let sender_is_receiver = beneficiary_id == receiver_id;
-                let is_receiver_implicit = current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION && is_account_id_64_len_hex(&beneficiary_id);
+                let is_receiver_implicit = current_protocol_version
+                    >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    && is_account_id_64_len_hex(&beneficiary_id);
                 config.action_receipt_creation_config.send_fee(sender_is_receiver)
                     + config.action_receipt_creation_config.exec_fee()
                     + transfer_send_fee(
@@ -199,10 +207,7 @@ pub fn prepaid_exec_fee(
                         sender_is_receiver,
                         is_receiver_implicit,
                     )
-                    + transfer_exec_fee(
-                        &config.action_creation_config,
-                        is_receiver_implicit,
-                    )
+                    + transfer_exec_fee(&config.action_creation_config, is_receiver_implicit)
             } else {
                 0
             }
