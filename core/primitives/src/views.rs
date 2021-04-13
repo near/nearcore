@@ -1331,9 +1331,6 @@ pub struct EpochValidatorInfo {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct EpochInfo {}
-
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ValidatorKickoutView {
     pub account_id: AccountId,
     pub reason: ValidatorKickoutReason,
