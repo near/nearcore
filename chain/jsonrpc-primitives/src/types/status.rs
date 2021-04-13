@@ -7,6 +7,9 @@ pub struct RpcStatusResponse {
     pub status_response: near_primitives::views::StatusResponse,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RpcHealthResponse;
+
 #[derive(thiserror::Error, Debug)]
 pub enum RpcStatusError {
     #[error("Node is syncing")]
@@ -28,6 +31,12 @@ pub enum RpcStatusError {
 impl From<near_primitives::views::StatusResponse> for RpcStatusResponse {
     fn from(status_response: near_primitives::views::StatusResponse) -> Self {
         Self { status_response }
+    }
+}
+
+impl From<near_primitives::views::StatusResponse> for RpcHealthResponse {
+    fn from(_status_response: near_primitives::views::StatusResponse) -> Self {
+        Self {}
     }
 }
 

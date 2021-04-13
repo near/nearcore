@@ -343,9 +343,10 @@ impl JsonRpcHandler {
                 serde_json::to_value(gas_price)
                     .map_err(|err| RpcError::parse_error(err.to_string()))
             }
-            "health" => match self.health().await {
-                Ok(_) => Ok(Value::Null),
-                Err(err) => Err(RpcError::new(-32_001, err.to_string(), None)),
+            "health" => {
+                let health_response = self.health().await?;
+                serde_json::to_value(health_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
             },
             "light_client_proof" => self.light_client_execution_outcome_proof(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
@@ -674,7 +675,7 @@ impl JsonRpcHandler {
     async fn health(
         &self,
     ) -> Result<
-        near_jsonrpc_primitives::types::status::RpcStatusResponse,
+        near_jsonrpc_primitives::types::status::RpcHealthResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
         Ok(self.client_addr.send(Status { is_health_check: true }).await??.into())
