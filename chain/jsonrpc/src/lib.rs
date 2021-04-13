@@ -23,10 +23,6 @@ use near_client::{
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
-use near_jsonrpc_primitives::rpc::{
-    RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse,
-    RpcValidatorsOrderedRequest,
-};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
@@ -308,7 +304,12 @@ impl JsonRpcHandler {
                     .map_err(|err| RpcError::parse_error(err.to_string()))
             }
             "EXPERIMENTAL_light_client_proof" => {
-                self.light_client_execution_outcome_proof(request.params).await
+                let rpc_light_client_execution_proof_request = near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest::parse(request.params)?;
+                let rpc_light_client_execution_proof_response = self
+                    .light_client_execution_outcome_proof(rpc_light_client_execution_proof_request)
+                    .await?;
+                serde_json::to_value(rpc_light_client_execution_proof_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
             }
             "EXPERIMENTAL_protocol_config" => {
                 let rpc_protocol_config_request =
@@ -333,7 +334,15 @@ impl JsonRpcHandler {
                 serde_json::to_value(rpc_transaction_response)
                     .map_err(|err| RpcError::parse_error(err.to_string()))
             }
-            "EXPERIMENTAL_validators_ordered" => self.validators_ordered(request.params).await,
+            "EXPERIMENTAL_validators_ordered" => {
+                let rpc_validators_ordered_request =
+                    near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest::parse(
+                        request.params,
+                    )?;
+                let validators = self.validators_ordered(rpc_validators_ordered_request).await?;
+                serde_json::to_value(validators)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "gas_price" => {
                 let rpc_gas_price_request =
                     near_jsonrpc_primitives::types::gas_price::RpcGasPriceRequest::parse(
@@ -906,10 +915,16 @@ impl JsonRpcHandler {
     /// Returns the current epoch validators ordered in the block producer order with repetition.
     /// This endpoint is solely used for bridge currently and is not intended for other external use
     /// cases.
-    async fn validators_ordered(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let RpcValidatorsOrderedRequest { block_id } =
-            parse_params::<RpcValidatorsOrderedRequest>(params)?;
-        jsonify(self.view_client_addr.send(GetValidatorOrdered { block_id }).await)
+    async fn validators_ordered(
+        &self,
+        request: near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedResponse,
+        near_jsonrpc_primitives::types::validator::RpcValidatorError,
+    > {
+        let near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest { block_id } =
+            request;
+        Ok(self.view_client_addr.send(GetValidatorOrdered { block_id }).await??.into())
     }
 }
 

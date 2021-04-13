@@ -4,8 +4,3 @@
 //! should not leak these types anywhere else.
 use near_primitives::types::MaybeBlockId;
 use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize)]
-pub struct RpcValidatorsOrderedRequest {
-    pub block_id: MaybeBlockId,
-}

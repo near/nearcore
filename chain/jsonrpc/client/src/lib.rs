@@ -7,8 +7,8 @@ use serde::Serialize;
 
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{from_slice, Message};
-use near_jsonrpc_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_jsonrpc_primitives::types::changes::{RpcStateChangesRequest, RpcStateChangesResponse};
+use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;

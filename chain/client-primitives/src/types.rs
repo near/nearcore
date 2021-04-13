@@ -516,7 +516,7 @@ pub struct GetValidatorOrdered {
 }
 
 impl Message for GetValidatorOrdered {
-    type Result = Result<Vec<ValidatorStakeView>, String>;
+    type Result = Result<Vec<ValidatorStakeView>, GetValidatorInfoError>;
 }
 
 pub struct GetStateChanges {
@@ -668,7 +668,7 @@ pub enum GetBlockProofError {
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
     // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
     Unreachable { error_message: String },
 }
 

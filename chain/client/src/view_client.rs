@@ -659,11 +659,12 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
 }
 
 impl Handler<GetValidatorOrdered> for ViewClientActor {
-    type Result = Result<Vec<ValidatorStakeView>, String>;
+    type Result = Result<Vec<ValidatorStakeView>, GetValidatorInfoError>;
 
     #[perf]
     fn handle(&mut self, msg: GetValidatorOrdered, _: &mut Self::Context) -> Self::Result {
-        self.maybe_block_id_to_block_hash(msg.block_id)
+        Ok(self
+            .maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.chain.get_block_header(&block_hash).map(|h| h.clone()))
             .and_then(|header| {
                 get_epoch_block_producers_view(
@@ -671,8 +672,7 @@ impl Handler<GetValidatorOrdered> for ViewClientActor {
                     header.prev_hash(),
                     &*self.runtime_adapter,
                 )
-            })
-            .map_err(|err| err.to_string())
+            })?)
     }
 }
 /// Returns a list of change kinds per account in a store for a given block.
