@@ -22,6 +22,7 @@ wasmer-types = { version = "1.0.2", optional = true }
 wasmer-compiler-singlepass = { version = "1.0.2", optional = true }
 wasmer-compiler-cranelift = { version = "1.0.2", optional = true }
 wasmer-engine-native = { version = "1.0.2", optional = true }
+wasmer-vm = { version = "1.0.2" }
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.25.0", default-features = false, optional = true }
