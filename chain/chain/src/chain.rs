@@ -1905,6 +1905,10 @@ impl Chain {
         &mut self,
         id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
+        if self.store.get_transaction(&id)?.is_none() && self.store.get_receipt(&id)?.is_none() {
+            // TODO: fix this properly
+            return Ok(vec![]);
+        }
         let outcome: ExecutionOutcomeWithIdView = self.get_execution_outcome(id)?.into();
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut results = vec![outcome];
@@ -2925,6 +2929,14 @@ impl<'a> ChainUpdate<'a> {
                     *new_extra.state_root_mut() = apply_result.new_root;
 
                     self.chain_store_update.save_chunk_extra(&block.hash(), shard_id, new_extra);
+                    let (_, outcome_paths) =
+                        ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                    self.chain_store_update.save_outcomes_with_proofs(
+                        &block.hash(),
+                        shard_id,
+                        apply_result.outcomes,
+                        outcome_paths,
+                    );
                 }
             }
         }
