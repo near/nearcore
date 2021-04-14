@@ -1923,7 +1923,8 @@ impl Chain {
                     None
                 }
             })
-            .expect("results should resolve to a final outcome");
+            .unwrap_or(FinalExecutionStatus::Started); // XXX: Temporary fix to avoid panic
+            //.expect("results should resolve to a final outcome");
         let receipts_outcome = outcomes.split_off(1);
         let transaction: SignedTransactionView = self
             .store
