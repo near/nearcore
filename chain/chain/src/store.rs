@@ -1378,7 +1378,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     /// Get block header from the current chain by height.
     fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error> {
-        self.chain_store.get_block_hash_by_height(height)
+        match self.chain_store_cache_update.height_to_hashes.get(&height) {
+            Some(Some(hash)) => Ok(*hash),
+            Some(None) => Err(ErrorKind::DBNotFoundErr(format!("BLOCK HEIGHT: {}", height)).into()),
+            None => self.chain_store.get_block_hash_by_height(height),
+        }
     }
 
     fn get_all_block_hashes_by_height(
