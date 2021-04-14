@@ -18,11 +18,8 @@ num_chunks_sent = Value('i', 0)
 num_block_approvals_sent = Value('i', 0)
 approval_target_heights = manager.list()
 
-TIMEOUT = 50
+TIMEOUT = 75
 CONSECUTIVE_HEIGHTS = 50
-EPOCH_LENGTH = 30
-NUM_BLOCKS_TOTAL = 200
-FORK_EACH_BLOCKS = 10
 
 jump_s = 15.0 * 60.0
 if len(sys.argv) > 1:

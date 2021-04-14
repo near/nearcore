@@ -40,9 +40,8 @@ impl Default for TimeTravelSingleton {
     }
 }
 
-static SINGLETON: Lazy<ArcSwap<TimeTravelSingleton>> = Lazy::new(|| {
-    ArcSwap::from_pointee(TimeTravelSingleton::new())
-});
+static SINGLETON: Lazy<ArcSwap<TimeTravelSingleton>> =
+    Lazy::new(|| ArcSwap::from_pointee(TimeTravelSingleton::new()));
 
 impl TimeTravelSingleton {
     pub fn new() -> Self {
@@ -81,12 +80,17 @@ impl InstantProxy {
         if let Some(&false) = time_travel.proxify.get(&FileLocation { file: file.into(), line }) {
             now
         } else {
-            let const_diff = time::Duration::from_millis(time_travel.diff as u64);
+            let const_diff = time::Duration::from_millis(time_travel.diff.abs() as u64);
             let last_check = time_travel.last_check_instant;
+            let last_check_with_const_diff = if time_travel.diff >= 0 {
+                last_check + const_diff
+            } else {
+                last_check - const_diff
+            };
             let speed_diff =
                 now.saturating_duration_since(last_check).as_millis() as f64 * time_travel.rate;
             let speed_diff = time::Duration::from_millis(speed_diff as u64);
-            last_check + const_diff + speed_diff
+            last_check_with_const_diff + speed_diff
         }
     }
 }
