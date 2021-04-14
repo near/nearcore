@@ -1,8 +1,8 @@
 use crate::types::PublicKey;
+use near_primitives_core::serialize::u64_dec_format;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
 };
-use near_primitives_core::serialize::u64_dec_format;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
