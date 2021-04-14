@@ -32,6 +32,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives::utils::ser;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 mod metrics;
@@ -372,7 +373,11 @@ impl JsonRpcHandler {
                 serde_json::to_value(next_light_client_block)
                     .map_err(|err| RpcError::parse_error(err.to_string()))
             }
-            "network_info" => self.network_info().await,
+            "network_info" => {
+                let network_info_response = self.network_info().await?;
+                serde_json::to_value(network_info_response)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "query" => {
                 let rpc_query_request =
                     near_jsonrpc_primitives::types::query::RpcQueryRequest::parse(request.params)?;
@@ -888,8 +893,13 @@ impl JsonRpcHandler {
         })
     }
 
-    async fn network_info(&self) -> Result<Value, RpcError> {
-        jsonify(self.client_addr.send(GetNetworkInfo {}).await)
+    async fn network_info(
+        &self,
+    ) -> Result<
+        near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse,
+        near_jsonrpc_primitives::types::network_info::RpcNetworkInfoError,
+    > {
+        Ok(self.client_addr.send(GetNetworkInfo {}).await??.into())
     }
 
     async fn gas_price(
