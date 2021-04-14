@@ -32,7 +32,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use near_primitives::utils::ser;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 mod metrics;
@@ -616,12 +615,12 @@ impl JsonRpcHandler {
         match self.send_tx(request_data.clone().signed_transaction, false).await? {
             NetworkClientResponses::ValidTx => {
                 Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
-                    transaction_hash: (request_data.signed_transaction.get_hash()).to_string(),
+                    transaction_hash: request_data.signed_transaction.get_hash(),
                 })
             }
             NetworkClientResponses::RequestRouted => {
                 Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::RequestRouted {
-                    transaction_hash: (request_data.signed_transaction.get_hash()).to_string(),
+                    transaction_hash: request_data.signed_transaction.get_hash(),
                 })
             }
             network_client_responses=> Err(
@@ -642,12 +641,12 @@ impl JsonRpcHandler {
         match self.send_tx(request_data.clone().signed_transaction, true).await? {
             NetworkClientResponses::ValidTx => {
                 Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
-                    transaction_hash: (request_data.signed_transaction.get_hash()).to_string(),
+                    transaction_hash: request_data.signed_transaction.get_hash(),
                 })
             }
             NetworkClientResponses::RequestRouted => {
                 Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::RequestRouted {
-                    transaction_hash: (request_data.signed_transaction.get_hash()).to_string(),
+                    transaction_hash: request_data.signed_transaction.get_hash(),
                 })
             }
             network_client_responses => Err(

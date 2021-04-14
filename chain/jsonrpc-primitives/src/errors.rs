@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{to_value, Value};
@@ -89,8 +89,8 @@ impl From<crate::errors::RpcParseError> for RpcError {
     }
 }
 
-impl Display for ServerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl fmt::Display for ServerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
             ServerError::Timeout => write!(f, "ServerError: Timeout"),

@@ -822,7 +822,7 @@ fn test_tx_not_enough_balance_must_return_error() {
                                 );
                                 System::current().stop();
                             })
-                            .map_ok(move |_| panic!("Transaction must not succeed"))
+                            .map_ok(|_| panic!("Transaction must not succeed"))
                             .await;
                         break;
                     }
@@ -879,7 +879,7 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
                                 );
                                 System::current().stop();
                             })
-                            .map_ok(move |_| panic!("Transaction must not succeed"))
+                            .map_ok(|_| panic!("Transaction must not succeed"))
                             .await;
                         break;
                     }
@@ -936,7 +936,7 @@ fn test_check_unknown_tx_must_return_error() {
                                 );
                                 System::current().stop();
                             })
-                            .map_ok(move |_| panic!("Transaction must be unknown"))
+                            .map_ok(|_| panic!("Transaction must be unknown"))
                             .await;
                         break;
                     }
@@ -989,7 +989,7 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
                                 );
                                 System::current().stop();
                             })
-                            .map_ok(move |_| panic!("Must not track shard"))
+                            .map_ok(|_| panic!("Must not track shard"))
                             .await;
                         break;
                     }
