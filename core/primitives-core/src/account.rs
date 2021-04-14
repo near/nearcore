@@ -8,7 +8,9 @@ use crate::types::{AccountId, Balance, Nonce, StorageUsage};
 use std::io;
 
 #[cfg(feature = "protocol_feature_add_account_versions")]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy,
+)]
 pub enum AccountVersion {
     V1,
 }
@@ -85,6 +87,12 @@ impl Account {
     }
 
     #[inline]
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    pub fn version(&self) -> AccountVersion {
+        self.version
+    }
+
+    #[inline]
     pub fn set_amount(&mut self, amount: Balance) {
         self.amount = amount;
     }
@@ -102,6 +110,12 @@ impl Account {
     #[inline]
     pub fn set_storage_usage(&mut self, storage_usage: StorageUsage) {
         self.storage_usage = storage_usage;
+    }
+
+    #[inline]
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    pub fn set_version(&mut self, version: AccountVersion) {
+        self.version = version;
     }
 }
 
