@@ -125,7 +125,7 @@ def main():
     hex_account_id = '49276d206865782149276d206865782149276d206865782149276d2068657821'
     tx = sign_payment_tx(key=nodes[0].signer_key,
                          to=hex_account_id,
-                         amount=10**25,
+                         amount=10**24,
                          nonce=5,
                          blockHash=base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
@@ -135,7 +135,7 @@ def main():
     
     hex_account_balance = int(
         nodes[0].get_account(hex_account_id)['result']['amount'])
-    assert hex_account_balance == 10**25
+    assert hex_account_balance == 10**24
 
     hash = status0['sync_info']['latest_block_hash']
 
