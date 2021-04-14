@@ -146,22 +146,20 @@ def main():
                                                                                 new_signer_key, 10 ** 24, 6,
                                                                                 base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(create_account_tx, timeout=20)
-    # Successfully created a new account on transfer to hex
+    # Successfully created a new account
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
     hash = status0['sync_info']['latest_block_hash']
 
-    # sign_delete_account_tx(key, to, beneficiary, nonce, blockHash):
     beneficiary_account_id = '1982374698376abd09265034ef35034756298375462323456294875193563756'
-    print(f'Deleting account {new_account_id} ...')
     tx = sign_delete_account_tx(key=new_signer_key,
                                 to=new_account_id,
                                 beneficiary=beneficiary_account_id,
                                 nonce=7,
                                 block_hash=base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
-    # Successfully created a new account on transfer to hex
+    # Successfully deleted an account
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
