@@ -65,6 +65,9 @@ impl RpcError {
     pub fn parse_error(e: String) -> Self {
         RpcError::new(-32_700, "Parse error".to_owned(), Some(Value::String(e)))
     }
+    pub fn serialization_error(e: String) -> Self {
+        RpcError::new(-32_000, "Server error".to_owned(), Some(Value::String(e)))
+    }
     /// Create a method not found error.
     pub fn method_not_found(method: String) -> Self {
         RpcError::new(-32_601, "Method not found".to_owned(), Some(Value::String(method)))
