@@ -133,8 +133,12 @@ pub fn migrate_17_to_18(path: &String, near_config: &NearConfig) {
         near_config.client_config.tracked_shards.clone(),
     );
     let shard_id = 0;
-    let gc_stop_height = runtime.get_gc_stop_height(&head.last_block_hash);
-    for block_height in gc_stop_height..=head.height {
+    let start_height = if near_config.client_config.archive {
+        genesis_height
+    } else {
+        runtime.get_gc_stop_height(&head.last_block_hash)
+    };
+    for block_height in start_height..=head.height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(block_height) {
             let block = chain_store.get_block(&block_hash).unwrap().clone();
             if block.chunks()[shard_id as usize].height_included() != block.header().height() {
