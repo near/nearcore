@@ -7,9 +7,25 @@ use crate::types::{AccountId, Balance, Nonce, StorageUsage};
 #[cfg(feature = "protocol_feature_add_account_versions")]
 use std::io;
 
-#[cfg(not(feature = "protocol_feature_add_account_versions"))]
-/// Per account information stored in the state.
+#[cfg(feature = "protocol_feature_add_account_versions")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub enum AccountVersion {
+    V1,
+}
+
+#[cfg(feature = "protocol_feature_add_account_versions")]
+impl Default for AccountVersion {
+    fn default() -> Self {
+        AccountVersion::V1
+    }
+}
+
+/// Per account information stored in the state.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[cfg_attr(
+    not(feature = "protocol_feature_add_account_versions"),
+    derive(BorshSerialize, BorshDeserialize)
+)]
 pub struct Account {
     /// The total not locked tokens.
     #[serde(with = "u128_dec_format_compatible")]
@@ -21,178 +37,97 @@ pub struct Account {
     code_hash: CryptoHash,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
-}
-
-#[cfg(feature = "protocol_feature_add_account_versions")]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-pub struct AccountV1 {
-    /// The total not locked tokens.
-    #[serde(with = "u128_dec_format_compatible")]
-    amount: Balance,
-    /// The amount locked due to staking.
-    #[serde(with = "u128_dec_format_compatible")]
-    locked: Balance,
-    /// Hash of the code stored in the storage for this account.
-    code_hash: CryptoHash,
-    /// Storage used by the given account, includes account id, this struct, access keys and other data.
-    storage_usage: StorageUsage,
-}
-
-#[cfg(feature = "protocol_feature_add_account_versions")]
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-pub enum Account {
-    AccountV1(AccountV1),
+    /// Version of Account in re migrations in similar
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    #[serde(default)]
+    version: AccountVersion,
 }
 
 impl Account {
-    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    /// Max number of bytes an account can have in its state (excluding contract code)
+    /// before it is infeasible to delete.
+    pub const MAX_ACCOUNT_DELETION_STORAGE_USAGE: u64 = 10_000;
+
     pub fn new(
         amount: Balance,
         locked: Balance,
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
     ) -> Self {
-        Account { amount, locked, code_hash, storage_usage }
+        Account {
+            amount,
+            locked,
+            code_hash,
+            storage_usage,
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            version: AccountVersion::V1,
+        }
     }
 
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    pub fn new(
-        amount: Balance,
-        locked: Balance,
-        code_hash: CryptoHash,
-        storage_usage: StorageUsage,
-    ) -> Self {
-        Account::AccountV1(AccountV1 { amount, locked, code_hash, storage_usage })
-    }
-
-    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
     #[inline]
     pub fn amount(&self) -> Balance {
         self.amount
     }
 
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    #[inline]
-    pub fn amount(&self) -> Balance {
-        match self {
-            Account::AccountV1(acc) => acc.amount,
-        }
-    }
-
-    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
     #[inline]
     pub fn locked(&self) -> Balance {
         self.locked
     }
 
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    #[inline]
-    pub fn locked(&self) -> Balance {
-        match self {
-            Account::AccountV1(acc) => acc.locked,
-        }
-    }
-
-    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
     #[inline]
     pub fn code_hash(&self) -> CryptoHash {
         self.code_hash
     }
 
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    #[inline]
-    pub fn code_hash(&self) -> CryptoHash {
-        match self {
-            Account::AccountV1(acc) => acc.code_hash,
-        }
-    }
-
-    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
     #[inline]
     pub fn storage_usage(&self) -> StorageUsage {
         self.storage_usage
     }
 
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    #[inline]
-    pub fn storage_usage(&self) -> StorageUsage {
-        match self {
-            Account::AccountV1(acc) => acc.storage_usage,
-        }
-    }
-
-    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
     #[inline]
     pub fn set_amount(&mut self, amount: Balance) {
         self.amount = amount;
     }
 
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    #[inline]
-    pub fn set_amount(&mut self, amount: Balance) {
-        match self {
-            Account::AccountV1(acc) => {
-                acc.amount = amount;
-            }
-        }
-    }
-
-    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
     #[inline]
     pub fn set_locked(&mut self, locked: Balance) {
         self.locked = locked;
     }
 
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    #[inline]
-    pub fn set_locked(&mut self, locked: Balance) {
-        match self {
-            Account::AccountV1(acc) => {
-                acc.locked = locked;
-            }
-        }
-    }
-
-    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
     #[inline]
     pub fn set_code_hash(&mut self, code_hash: CryptoHash) {
         self.code_hash = code_hash;
     }
 
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    #[inline]
-    pub fn set_code_hash(&mut self, code_hash: CryptoHash) {
-        match self {
-            Account::AccountV1(acc) => {
-                acc.code_hash = code_hash;
-            }
-        }
-    }
-
-    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
     #[inline]
     pub fn set_storage_usage(&mut self, storage_usage: StorageUsage) {
         self.storage_usage = storage_usage;
     }
+}
 
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    #[inline]
-    pub fn set_storage_usage(&mut self, storage_usage: StorageUsage) {
-        match self {
-            Account::AccountV1(acc) => {
-                acc.storage_usage = storage_usage;
-            }
-        }
-    }
+#[cfg(feature = "protocol_feature_add_account_versions")]
+#[derive(BorshSerialize, BorshDeserialize)]
+struct LegacyAccount {
+    amount: Balance,
+    locked: Balance,
+    code_hash: CryptoHash,
+    storage_usage: StorageUsage,
 }
 
 #[cfg(feature = "protocol_feature_add_account_versions")]
 impl BorshDeserialize for Account {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, io::Error> {
-        if buf.len() == std::mem::size_of::<AccountV1>() {
+        if buf.len() == std::mem::size_of::<LegacyAccount>() {
             // This should only ever happen if we have pre-transition account serialized in state
             // See test_account_size
-            Ok(Account::AccountV1(<AccountV1 as BorshDeserialize>::deserialize(buf)?))
+            let deserialized_account = LegacyAccount::deserialize(buf)?;
+            Ok(Account {
+                amount: deserialized_account.amount,
+                locked: deserialized_account.locked,
+                code_hash: deserialized_account.code_hash,
+                storage_usage: deserialized_account.storage_usage,
+                version: AccountVersion::V1,
+            })
         } else {
             unreachable!();
         }
@@ -202,16 +137,16 @@ impl BorshDeserialize for Account {
 #[cfg(feature = "protocol_feature_add_account_versions")]
 impl BorshSerialize for Account {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        match self {
-            Account::AccountV1(account) => BorshSerialize::serialize(&account, writer),
+        match self.version {
+            AccountVersion::V1 => LegacyAccount {
+                amount: self.amount,
+                locked: self.locked,
+                code_hash: self.code_hash,
+                storage_usage: self.storage_usage,
+            }
+            .serialize(writer),
         }
     }
-}
-
-impl Account {
-    /// Max number of bytes an account can have in its state (excluding contract code)
-    /// before it is infeasible to delete.
-    pub const MAX_ACCOUNT_DELETION_STORAGE_USAGE: u64 = 10_000;
 }
 
 /// Access key provides limited access to an account. Each access key belongs to some account and
@@ -298,7 +233,7 @@ mod tests {
     #[test]
     #[cfg(feature = "protocol_feature_add_account_versions")]
     fn test_account_deserialization() {
-        let old_account = AccountV1 {
+        let old_account = LegacyAccount {
             amount: 100,
             locked: 200,
             code_hash: CryptoHash::default(),
@@ -306,7 +241,11 @@ mod tests {
         };
         let mut old_bytes = &old_account.try_to_vec().unwrap()[..];
         let new_account = <Account as BorshDeserialize>::deserialize(&mut old_bytes).unwrap();
-        assert_eq!(new_account, Account::AccountV1(old_account));
+        assert_eq!(new_account.amount, old_account.amount);
+        assert_eq!(new_account.locked, old_account.locked);
+        assert_eq!(new_account.code_hash, old_account.code_hash);
+        assert_eq!(new_account.storage_usage, old_account.storage_usage);
+        assert_eq!(new_account.version, AccountVersion::V1);
         let mut new_bytes = &new_account.try_to_vec().unwrap()[..];
         let deserialized_account =
             <Account as BorshDeserialize>::deserialize(&mut new_bytes).unwrap();

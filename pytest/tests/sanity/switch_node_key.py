@@ -30,7 +30,7 @@ nodes = start_cluster(
         ["num_block_producer_seats_per_shard", [4]],
         ["validators", 0, "amount", "150000000000000000000000000000000"],
         [
-            "records", 0, "Account", "account", "AccountV1", "locked",
+            "records", 0, "Account", "account", "locked",
             "150000000000000000000000000000000"
         ],
         ["total_supply", "3100000000000000000000000000000000"]
