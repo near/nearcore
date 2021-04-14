@@ -18,7 +18,7 @@ import branches
 import cluster
 from utils import wait_for_blocks_or_timeout, load_binary_file
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, \
-    sign_create_account_tx, sign_delete_account_tx
+    sign_create_account_tx, sign_delete_account_tx, sign_create_account_with_full_access_key_and_balance_tx
 
 
 def main():
@@ -102,6 +102,12 @@ def main():
         nodes[i].binary_name = config['binary_name']
         nodes[i].start(nodes[0].node_key.pk, nodes[0].addr())
 
+    get_balance = lambda account: int(
+        nodes[0].get_account(account.account_id)['result']['amount'])
+
+    signer_balance = get_balance(nodes[0].signer_key)
+    print(signer_balance)
+
     wait_for_blocks_or_timeout(nodes[3], 60, 120)
     status0 = nodes[0].get_status()
     status3 = nodes[3].get_status()
@@ -125,7 +131,7 @@ def main():
     hex_account_id = '49276d206865782149276d206865782149276d206865782149276d2068657821'
     tx = sign_payment_tx(key=nodes[0].signer_key,
                          to=hex_account_id,
-                         amount=10**24,
+                         amount=10**25,
                          nonce=5,
                          blockHash=base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
@@ -135,12 +141,18 @@ def main():
     
     hex_account_balance = int(
         nodes[0].get_account(hex_account_id)['result']['amount'])
-    assert hex_account_balance == 10**24
+    assert hex_account_balance == 10**25
 
     hash = status0['sync_info']['latest_block_hash']
 
     new_account_id = f'new.{nodes[0].signer_key.account_id}'
     print(f'Creating account {new_account_id} ...')
+    # new_signer_key = cluster.Key(new_account_id, nodes[0].signer_key.pk, nodes[0].signer_key.sk)
+    # create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(nodes[0].signer_key, new_account_id, new_signer_key, 10 ** 24, 1, base58.b58decode(hash.encode('utf8')))
+
+    signer_balance = get_balance(nodes[0].signer_key)
+    print(signer_balance)
+
     tx = sign_create_account_tx(creator_key=nodes[0].signer_key,
                                 new_account_id=new_account_id,
                                 nonce=6,
