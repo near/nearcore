@@ -147,22 +147,18 @@ def main():
 
     new_account_id = f'new.{nodes[0].signer_key.account_id}'
     print(f'Creating account {new_account_id} ...')
-    # new_signer_key = cluster.Key(new_account_id, nodes[0].signer_key.pk, nodes[0].signer_key.sk)
-    # create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(nodes[0].signer_key, new_account_id, new_signer_key, 10 ** 24, 1, base58.b58decode(hash.encode('utf8')))
 
-    signer_balance = get_balance(nodes[0].signer_key)
-    print(signer_balance)
-
-    tx = sign_create_account_tx(creator_key=nodes[0].signer_key,
-                                new_account_id=new_account_id,
-                                nonce=6,
-                                block_hash=base58.b58decode(hash.encode('utf8')))
-    res = nodes[0].send_tx_and_wait(tx, timeout=20)
+    new_signer_key = cluster.Key(new_account_id, nodes[0].signer_key.pk, nodes[0].signer_key.sk)
+    create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(nodes[0].signer_key, new_account_id, new_signer_key, 10 ** 24, 6, base58.b58decode(hash.encode('utf8')))
+    res = nodes[0].send_tx_and_wait(create_account_tx, timeout=20)
     # Successfully created a new account on transfer to hex
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
     hash = status0['sync_info']['latest_block_hash']
+
+    signer_balance = get_balance(new_signer_key)
+    print(signer_balance)
 
     # sign_delete_account_tx(key, to, beneficiary, nonce, blockHash):
     beneficiary_account_id = '1982374698376abd09265034ef35034756298375462323456294875193563756'
