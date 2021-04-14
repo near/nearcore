@@ -88,13 +88,13 @@ def download_binary(uname, branch):
     url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/near'
     print(f'Downloading near & state-viewer for {branch}@{uname}')
     subprocess.check_output([
-        'curl', '--proto', 'https', '--tlsv1.2', '-sSfL', url, '-o',
+        'curl', '--proto', '"=https"', '--tlsv1.2', '-sSfL', url, '-o',
         f'../target/debug/near-{branch}'
     ])
     subprocess.check_output(['chmod', '+x', f'../target/debug/near-{branch}'])
     url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/state-viewer'
     subprocess.check_output([
-        'curl', '--proto', 'https', '--tlsv1.2', '-sSfL', url, '-o',
+        'curl', '--proto', '"=https"', '--tlsv1.2', '-sSfL', url, '-o',
         f'../target/debug/state-viewer-{branch}'
     ])
     subprocess.check_output(

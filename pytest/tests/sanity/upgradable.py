@@ -88,7 +88,7 @@ def main():
     # write some random value
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10**13, 0, 2,
+                               'write_random_value', [], 10 ** 13, 0, 2,
                                base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
@@ -102,26 +102,21 @@ def main():
         nodes[i].binary_name = config['binary_name']
         nodes[i].start(nodes[0].node_key.pk, nodes[0].addr())
 
-    get_balance = lambda account: int(
-        nodes[0].get_account(account.account_id)['result']['amount'])
-
-    signer_balance = get_balance(nodes[0].signer_key)
-    print(signer_balance)
-
     wait_for_blocks_or_timeout(nodes[3], 60, 120)
     status0 = nodes[0].get_status()
     status3 = nodes[3].get_status()
     protocol_version = status0['protocol_version']
     latest_protocol_version = status3["latest_protocol_version"]
     assert protocol_version == latest_protocol_version, \
-        "Latest protocol version %d should match active protocol version %d" % (latest_protocol_version, protocol_version)
+        "Latest protocol version %d should match active protocol version %d" % (
+        latest_protocol_version, protocol_version)
 
     hash = status0['sync_info']['latest_block_hash']
 
     # write some random value again
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10**13, 0, 4,
+                               'write_random_value', [], 10 ** 13, 0, 4,
                                base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
@@ -131,34 +126,31 @@ def main():
     hex_account_id = '49276d206865782149276d206865782149276d206865782149276d2068657821'
     tx = sign_payment_tx(key=nodes[0].signer_key,
                          to=hex_account_id,
-                         amount=10**25,
+                         amount=10 ** 25,
                          nonce=5,
                          blockHash=base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     # Successfully created a new account on transfer to hex
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
-    
+
     hex_account_balance = int(
         nodes[0].get_account(hex_account_id)['result']['amount'])
-    assert hex_account_balance == 10**25
+    assert hex_account_balance == 10 ** 25
 
     hash = status0['sync_info']['latest_block_hash']
 
     new_account_id = f'new.{nodes[0].signer_key.account_id}'
-    print(f'Creating account {new_account_id} ...')
-
     new_signer_key = cluster.Key(new_account_id, nodes[0].signer_key.pk, nodes[0].signer_key.sk)
-    create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(nodes[0].signer_key, new_account_id, new_signer_key, 10 ** 24, 6, base58.b58decode(hash.encode('utf8')))
+    create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(nodes[0].signer_key, new_account_id,
+                                                                                new_signer_key, 10 ** 24, 6,
+                                                                                base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(create_account_tx, timeout=20)
     # Successfully created a new account on transfer to hex
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
     hash = status0['sync_info']['latest_block_hash']
-
-    signer_balance = get_balance(new_signer_key)
-    print(signer_balance)
 
     # sign_delete_account_tx(key, to, beneficiary, nonce, blockHash):
     beneficiary_account_id = '1982374698376abd09265034ef35034756298375462323456294875193563756'
@@ -173,8 +165,6 @@ def main():
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
-    signer_balance = get_balance(beneficiary_account_id)
-    print(signer_balance)
 
 if __name__ == "__main__":
     main()
