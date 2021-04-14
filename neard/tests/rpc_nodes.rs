@@ -26,6 +26,9 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
 use testlib::{genesis_block, start_nodes, test_helpers::heavy_test};
 
+mod node_cluster;
+use node_cluster::{ClusterConfigVariant::*, NodeCluster};
+
 macro_rules! panic_on_rpc_error {
     ($e:expr) => {
         if !serde_json::to_string(&$e.data.clone().unwrap_or_default())
@@ -805,20 +808,16 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
 #[test]
 fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
     init_integration_logger();
-    heavy_test(|| {
-        run_actix_until_stop(async move {
-            let num_nodes = 1;
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new()
-                        .prefix(&format!("protocol_config{}", i))
-                        .tempdir()
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
-            let (_genesis, rpc_addrs, _) = start_nodes(1, &dirs, 1, 0, 10, 0);
 
-            actix::spawn(async move {
+    heavy_test(|| {
+        NodeCluster::new()
+            .with(Dirs(1, |index| format!("protocol_config{}", index)))
+            .with(Shards(1))
+            .with(ValidatorSeats(1))
+            .with(LightClients(0))
+            .with(EpochLength(10))
+            .with(GenesisHeight(0))
+            .exec(|_, rpc_addrs, _| async move {
                 let client = new_client(&format!("http://{}", rpc_addrs[0]));
                 let query_response = client
                     .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
@@ -830,11 +829,12 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
                         },
                     })
                     .await;
-                assert!(query_response.is_err());
+
                 let error_message = match query_response {
                     Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
                     Err(err) => err.data.unwrap(),
                 };
+
                 assert!(
                     error_message
                         .to_string()
@@ -842,8 +842,6 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
                     "{}",
                     error_message
                 );
-                System::current().stop();
             });
-        });
     });
 }
