@@ -1,13 +1,12 @@
 use std::string::FromUtf8Error;
 use std::time::Duration;
 
-use actix::{Addr, MailboxError};
+use actix::Addr;
 use actix_cors::Cors;
 use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
 use prometheus;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::time::{sleep, timeout};
@@ -90,7 +89,7 @@ impl RpcConfig {
 }
 
 #[cfg(feature = "adversarial")]
-fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
+fn parse_params<T: serde::de::DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
             .map_err(|err| RpcError::invalid_params(format!("Failed parsing args: {}", err)))
@@ -101,7 +100,7 @@ fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError
 
 #[cfg(feature = "adversarial")]
 fn jsonify<T: serde::Serialize>(
-    response: Result<Result<T, String>, MailboxError>,
+    response: Result<Result<T, String>, actix::MailboxError>,
 ) -> Result<Value, RpcError> {
     response
         .map_err(|err| err.to_string())
