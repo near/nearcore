@@ -4,14 +4,16 @@ use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{profile::ProfileData, types::CompiledContractCache};
 use near_vm_errors::{
-    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError,
+    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError, WasmTrap,
 };
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
+
 use wasmer_compiler_singlepass::Singlepass;
+use wasmer_vm::TrapCode;
 
 pub struct Wasmer1Memory(Memory);
 
@@ -93,20 +95,54 @@ impl IntoVMError for wasmer::RuntimeError {
         // so we cannot clone self
         let error_msg = self.message();
         let trap_code = self.clone().to_trap();
-        match self.downcast::<VMLogicError>() {
-            Ok(e) => (&e).into(),
-            _ => {
-                if let Some(trap_code) = trap_code {
-                    // A trap
-                    VMError::FunctionCallError(FunctionCallError::Wasmer1Trap(
-                        trap_code.to_string(),
-                    ))
-                } else {
-                    // A general error
-                    VMError::FunctionCallError(FunctionCallError::WasmerRuntimeError(error_msg))
-                }
-            }
+        if let Ok(e) = self.downcast::<VMLogicError>() {
+            return (&e).into();
         }
+        // If we panic here - it means we encountered an issue in Wasmer.
+        let trap_code = trap_code.unwrap_or_else(|| panic!("Unknown error: {}", error_msg));
+        let error = match trap_code {
+            TrapCode::StackOverflow => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
+            TrapCode::HeapSetterOutOfBounds => {
+                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
+            }
+            TrapCode::HeapAccessOutOfBounds => {
+                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
+            }
+            TrapCode::HeapMisaligned => {
+                FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
+            }
+            TrapCode::TableSetterOutOfBounds => {
+                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
+            }
+            TrapCode::TableAccessOutOfBounds => {
+                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
+            }
+            TrapCode::OutOfBounds => FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
+            TrapCode::IndirectCallToNull => {
+                FunctionCallError::WasmTrap(WasmTrap::IndirectCallToNull)
+            }
+            TrapCode::BadSignature => {
+                FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature)
+            }
+            TrapCode::IntegerOverflow => FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic),
+            TrapCode::IntegerDivisionByZero => {
+                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
+            }
+            TrapCode::BadConversionToInteger => {
+                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
+            }
+            TrapCode::UnreachableCodeReached => FunctionCallError::WasmTrap(WasmTrap::Unreachable),
+            TrapCode::UnalignedAtomic => {
+                FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
+            }
+            TrapCode::Interrupt => {
+                FunctionCallError::Nondeterministic("Wasmer interrupt".to_string())
+            }
+            TrapCode::VMOutOfMemory => {
+                FunctionCallError::Nondeterministic("Wasmer out of memory".to_string())
+            }
+        };
+        VMError::FunctionCallError(error)
     }
 }
 
