@@ -18,7 +18,7 @@ use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
-use crate::migrations::migrate_12_to_13;
+use crate::migrations::{migrate_12_to_13, migrate_17_to_18};
 pub use crate::runtime::NightshadeRuntime;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
@@ -182,6 +182,11 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         // version 16 => 17: add column for storing epoch validator info
         let store = create_store(&path);
         set_store_version(&store, 17);
+    }
+    if db_version <= 17 {
+        info!(target: "near", "Migrate DB from version 17 to 18");
+        // version 17 => 18: fix execution outcome
+        migrate_17_to_18(&path, &near_config);
     }
     #[cfg(feature = "protocol_feature_rectify_inflation")]
     if db_version <= 16 {
