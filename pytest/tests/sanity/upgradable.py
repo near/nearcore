@@ -132,7 +132,7 @@ def main():
     # Successfully created a new account on transfer to hex
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
-
+    
     hex_account_balance = int(
         nodes[0].get_account(hex_account_id)['result']['amount'])
     assert hex_account_balance == 10**25
@@ -144,7 +144,7 @@ def main():
     tx = sign_create_account_tx(creator_key=nodes[0].signer_key,
                                 new_account_id=new_account_id,
                                 nonce=6,
-                                blockHash=base58.b58decode(hash.encode('utf8')))
+                                block_hash=base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     # Successfully created a new account on transfer to hex
     assert 'error' not in res, res
@@ -159,7 +159,7 @@ def main():
                                 to=new_account_id,
                                 beneficiary=beneficiary_account_id,
                                 nonce=7,
-                                blockHash=base58.b58decode(hash.encode('utf8')))
+                                block_hash=base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     # Successfully created a new account on transfer to hex
     assert 'error' not in res, res

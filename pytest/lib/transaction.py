@@ -215,8 +215,8 @@ def sign_function_call_tx(signer_key, contract_id, methodName, args, gas,
                                           signer_key.decoded_sk())
 
 
-def sign_delete_account_tx(key, to, beneficiary, nonce, blockHash):
+def sign_delete_account_tx(key, to, beneficiary, nonce, block_hash):
     action = create_delete_account_action(beneficiary)
-    return sign_and_serialize_transaction(to, nonce, [action], blockHash,
+    return sign_and_serialize_transaction(to, nonce, [action], block_hash,
                                           key.account_id, key.decoded_pk(),
                                           key.decoded_sk())
