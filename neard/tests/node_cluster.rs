@@ -1,6 +1,6 @@
 use futures::future;
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::{run_actix_until_stop, spawn_interruptible as spawn};
 use near_client::{ClientActor, ViewClientActor};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use testlib::start_nodes;
@@ -75,7 +75,7 @@ impl NodeCluster {
                 self.genesis_height.expect("cluster config: [genesis_height] undefined"),
             );
 
-            actix::spawn(f(genesis, rpc_addrs, clients));
+            spawn(f(genesis, rpc_addrs, clients));
         });
     }
 }

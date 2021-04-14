@@ -32,6 +32,27 @@ impl Drop for ShutdownableThread {
     }
 }
 
+macro_rules! handle_interrupt {
+    ($future:expr) => {
+        async move {
+            use actix_rt::signal::ctrl_c;
+            use futures::{select, FutureExt};
+
+            select! {
+                _ = ctrl_c().fuse() => actix_rt::System::current().stop(),
+                _ = $future.fuse() => {},
+            }
+        }
+    };
+}
+
+#[inline]
+pub fn spawn_interruptible<F: std::future::Future + 'static>(
+    f: F,
+) -> actix_rt::task::JoinHandle<()> {
+    actix_rt::spawn(handle_interrupt!(f))
+}
+
 fn run_actix_until<F: std::future::Future>(f: F, expect_panic: bool) {
     static SET_PANIC_HOOK: std::sync::Once = std::sync::Once::new();
 
@@ -50,7 +71,7 @@ fn run_actix_until<F: std::future::Future>(f: F, expect_panic: bool) {
     });
 
     let sys = actix::System::new();
-    sys.block_on(f);
+    sys.block_on(handle_interrupt!(f));
     sys.run().unwrap();
 }
 
