@@ -17,7 +17,8 @@ sys.path.append('lib')
 import branches
 import cluster
 from utils import wait_for_blocks_or_timeout, load_binary_file
-from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx
+from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, \
+    sign_create_account_tx, sign_delete_account_tx
 
 
 def main():
@@ -135,6 +136,34 @@ def main():
     hex_account_balance = int(
         nodes[0].get_account(hex_account_id)['result']['amount'])
     assert hex_account_balance == 10**25
+
+    hash = status0['sync_info']['latest_block_hash']
+
+    new_account_id = f'new.{nodes[0].signer_key.account_id}'
+    print(f'Creating account {new_account_id} ...')
+    tx = sign_create_account_tx(creator_key=nodes[0].signer_key,
+                                new_account_id=new_account_id,
+                                nonce=6,
+                                blockHash=base58.b58decode(hash.encode('utf8')))
+    res = nodes[0].send_tx_and_wait(tx, timeout=20)
+    # Successfully created a new account on transfer to hex
+    assert 'error' not in res, res
+    assert 'Failure' not in res['result']['status'], res
+
+    hash = status0['sync_info']['latest_block_hash']
+
+    # sign_delete_account_tx(key, to, beneficiary, nonce, blockHash):
+    beneficiary_account_id = '1982374698376abd09265034ef35034756298375462323456294875193563756'
+    print(f'Deleting account {new_account_id} ...')
+    tx = sign_delete_account_tx(key=nodes[0].signer_key,
+                                to=new_account_id,
+                                beneficiary=beneficiary_account_id,
+                                nonce=7,
+                                blockHash=base58.b58decode(hash.encode('utf8')))
+    res = nodes[0].send_tx_and_wait(tx, timeout=20)
+    # Successfully created a new account on transfer to hex
+    assert 'error' not in res, res
+    assert 'Failure' not in res['result']['status'], res
 
 
 if __name__ == "__main__":
