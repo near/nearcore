@@ -67,7 +67,7 @@ def compile_current():
     branch = current_branch()
     try:
         # Accommodate rename from near to neard
-        subprocess.check_output(['cargo', 'build', '-p', 'neard'])
+        subprocess.check_output(['cargo', 'build', '-p', 'neard', '--verbose'])
 
         subprocess.check_output(['cargo', 'build', '-p', 'near-test-contracts'])
     except:
