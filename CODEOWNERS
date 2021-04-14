@@ -13,8 +13,9 @@
 /runtime/ @evgenykuzyakov @bowenwang1996 @EgorKulikov
 /runtime/runtime-params-estimator/ @olonho @willemneal
 /runtime/near-evm-runner/ @ailisp @artob @frankbraun
-/runtime/near-vm-runner-standalone/ @olonho @ailisp
-/runtime/near-vm-runner/ @olonho @ailisp
+/runtime/near-test-contracts/ @olonho @ailisp @matklad
+/runtime/near-vm-runner-standalone/ @olonho @ailisp @matklad
+/runtime/near-vm-runner/ @olonho @ailisp @matklad
 
 /genesis-tools/ @evgenykuzyakov @ailisp
 /tools/rpctypegen/ @frol
