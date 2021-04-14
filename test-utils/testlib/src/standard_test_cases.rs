@@ -15,7 +15,7 @@ use near_primitives::types::Balance;
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
-use near_vm_errors::{FunctionCallError, HostError, MethodResolveError};
+use near_vm_errors::MethodResolveError;
 use neard::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use crate::fees_utils::FeeHelper;
