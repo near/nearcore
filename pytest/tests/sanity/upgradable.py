@@ -163,7 +163,7 @@ def main():
     # sign_delete_account_tx(key, to, beneficiary, nonce, blockHash):
     beneficiary_account_id = '1982374698376abd09265034ef35034756298375462323456294875193563756'
     print(f'Deleting account {new_account_id} ...')
-    tx = sign_delete_account_tx(key=nodes[0].signer_key,
+    tx = sign_delete_account_tx(key=new_signer_key,
                                 to=new_account_id,
                                 beneficiary=beneficiary_account_id,
                                 nonce=7,
@@ -173,6 +173,8 @@ def main():
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
+    signer_balance = get_balance(beneficiary_account_id)
+    print(signer_balance)
 
 if __name__ == "__main__":
     main()
