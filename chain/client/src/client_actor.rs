@@ -552,7 +552,7 @@ impl Handler<Status> for ClientActor {
                             * STATUS_WAIT_TIME_MULTIPLIER,
                     )
                 {
-                    return Err(StatusError::NoBlocks { elapsed });
+                    return Err(StatusError::NoNewBlocks { elapsed });
                 }
             }
 

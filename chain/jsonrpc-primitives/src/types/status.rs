@@ -47,7 +47,7 @@ impl From<near_client_primitives::types::StatusError> for RpcStatusError {
                 Self::InternalError { error_message }
             }
             near_client_primitives::types::StatusError::NodeIsSyncing => Self::NodeIsSyncing,
-            near_client_primitives::types::StatusError::NoBlocks { elapsed } => {
+            near_client_primitives::types::StatusError::NoNewBlocks { elapsed } => {
                 Self::NoNewBlocks { elapsed }
             }
             near_client_primitives::types::StatusError::EpochOutOfBounds { epoch_id } => {

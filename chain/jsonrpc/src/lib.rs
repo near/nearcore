@@ -365,7 +365,13 @@ impl JsonRpcHandler {
                 serde_json::to_value(rpc_light_client_execution_proof_response)
                     .map_err(|err| RpcError::parse_error(err.to_string()))
             }
-            "next_light_client_block" => self.next_light_client_block(request.params).await,
+            "next_light_client_block" => {
+                let rpc_light_client_next_block_request = near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockRequest::parse(request.params)?;
+                let next_light_client_block =
+                    self.next_light_client_block(rpc_light_client_next_block_request).await?;
+                serde_json::to_value(next_light_client_block)
+                    .map_err(|err| RpcError::parse_error(err.to_string()))
+            }
             "network_info" => self.network_info().await,
             "query" => {
                 let rpc_query_request =
@@ -837,9 +843,18 @@ impl JsonRpcHandler {
         })
     }
 
-    async fn next_light_client_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (last_block_hash,) = parse_params::<(CryptoHash,)>(params)?;
-        jsonify(self.view_client_addr.send(GetNextLightClientBlock { last_block_hash }).await)
+    async fn next_light_client_block(
+        &self,
+        request: near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockResponse,
+        near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockError,
+    > {
+        Ok(self
+            .view_client_addr
+            .send(GetNextLightClientBlock { last_block_hash: request.last_block_hash })
+            .await??
+            .into())
     }
 
     async fn light_client_execution_outcome_proof(

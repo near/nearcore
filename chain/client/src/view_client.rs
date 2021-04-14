@@ -21,8 +21,8 @@ use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetProtocolConfig,
-    GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetNextLightClientBlockError,
+    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
     TxStatusError,
 };
@@ -736,28 +736,23 @@ impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
 ///  3. Otherwise, return the last final block in the epoch that follows that of the last block known
 ///     to the light client
 impl Handler<GetNextLightClientBlock> for ViewClientActor {
-    type Result = Result<Option<LightClientBlockView>, String>;
+    type Result = Result<Option<LightClientBlockView>, GetNextLightClientBlockError>;
 
     #[perf]
     fn handle(&mut self, msg: GetNextLightClientBlock, _: &mut Self::Context) -> Self::Result {
-        let last_block_header =
-            self.chain.get_block_header(&msg.last_block_hash).map_err(|err| err.to_string())?;
+        let last_block_header = self.chain.get_block_header(&msg.last_block_hash)?;
         let last_epoch_id = last_block_header.epoch_id().clone();
         let last_next_epoch_id = last_block_header.next_epoch_id().clone();
         let last_height = last_block_header.height();
-        let head = self.chain.head().map_err(|err| err.to_string())?;
+        let head = self.chain.head()?;
 
         if last_epoch_id == head.epoch_id || last_next_epoch_id == head.epoch_id {
-            let head_header = self
-                .chain
-                .get_block_header(&head.last_block_hash)
-                .map_err(|err| err.to_string())?;
+            let head_header = self.chain.get_block_header(&head.last_block_hash)?;
             let ret = Chain::create_light_client_block(
                 &head_header.clone(),
                 &*self.runtime_adapter,
                 self.chain.mut_store(),
-            )
-            .map_err(|err| err.to_string())?;
+            )?;
 
             if ret.inner_lite.height <= last_height {
                 Ok(None)
@@ -771,7 +766,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
                     if let ErrorKind::DBNotFoundErr(_) = e.kind() {
                         Ok(None)
                     } else {
-                        Err(e.to_string())
+                        Err(e.into())
                     }
                 }
             }

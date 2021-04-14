@@ -9,6 +9,11 @@ pub struct RpcLightClientExecutionProofRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct RpcLightClientNextBlockRequest {
+    pub last_block_hash: near_primitives::hash::CryptoHash,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RpcLightClientExecutionProofResponse {
     pub outcome_proof: near_primitives::views::ExecutionOutcomeWithIdView,
     pub outcome_root_proof: near_primitives::merkle::MerklePath,
@@ -16,10 +21,10 @@ pub struct RpcLightClientExecutionProofResponse {
     pub block_proof: near_primitives::merkle::MerklePath,
 }
 
-impl RpcLightClientExecutionProofRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<Self>(value)?)
-    }
+#[derive(Debug, Serialize)]
+pub struct RpcLightClientNextBlockResponse {
+    #[serde(flatten)]
+    pub light_client_block: Option<near_primitives::views::LightClientBlockView>,
 }
 
 #[derive(thiserror::Error, Debug, Serialize)]
@@ -48,6 +53,48 @@ pub enum RpcLightClientProofError {
     // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
     #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
     Unreachable { error_message: String },
+}
+
+#[derive(thiserror::Error, Debug, Serialize)]
+pub enum RpcLightClientNextBlockError {
+    #[error("Internal error: {error_message}")]
+    InternalError { error_message: String },
+    #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
+    UnknownBlock { error_message: String },
+    #[error("Epoch Out Of Bounds {epoch_id:?}")]
+    EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
+    Unreachable { error_message: String },
+}
+
+impl RpcLightClientExecutionProofRequest {
+    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        Ok(crate::utils::parse_params::<Self>(value)?)
+    }
+}
+
+impl RpcLightClientNextBlockRequest {
+    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        if let Ok((last_block_hash,)) =
+            crate::utils::parse_params::<(near_primitives::hash::CryptoHash,)>(value.clone())
+        {
+            Ok(Self { last_block_hash })
+        } else {
+            Ok(crate::utils::parse_params::<Self>(value)?)
+        }
+    }
+}
+
+impl From<Option<near_primitives::views::LightClientBlockView>>
+    for RpcLightClientNextBlockResponse
+{
+    fn from(light_client_block: Option<near_primitives::views::LightClientBlockView>) -> Self {
+        Self { light_client_block }
+    }
 }
 
 impl From<near_client_primitives::types::GetExecutionOutcomeError> for RpcLightClientProofError {
@@ -105,7 +152,41 @@ impl From<near_client_primitives::types::GetBlockProofError> for RpcLightClientP
     }
 }
 
+impl From<near_client_primitives::types::GetNextLightClientBlockError>
+    for RpcLightClientNextBlockError
+{
+    fn from(error: near_client_primitives::types::GetNextLightClientBlockError) -> Self {
+        match error {
+            near_client_primitives::types::GetNextLightClientBlockError::InternalError {
+                error_message,
+            } => Self::InternalError { error_message },
+            near_client_primitives::types::GetNextLightClientBlockError::UnknownBlock {
+                error_message,
+            } => Self::UnknownBlock { error_message },
+            near_client_primitives::types::GetNextLightClientBlockError::EpochOutOfBounds {
+                epoch_id,
+            } => Self::EpochOutOfBounds { epoch_id },
+            near_client_primitives::types::GetNextLightClientBlockError::Unreachable {
+                error_message,
+            } => {
+                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
+                near_metrics::inc_counter_vec(
+                    &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
+                    &["RpcLightClientNextBlockError"],
+                );
+                Self::Unreachable { error_message }
+            }
+        }
+    }
+}
+
 impl From<actix::MailboxError> for RpcLightClientProofError {
+    fn from(error: actix::MailboxError) -> Self {
+        Self::InternalError { error_message: error.to_string() }
+    }
+}
+
+impl From<actix::MailboxError> for RpcLightClientNextBlockError {
     fn from(error: actix::MailboxError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
@@ -113,6 +194,14 @@ impl From<actix::MailboxError> for RpcLightClientProofError {
 
 impl From<RpcLightClientProofError> for crate::errors::RpcError {
     fn from(error: RpcLightClientProofError) -> Self {
+        let error_data = Some(Value::String(error.to_string()));
+
+        Self::new(-32_000, "Server error".to_string(), error_data)
+    }
+}
+
+impl From<RpcLightClientNextBlockError> for crate::errors::RpcError {
+    fn from(error: RpcLightClientNextBlockError) -> Self {
         let error_data = Some(Value::String(error.to_string()));
 
         Self::new(-32_000, "Server error".to_string(), error_data)
