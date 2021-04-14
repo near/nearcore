@@ -5,20 +5,21 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, TxExecutionError,
+    ActionError, ActionErrorKind, ContractCallError, InvalidAccessKeyError, InvalidTxError,
+    TxExecutionError,
 };
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::Balance;
 use near_primitives::views::{AccessKeyView, FinalExecutionStatus};
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
-use near_vm_errors::{FunctionCallError, HostError, MethodResolveError};
 use neard::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use crate::fees_utils::FeeHelper;
 use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use crate::user::User;
+use near_vm_errors::MethodResolveError;
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
@@ -81,9 +82,12 @@ pub fn test_smart_contract_panic(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::HostError(
-                    HostError::GuestPanic { panic_msg: "WAT?".to_string() }
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError {
+                        msg: "Smart contract panicked: WAT?".to_string()
+                    }
+                    .into()
+                )
             }
             .into()
         )
@@ -119,9 +123,10 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodNotFound
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::MethodResolveError(MethodResolveError::MethodNotFound)
+                        .into()
+                )
             }
             .into()
         )
@@ -143,9 +148,10 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::MethodResolveError(MethodResolveError::MethodEmptyName)
+                        .into()
+                )
             }
             .into()
         )
@@ -167,9 +173,10 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::MethodResolveError(MethodResolveError::MethodEmptyName)
+                        .into()
+                )
             }
             .into()
         )
