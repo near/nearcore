@@ -89,6 +89,7 @@ impl RpcConfig {
     }
 }
 
+#[cfg(feature = "adversarial")]
 fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
@@ -98,6 +99,7 @@ fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError
     }
 }
 
+#[cfg(feature = "adversarial")]
 fn jsonify<T: serde::Serialize>(
     response: Result<Result<T, String>, MailboxError>,
 ) -> Result<Value, RpcError> {
