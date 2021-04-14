@@ -4,7 +4,9 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ContractCallError, ExternalError, RuntimeError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
@@ -192,10 +194,45 @@ pub(crate) fn action_function_call(
         false,
     );
     let execution_succeeded = match err {
-        Some(VMError::FunctionCallError(err)) => {
-            result.result = Err(ActionErrorKind::FunctionCallError(err).into());
-            false
-        }
+        Some(VMError::FunctionCallError(err)) => match err {
+            FunctionCallError::Nondeterministic(msg) => {
+                panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+            }
+            FunctionCallError::WasmUnknownError { debug_message } => {
+                panic!("Wasmer returned unknown message: {}", debug_message)
+            }
+            FunctionCallError::CompilationError(err) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::CompilationError(err).into(),
+                )
+                .into());
+                false
+            }
+            FunctionCallError::LinkError { msg } => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError { msg: format!("Link Error: {}", msg) }
+                        .into(),
+                )
+                .into());
+                false
+            }
+            FunctionCallError::MethodResolveError(err) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::MethodResolveError(err).into(),
+                )
+                .into());
+                false
+            }
+            FunctionCallError::WasmTrap(_)
+            | FunctionCallError::HostError(_)
+            | FunctionCallError::EvmError(_) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError { msg: err.to_string() }.into(),
+                )
+                .into());
+                false
+            }
+        },
         Some(VMError::ExternalError(serialized_error)) => {
             let err: ExternalError = borsh::BorshDeserialize::try_from_slice(&serialized_error)
                 .expect("External error deserialization shouldn't fail");
