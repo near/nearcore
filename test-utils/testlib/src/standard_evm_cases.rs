@@ -80,9 +80,9 @@ pub fn test_evm_infinite_loop_gas_limit(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractCallError::ExecutionError(
-                    "EVM: OutOfGas".to_string()
-                ))
+                kind: ActionErrorKind::FunctionCallError(ContractCallError::ExecutionError {
+                    msg: "EVM: OutOfGas".to_string()
+                }.into())
             }
             .into()
         )
@@ -105,9 +105,9 @@ pub fn test_evm_fibonacci_gas_limit(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(ContractCallError::ExecutionError(
-                    "EVM: OutOfGas".to_string()
-                ))
+                kind: ActionErrorKind::FunctionCallError(ContractCallError::ExecutionError {
+                    msg: "EVM: OutOfGas".to_string()
+                }.into())
             }
             .into()
         )
