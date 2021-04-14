@@ -30,6 +30,8 @@ jemallocator = { version = "0.3", optional = true }
 hex = "0.4"
 num-rational = { version = "0.3", features = ["serde"]}
 primitive-types = "0.9"
+once_cell = "1"
+arc-swap = "1.2"
 
 borsh = "0.8.1"
 

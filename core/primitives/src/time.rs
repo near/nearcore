@@ -1,11 +1,12 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::default::Default;
-use std::mem;
-use std::sync::{Arc, Mutex, Once};
+use std::sync::Arc;
 use std::time;
 
+use arc_swap::ArcSwap;
 use chrono;
+use once_cell::sync::Lazy;
 
 pub use chrono::Utc;
 pub use std::time::Instant;
@@ -27,13 +28,6 @@ pub struct FileLocation {
     pub line: u32,
 }
 
-#[derive(Clone)]
-struct SingletonReader {
-    // Since we might be used in many threads, we need to protect
-    // concurrent access
-    inner: Arc<Mutex<TimeTravelSingleton>>,
-}
-
 impl Default for TimeTravelSingleton {
     fn default() -> Self {
         Self {
@@ -46,43 +40,28 @@ impl Default for TimeTravelSingleton {
     }
 }
 
+static SINGLETON: Lazy<ArcSwap<TimeTravelSingleton>> = Lazy::new(|| {
+    ArcSwap::from_pointee(TimeTravelSingleton::new())
+});
+
 impl TimeTravelSingleton {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn set(value: Self) {
-        SingletonReader::set(value)
-    }
-}
-
-static mut SINGLETON: *const SingletonReader = 0 as *const SingletonReader;
-static ONCE: Once = Once::new();
-
-impl SingletonReader {
-    fn get() -> SingletonReader {
-        unsafe {
-            ONCE.call_once(|| {
-                SingletonReader::set(TimeTravelSingleton::default());
-            });
-
-            (*SINGLETON).clone()
-        }
+    pub fn get() -> Arc<TimeTravelSingleton> {
+        SINGLETON.load_full()
     }
 
-    fn set(value: TimeTravelSingleton) {
-        let singleton = SingletonReader { inner: Arc::new(Mutex::new(value)) };
-        unsafe {
-            SINGLETON = mem::transmute(Box::new(singleton));
-        }
+    pub fn set(value: TimeTravelSingleton) {
+        SINGLETON.store(Arc::new(value))
     }
 }
 
 impl UtcProxy {
     pub fn now(file: &'static str, line: u32) -> chrono::DateTime<chrono::Utc> {
         let now = chrono::Utc::now();
-        let singleton = SingletonReader::get();
-        let time_travel = singleton.inner.lock().expect("poisoned mutex");
+        let time_travel = TimeTravelSingleton::get();
         if let Some(&false) = time_travel.proxify.get(&FileLocation { file: file.into(), line }) {
             now
         } else {
@@ -98,8 +77,7 @@ impl UtcProxy {
 impl InstantProxy {
     pub fn now(file: &'static str, line: u32) -> time::Instant {
         let now = time::Instant::now();
-        let singleton = SingletonReader::get();
-        let time_travel = singleton.inner.lock().expect("poisoned mutex");
+        let time_travel = TimeTravelSingleton::get();
         if let Some(&false) = time_travel.proxify.get(&FileLocation { file: file.into(), line }) {
             now
         } else {
