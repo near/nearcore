@@ -1,6 +1,6 @@
 [package]
 name = "near-jsonrpc"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -8,6 +8,7 @@ edition = "2018"
 actix = "0.11.0-beta.2"
 actix-web = "4.0.0-beta.3"
 actix-cors = { git = "https://github.com/near/actix-extras.git", branch="actix-web-4-beta.3" }
+easy-ext = "0.2"
 tokio = { version = "1.1", features = ["full"] }
 futures = "0.3"
 lazy_static = "1.4"
@@ -27,7 +28,6 @@ near-network = { path = "../network" }
 near-jsonrpc-client = { path = "client" }
 near-jsonrpc-primitives = { path = "../jsonrpc-primitives" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 
 [dev-dependencies]

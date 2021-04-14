@@ -3236,12 +3236,13 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actix",
  "actix-cors",
  "actix-web",
  "borsh",
+ "easy-ext",
  "futures",
  "lazy_static",
  "near-actix-test-utils",
@@ -3256,7 +3257,6 @@ dependencies = [
  "near-performance-metrics",
  "near-primitives",
  "near-rpc-error-macro",
- "near-runtime-utils",
  "prometheus",
  "serde",
  "serde_json",
@@ -3290,6 +3290,8 @@ dependencies = [
  "near-metrics",
  "near-primitives",
  "near-primitives-core",
+ "near-rpc-error-macro",
+ "near-runtime-utils",
  "serde",
  "serde_json",
  "thiserror",
@@ -3627,6 +3629,7 @@ dependencies = [
  "wasmer-runtime-core-near",
  "wasmer-runtime-near",
  "wasmer-types",
+ "wasmer-vm",
  "wasmtime",
 ]
 
@@ -3688,7 +3691,6 @@ dependencies = [
  "git-version",
  "jemallocator",
  "lazy-static-include",
- "lazy_static",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
