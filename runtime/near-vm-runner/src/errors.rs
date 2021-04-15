@@ -11,6 +11,13 @@ pub struct ContractPrecompilatonError {
     inner: VMError,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum ContractPrecompilatonResult {
+    ContractCompiled,
+    ContractAlreadyInCache,
+    CacheNotAvailable,
+}
+
 impl ContractPrecompilatonError {
     pub fn new(err: VMError) -> ContractPrecompilatonError {
         ContractPrecompilatonError { inner: err }

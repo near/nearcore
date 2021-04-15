@@ -1,4 +1,4 @@
-use crate::errors::{ContractPrecompilatonError, IntoVMError};
+use crate::errors::{ContractPrecompilatonError, ContractPrecompilatonResult, IntoVMError};
 use crate::prepare;
 use crate::wasmer1_runner::{default_wasmer1_store, wasmer1_vm_hash};
 use crate::wasmer_runner::wasmer0_vm_hash;
@@ -298,16 +298,16 @@ pub(crate) fn precompile_contract_impl(
     wasm_code: &ContractCode,
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
-) -> Result<bool, ContractPrecompilatonError> {
+) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
     let cache = match cache {
-        None => return Ok(false),
+        None => return Ok(ContractPrecompilatonResult::CacheNotAvailable),
         Some(it) => it,
     };
     let key = get_key(wasm_code, vm_kind, config);
     // Check if we already cached with such a key.
     match cache.get(key.raw_bytes()) {
         // If so - do not override.
-        Ok(Some(_)) => return Ok(false),
+        Ok(Some(_)) => return Ok(ContractPrecompilatonResult::ContractAlreadyInCache),
         Ok(None) | Err(_) => {}
     };
     match vm_kind {
@@ -317,7 +317,7 @@ pub(crate) fn precompile_contract_impl(
             &key,
             cache,
         ) {
-            Ok(_) => Ok(true),
+            Ok(_) => Ok(ContractPrecompilatonResult::ContractCompiled),
             Err(err) => Err(ContractPrecompilatonError::new(err)),
         },
         VMKind::Wasmer1 => {
@@ -329,7 +329,7 @@ pub(crate) fn precompile_contract_impl(
                 cache,
                 &store,
             ) {
-                Ok(_) => Ok(true),
+                Ok(_) => Ok(ContractPrecompilatonResult::ContractCompiled),
                 Err(err) => Err(ContractPrecompilatonError::new(err)),
             }
         }
@@ -346,6 +346,6 @@ pub fn precompile_contract(
     wasm_code: &ContractCode,
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
-) -> Result<bool, ContractPrecompilatonError> {
+) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
     precompile_contract_impl(VMKind::default(), wasm_code, config, cache)
 }
