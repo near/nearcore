@@ -2,16 +2,16 @@ use near_primitives::contract::ContractCode;
 use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::Balance;
-use near_vm_errors::{FunctionCallError, VMError};
+use near_vm_errors::{FunctionCallError, VMError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{types::ReturnData, VMConfig, VMKind, VMOutcome};
+use near_vm_logic::{types::ReturnData, VMConfig, VMOutcome};
 use std::mem::size_of;
 
-use crate::run_vm;
 use crate::tests::{
     create_context, with_vm_variants, CURRENT_ACCOUNT_ID, LATEST_PROTOCOL_VERSION,
     PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
+use crate::{run_vm, VMKind};
 
 fn test_contract() -> ContractCode {
     let code = if cfg!(feature = "protocol_feature_alt_bn128") {
@@ -285,12 +285,10 @@ pub fn test_out_of_memory() {
         assert_eq!(
             result.1,
             match vm_kind {
-                VMKind::Wasmer0 =>
-                    Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)),
-                VMKind::Wasmer1 => Some(VMError::FunctionCallError(
-                    FunctionCallError::Wasmer1Trap("unreachable".to_string())
+                VMKind::Wasmer0 | VMKind::Wasmer1 => Some(VMError::FunctionCallError(
+                    FunctionCallError::WasmTrap(WasmTrap::Unreachable)
                 )),
-                _ => unreachable!(),
+                VMKind::Wasmtime => unreachable!(),
             }
         );
     })

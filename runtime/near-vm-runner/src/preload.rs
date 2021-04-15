@@ -9,13 +9,14 @@ use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError;
 use near_vm_logic::profile::ProfileData;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMOutcome};
 
 use crate::cache;
 use crate::memory::WasmerMemory;
 use crate::preload::VMModule::{Wasmer0, Wasmer1};
 use crate::wasmer1_runner::{default_wasmer1_store, run_wasmer1_module, Wasmer1Memory};
 use crate::wasmer_runner::run_wasmer0_module;
+use crate::VMKind;
 
 const SHARE_MEMORY_INSTANCE: bool = false;
 

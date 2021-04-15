@@ -342,7 +342,7 @@ fn produce_block_with_approvals_arrived_early() {
             key_pairs,
             1,
             true,
-            100,
+            2000,
             false,
             false,
             100,
@@ -393,7 +393,7 @@ fn produce_block_with_approvals_arrived_early() {
                 }
             });
 
-        near_network::test_utils::wait_or_panic(5000);
+        near_network::test_utils::wait_or_panic(10000);
     });
 }
 
@@ -572,8 +572,9 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                 match msg {
                     NetworkRequests::Block { block } => {
                         if block.header().height() >= 4 && !sent_bad_blocks {
-                            let block_producer = validators[0]
-                                [block.header().height() as usize % validators[0].len()];
+                            let block_producer_idx =
+                                block.header().height() as usize % validators[0].len();
+                            let block_producer = validators[0][block_producer_idx];
                             let validator_signer1 = InMemoryValidatorSigner::from_seed(
                                 block_producer,
                                 KeyType::ED25519,
@@ -615,7 +616,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                             }
 
                             for (i, (client, _)) in conns.clone().into_iter().enumerate() {
-                                if i > 0 {
+                                if i != block_producer_idx {
                                     client.do_send(NetworkClientMessages::Block(
                                         block_mut.clone(),
                                         PeerInfo::random().id,
