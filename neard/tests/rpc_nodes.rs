@@ -652,29 +652,27 @@ fn test_protocol_config_rpc() {
         .with(GenesisHeight(0));
 
     cluster.exec(|genesis, rpc_addrs, _| async move {
-        spawn(async move {
-            let client = new_client(&format!("http://{}", rpc_addrs[0]));
-            let config_response = client
-                .EXPERIMENTAL_protocol_config(
-                    near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
-                        block_reference:
-                            near_jsonrpc_primitives::types::blocks::BlockReference::Finality(
-                                Finality::None,
-                            ),
-                    },
-                )
-                .await
-                .unwrap();
-            assert_ne!(
-                config_response.config_view.runtime_config.storage_amount_per_byte,
-                genesis.config.runtime_config.storage_amount_per_byte
-            );
-            assert_eq!(
-                config_response.config_view.runtime_config.storage_amount_per_byte,
-                10u128.pow(19)
-            );
-            System::current().stop();
-        });
+        let client = new_client(&format!("http://{}", rpc_addrs[0]));
+        let config_response = client
+            .EXPERIMENTAL_protocol_config(
+                near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
+                    block_reference:
+                        near_jsonrpc_primitives::types::blocks::BlockReference::Finality(
+                            Finality::None,
+                        ),
+                },
+            )
+            .await
+            .unwrap();
+        assert_ne!(
+            config_response.config_view.runtime_config.storage_amount_per_byte,
+            genesis.config.runtime_config.storage_amount_per_byte
+        );
+        assert_eq!(
+            config_response.config_view.runtime_config.storage_amount_per_byte,
+            10u128.pow(19)
+        );
+        System::current().stop();
     });
 }
 
@@ -692,34 +690,29 @@ fn test_query_rpc_account_view_must_succeed() {
         .with(GenesisHeight(0));
 
     cluster.exec(|_, rpc_addrs, _| async move {
-        spawn(async move {
-            let client = new_client(&format!("http://{}", rpc_addrs[0]));
-            let query_response = client
-                .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
-                    block_reference: near_primitives::types::BlockReference::Finality(
-                        Finality::Final,
-                    ),
-                    request: near_primitives::views::QueryRequest::ViewAccount {
-                        account_id: "near.0".to_string(),
-                    },
-                })
-                .await
-                .unwrap();
-            let account =
-                if let near_jsonrpc_primitives::types::query::QueryResponseKind::ViewAccount(
-                    account,
-                ) = query_response.kind
-                {
-                    account
-                } else {
-                    panic!(
-                        "expected a account view result, but received something else: {:?}",
-                        query_response.kind
-                    );
-                };
-            assert!(matches!(account, near_primitives::views::AccountView { .. }));
-            System::current().stop();
-        });
+        let client = new_client(&format!("http://{}", rpc_addrs[0]));
+        let query_response = client
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
+                request: near_primitives::views::QueryRequest::ViewAccount {
+                    account_id: "near.0".to_string(),
+                },
+            })
+            .await
+            .unwrap();
+        let account =
+            if let near_jsonrpc_primitives::types::query::QueryResponseKind::ViewAccount(account) =
+                query_response.kind
+            {
+                account
+            } else {
+                panic!(
+                    "expected a account view result, but received something else: {:?}",
+                    query_response.kind
+                );
+            };
+        assert!(matches!(account, near_primitives::views::AccountView { .. }));
+        System::current().stop();
     });
 }
 
@@ -737,31 +730,27 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
         .with(GenesisHeight(0));
 
     cluster.exec(|_, rpc_addrs, _| async move {
-        spawn(async move {
-            let client = new_client(&format!("http://{}", rpc_addrs[0]));
-            let query_response = client
-                .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
-                    block_reference: near_primitives::types::BlockReference::Finality(
-                        Finality::Final,
-                    ),
-                    request: near_primitives::views::QueryRequest::ViewAccount {
-                        account_id: "1nval$d*@cc0ount".to_string(),
-                    },
-                })
-                .await;
+        let client = new_client(&format!("http://{}", rpc_addrs[0]));
+        let query_response = client
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
+                request: near_primitives::views::QueryRequest::ViewAccount {
+                    account_id: "1nval$d*@cc0ount".to_string(),
+                },
+            })
+            .await;
 
-            let error_message = match query_response {
-                Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
-                Err(err) => err.data.unwrap(),
-            };
+        let error_message = match query_response {
+            Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
+            Err(err) => err.data.unwrap(),
+        };
 
-            assert!(
-                error_message.to_string().contains("Account ID 1nval$d*@cc0ount is invalid"),
-                "{}",
-                error_message
-            );
-            System::current().stop();
-        });
+        assert!(
+            error_message.to_string().contains("Account ID 1nval$d*@cc0ount is invalid"),
+            "{}",
+            error_message
+        );
+        System::current().stop();
     });
 }
 
