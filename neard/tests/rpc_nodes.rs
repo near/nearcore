@@ -809,39 +809,38 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
 fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
     init_integration_logger();
 
-    heavy_test(|| {
-        NodeCluster::new()
-            .with(Dirs(1, |index| format!("protocol_config{}", index)))
-            .with(Shards(1))
-            .with(ValidatorSeats(1))
-            .with(LightClients(0))
-            .with(EpochLength(10))
-            .with(GenesisHeight(0))
-            .exec(|_, rpc_addrs, _| async move {
-                let client = new_client(&format!("http://{}", rpc_addrs[0]));
-                let query_response = client
-                    .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
-                        block_reference: near_primitives::types::BlockReference::Finality(
-                            Finality::Final,
-                        ),
-                        request: near_primitives::views::QueryRequest::ViewAccount {
-                            account_id: "accountdoesntexist.0".to_string(),
-                        },
-                    })
-                    .await;
+    NodeCluster::new()
+        .heavy(true)
+        .with(Dirs(1, |index| format!("protocol_config{}", index)))
+        .with(Shards(1))
+        .with(ValidatorSeats(1))
+        .with(LightClients(0))
+        .with(EpochLength(10))
+        .with(GenesisHeight(0))
+        .exec(|_, rpc_addrs, _| async move {
+            let client = new_client(&format!("http://{}", rpc_addrs[0]));
+            let query_response = client
+                .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                    block_reference: near_primitives::types::BlockReference::Finality(
+                        Finality::Final,
+                    ),
+                    request: near_primitives::views::QueryRequest::ViewAccount {
+                        account_id: "accountdoesntexist.0".to_string(),
+                    },
+                })
+                .await;
 
-                let error_message = match query_response {
-                    Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
-                    Err(err) => err.data.unwrap(),
-                };
+            let error_message = match query_response {
+                Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
+                Err(err) => err.data.unwrap(),
+            };
 
-                assert!(
-                    error_message
-                        .to_string()
-                        .contains("account accountdoesntexist.0 does not exist while viewing"),
-                    "{}",
-                    error_message
-                );
-            });
-    });
+            assert!(
+                error_message
+                    .to_string()
+                    .contains("account accountdoesntexist.0 does not exist while viewing"),
+                "{}",
+                error_message
+            );
+        });
 }
