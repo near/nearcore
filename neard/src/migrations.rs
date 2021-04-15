@@ -166,7 +166,6 @@ pub fn migrate_17_to_18(path: &String, near_config: &NearConfig) {
                     )
                     .unwrap();
                 if !apply_result.outcomes.is_empty() {
-                    println!("block {} has nonempty outcomes", block_height);
                     let (_, outcome_paths) =
                         ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
                     chain_store_update.save_outcomes_with_proofs(
