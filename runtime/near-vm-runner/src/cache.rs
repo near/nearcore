@@ -3,6 +3,7 @@ use crate::prepare;
 use crate::wasmer1_runner::{default_wasmer1_store, wasmer1_vm_hash};
 use crate::wasmer_runner::wasmer0_vm_hash;
 use crate::wasmtime_runner::wasmtime_vm_hash;
+use crate::VMKind;
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(not(feature = "no_cache"))]
 use cached::{cached_key, SizedCache};
@@ -11,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
 use near_vm_errors::{CacheError, VMError};
-use near_vm_logic::{VMConfig, VMKind};
+use near_vm_logic::VMConfig;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
