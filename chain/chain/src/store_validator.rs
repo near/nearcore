@@ -100,7 +100,7 @@ impl StoreValidator {
             inner: StoreValidatorCache::new(),
             timeout: None,
             // For basic timeout. We do not use the time proxy.
-            start_time: Instant::system_time(file!(), line!()),
+            start_time: Instant::system_time(),
             errors: vec![],
             tests: 0,
         }
@@ -343,7 +343,7 @@ impl StoreValidator {
     }
     pub fn validate(&mut self) {
         // For basic timeout, we do not use the time proxy.
-        self.start_time = Instant::system_time(file!(), line!());
+        self.start_time = Instant::system_time();
 
         // Init checks
         // Check Head-Tail validity and fill cache with their values

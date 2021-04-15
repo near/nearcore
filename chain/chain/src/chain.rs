@@ -460,7 +460,7 @@ impl Chain {
         self.orphans.add(Orphan {
             block: block.clone(),
             provenance: Provenance::NONE,
-            added: InstantProxy::now(file!(), line!()),
+            added: InstantProxy::now(),
         });
         Ok(())
     }
@@ -1100,11 +1100,7 @@ impl Chain {
                         // we only add blocks that couldn't have been gc'ed to the orphan pool.
                         if block_height >= tail_height {
                             let block_hash = *block.hash();
-                            let orphan = Orphan {
-                                block,
-                                provenance,
-                                added: InstantProxy::now(file!(), line!()),
-                            };
+                            let orphan = Orphan { block, provenance, added: InstantProxy::now() };
 
                             self.orphans.add(orphan);
 
@@ -1124,11 +1120,7 @@ impl Chain {
                     ErrorKind::ChunksMissing(missing_chunks) => {
                         let block_hash = *block.hash();
                         block_misses_chunks(missing_chunks.clone());
-                        let orphan = Orphan {
-                            block,
-                            provenance,
-                            added: InstantProxy::now(file!(), line!()),
-                        };
+                        let orphan = Orphan { block, provenance, added: InstantProxy::now() };
 
                         self.blocks_with_missing_chunks.add_block_with_missing_chunks(
                             orphan,
@@ -3224,9 +3216,7 @@ impl<'a> ChainUpdate<'a> {
     {
         // Refuse blocks from the too distant future.
         // Vailidity of the header is based on time. We obtain this time through a proxy.
-        if header.timestamp()
-            > UtcProxy::now(file!(), line!()) + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE)
-        {
+        if header.timestamp() > UtcProxy::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
         }
 

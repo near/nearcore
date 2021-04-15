@@ -1000,8 +1000,8 @@ impl KnownPeerState {
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
-            first_seen: to_timestamp(Utc::system_time(file!(), line!())),
-            last_seen: to_timestamp(Utc::system_time(file!(), line!())),
+            first_seen: to_timestamp(Utc::system_time()),
+            last_seen: to_timestamp(Utc::system_time()),
         }
     }
 

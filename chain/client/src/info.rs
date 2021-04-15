@@ -64,7 +64,7 @@ impl InfoHelper {
             sys: System::new(),
             pid: get_current_pid().ok(),
             // For instrumentation. We do not use the time proxy.
-            started: Instant::system_time(file!(), line!()),
+            started: Instant::system_time(),
             num_blocks_processed: 0,
             gas_used: 0,
             telemetry_actor,
@@ -160,7 +160,7 @@ impl InfoHelper {
         set_gauge(&metrics::MEMORY_USAGE, (memory_usage * 1024) as i64);
 
         // For instrumentation. We do not use the time proxy.
-        self.started = Instant::system_time(file!(), line!());
+        self.started = Instant::system_time();
         self.num_blocks_processed = 0;
         self.gas_used = 0;
 

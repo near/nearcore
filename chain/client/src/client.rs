@@ -179,7 +179,7 @@ impl Client {
             challenges: Default::default(),
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
-            last_time_head_progress_made: InstantProxy::now(file!(), line!()),
+            last_time_head_progress_made: InstantProxy::now(),
         })
     }
 
@@ -187,12 +187,12 @@ impl Client {
     // this method was called. If yes, rebroadcasts the current head.
     pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
         // We use the time proxy for driving the logic.
-        if InstantProxy::now(file!(), line!()) > self.last_time_head_progress_made + stall_timeout
+        if InstantProxy::now() > self.last_time_head_progress_made + stall_timeout
             && !self.sync_status.is_syncing()
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
             self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
-            self.last_time_head_progress_made = InstantProxy::now(file!(), line!());
+            self.last_time_head_progress_made = InstantProxy::now();
         }
         Ok(())
     }
@@ -503,7 +503,7 @@ impl Client {
         // Time ends up not being used. We use the time proxy, because why not.
         self.chain.mut_store().save_latest_known(LatestKnown {
             height: next_height,
-            seen: to_timestamp(UtcProxy::now(file!(), line!())),
+            seen: to_timestamp(UtcProxy::now()),
         })?;
 
         near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
@@ -753,7 +753,7 @@ impl Client {
 
         if let Ok(Some(_)) = result {
             // We use the time proxy for driving the logic.
-            self.last_time_head_progress_made = InstantProxy::now(file!(), line!());
+            self.last_time_head_progress_made = InstantProxy::now();
         }
 
         let protocol_version = self
@@ -923,7 +923,7 @@ impl Client {
             // We use the time proxy, since the time passed is compared against proxied time in
             // `process_timer`.
             self.doomslug.set_tip(
-                InstantProxy::now(file!(), line!()),
+                InstantProxy::now(),
                 tip.last_block_hash,
                 tip.height,
                 last_final_height,
@@ -1352,11 +1352,7 @@ impl Client {
         // The time since which we are ready to produce a new block is later compared
         // against current time in `fn ready_to_produce_block`. We use a time proxy,
         // since this is meaningful logic.
-        self.doomslug.on_approval_message(
-            InstantProxy::now(file!(), line!()),
-            &approval,
-            &block_producer_stakes,
-        );
+        self.doomslug.on_approval_message(InstantProxy::now(), &approval, &block_producer_stakes);
     }
 
     /// Forwards given transaction to upcoming validators.

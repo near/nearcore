@@ -157,7 +157,7 @@ impl HeaderSync {
         HeaderSync {
             network_adapter,
             history_locator: vec![],
-            prev_header_sync: (UtcProxy::now(file!(), line!()), 0, 0, 0),
+            prev_header_sync: (UtcProxy::now(), 0, 0, 0),
             syncing_peer: None,
             stalling_ts: None,
             initial_timeout: Duration::from_std(initial_timeout).unwrap(),
@@ -226,7 +226,7 @@ impl HeaderSync {
     ) -> bool {
         // The current time influences our decision to ban the peer.
         // We use the time proxy in case we wish to test that.
-        let now = UtcProxy::now(file!(), line!());
+        let now = UtcProxy::now();
         let (timeout, old_expected_height, prev_height, prev_highest_height) =
             self.prev_header_sync;
 
@@ -533,11 +533,8 @@ impl BlockSync {
 
         // The current time influcences our decision to run a block body sync.
         // We use the time proxy.
-        let request = BlockSyncRequest {
-            height: next_height,
-            hash: next_hash,
-            when: UtcProxy::now(file!(), line!()),
-        };
+        let request =
+            BlockSyncRequest { height: next_height, hash: next_hash, when: UtcProxy::now() };
 
         let head = chain.head()?;
         let header_head = chain.header_head()?;
@@ -575,8 +572,7 @@ impl BlockSync {
             None => Ok(true),
             Some(request) => Ok(chain.head()?.height >= request.height
                 || chain.is_chunk_orphan(&request.hash)
-                || UtcProxy::now(file!(), line!()) - request.when
-                    > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
+                || UtcProxy::now() - request.when > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
         }
     }
 }
@@ -600,12 +596,12 @@ impl PendingRequestStatus {
     fn new(timeout: Duration) -> Self {
         // The current time influences the result of `fn possible_targets`.
         // We use the time proxy.
-        Self { missing_parts: 1, wait_until: UtcProxy::now(file!(), line!()).add(timeout) }
+        Self { missing_parts: 1, wait_until: UtcProxy::now().add(timeout) }
     }
     fn expired(&self) -> bool {
         // The current time influences the result of `fn possible_targets`.
         // We use the time proxy.
-        UtcProxy::now(file!(), line!()) > self.wait_until
+        UtcProxy::now() > self.wait_until
     }
 }
 
@@ -1064,7 +1060,7 @@ impl StateSync {
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
         // The current time influences the result of this function.
         // We use the time proxy.
-        let now = UtcProxy::now(file!(), line!());
+        let now = UtcProxy::now();
 
         let (request_block, have_block) = self.sync_block_status(&prev_hash, chain, now)?;
 

@@ -117,7 +117,7 @@ impl RouteBackCache {
 
             // The current time influences the ability to send signed messages.
             // We use the time proxy.
-            let now = UtcProxy::now(file!(), line!()).timestamp_millis() as Time;
+            let now = UtcProxy::now().timestamp_millis() as Time;
             let remove_until = now.saturating_sub(self.evict_timeout);
 
             let mut remove_empty = vec![];
@@ -211,7 +211,7 @@ impl RouteBackCache {
 
         // The current time is compared against proxied time.
         // They influence the ability to send signed messages. We use the time proxy.
-        let now = UtcProxy::now(file!(), line!()).timestamp_millis() as Time;
+        let now = UtcProxy::now().timestamp_millis() as Time;
 
         self.main.insert(hash, (now, target.clone()));
 

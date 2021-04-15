@@ -162,7 +162,7 @@ impl ViewClientActor {
 
     fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut SizedCache<K, Instant>) -> bool {
         // Drives network-related waiting for request. We do not need the time proxy.
-        let now = Instant::system_time(file!(), line!());
+        let now = Instant::system_time();
         let need_request = match cache.cache_get(&key) {
             Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
             None => true,

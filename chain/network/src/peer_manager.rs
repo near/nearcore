@@ -376,9 +376,9 @@ impl PeerManagerActor {
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 // Related to networking timing, so we do not use the time proxy.
-                last_time_peer_requested: Instant::system_time(file!(), line!()),
-                last_time_received_message: Instant::system_time(file!(), line!()),
-                connection_established_time: Instant::system_time(file!(), line!()),
+                last_time_peer_requested: Instant::system_time(),
+                last_time_received_message: Instant::system_time(),
+                connection_established_time: Instant::system_time(),
                 peer_type,
             },
         );
@@ -410,7 +410,7 @@ impl PeerManagerActor {
                 // Ask for peers list on connection.
                 let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
                 if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
-                    active_peer.last_time_peer_requested = Instant::system_time(file!(), line!());
+                    active_peer.last_time_peer_requested = Instant::system_time();
                 }
 
                 if peer_type == PeerType::Outbound {
@@ -673,7 +673,7 @@ impl PeerManagerActor {
         let msg = SendMessage { message: PeerMessage::PeersRequest };
         for (_, active_peer) in self.active_peers.iter_mut() {
             if active_peer.last_time_peer_requested.elapsed().as_secs() > REQUEST_PEERS_SECS {
-                active_peer.last_time_peer_requested = Instant::system_time(file!(), line!());
+                active_peer.last_time_peer_requested = Instant::system_time();
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
@@ -933,7 +933,7 @@ impl PeerManagerActor {
                 // The current time influences banning. We don't test that.
                 // We don't use the time proxy.
                 let interval = unwrap_or_error!(
-                    (Utc::system_time(file!(), line!()) - from_timestamp(last_banned)).to_std(),
+                    (Utc::system_time() - from_timestamp(last_banned)).to_std(),
                     "Failed to convert time"
                 );
                 if interval > self.config.ban_window {

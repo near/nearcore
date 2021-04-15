@@ -477,7 +477,7 @@ impl RoutingTable {
                                 self.peer_last_time_reachable.insert(
                                     peer_id.clone(),
                                     // Use system time for all times related to peer reachability
-                                    Utc::system_time(file!(), line!())
+                                    Utc::system_time()
                                         .sub(chrono::Duration::seconds(SAVE_PEERS_MAX_TIME as i64)),
                                 );
                                 update
@@ -493,8 +493,7 @@ impl RoutingTable {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
             }
         } else {
-            self.peer_last_time_reachable
-                .insert(peer_id.clone(), Utc::system_time(file!(), line!()));
+            self.peer_last_time_reachable.insert(peer_id.clone(), Utc::system_time());
         }
     }
 
@@ -579,10 +578,7 @@ impl RoutingTable {
 
         if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
             res = nonces.cache_remove(&(pong.nonce as usize)).and_then(|sent| {
-                Some(
-                    Instant::system_time(file!(), line!()).duration_since(sent).as_secs_f64()
-                        * 1000f64,
-                )
+                Some(Instant::system_time().duration_since(sent).as_secs_f64() * 1000f64)
             });
         }
 
@@ -599,7 +595,7 @@ impl RoutingTable {
             self.waiting_pong.cache_get_mut(&target).unwrap()
         };
 
-        entry.cache_set(nonce, Instant::system_time(file!(), line!()));
+        entry.cache_set(nonce, Instant::system_time());
     }
 
     pub fn get_ping(&mut self, peer_id: PeerId) -> usize {
@@ -626,7 +622,7 @@ impl RoutingTable {
     }
 
     fn try_save_edges(&mut self) {
-        let now = Utc::system_time(file!(), line!());
+        let now = Utc::system_time();
         let mut oldest_time = now;
         let to_save = self
             .peer_last_time_reachable
@@ -695,7 +691,7 @@ impl RoutingTable {
 
         self.peer_forwarding = self.raw_graph.calculate_distance();
 
-        let now = Utc::system_time(file!(), line!());
+        let now = Utc::system_time();
         for peer in self.peer_forwarding.keys() {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }

@@ -90,7 +90,7 @@ impl PeerStore {
             // Mark loaded node last seen to now, to avoid deleting them as soon as they are loaded.
             //
             // The current time may influence peer removal. We use the time proxy.
-            peer_state.last_seen = to_timestamp(UtcProxy::now(file!(), line!()));
+            peer_state.last_seen = to_timestamp(UtcProxy::now());
             match peer_state.status {
                 KnownPeerStatus::Banned(_, _) => {}
                 _ => peer_state.status = KnownPeerStatus::NotConnected,
@@ -135,7 +135,7 @@ impl PeerStore {
         self.add_trusted_peer(peer_info.clone(), TrustLevel::Signed)?;
         let entry = self.peer_states.get_mut(&peer_info.id).unwrap();
         // The current time may influence peer removal. We use the time proxy.
-        entry.last_seen = to_timestamp(UtcProxy::now(file!(), line!()));
+        entry.last_seen = to_timestamp(UtcProxy::now());
         entry.status = KnownPeerStatus::Connected;
         let mut store_update = self.store.store_update();
         store_update.set_ser(ColPeers, &peer_info.id.try_to_vec()?, entry)?;
@@ -148,7 +148,7 @@ impl PeerStore {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             // The current time may influence peer removal. We use the time proxy.
-            peer_state.last_seen = to_timestamp(UtcProxy::now(file!(), line!()));
+            peer_state.last_seen = to_timestamp(UtcProxy::now());
             peer_state.status = KnownPeerStatus::NotConnected;
             let mut store_update = self.store.store_update();
             store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
@@ -166,11 +166,9 @@ impl PeerStore {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             // The current time may influence peer removal. We use the time proxy.
             // As for banning, we don't test that.
-            peer_state.last_seen = to_timestamp(UtcProxy::now(file!(), line!()));
-            peer_state.status = KnownPeerStatus::Banned(
-                ban_reason,
-                to_timestamp(Utc::system_time(file!(), line!())),
-            );
+            peer_state.last_seen = to_timestamp(UtcProxy::now());
+            peer_state.status =
+                KnownPeerStatus::Banned(ban_reason, to_timestamp(Utc::system_time()));
             let mut store_update = self.store.store_update();
             store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
             store_update.commit().map_err(|err| err.into())
@@ -241,7 +239,7 @@ impl PeerStore {
         config: &NetworkConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // The current time influences peer removal. We use the time proxy.
-        let now = UtcProxy::now(file!(), line!());
+        let now = UtcProxy::now();
         let mut to_remove = vec![];
         for (peer_id, peer_status) in self.peer_states.iter() {
             let diff = (now - peer_status.last_seen()).to_std()?;

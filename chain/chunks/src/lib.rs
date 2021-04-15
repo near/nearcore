@@ -130,20 +130,19 @@ impl RequestPool {
         let mut removed_requests = HashSet::<ChunkHash>::default();
         let mut requests = Vec::new();
         for (chunk_hash, mut chunk_request) in self.requests.iter_mut() {
-            if InstantProxy::now(file!(), line!()).saturating_duration_since(chunk_request.added)
+            if InstantProxy::now().saturating_duration_since(chunk_request.added)
                 > self.max_duration
             {
                 debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
                 removed_requests.insert(chunk_hash.clone());
                 continue;
             }
-            if InstantProxy::now(file!(), line!())
-                .saturating_duration_since(chunk_request.last_requested)
+            if InstantProxy::now().saturating_duration_since(chunk_request.last_requested)
                 > self.retry_duration
             {
                 // For request retry logic, we use the time proxy. However, it should not
                 // make a difference either way.
-                chunk_request.last_requested = InstantProxy::now(file!(), line!());
+                chunk_request.last_requested = InstantProxy::now();
                 requests.push((chunk_hash.clone(), chunk_request.clone()));
             }
         }
@@ -273,7 +272,7 @@ impl SealsManager {
                 let demur = ActiveSealDemur {
                     part_ords: chosen,
                     chunk_producer,
-                    sent: UtcProxy::now(file!(), line!()),
+                    sent: UtcProxy::now(),
                     height,
                 };
 
@@ -634,9 +633,9 @@ impl ShardsManager {
                 parent_hash,
                 shard_id,
                 // For request retry logic, we use the time proxy.
-                last_requested: InstantProxy::now(file!(), line!()),
+                last_requested: InstantProxy::now(),
                 // Drives full fetch / switch to others logic, so we use the time proxy.
-                added: InstantProxy::now(file!(), line!()),
+                added: InstantProxy::now(),
             },
         );
 
@@ -701,7 +700,7 @@ impl ShardsManager {
             });
             let old_block = header_head.last_block_hash != chunk_request.parent_hash
                 && header_head.prev_block_hash != chunk_request.parent_hash;
-            let now = InstantProxy::now(file!(), line!());
+            let now = InstantProxy::now();
 
             match self.request_partial_encoded_chunk(
                 chunk_request.height,

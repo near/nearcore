@@ -99,7 +99,7 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
     loop {
         // Get chrono::Duration::num_seconds() by deducting genesis_time from now.
         // Waiting until genesis may appear in integration testing. We use the time proxy.
-        let duration = genesis_time.signed_duration_since(UtcProxy::now(file!(), line!()));
+        let duration = genesis_time.signed_duration_since(UtcProxy::now());
         let chrono_seconds = duration.num_seconds();
         // Check if number of seconds in chrono::Duration larger than zero.
         if chrono_seconds <= 0 {
@@ -142,7 +142,7 @@ impl ClientActor {
         )?;
 
         // The time influences timers. We do not use the time proxy.
-        let now = Utc::system_time(file!(), line!());
+        let now = Utc::system_time();
         Ok(ClientActor {
             #[cfg(feature = "adversarial")]
             adv,
@@ -561,7 +561,7 @@ impl Handler<Status> for ClientActor {
         let latest_block_time = header.raw_timestamp().clone();
         if msg.is_health_check {
             // The current time influences reported status. We use the time proxy.
-            let now = UtcProxy::now(file!(), line!());
+            let now = UtcProxy::now();
             let block_timestamp = from_timestamp(latest_block_time);
             if now > block_timestamp {
                 let elapsed = (now - block_timestamp).to_std().unwrap();
@@ -675,7 +675,7 @@ impl ClientActor {
             Some(signer) => signer,
         };
 
-        let now = Instant::system_time(file!(), line!());
+        let now = Instant::system_time();
         // Check that we haven't announced it too recently
         if let Some(last_validator_announce_time) = self.last_validator_announce_time {
             // Don't make announcement if have passed less than half of the time in which other peers
@@ -747,7 +747,7 @@ impl ClientActor {
                 // `doomslug.on_approval_message` for determining readiness to produce
                 // a new block. We use a time proxy.
                 if self.client.doomslug.ready_to_produce_block(
-                    InstantProxy::now(file!(), line!()),
+                    InstantProxy::now(),
                     height,
                     have_all_chunks,
                 ) {
@@ -782,7 +782,7 @@ impl ClientActor {
         // The current time measurement influences only the delay for `run_later`.
         // It does not influence decisions or cause side-effects. So go directly
         // to system time, without the time proxy.
-        let now = Utc::system_time(file!(), line!());
+        let now = Utc::system_time();
 
         if self.sync_started {
             self.doomslug_timer_next_attempt = self.run_timer(
@@ -852,7 +852,7 @@ impl ClientActor {
 
         // Here we use a time proxy, because the argument drives the timing of approvals,
         // and does not participate in the timing of the next run of the timer.
-        let approvals = self.client.doomslug.process_timer(InstantProxy::now(file!(), line!()));
+        let approvals = self.client.doomslug.process_timer(InstantProxy::now());
 
         // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery
@@ -1240,7 +1240,7 @@ impl ClientActor {
         // It does not influence decisions or cause side-effects. So go directly
         // to system time, without the time proxy.
         // Furthermore, the `next_attempt` parameter comes from system time.
-        let now = Utc::system_time(file!(), line!());
+        let now = Utc::system_time();
         if now < next_attempt {
             return next_attempt;
         }

@@ -1794,10 +1794,7 @@ impl<'a> ChainStoreUpdate<'a> {
         if latest_known.is_none() || height > latest_known.unwrap().height {
             // Time ends up as the processing time of the last known / checked height.
             // We use a proxy for that time.
-            self.save_latest_known(LatestKnown {
-                height,
-                seen: to_timestamp(UtcProxy::now(file!(), line!())),
-            })?;
+            self.save_latest_known(LatestKnown { height, seen: to_timestamp(UtcProxy::now()) })?;
         }
         Ok(())
     }
@@ -1808,10 +1805,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let tip = Tip::from_header(&header);
         // Time ends up as the processing time of the last known / checked height.
         // We use a proxy for that time.
-        self.save_latest_known(LatestKnown {
-            height,
-            seen: to_timestamp(UtcProxy::now(file!(), line!())),
-        })?;
+        self.save_latest_known(LatestKnown { height, seen: to_timestamp(UtcProxy::now()) })?;
         self.save_head(&tip)?;
         Ok(())
     }

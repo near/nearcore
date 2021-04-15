@@ -300,8 +300,8 @@ impl Doomslug {
             timer: DoomslugTimer {
                 // We use the time proxy, just like in arguments to `fn set_tip`
                 // and to `fn process_timer`.
-                started: InstantProxy::now(file!(), line!()),
-                last_endorsement_sent: InstantProxy::now(file!(), line!()),
+                started: InstantProxy::now(),
+                last_endorsement_sent: InstantProxy::now(),
                 height: 0,
                 endorsement_delay,
                 min_delay,

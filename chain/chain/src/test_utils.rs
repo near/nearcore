@@ -1269,7 +1269,7 @@ impl ChainGenesis {
     pub fn test() -> Self {
         ChainGenesis {
             // Test init, so we use system time.
-            time: Utc::system_time(file!(), line!()),
+            time: Utc::system_time(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 0,
