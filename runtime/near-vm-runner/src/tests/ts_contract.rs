@@ -4,10 +4,10 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, HostError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{External, VMConfig, VMKind};
+use near_vm_logic::{External, VMConfig};
 
-use crate::run_vm;
 use crate::tests::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
+use crate::{run_vm, VMKind};
 
 #[test]
 pub fn test_ts_contract() {

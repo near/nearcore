@@ -1,7 +1,7 @@
-use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError};
+use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError, VMKind};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
 
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError::FunctionCallError;
