@@ -20,10 +20,10 @@ fn run_nodes(
     let genesis_height = rng.gen_range(0, 10000);
 
     let cluster = NodeCluster::new()
-        .heavy(true)
         .mkdir(num_nodes as usize, |index| {
             format!("run_nodes_{}_{}_{}", num_nodes, num_validators, index)
         })
+        .with(HeavyTest(true))
         .with(Shards(num_shards))
         .with(ValidatorSeats(num_validators))
         .with(LightClients(0))

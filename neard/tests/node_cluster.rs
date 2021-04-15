@@ -6,6 +6,7 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards}
 use testlib::{start_nodes, test_helpers::heavy_test};
 
 pub enum ClusterConfigVariant {
+    HeavyTest(bool),
     Shards(NumShards),
     ValidatorSeats(NumSeats),
     LightClients(usize),
@@ -33,17 +34,13 @@ impl NodeCluster {
 
     pub fn with(mut self, config: ClusterConfigVariant) -> Self {
         match config {
+            HeavyTest(is_heavy) => self.is_heavy = is_heavy,
             Shards(n) => self.num_shards = Some(n),
             ValidatorSeats(n) => self.num_validator_seats = Some(n),
             LightClients(n) => self.num_lightclient = Some(n),
             EpochLength(l) => self.epoch_length = Some(l),
             GenesisHeight(h) => self.genesis_height = Some(h),
         };
-        self
-    }
-
-    pub fn heavy(mut self, is_heavy: bool) -> Self {
-        self.is_heavy = is_heavy;
         self
     }
 
