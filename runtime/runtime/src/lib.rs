@@ -45,7 +45,10 @@ use crate::config::{
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
-use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_primitives::version::{
+    ProtocolFeature, ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+    PROTOCOL_FEATURES_TO_VERSION_MAPPING,
+};
 use near_runtime_fees::RuntimeFeesConfig;
 use std::borrow::Borrow;
 use std::rc::Rc;
@@ -92,6 +95,8 @@ pub struct ApplyState {
     pub config: Arc<RuntimeConfig>,
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
+    /// Whether the chunk being applied is new
+    pub is_new_chunk: bool,
     /// Ethereum chain id.
     #[cfg(feature = "protocol_feature_evm")]
     pub evm_chain_id: u64,
@@ -1120,6 +1125,23 @@ impl Runtime {
                 &mut stats,
             )?;
         }
+        if !apply_state.is_new_chunk
+            && apply_state.current_protocol_version
+                >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::FixApplyChunks]
+        {
+            let (trie_changes, state_changes) = state_update.finalize()?;
+            let proof = trie.recorded_storage();
+            return Ok(ApplyResult {
+                state_root: trie_changes.new_root,
+                trie_changes,
+                validator_proposals: vec![],
+                outgoing_receipts: vec![],
+                outcomes: vec![],
+                state_changes,
+                stats,
+                proof,
+            });
+        }
 
         let mut outgoing_receipts = Vec::new();
         let mut validator_proposals = vec![];
@@ -1553,6 +1575,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             #[cfg(feature = "costs_counting")]

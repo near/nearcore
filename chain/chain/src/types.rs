@@ -476,6 +476,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -492,6 +493,7 @@ pub trait RuntimeAdapter: Send + Sync {
             challenges_result,
             random_seed,
             false,
+            is_new_chunk,
         )
     }
 
@@ -511,6 +513,7 @@ pub trait RuntimeAdapter: Send + Sync {
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         generate_storage_proof: bool,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(
@@ -529,6 +532,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_value: CryptoHash,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.

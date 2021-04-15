@@ -91,11 +91,12 @@ pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_lower_storage_cost")]
     LowerStorageCost,
     DeleteActionRestriction,
+    FixApplyChunks,
 }
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 43;
+pub const PROTOCOL_VERSION: ProtocolVersion = 44;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
@@ -107,6 +108,7 @@ lazy_static! {
             #[cfg(feature = "protocol_feature_lower_storage_cost")]
             (ProtocolFeature::LowerStorageCost, 42),
             (ProtocolFeature::DeleteActionRestriction, 43),
+            (ProtocolFeature::FixApplyChunks, 44),
         ]
         .into_iter()
         .collect();
