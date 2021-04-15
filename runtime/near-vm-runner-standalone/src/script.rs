@@ -102,6 +102,12 @@ impl Script {
         self.initial_state = Some(state);
     }
 
+    pub(crate) fn initial_state_from_file(&mut self, path: &Path) {
+        let data = fs::read(path).unwrap();
+        let state = serde_json::from_slice(&data).unwrap();
+        self.initial_state(state)
+    }
+
     pub(crate) fn step(&mut self, contract: Contract, method: &str) -> &mut Step {
         self.steps.push(Step::new(contract, method.to_string()));
         self.steps.last_mut().unwrap()
