@@ -36,7 +36,6 @@ pub struct RpcValidatorResponse {
 
 #[derive(Serialize, Debug)]
 pub struct RpcValidatorsOrderedResponse {
-    #[serde(flatten)]
     pub validators: Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>,
 }
 
