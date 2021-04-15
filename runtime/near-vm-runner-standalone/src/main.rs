@@ -12,8 +12,8 @@ mod tracing_timings;
 use crate::script::Script;
 use clap::{App, Arg};
 use near_vm_logic::mocks::mock_external::Receipt;
-use near_vm_logic::{VMKind, VMOutcome};
-use near_vm_runner::VMError;
+use near_vm_logic::VMOutcome;
+use near_vm_runner::{VMError, VMKind};
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeMap,

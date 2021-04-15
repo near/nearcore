@@ -3619,6 +3619,7 @@ dependencies = [
  "near-vm-logic",
  "parity-wasm",
  "pwasm-utils",
+ "serde",
  "threadpool",
  "tracing",
  "wabt",
