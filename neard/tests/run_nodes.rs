@@ -9,7 +9,7 @@ use rand::{thread_rng, Rng};
 mod node_cluster;
 use node_cluster::{ClusterConfigVariant::*, NodeCluster};
 
-fn run_nodes(
+fn run_heavy_nodes(
     num_shards: NumShards,
     num_nodes: NumSeats,
     num_validators: NumSeats,
@@ -64,23 +64,23 @@ fn run_nodes(
 /// Runs two nodes that should produce blocks one after another.
 #[test]
 fn run_nodes_1_2_2() {
-    run_nodes(1, 2, 2, 10, 30);
+    run_heavy_nodes(1, 2, 2, 10, 30);
 }
 
 /// Runs two nodes, where only one is a validator.
 #[test]
 fn run_nodes_1_2_1() {
-    run_nodes(1, 2, 1, 10, 30);
+    run_heavy_nodes(1, 2, 1, 10, 30);
 }
 
 /// Runs 4 nodes that should produce blocks one after another.
 #[test]
 fn run_nodes_1_4_4() {
-    run_nodes(1, 4, 4, 8, 32);
+    run_heavy_nodes(1, 4, 4, 8, 32);
 }
 
 /// Run 4 nodes, 4 shards, 2 validators, other two track 2 shards.
 #[test]
 fn run_nodes_4_4_2() {
-    run_nodes(4, 4, 2, 8, 32);
+    run_heavy_nodes(4, 4, 2, 8, 32);
 }
