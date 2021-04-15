@@ -1340,6 +1340,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctrlc"
+version = "3.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "232295399409a8b7ae41276757b5a1cc21032848d42bff2352261f958b3ca29a"
+dependencies = [
+ "nix 0.20.0",
+ "winapi",
+]
+
+[[package]]
 name = "curve25519-dalek"
 version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3379,7 +3389,7 @@ dependencies = [
  "libc",
  "log",
  "near-rust-allocator-proxy",
- "nix",
+ "nix 0.15.0",
  "once_cell",
  "strum",
  "tokio",
@@ -3520,7 +3530,7 @@ dependencies = [
  "jemallocator",
  "libc",
  "log",
- "nix",
+ "nix 0.15.0",
  "rand 0.7.3",
 ]
 
@@ -3680,6 +3690,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "clap 2.33.3",
+ "ctrlc",
  "delay-detector",
  "dirs",
  "easy-ext",
@@ -3731,6 +3742,18 @@ dependencies = [
  "cfg-if 0.1.10",
  "libc",
  "void",
+]
+
+[[package]]
+name = "nix"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa9b4819da1bc61c0ea48b63b7bc8604064dd43013e7cc325df098d49cd7c18a"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
 ]
 
 [[package]]
@@ -6394,7 +6417,7 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "libc",
- "nix",
+ "nix 0.15.0",
  "page_size",
  "parking_lot 0.10.2",
  "rustc_version",
@@ -6434,7 +6457,7 @@ dependencies = [
  "dynasmrt",
  "lazy_static",
  "libc",
- "nix",
+ "nix 0.15.0",
  "serde",
  "serde_derive",
  "smallvec",
