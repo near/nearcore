@@ -154,7 +154,7 @@ fn end_count_instructions() -> u64 {
 }
 
 fn start_count_time() -> Consumed {
-    Consumed::Instant(Instant::system_time(file!(), line!()))
+    Consumed::Instant(Instant::system_time())
 }
 
 fn end_count_time(consumed: &Consumed) -> u64 {

@@ -38,7 +38,7 @@ use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 #[cfg(feature = "adversarial")]
-use near_primitives::time::{FileLocation, TimeTravelSingleton};
+use near_primitives::time::TimeTravelSingleton;
 use near_primitives::time::{Instant, InstantProxy, Time, Utc, UtcProxy};
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
@@ -296,16 +296,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                     }
                     NetworkAdversarialMessage::AdvTimeTravel(payload) => {
-                        let mut proxify = HashMap::new();
-                        for (file, line, toggle) in payload.proxify {
-                            proxify.insert(FileLocation { file: file.into(), line }, toggle);
-                        }
                         TimeTravelSingleton::set(TimeTravelSingleton {
                             last_check_utc: ::chrono::Utc::now(),
                             last_check_instant: ::std::time::Instant::now(),
                             diff: payload.diff,
                             rate: payload.rate,
-                            proxify,
                         });
                         NetworkClientResponses::NoResponse
                     }

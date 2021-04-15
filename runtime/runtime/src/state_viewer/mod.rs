@@ -178,7 +178,7 @@ impl TrieViewer {
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         // Here we do not call into the time proxy, because the `now` is used only
         // for debugging.
-        let now = Instant::system_time(file!(), line!());
+        let now = Instant::system_time();
         if !is_valid_account_id(contract_id) {
             return Err(errors::CallFunctionError::InvalidAccountId {
                 requested_account_id: contract_id.clone(),

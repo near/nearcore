@@ -1409,7 +1409,6 @@ impl StateResponseInfo {
 pub struct AdvTimeTravelPayload {
     pub diff: i64,
     pub rate: f64,
-    pub proxify: Vec<(String, u32, bool)>,
 }
 
 #[cfg(feature = "adversarial")]

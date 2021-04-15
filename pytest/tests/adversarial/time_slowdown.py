@@ -10,13 +10,6 @@ slowdown_rate = 0.3
 if len(sys.argv) > 1:
     slowdown_rate = float(sys.argv[1])
 
-proxify_settings = []
-for line_location in sys.argv[2:]:
-    filename, line, on_off = line_location.split(':')
-    line = int(line)
-    assert on_off == 'proxify' or on_off == 'unproxify', f"invalid argument: {on_off} in {line_location}"
-    proxify_settings.append([filename, line, on_off == 'proxify'])
-
 consensus_config0 = {
     "consensus": {
         "block_fetch_horizon": 30,
@@ -76,14 +69,12 @@ while node0_height < 5:
 print('=== SLOWDOWN TIME ===')
 res1 = nodes[0].json_rpc('adv_time_travel', {
     "diff": 0,
-    "rate": slowdown_rate,
-    "proxify": []
+    "rate": slowdown_rate
 })
 assert 'result' in res1, res1
 res2 = nodes[1].json_rpc('adv_time_travel', {
     "diff": 0,
-    "rate": slowdown_rate,
-    "proxify": []
+    "rate": slowdown_rate
 })
 assert 'result' in res2, res2
 time.sleep(0.05)
@@ -102,13 +93,11 @@ assert a < elapsed and elapsed < b, f"not in range: {elapsed} in {a}..{b}"
 print('=== JUMP IN TIME ===')
 nodes[0].json_rpc('adv_time_travel', {
     "diff": int(-elapsed * 1000 * (1.0 - slowdown_rate)),
-    "rate": 1.0,
-    "proxify": proxify_settings
+    "rate": 1.0
 })
 nodes[1].json_rpc('adv_time_travel', {
     "diff": int(-elapsed * 1000 * (1.0 - slowdown_rate)),
-    "rate": 1.0,
-    "proxify": proxify_settings
+    "rate": 1.0
 })
 time.sleep(3)
 

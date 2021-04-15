@@ -25,13 +25,6 @@ jump_s = 15.0 * 60.0
 if len(sys.argv) > 1:
     jump_s = float(sys.argv[1])
 
-proxify_settings = []
-for line_location in sys.argv[2:]:
-    filename, line, on_off = line_location.split(':')
-    line = int(line)
-    assert on_off == 'proxify' or on_off == 'unproxify', f"invalid argument: {on_off} in {line_location}"
-    proxify_settings.append([filename, line, on_off == 'proxify'])
-
 class Handler(ProxyHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -109,12 +102,11 @@ while node0_height < 5:
 
 # stop time
 print('=== STOP TIME ===')
-res1 = nodes[0].json_rpc('adv_time_travel', { "diff": 0, "rate": 0.0, "proxify": [] })
+res1 = nodes[0].json_rpc('adv_time_travel', { "diff": 0, "rate": 0.0 })
 assert 'result' in res1, res1
 res2 = nodes[1].json_rpc('adv_time_travel', {
     "diff": 0,
-    "rate": 0.0,
-    "proxify": []
+    "rate": 0.0
 })
 assert 'result' in res2, res2
 time.sleep(0.5)
@@ -134,13 +126,11 @@ assert expected == actual, f"unexpected number of messages sent: actual={actual}
 print('=== JUMP IN TIME ===')
 nodes[0].json_rpc('adv_time_travel', {
     "diff": int(jump_s * 1000),
-    "rate": 1.0,
-    "proxify": proxify_settings
+    "rate": 1.0
 })
 nodes[1].json_rpc('adv_time_travel', {
     "diff": int(jump_s * 1000),
-    "rate": 1.0,
-    "proxify": proxify_settings
+    "rate": 1.0
 })
 time.sleep(3)
 
