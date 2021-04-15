@@ -5,7 +5,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
-use near_vm_logic::VMKind;
+use near_vm_runner::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
