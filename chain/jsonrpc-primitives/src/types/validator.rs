@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub type RpcValidatorsOrderedResponse = Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>;
+
 #[derive(thiserror::Error, Debug)]
 pub enum RpcValidatorError {
     #[error("Epoch not found")]
@@ -32,11 +34,6 @@ pub struct RpcValidatorsOrderedRequest {
 pub struct RpcValidatorResponse {
     #[serde(flatten)]
     pub validator_info: near_primitives::views::EpochValidatorInfo,
-}
-
-#[derive(Serialize, Debug)]
-pub struct RpcValidatorsOrderedResponse {
-    pub validators: Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>,
 }
 
 impl From<near_client_primitives::types::GetValidatorInfoError> for RpcValidatorError {
@@ -88,16 +85,6 @@ impl RpcValidatorRequest {
 impl RpcValidatorsOrderedRequest {
     pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         Ok(crate::utils::parse_params::<RpcValidatorsOrderedRequest>(value)?)
-    }
-}
-
-impl From<Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>>
-    for RpcValidatorsOrderedResponse
-{
-    fn from(
-        stake_views: Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>,
-    ) -> Self {
-        Self { validators: stake_views }
     }
 }
 

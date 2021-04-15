@@ -345,7 +345,7 @@ impl JsonRpcHandler {
                         request.params,
                     )?;
                 let validators = self.validators_ordered(rpc_validators_ordered_request).await?;
-                serde_json::to_value(validators.validators)
+                serde_json::to_value(validators)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
             "gas_price" => {
