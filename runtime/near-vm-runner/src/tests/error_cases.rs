@@ -2,13 +2,14 @@ use near_vm_errors::{
     CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
     WasmTrap,
 };
-use near_vm_logic::{ReturnData, VMKind, VMOutcome};
+use near_vm_logic::{ReturnData, VMOutcome};
 
 use crate::cache::MockCompiledContractCache;
 use crate::tests::{
     make_cached_contract_call_vm, make_simple_contract_call_vm,
     make_simple_contract_call_with_gas_vm, with_vm_variants,
 };
+use crate::VMKind;
 
 fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
     VMOutcome {

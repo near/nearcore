@@ -7,8 +7,8 @@ use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
-use near_vm_runner::{run_vm, MockCompiledContractCache, VMError};
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
+use near_vm_runner::{run_vm, MockCompiledContractCache, VMError, VMKind};
 
 use crate::State;
 
