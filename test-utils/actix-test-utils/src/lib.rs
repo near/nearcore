@@ -1,6 +1,6 @@
 pub struct ShutdownableThread {
     pub join: Option<std::thread::JoinHandle<()>>,
-    pub actix_system: actix::System,
+    pub actix_system: actix_rt::System,
 }
 
 impl ShutdownableThread {
@@ -12,7 +12,7 @@ impl ShutdownableThread {
         let join = std::thread::spawn(move || {
             run_actix_until_stop(async move {
                 f();
-                tx.send(actix::System::current()).unwrap();
+                tx.send(actix_rt::System::current()).unwrap();
             });
         });
 
@@ -64,13 +64,13 @@ fn run_actix_until<F: std::future::Future>(f: F, expect_panic: bool) {
             if !expect_panic {
                 default_hook(info);
             }
-            if actix::System::is_registered() {
-                actix::System::current().stop_with_code(1);
+            if actix_rt::System::is_registered() {
+                actix_rt::System::current().stop_with_code(1);
             }
         }));
     });
 
-    let sys = actix::System::new();
+    let sys = actix_rt::System::new();
     sys.block_on(handle_interrupt!(f));
     sys.run().unwrap();
 }
