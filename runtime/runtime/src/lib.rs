@@ -50,7 +50,7 @@ use crate::config::{
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_primitives::version::{is_implicit_account_creation_enabled, ProtocolVersion};
 use std::borrow::Borrow;
 use std::rc::Rc;
 
@@ -367,10 +367,9 @@ impl Runtime {
                     }
                 } else {
                     // Implicit account creation
-                    debug_assert!(
+                    debug_assert!(is_implicit_account_creation_enabled(
                         apply_state.current_protocol_version
-                            >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-                    );
+                    ));
                     debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,

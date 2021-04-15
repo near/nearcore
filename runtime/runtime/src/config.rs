@@ -17,7 +17,7 @@ use near_primitives::transaction::{
     Transaction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_primitives::version::{is_implicit_account_creation_enabled, ProtocolVersion};
 use near_runtime_utils::is_account_id_64_len_hex;
 
 /// Describes the cost of converting this transaction into a receipt.
@@ -97,9 +97,9 @@ pub fn total_send_fees(
             }
             Transfer(_) => {
                 // Account for implicit account creation
-                let is_receiver_implicit = current_protocol_version
-                    >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-                    && is_account_id_64_len_hex(&receiver_id);
+                let is_receiver_implicit =
+                    is_implicit_account_creation_enabled(current_protocol_version)
+                        && is_account_id_64_len_hex(&receiver_id);
                 transfer_send_fee(cfg, sender_is_receiver, is_receiver_implicit)
             }
             Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
@@ -153,9 +153,9 @@ pub fn exec_fee(
         }
         Transfer(_) => {
             // Account for implicit account creation
-            let is_receiver_implicit = current_protocol_version
-                >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-                && is_account_id_64_len_hex(&receiver_id);
+            let is_receiver_implicit =
+                is_implicit_account_creation_enabled(current_protocol_version)
+                    && is_account_id_64_len_hex(&receiver_id);
             transfer_exec_fee(cfg, is_receiver_implicit)
         }
         Stake(_) => cfg.stake_cost.exec_fee(),
@@ -193,9 +193,9 @@ pub fn prepaid_exec_fee(
                 current_protocol_version
             ) {
                 let sender_is_receiver = beneficiary_id == receiver_id;
-                let is_receiver_implicit = current_protocol_version
-                    >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-                    && is_account_id_64_len_hex(&beneficiary_id);
+                let is_receiver_implicit =
+                    is_implicit_account_creation_enabled(current_protocol_version)
+                        && is_account_id_64_len_hex(&beneficiary_id);
                 config.action_receipt_creation_config.send_fee(sender_is_receiver)
                     + config.action_receipt_creation_config.exec_fee()
                     + transfer_send_fee(

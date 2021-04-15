@@ -6,6 +6,7 @@ use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
 use near_primitives::checked_feature;
+use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
@@ -25,7 +26,6 @@ use std::mem::size_of;
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 const LEGACY_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
-const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -1485,9 +1485,9 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.get_account_by_receipt(&receipt_idx);
-        let is_receiver_implicit = self.current_protocol_version
-            >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-            && is_account_id_64_len_hex(&receiver_id);
+        let is_receiver_implicit =
+            is_implicit_account_creation_enabled(self.current_protocol_version)
+                && is_account_id_64_len_hex(&receiver_id);
 
         let send_fee =
             transfer_send_fee(&self.fees_config.action_creation_config, sir, is_receiver_implicit);
@@ -1757,9 +1757,9 @@ impl<'a> VMLogic<'a> {
         ) {
             let receiver_id = self.get_account_by_receipt(&receipt_idx);
             let sir = receiver_id == beneficiary_id;
-            let is_receiver_implicit = self.current_protocol_version
-                >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-                && is_account_id_64_len_hex(&receiver_id);
+            let is_receiver_implicit =
+                is_implicit_account_creation_enabled(self.current_protocol_version)
+                    && is_account_id_64_len_hex(&receiver_id);
 
             let transfer_to_beneficiary_send_fee = transfer_send_fee(
                 &self.fees_config.action_creation_config,

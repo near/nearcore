@@ -20,8 +20,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
-    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
+    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
 use near_runtime_utils::{
     is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
@@ -516,9 +516,9 @@ pub(crate) fn action_delete_account(
             current_protocol_version
         ) {
             let sender_is_receiver = account_id == &delete_account.beneficiary_id;
-            let is_receiver_implicit = current_protocol_version
-                >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-                && is_account_id_64_len_hex(&delete_account.beneficiary_id);
+            let is_receiver_implicit =
+                is_implicit_account_creation_enabled(current_protocol_version)
+                    && is_account_id_64_len_hex(&delete_account.beneficiary_id);
             let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
                 + transfer_send_fee(
                     &config.action_creation_config,
@@ -703,7 +703,7 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                if is_implicit_account_creation_enabled(current_protocol_version)
                     && is_account_id_64_len_hex(&account_id)
                 {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
@@ -724,7 +724,7 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                return if is_implicit_account_creation_enabled(current_protocol_version)
                     && is_the_only_action
                     && is_account_id_64_len_hex(&account_id)
                     && !is_refund

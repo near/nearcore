@@ -67,6 +67,10 @@ impl ProtocolVersionRange {
     }
 }
 
+pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -> bool {
+    protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+}
+
 /// New Protocol features should go here. Features are guarded by their corresponding feature flag.
 /// For example, if we have `ProtocolFeature::EVM` and a corresponding feature flag `evm`, it will look
 /// like
