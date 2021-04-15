@@ -1878,18 +1878,33 @@ impl Chain {
     fn get_recursive_transaction_results(
         &mut self,
         id: &CryptoHash,
+        allow_error: bool,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
         let outcome: ExecutionOutcomeWithIdView = match self.get_execution_outcome(id) {
             Ok(res) => res.into(),
             Err(e) => match e.kind() {
-                ErrorKind::DBNotFoundErr(_) => return Ok(vec![]),
+                ErrorKind::DBNotFoundErr(_) if allow_error => return Ok(vec![]),
                 _ => return Err(e),
             },
         };
         let receipt_ids = outcome.outcome.receipt_ids.clone();
+        let shard_id = self.runtime_adapter.account_id_to_shard_id(&outcome.outcome.executor_id);
+        let congested = {
+            let block = self.get_block(&outcome.block_hash)?;
+            let chunk_included =
+                block.chunks()[shard_id as usize].height_included() == block.header().height();
+            if !chunk_included {
+                let block_hash = *block.hash();
+                let chunk_extra = self.get_chunk_extra(&block_hash, shard_id)?;
+                chunk_extra.gas_used >= chunk_extra.gas_limit
+            } else {
+                false
+            }
+        };
         let mut results = vec![outcome];
+
         for receipt_id in &receipt_ids {
-            results.extend(self.get_recursive_transaction_results(receipt_id)?);
+            results.extend(self.get_recursive_transaction_results(receipt_id, congested)?);
         }
         Ok(results)
     }
@@ -1898,13 +1913,7 @@ impl Chain {
         &mut self,
         transaction_hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, Error> {
-        let mut outcomes = self.get_recursive_transaction_results(transaction_hash)?;
-        if outcomes.is_empty() {
-            return Err(Error::from(ErrorKind::DBNotFoundErr(format!(
-                "Execution outcome for transaction {} does not exist",
-                transaction_hash
-            ))));
-        }
+        let mut outcomes = self.get_recursive_transaction_results(transaction_hash, false)?;
         let mut looking_for_id = (*transaction_hash).into();
         let num_outcomes = outcomes.len();
         let status = outcomes
