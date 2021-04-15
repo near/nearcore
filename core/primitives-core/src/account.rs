@@ -39,7 +39,7 @@ pub struct Account {
     code_hash: CryptoHash,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
-    /// Version of Account in re migrations in similar
+    /// Version of Account in re migrations and similar
     #[cfg(feature = "protocol_feature_add_account_versions")]
     #[serde(default)]
     version: AccountVersion,
