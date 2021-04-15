@@ -60,6 +60,7 @@ fn apply_block_at_height(
             chunk_header.gas_limit(),
             &block.header().challenges_result(),
             *block.header().random_value(),
+            true,
         )
         .unwrap();
     let (_, outcome_paths) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
@@ -163,6 +164,8 @@ pub fn migrate_17_to_18(path: &String, near_config: &NearConfig) {
                         new_extra.gas_limit,
                         &block.header().challenges_result(),
                         *block.header().random_value(),
+                        // doesn't really matter here since the old blocks are on the old version
+                        false,
                     )
                     .unwrap();
                 if !apply_result.outcomes.is_empty() {

@@ -49,8 +49,10 @@ use crate::config::{
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_runtime_fees::RuntimeFeesConfig;
 use std::borrow::Borrow;
 use std::rc::Rc;
 
@@ -65,7 +67,6 @@ pub mod state_viewer;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
-pub use near_primitives::runtime::apply_state::ApplyState;
 
 /// Contains information to update validators accounts at the first block of a new epoch.
 #[derive(Debug)]
@@ -1098,6 +1099,23 @@ impl Runtime {
                 &mut stats,
             )?;
         }
+        if !apply_state.is_new_chunk
+            && apply_state.current_protocol_version
+                >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::FixApplyChunks]
+        {
+            let (trie_changes, state_changes) = state_update.finalize()?;
+            let proof = trie.recorded_storage();
+            return Ok(ApplyResult {
+                state_root: trie_changes.new_root,
+                trie_changes,
+                validator_proposals: vec![],
+                outgoing_receipts: vec![],
+                outcomes: vec![],
+                state_changes,
+                stats,
+                proof,
+            });
+        }
 
         let mut outgoing_receipts = Vec::new();
         let mut validator_proposals = vec![];
@@ -1532,6 +1550,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: ProfileData::new_enabled(),
