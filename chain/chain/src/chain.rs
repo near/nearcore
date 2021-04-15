@@ -1893,7 +1893,7 @@ impl Chain {
             let block = self.get_block(&outcome.block_hash)?;
             let chunk_included =
                 block.chunks()[shard_id as usize].height_included() == block.header().height();
-            if chunk_included {
+            if !chunk_included {
                 let block_hash = *block.hash();
                 let chunk_extra = self.get_chunk_extra(&block_hash, shard_id)?;
                 chunk_extra.gas_used >= chunk_extra.gas_limit
