@@ -53,7 +53,7 @@ impl NodeCluster {
         self
     }
 
-    pub fn mkdir<F: Fn(usize) -> String>(mut self, capacity: usize, gen_dirname: F) -> Self {
+    pub fn mkdirs_with<F: Fn(usize) -> String>(mut self, capacity: usize, gen_dirname: F) -> Self {
         self.dirs = Vec::with_capacity(capacity);
         self.dirs.extend(
             (0..capacity).map(|index| {

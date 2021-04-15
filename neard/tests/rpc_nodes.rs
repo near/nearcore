@@ -47,7 +47,7 @@ fn test_tx_propagation() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(4, |index| format!("tx_propagation{}", index))
+        .mkdirs_with(4, |index| format!("tx_propagation{}", index))
         .with(HeavyTest(true))
         .with(Shards(4))
         .with(ValidatorSeats(2))
@@ -134,7 +134,7 @@ fn test_tx_propagation_through_rpc() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(4, |index| format!("tx_propagation{}", index))
+        .mkdirs_with(4, |index| format!("tx_propagation{}", index))
         .with(HeavyTest(true))
         .with(Shards(4))
         .with(ValidatorSeats(2))
@@ -204,7 +204,7 @@ fn test_tx_status_with_light_client() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(4, |index| format!("tx_propagation{}", index))
+        .mkdirs_with(4, |index| format!("tx_propagation{}", index))
         .with(HeavyTest(true))
         .with(Shards(4))
         .with(ValidatorSeats(2))
@@ -279,7 +279,7 @@ fn test_tx_status_with_light_client1() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(4, |index| format!("tx_propagation{}", index))
+        .mkdirs_with(4, |index| format!("tx_propagation{}", index))
         .with(HeavyTest(true))
         .with(Shards(4))
         .with(ValidatorSeats(2))
@@ -353,7 +353,7 @@ fn test_rpc_routing() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(4, |index| format!("tx_propagation{}", index))
+        .mkdirs_with(4, |index| format!("tx_propagation{}", index))
         .with(HeavyTest(true))
         .with(Shards(4))
         .with(ValidatorSeats(2))
@@ -406,7 +406,7 @@ fn test_rpc_routing_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(4, |index| format!("tx_propagation{}", index))
+        .mkdirs_with(4, |index| format!("tx_propagation{}", index))
         .with(HeavyTest(true))
         .with(Shards(4))
         .with(ValidatorSeats(2))
@@ -454,7 +454,7 @@ fn test_get_validator_info_rpc() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(1, |index| format!("validator_info{}", index))
+        .mkdirs_with(1, |index| format!("validator_info{}", index))
         .with(HeavyTest(true))
         .with(Shards(1))
         .with(ValidatorSeats(1))
@@ -522,7 +522,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(2, |index| format!("tx_propagation{}", index))
+        .mkdirs_with(2, |index| format!("tx_propagation{}", index))
         .with(HeavyTest(true))
         .with(Shards(1))
         .with(ValidatorSeats(1))
@@ -643,7 +643,7 @@ fn test_protocol_config_rpc() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(1, |index| format!("protocol_config{}", index))
+        .mkdirs_with(1, |index| format!("protocol_config{}", index))
         .with(HeavyTest(true))
         .with(Shards(1))
         .with(ValidatorSeats(1))
@@ -683,7 +683,7 @@ fn test_query_rpc_account_view_must_succeed() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(1, |index| format!("protocol_config{}", index))
+        .mkdirs_with(1, |index| format!("protocol_config{}", index))
         .with(HeavyTest(true))
         .with(Shards(1))
         .with(ValidatorSeats(1))
@@ -728,7 +728,7 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(1, |index| format!("protocol_config{}", index))
+        .mkdirs_with(1, |index| format!("protocol_config{}", index))
         .with(HeavyTest(true))
         .with(Shards(1))
         .with(ValidatorSeats(1))
@@ -770,7 +770,7 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::new()
-        .mkdir(1, |index| format!("protocol_config{}", index))
+        .mkdirs_with(1, |index| format!("protocol_config{}", index))
         .with(HeavyTest(true))
         .with(Shards(1))
         .with(ValidatorSeats(1))
