@@ -749,11 +749,12 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
                     },
                 })
                 .await;
-            assert!(query_response.is_err());
+
             let error_message = match query_response {
                 Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
                 Err(err) => err.data.unwrap(),
             };
+
             assert!(
                 error_message.to_string().contains("Account ID 1nval$d*@cc0ount is invalid"),
                 "{}",
