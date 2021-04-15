@@ -1879,11 +1879,13 @@ impl Chain {
         &mut self,
         id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
-        if self.store.get_transaction(&id)?.is_none() && self.store.get_receipt(&id)?.is_none() {
-            // TODO: fix this properly
-            return Ok(vec![]);
-        }
-        let outcome: ExecutionOutcomeWithIdView = self.get_execution_outcome(id)?.into();
+        let outcome: ExecutionOutcomeWithIdView = match self.get_execution_outcome(id) {
+            Ok(res) => res.into(),
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => return Ok(vec![]),
+                _ => return Err(e),
+            },
+        };
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut results = vec![outcome];
         for receipt_id in &receipt_ids {
@@ -1897,6 +1899,12 @@ impl Chain {
         transaction_hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, Error> {
         let mut outcomes = self.get_recursive_transaction_results(transaction_hash)?;
+        if outcomes.is_empty() {
+            return Err(Error::from(ErrorKind::DBNotFoundErr(format!(
+                "Execution outcome for transaction {} does not exist",
+                transaction_hash
+            ))));
+        }
         let mut looking_for_id = (*transaction_hash).into();
         let num_outcomes = outcomes.len();
         let status = outcomes
@@ -1924,7 +1932,7 @@ impl Chain {
                 }
             })
             .unwrap_or(FinalExecutionStatus::Started); // XXX: Temporary fix to avoid panic
-            //.expect("results should resolve to a final outcome");
+                                                       //.expect("results should resolve to a final outcome");
         let receipts_outcome = outcomes.split_off(1);
         let transaction: SignedTransactionView = self
             .store
