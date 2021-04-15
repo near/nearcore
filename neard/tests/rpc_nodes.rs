@@ -841,5 +841,7 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
             "{}",
             error_message
         );
+
+        System::current().stop();
     });
 }
