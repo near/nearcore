@@ -30,7 +30,7 @@ fn run_heavy_nodes(
         .with(EpochLength(epoch_length))
         .with(GenesisHeight(genesis_height));
 
-    cluster.exec(|_, _, clients| async move {
+    cluster.exec_until_stop(|_, _, clients| async move {
         let view_client = clients.last().unwrap().1.clone();
 
         WaitOrTimeout::new(

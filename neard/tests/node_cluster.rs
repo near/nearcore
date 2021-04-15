@@ -63,7 +63,7 @@ impl NodeCluster {
         self
     }
 
-    fn _exec<F, R>(self, f: F)
+    fn exec<F, R>(self, f: F)
     where
         R: future::Future<Output = ()> + 'static,
         F: Fn(
@@ -96,7 +96,7 @@ impl NodeCluster {
         });
     }
 
-    pub fn exec<F, R>(self, f: F)
+    pub fn exec_until_stop<F, R>(self, f: F)
     where
         R: future::Future<Output = ()> + 'static,
         F: Fn(
@@ -110,9 +110,9 @@ impl NodeCluster {
         ) -> R,
     {
         if self.is_heavy {
-            heavy_test(|| self._exec(f))
+            heavy_test(|| self.exec(f))
         } else {
-            self._exec(f)
+            self.exec(f)
         }
     }
 }

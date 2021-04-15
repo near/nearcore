@@ -55,7 +55,7 @@ fn test_tx_propagation() {
         .with(EpochLength(10))
         .with(GenesisHeight(0));
 
-    cluster.exec(|genesis, rpc_addrs, clients| async move {
+    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
@@ -142,7 +142,7 @@ fn test_tx_propagation_through_rpc() {
         .with(EpochLength(1000))
         .with(GenesisHeight(0));
 
-    cluster.exec(|genesis, rpc_addrs, clients| async move {
+    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
@@ -212,7 +212,7 @@ fn test_tx_status_with_light_client() {
         .with(EpochLength(10))
         .with(GenesisHeight(0));
 
-    cluster.exec(|genesis, rpc_addrs, clients| async move {
+    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
@@ -287,7 +287,7 @@ fn test_tx_status_with_light_client1() {
         .with(EpochLength(10))
         .with(GenesisHeight(0));
 
-    cluster.exec(|genesis, rpc_addrs, clients| async move {
+    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
@@ -361,7 +361,7 @@ fn test_rpc_routing() {
         .with(EpochLength(10))
         .with(GenesisHeight(0));
 
-    cluster.exec(|_, rpc_addrs, clients| async move {
+    cluster.exec_until_stop(|_, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
         WaitOrTimeout::new(
@@ -414,7 +414,7 @@ fn test_rpc_routing_error() {
         .with(EpochLength(10))
         .with(GenesisHeight(0));
 
-    cluster.exec(|_, rpc_addrs, clients| async move {
+    cluster.exec_until_stop(|_, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
         WaitOrTimeout::new(
@@ -462,7 +462,7 @@ fn test_get_validator_info_rpc() {
         .with(EpochLength(10))
         .with(GenesisHeight(0));
 
-    cluster.exec(|_, rpc_addrs, clients| async move {
+    cluster.exec_until_stop(|_, rpc_addrs, clients| async move {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
@@ -530,7 +530,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         .with(EpochLength(1000))
         .with(GenesisHeight(0));
 
-    cluster.exec(|genesis, rpc_addrs, clients| async move {
+    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
@@ -651,7 +651,7 @@ fn test_protocol_config_rpc() {
         .with(EpochLength(10))
         .with(GenesisHeight(0));
 
-    cluster.exec(|genesis, rpc_addrs, _| async move {
+    cluster.exec_until_stop(|genesis, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let config_response = client
             .EXPERIMENTAL_protocol_config(
@@ -689,7 +689,7 @@ fn test_query_rpc_account_view_must_succeed() {
         .with(EpochLength(10))
         .with(GenesisHeight(0));
 
-    cluster.exec(|_, rpc_addrs, _| async move {
+    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
@@ -729,7 +729,7 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
         .with(EpochLength(10))
         .with(GenesisHeight(0));
 
-    cluster.exec(|_, rpc_addrs, _| async move {
+    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
@@ -767,7 +767,7 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
         .with(EpochLength(10))
         .with(GenesisHeight(0));
 
-    cluster.exec(|_, rpc_addrs, _| async move {
+    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
