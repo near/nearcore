@@ -6,7 +6,6 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards}
 use testlib::{start_nodes, test_helpers::heavy_test};
 
 pub enum ClusterConfigVariant {
-    Dirs(usize, fn(usize) -> String),
     Shards(NumShards),
     ValidatorSeats(NumSeats),
     LightClients(usize),
@@ -34,12 +33,6 @@ impl NodeCluster {
 
     pub fn with(mut self, config: ClusterConfigVariant) -> Self {
         match config {
-            Dirs(capacity, gen_dirname) => {
-                self.dirs = Vec::with_capacity(capacity);
-                self.dirs.extend((0..capacity).map(|index| {
-                    tempfile::Builder::new().prefix(&gen_dirname(index)).tempdir().unwrap()
-                }));
-            }
             Shards(n) => self.num_shards = Some(n),
             ValidatorSeats(n) => self.num_validator_seats = Some(n),
             LightClients(n) => self.num_lightclient = Some(n),
@@ -51,6 +44,16 @@ impl NodeCluster {
 
     pub fn heavy(mut self, is_heavy: bool) -> Self {
         self.is_heavy = is_heavy;
+        self
+    }
+
+    pub fn mkdir<F: Fn(usize) -> String>(mut self, capacity: usize, gen_dirname: F) -> Self {
+        self.dirs = Vec::with_capacity(capacity);
+        self.dirs.extend(
+            (0..capacity).map(|index| {
+                tempfile::Builder::new().prefix(&gen_dirname(index)).tempdir().unwrap()
+            }),
+        );
         self
     }
 
