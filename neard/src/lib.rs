@@ -191,7 +191,7 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
     if db_version <= 17 {
         info!(target: "near", "Migrate DB from version 17 to 18");
         // version 17 => 18: add `hash` to `BlockInfo` and ColHeaderHashesByHeight
-        migrate_18_to_19(&path);
+        migrate_17_to_18(&path);
     }
     if db_version <= 18 {
         info!(target: "near", "Migrate DB from version 18 to 19");

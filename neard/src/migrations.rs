@@ -121,7 +121,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 13);
 }
 
-pub fn migrate_17_to_18(path: &String, near_config: &NearConfig) {
+pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
     let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store = ChainStore::new(store.clone(), genesis_height);
@@ -152,16 +152,16 @@ pub fn migrate_17_to_18(path: &String, near_config: &NearConfig) {
                 let apply_result = runtime
                     .apply_transactions(
                         shard_id,
-                        &new_extra.state_root,
+                        new_extra.state_root(),
                         block.header().height(),
                         block.header().raw_timestamp(),
                         block.header().prev_hash(),
                         &block.hash(),
                         &[],
                         &[],
-                        &new_extra.validator_proposals,
+                        new_extra.validator_proposals(),
                         block.header().gas_price(),
-                        new_extra.gas_limit,
+                        new_extra.gas_limit(),
                         &block.header().challenges_result(),
                         *block.header().random_value(),
                         // doesn't really matter here since the old blocks are on the old version
@@ -182,5 +182,5 @@ pub fn migrate_17_to_18(path: &String, near_config: &NearConfig) {
             }
         }
     }
-    set_store_version(&store, 18);
+    set_store_version(&store, 19);
 }

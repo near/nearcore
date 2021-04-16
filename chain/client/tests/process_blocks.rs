@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::iter::FromIterator;
 use std::path::Path;
 use std::str::FromStr;
@@ -9,11 +9,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
-<<<<<<< HEAD
 use near_actix_test_utils::run_actix_until_stop;
-=======
-use borsh::maybestd::collections::VecDeque;
->>>>>>> aa90c579... fix apply chunks
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -41,31 +37,21 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash, Digest};
 use near_primitives::merkle::verify_hash;
-<<<<<<< HEAD
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
 
-=======
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::sharding::{
-    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderV2,
-};
->>>>>>> aa90c579... fix apply chunks
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
     Transaction,
 };
-<<<<<<< HEAD
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
-=======
-use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ValidatorStake};
->>>>>>> aa90c579... fix apply chunks
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -2663,8 +2649,7 @@ fn test_congestion_receipt_execution() {
         "test0".to_string(),
         &signer,
         vec![Action::DeployContract(DeployContractAction {
-            code: include_bytes!("../../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm")
-                .to_vec(),
+            code: near_test_contracts::rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
     );
@@ -2712,9 +2697,9 @@ fn test_congestion_receipt_execution() {
     env.produce_block(0, height);
     let prev_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
     let chunk_extra = env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
-    assert!(chunk_extra.gas_used >= chunk_extra.gas_limit);
+    assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     let state_update =
-        env.clients[0].runtime_adapter.get_tries().new_trie_update(0, chunk_extra.state_root);
+        env.clients[0].runtime_adapter.get_tries().new_trie_update(0, *chunk_extra.state_root());
     let delayed_indices =
         get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
             .unwrap()

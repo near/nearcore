@@ -51,8 +51,9 @@ use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
-use near_runtime_fees::RuntimeFeesConfig;
+use near_primitives::version::{
+    ProtocolFeature, ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+};
 use std::borrow::Borrow;
 use std::rc::Rc;
 
@@ -1101,7 +1102,7 @@ impl Runtime {
         }
         if !apply_state.is_new_chunk
             && apply_state.current_protocol_version
-                >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::FixApplyChunks]
+                >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
             let (trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();

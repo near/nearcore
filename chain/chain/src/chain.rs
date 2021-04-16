@@ -1922,7 +1922,7 @@ impl Chain {
             if !chunk_included {
                 let block_hash = *block.hash();
                 let chunk_extra = self.get_chunk_extra(&block_hash, shard_id)?;
-                chunk_extra.gas_used >= chunk_extra.gas_limit
+                chunk_extra.gas_used() >= chunk_extra.gas_limit()
             } else {
                 false
             }
