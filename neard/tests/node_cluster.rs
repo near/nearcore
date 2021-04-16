@@ -34,10 +34,6 @@ pub struct NodeCluster {
 
 impl NodeCluster {
     pub fn new() -> Self {
-        PARENT_TOOK_SIGINT.0.call_once(|| {
-            ctrlc::set_handler(|| PARENT_TOOK_SIGINT.1.store(true, Ordering::SeqCst))
-                .expect("Error setting Ctrl-C handler");
-        });
         Self::default()
     }
 
@@ -76,6 +72,10 @@ impl NodeCluster {
             )>,
         ) -> R,
     {
+        PARENT_TOOK_SIGINT.0.call_once(|| {
+            ctrlc::set_handler(|| PARENT_TOOK_SIGINT.1.store(true, Ordering::SeqCst))
+                .expect("Error setting Ctrl-C handler");
+        });
         run_actix_until_stop(async {
             assert!(!PARENT_TOOK_SIGINT.1.load(Ordering::SeqCst), "SIGINT recieved, exiting...");
 
