@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub type RpcValidatorsOrderedResponse = Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>;
+pub type RpcValidatorsOrderedResponse =
+    Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcValidatorError {

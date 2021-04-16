@@ -275,7 +275,7 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_changes" => {
                 let rpc_state_changes_request =
-                    near_jsonrpc_primitives::types::changes::RpcStateChangesRequest::parse(
+                    near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest::parse(
                         request.params,
                     )?;
                 let state_changes =
@@ -831,7 +831,7 @@ impl JsonRpcHandler {
 
     async fn changes_in_block_by_type(
         &self,
-        request: near_jsonrpc_primitives::types::changes::RpcStateChangesRequest,
+        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest,
     ) -> Result<
         near_jsonrpc_primitives::types::changes::RpcStateChangesResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,

@@ -194,7 +194,12 @@ impl From<actix::MailboxError> for RpcLightClientNextBlockError {
 
 impl From<RpcLightClientProofError> for crate::errors::RpcError {
     fn from(error: RpcLightClientProofError) -> Self {
-        let error_data = Some(Value::String(error.to_string()));
+        let error_data = match error {
+            RpcLightClientProofError::UnknownBlock { error_message } => {
+                Some(Value::String(format!("DB Not Found Error: {}", error_message)))
+            }
+            _ => Some(Value::String(error.to_string())),
+        };
 
         Self::new(-32_000, "Server error".to_string(), error_data)
     }

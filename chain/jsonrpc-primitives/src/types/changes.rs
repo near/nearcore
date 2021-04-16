@@ -5,14 +5,20 @@ use serde_json::Value;
 pub struct RpcStateChangesRequest {
     #[serde(flatten)]
     pub block_reference: crate::types::blocks::BlockReference,
-    #[serde(flatten)]
-    pub state_changes_request: near_primitives::views::StateChangesRequestView,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcStateChangesResponse {
     pub block_hash: near_primitives::hash::CryptoHash,
     pub changes: near_primitives::views::StateChangesView,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RpcStateChangesInBlockRequest {
+    #[serde(flatten)]
+    pub block_reference: crate::types::blocks::BlockReference,
+    #[serde(flatten)]
+    pub state_changes_request: near_primitives::views::StateChangesRequestView,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,6 +44,12 @@ pub enum RpcStateChangesError {
 }
 
 impl RpcStateChangesRequest {
+    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        Ok(crate::utils::parse_params::<Self>(value)?)
+    }
+}
+
+impl RpcStateChangesInBlockRequest {
     pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         Ok(crate::utils::parse_params::<Self>(value)?)
     }
