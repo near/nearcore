@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 pub struct ShutdownableThread {
     pub join: Option<std::thread::JoinHandle<()>>,
     pub actix_system: actix_rt::System,
@@ -32,14 +34,21 @@ impl Drop for ShutdownableThread {
     }
 }
 
+static CAUGHT_SIGINT: AtomicBool = AtomicBool::new(false);
+
 macro_rules! handle_interrupt {
     ($future:expr) => {
         async move {
             use actix_rt::signal::ctrl_c;
             use futures::{select, FutureExt};
 
+            assert!(!CAUGHT_SIGINT.load(Ordering::SeqCst), "SIGINT recieved, exiting...");
+
             select! {
-                _ = ctrl_c().fuse() => actix_rt::System::current().stop(),
+                _ = ctrl_c().fuse() => {
+                    CAUGHT_SIGINT.store(true, Ordering::SeqCst);
+                    actix_rt::System::current().stop();
+                },
                 _ = $future.fuse() => {},
             }
         }

@@ -1,19 +1,9 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Once;
-
 use futures::future;
 
 use near_actix_test_utils::{run_actix_until_stop, spawn_interruptible as spawn};
 use near_client::{ClientActor, ViewClientActor};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use testlib::{start_nodes, test_helpers::heavy_test};
-
-static PARENT_TOOK_SIGINT: (Once, AtomicBool) = (Once::new(), AtomicBool::new(false));
-
-#[inline]
-fn check_parent() {
-    assert!(!PARENT_TOOK_SIGINT.1.load(Ordering::SeqCst), "SIGINT recieved, exiting...");
-}
 
 pub enum ClusterConfigVariant {
     HeavyTest(bool),
@@ -77,13 +67,7 @@ impl NodeCluster {
             )>,
         ) -> R,
     {
-        PARENT_TOOK_SIGINT.0.call_once(|| {
-            ctrlc::set_handler(|| PARENT_TOOK_SIGINT.1.store(true, Ordering::SeqCst))
-                .expect("Error setting Ctrl-C handler");
-        });
         run_actix_until_stop(async {
-            check_parent();
-
             assert!(
                 !self.dirs.is_empty(),
                 "cluster config: expected a non-zero number of directories"
@@ -96,8 +80,6 @@ impl NodeCluster {
                 self.epoch_length.expect("cluster config: [epoch_length] undefined"),
                 self.genesis_height.expect("cluster config: [genesis_height] undefined"),
             );
-
-            check_parent();
             spawn(f(genesis, rpc_addrs, clients));
         });
     }
