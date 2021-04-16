@@ -264,6 +264,68 @@ impl JsonRpcHandler {
                 serde_json::to_value(chunk)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
+            "gas_price" => {
+                let rpc_gas_price_request =
+                    near_jsonrpc_primitives::types::gas_price::RpcGasPriceRequest::parse(
+                        request.params,
+                    )?;
+                let gas_price = self.gas_price(rpc_gas_price_request).await?;
+                serde_json::to_value(gas_price)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
+            "health" => {
+                let health_response = self.health().await?;
+                serde_json::to_value(health_response)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
+            "light_client_proof" => {
+                let rpc_light_client_execution_proof_request = near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest::parse(request.params)?;
+                let rpc_light_client_execution_proof_response = self
+                    .light_client_execution_outcome_proof(rpc_light_client_execution_proof_request)
+                    .await?;
+                serde_json::to_value(rpc_light_client_execution_proof_response)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
+            "next_light_client_block" => {
+                let rpc_light_client_next_block_request = near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockRequest::parse(request.params)?;
+                let next_light_client_block =
+                    self.next_light_client_block(rpc_light_client_next_block_request).await?;
+                serde_json::to_value(next_light_client_block)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
+            "network_info" => {
+                let network_info_response = self.network_info().await?;
+                serde_json::to_value(network_info_response)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
+            "query" => {
+                let rpc_query_request =
+                    near_jsonrpc_primitives::types::query::RpcQueryRequest::parse(request.params)?;
+                let query_response = self.query(rpc_query_request).await;
+                process_query_response(query_response)
+            }
+            "status" => {
+                let status_response = self.status().await?;
+                serde_json::to_value(status_response)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
+            "tx" => {
+                let rpc_transaction_status_common_request =
+                    near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
+                let rpc_transaction_response =
+                    self.tx_status_common(rpc_transaction_status_common_request, false).await?;
+                serde_json::to_value(rpc_transaction_response)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
+            "validators" => {
+                let rpc_validator_request =
+                    near_jsonrpc_primitives::types::validator::RpcValidatorRequest::parse(
+                        request.params,
+                    )?;
+                let validator_info = self.validators(rpc_validator_request).await?;
+                serde_json::to_value(validator_info)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
             "EXPERIMENTAL_broadcast_tx_sync" => {
                 let rpc_transaction_request =
                     near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest::parse(
@@ -346,68 +408,6 @@ impl JsonRpcHandler {
                     )?;
                 let validators = self.validators_ordered(rpc_validators_ordered_request).await?;
                 serde_json::to_value(validators)
-                    .map_err(|err| RpcError::serialization_error(err.to_string()))
-            }
-            "gas_price" => {
-                let rpc_gas_price_request =
-                    near_jsonrpc_primitives::types::gas_price::RpcGasPriceRequest::parse(
-                        request.params,
-                    )?;
-                let gas_price = self.gas_price(rpc_gas_price_request).await?;
-                serde_json::to_value(gas_price)
-                    .map_err(|err| RpcError::serialization_error(err.to_string()))
-            }
-            "health" => {
-                let health_response = self.health().await?;
-                serde_json::to_value(health_response)
-                    .map_err(|err| RpcError::serialization_error(err.to_string()))
-            }
-            "light_client_proof" => {
-                let rpc_light_client_execution_proof_request = near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest::parse(request.params)?;
-                let rpc_light_client_execution_proof_response = self
-                    .light_client_execution_outcome_proof(rpc_light_client_execution_proof_request)
-                    .await?;
-                serde_json::to_value(rpc_light_client_execution_proof_response)
-                    .map_err(|err| RpcError::serialization_error(err.to_string()))
-            }
-            "next_light_client_block" => {
-                let rpc_light_client_next_block_request = near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockRequest::parse(request.params)?;
-                let next_light_client_block =
-                    self.next_light_client_block(rpc_light_client_next_block_request).await?;
-                serde_json::to_value(next_light_client_block)
-                    .map_err(|err| RpcError::serialization_error(err.to_string()))
-            }
-            "network_info" => {
-                let network_info_response = self.network_info().await?;
-                serde_json::to_value(network_info_response)
-                    .map_err(|err| RpcError::serialization_error(err.to_string()))
-            }
-            "query" => {
-                let rpc_query_request =
-                    near_jsonrpc_primitives::types::query::RpcQueryRequest::parse(request.params)?;
-                let query_response = self.query(rpc_query_request).await;
-                process_query_response(query_response)
-            }
-            "status" => {
-                let status_response = self.status().await?;
-                serde_json::to_value(status_response)
-                    .map_err(|err| RpcError::serialization_error(err.to_string()))
-            }
-            "tx" => {
-                let rpc_transaction_status_common_request =
-                    near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
-                let rpc_transaction_response =
-                    self.tx_status_common(rpc_transaction_status_common_request, false).await?;
-                serde_json::to_value(rpc_transaction_response)
-                    .map_err(|err| RpcError::serialization_error(err.to_string()))
-            }
-            "validators" => {
-                let rpc_validator_request =
-                    near_jsonrpc_primitives::types::validator::RpcValidatorRequest::parse(
-                        request.params,
-                    )?;
-                let validator_info = self.validators(rpc_validator_request).await?;
-                serde_json::to_value(validator_info)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
             _ => Err(RpcError::method_not_found(request.method.clone())),
