@@ -40,6 +40,7 @@ use near_vm_logic::{VMContext, VMOutcome};
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
 /// Precompiles:
@@ -459,6 +460,7 @@ pub(crate) fn action_deploy_contract(
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
+    apply_state: &ApplyState,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
@@ -474,6 +476,14 @@ pub(crate) fn action_deploy_contract(
     );
     account.set_code_hash(code.get_hash());
     set_code(state_update, account_id.clone(), &code);
+    // Precompile the contract and store result (compiled code or error) in the database.
+    if false {
+        let _ = precompile_contract(
+            &code,
+            &apply_state.config.wasm_config,
+            apply_state.cache.as_deref(),
+        );
+    }
     Ok(())
 }
 
