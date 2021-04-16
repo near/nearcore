@@ -5,17 +5,6 @@ use near_client::{ClientActor, ViewClientActor};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use testlib::{start_nodes, test_helpers::heavy_test};
 
-pub enum ClusterConfigVariant {
-    HeavyTest(bool),
-    Shards(NumShards),
-    ValidatorSeats(NumSeats),
-    LightClients(usize),
-    EpochLength(BlockHeightDelta),
-    GenesisHeight(BlockHeight),
-}
-
-use ClusterConfigVariant::*;
-
 #[derive(Debug, Default)]
 pub struct NodeCluster {
     dirs: Vec<tempfile::TempDir>,
@@ -25,6 +14,17 @@ pub struct NodeCluster {
     num_lightclient: Option<usize>,
     epoch_length: Option<BlockHeightDelta>,
     genesis_height: Option<BlockHeight>,
+}
+
+macro_rules! add_mut_helpers {
+    ($($method:ident($self:ident $(,$arg:ident:$type:ty)?) => $expr:expr),+) => {
+        $(
+            pub fn $method(mut $self$(, $arg: $type)?) -> Self {
+                $expr;
+                $self
+            }
+        )+
+    }
 }
 
 impl NodeCluster {
@@ -39,16 +39,13 @@ impl NodeCluster {
         }
     }
 
-    pub fn with(mut self, config: ClusterConfigVariant) -> Self {
-        match config {
-            HeavyTest(is_heavy) => self.is_heavy = is_heavy,
-            Shards(n) => self.num_shards = Some(n),
-            ValidatorSeats(n) => self.num_validator_seats = Some(n),
-            LightClients(n) => self.num_lightclient = Some(n),
-            EpochLength(l) => self.epoch_length = Some(l),
-            GenesisHeight(h) => self.genesis_height = Some(h),
-        };
-        self
+    add_mut_helpers! {
+        set_heavy_test(self) => self.is_heavy = true,
+        set_shards(self, n: NumShards) => self.num_shards = Some(n),
+        set_validator_seats(self, n: NumSeats) => self.num_validator_seats = Some(n),
+        set_lightclient(self, n: usize) => self.num_lightclient = Some(n),
+        set_epoch_length(self, l: BlockHeightDelta) => self.epoch_length = Some(l),
+        set_genesis_height(self, h: BlockHeight) => self.genesis_height = Some(h)
     }
 
     fn exec<F, R>(self, f: F)

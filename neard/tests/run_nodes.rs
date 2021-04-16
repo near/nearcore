@@ -8,7 +8,7 @@ use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
 use rand::{thread_rng, Rng};
 
 mod node_cluster;
-use node_cluster::{ClusterConfigVariant::*, NodeCluster};
+use node_cluster::NodeCluster;
 
 fn run_heavy_nodes(
     num_shards: NumShards,
@@ -23,12 +23,12 @@ fn run_heavy_nodes(
     let cluster = NodeCluster::new(num_nodes as usize, |index| {
         format!("run_nodes_{}_{}_{}", num_nodes, num_validators, index)
     })
-    .with(HeavyTest(true))
-    .with(Shards(num_shards))
-    .with(ValidatorSeats(num_validators))
-    .with(LightClients(0))
-    .with(EpochLength(epoch_length))
-    .with(GenesisHeight(genesis_height));
+    .set_heavy_test()
+    .set_shards(num_shards)
+    .set_validator_seats(num_validators)
+    .set_lightclient(0)
+    .set_epoch_length(epoch_length)
+    .set_genesis_height(genesis_height);
 
     cluster.exec_until_stop(|_, _, clients| async move {
         let view_client = clients.last().unwrap().1.clone();

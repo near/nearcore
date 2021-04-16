@@ -10,19 +10,19 @@ use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::CryptoHash;
 
 mod node_cluster;
-use node_cluster::{ClusterConfigVariant::*, NodeCluster};
+use node_cluster::NodeCluster;
 
 #[test]
 fn track_shards() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(4, |index| format!("track_shards_{}", index))
-        .with(HeavyTest(true))
-        .with(Shards(4))
-        .with(ValidatorSeats(2))
-        .with(LightClients(0))
-        .with(EpochLength(10))
-        .with(GenesisHeight(0));
+        .set_heavy_test()
+        .set_shards(4)
+        .set_validator_seats(2)
+        .set_lightclient(0)
+        .set_epoch_length(10)
+        .set_genesis_height(0);
 
     cluster.exec_until_stop(|_, _, clients| async move {
         let view_client = clients[clients.len() - 1].1.clone();
