@@ -10,6 +10,11 @@ use testlib::{start_nodes, test_helpers::heavy_test};
 
 static PARENT_TOOK_SIGINT: (Once, AtomicBool) = (Once::new(), AtomicBool::new(false));
 
+#[inline]
+fn check_parent() {
+    assert!(!PARENT_TOOK_SIGINT.1.load(Ordering::SeqCst), "SIGINT recieved, exiting...");
+}
+
 pub enum ClusterConfigVariant {
     HeavyTest(bool),
     Shards(NumShards),
@@ -77,7 +82,7 @@ impl NodeCluster {
                 .expect("Error setting Ctrl-C handler");
         });
         run_actix_until_stop(async {
-            assert!(!PARENT_TOOK_SIGINT.1.load(Ordering::SeqCst), "SIGINT recieved, exiting...");
+            check_parent();
 
             assert!(
                 !self.dirs.is_empty(),
@@ -92,6 +97,7 @@ impl NodeCluster {
                 self.genesis_height.expect("cluster config: [genesis_height] undefined"),
             );
 
+            check_parent();
             spawn(f(genesis, rpc_addrs, clients));
         });
     }
