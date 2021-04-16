@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::iter::FromIterator;
 use std::path::Path;
@@ -42,8 +42,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
-    Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
-    Transaction,
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ValidatorStake};
