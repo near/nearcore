@@ -29,13 +29,14 @@ pub struct NodeCluster {
 
 impl NodeCluster {
     pub fn new<F: Fn(usize) -> String>(capacity: usize, gen_dirname: F) -> Self {
-        let mut dirs = Vec::with_capacity(capacity);
-        dirs.extend(
-            (0..capacity).map(|index| {
-                tempfile::Builder::new().prefix(&gen_dirname(index)).tempdir().unwrap()
-            }),
-        );
-        Self { dirs, ..Default::default() }
+        Self {
+            dirs: (0..capacity)
+                .map(|index| {
+                    tempfile::Builder::new().prefix(&gen_dirname(index)).tempdir().unwrap()
+                })
+                .collect(),
+            ..Default::default()
+        }
     }
 
     pub fn with(mut self, config: ClusterConfigVariant) -> Self {
