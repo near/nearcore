@@ -477,7 +477,7 @@ pub(crate) fn action_deploy_contract(
     account.set_code_hash(code.get_hash());
     set_code(state_update, account_id.clone(), &code);
     // Precompile the contract and store result (compiled code or error) in the database.
-    if false {
+    if true {
         let _ = precompile_contract(
             &code,
             &apply_state.config.wasm_config,
