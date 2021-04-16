@@ -1,6 +1,7 @@
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 
+use near_actix_test_utils::spawn_interruptible as spawn;
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
@@ -35,7 +36,7 @@ fn run_heavy_nodes(
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
-                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     match &res {
                         Ok(Ok(b)) if b.header.height > num_blocks => System::current().stop(),
                         Err(_) => return future::ready(()),
