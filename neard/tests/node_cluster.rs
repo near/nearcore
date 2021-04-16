@@ -54,7 +54,7 @@ impl NodeCluster {
     fn exec<F, R>(self, f: F)
     where
         R: future::Future<Output = ()> + 'static,
-        F: Fn(
+        F: FnOnce(
             near_chain_configs::Genesis,
             Vec<String>,
             Vec<(
@@ -88,7 +88,7 @@ impl NodeCluster {
     pub fn exec_until_stop<F, R>(self, f: F)
     where
         R: future::Future<Output = ()> + 'static,
-        F: Fn(
+        F: FnOnce(
             near_chain_configs::Genesis,
             Vec<String>,
             Vec<(
