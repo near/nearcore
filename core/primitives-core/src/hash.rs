@@ -12,12 +12,6 @@ use crate::serialize::{from_base, to_base, BaseDecode};
 #[as_mut(forward)]
 pub struct CryptoHash(pub [u8; 32]);
 
-impl<'a> From<&'a CryptoHash> for String {
-    fn from(h: &'a CryptoHash) -> Self {
-        to_base(&h.0)
-    }
-}
-
 impl Default for CryptoHash {
     fn default() -> Self {
         CryptoHash(Default::default())
@@ -109,19 +103,19 @@ impl From<&CryptoHash> for Vec<u8> {
 
 impl From<CryptoHash> for [u8; 32] {
     fn from(hash: CryptoHash) -> [u8; 32] {
-        (hash.0).0
+        hash.0
     }
 }
 
 impl fmt::Debug for CryptoHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", pretty_hash(&String::from(self)))
+        write!(f, "{}", pretty_hash(&self.to_string()))
     }
 }
 
 impl fmt::Display for CryptoHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", String::from(self))
+        fmt::Display::fmt(&to_base(&self.0), f)
     }
 }
 
