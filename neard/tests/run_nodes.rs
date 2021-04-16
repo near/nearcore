@@ -20,16 +20,15 @@ fn run_heavy_nodes(
     let mut rng = thread_rng();
     let genesis_height = rng.gen_range(0, 10000);
 
-    let cluster = NodeCluster::new()
-        .mkdirs_with(num_nodes as usize, |index| {
-            format!("run_nodes_{}_{}_{}", num_nodes, num_validators, index)
-        })
-        .with(HeavyTest(true))
-        .with(Shards(num_shards))
-        .with(ValidatorSeats(num_validators))
-        .with(LightClients(0))
-        .with(EpochLength(epoch_length))
-        .with(GenesisHeight(genesis_height));
+    let cluster = NodeCluster::new(num_nodes as usize, |index| {
+        format!("run_nodes_{}_{}_{}", num_nodes, num_validators, index)
+    })
+    .with(HeavyTest(true))
+    .with(Shards(num_shards))
+    .with(ValidatorSeats(num_validators))
+    .with(LightClients(0))
+    .with(EpochLength(epoch_length))
+    .with(GenesisHeight(genesis_height));
 
     cluster.exec_until_stop(|_, _, clients| async move {
         let view_client = clients.last().unwrap().1.clone();

@@ -16,7 +16,7 @@ pub enum ClusterConfigVariant {
 
 use ClusterConfigVariant::*;
 
-#[derive(Default, Debug)]
+#[derive(Debug, Default)]
 pub struct NodeCluster {
     dirs: Vec<tempfile::TempDir>,
     is_heavy: bool,
@@ -28,8 +28,14 @@ pub struct NodeCluster {
 }
 
 impl NodeCluster {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new<F: Fn(usize) -> String>(capacity: usize, gen_dirname: F) -> Self {
+        let mut dirs = Vec::with_capacity(capacity);
+        dirs.extend(
+            (0..capacity).map(|index| {
+                tempfile::Builder::new().prefix(&gen_dirname(index)).tempdir().unwrap()
+            }),
+        );
+        Self { dirs, ..Default::default() }
     }
 
     pub fn with(mut self, config: ClusterConfigVariant) -> Self {
@@ -41,16 +47,6 @@ impl NodeCluster {
             EpochLength(l) => self.epoch_length = Some(l),
             GenesisHeight(h) => self.genesis_height = Some(h),
         };
-        self
-    }
-
-    pub fn mkdirs_with<F: Fn(usize) -> String>(mut self, capacity: usize, gen_dirname: F) -> Self {
-        self.dirs = Vec::with_capacity(capacity);
-        self.dirs.extend(
-            (0..capacity).map(|index| {
-                tempfile::Builder::new().prefix(&gen_dirname(index)).tempdir().unwrap()
-            }),
-        );
         self
     }
 

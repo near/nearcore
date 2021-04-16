@@ -16,8 +16,7 @@ use node_cluster::{ClusterConfigVariant::*, NodeCluster};
 fn track_shards() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new()
-        .mkdirs_with(4, |index| format!("track_shards_{}", index))
+    let cluster = NodeCluster::new(4, |index| format!("track_shards_{}", index))
         .with(HeavyTest(true))
         .with(Shards(4))
         .with(ValidatorSeats(2))
