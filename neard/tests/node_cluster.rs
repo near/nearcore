@@ -64,18 +64,22 @@ impl NodeCluster {
             )>,
         ) -> R,
     {
+        assert!(!self.dirs.is_empty(), "cluster config: expected a non-zero number of directories");
+        let (num_shards, num_validator_seats, num_lightclient, epoch_length, genesis_height) = (
+            self.num_shards.expect("cluster config: [num_shards] undefined"),
+            self.num_validator_seats.expect("cluster config: [num_validator_seats] undefined"),
+            self.num_lightclient.expect("cluster config: [num_lightclient] undefined"),
+            self.epoch_length.expect("cluster config: [epoch_length] undefined"),
+            self.genesis_height.expect("cluster config: [genesis_height] undefined"),
+        );
         run_actix_until_stop(async {
-            assert!(
-                !self.dirs.is_empty(),
-                "cluster config: expected a non-zero number of directories"
-            );
             let (genesis, rpc_addrs, clients) = start_nodes(
-                self.num_shards.expect("cluster config: [num_shards] undefined"),
+                num_shards,
                 &self.dirs,
-                self.num_validator_seats.expect("cluster config: [num_validator_seats] undefined"),
-                self.num_lightclient.expect("cluster config: [num_lightclient] undefined"),
-                self.epoch_length.expect("cluster config: [epoch_length] undefined"),
-                self.genesis_height.expect("cluster config: [genesis_height] undefined"),
+                num_validator_seats,
+                num_lightclient,
+                epoch_length,
+                genesis_height,
             );
             spawn_interruptible(f(genesis, rpc_addrs, clients));
         });
