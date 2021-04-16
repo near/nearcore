@@ -15,7 +15,7 @@ use near_primitives::{
 };
 use near_runtime_utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
-use near_vm_logic::ReturnData;
+use near_vm_logic::{ReturnData, VMOutcome};
 use std::{str, sync::Arc, time::Instant};
 
 use crate::{actions::execute_function_call, ext::RuntimeExt};
@@ -264,12 +264,13 @@ impl TrieViewer {
             Err(errors::CallFunctionError::VMError { error_message: message })
         } else {
             let outcome = outcome.unwrap();
-            debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
-            logs.extend(outcome.logs);
-            let mut result = vec![];
-            if let ReturnData::Value(buf) = &outcome.return_data {
-                result = buf.clone();
-            }
+            debug!(target: "runtime", "(exec time {}) result of execution: {}", time_str, outcome);
+            let VMOutcome { logs: outcome_logs, return_data, .. } = outcome;
+            logs.extend(outcome_logs);
+            let result = match return_data {
+                ReturnData::Value(buf) => buf,
+                _ => vec![],
+            };
             Ok(result)
         }
     }

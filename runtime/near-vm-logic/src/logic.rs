@@ -2430,3 +2430,18 @@ pub struct VMOutcome {
     pub used_gas: Gas,
     pub logs: Vec<String>,
 }
+
+impl std::fmt::Display for VMOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let return_data_str = match self.return_data {
+            ReturnData::None => "None",
+            ReturnData::ReceiptIndex(_) => "Receipt",
+            ReturnData::Value(_) => "Value",
+        };
+        write!(
+            f,
+            "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
+            self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
+        )
+    }
+}
