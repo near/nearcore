@@ -9,7 +9,7 @@ use borsh::BorshSerialize;
 use futures::future::join_all;
 use futures::{future, FutureExt, TryFutureExt};
 
-use near_actix_test_utils::spawn_interruptible as spawn;
+use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
@@ -77,12 +77,12 @@ fn test_tx_propagation() {
                 let tx_hash_clone = tx_hash.clone();
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                             let bytes = transaction_copy.try_to_vec().unwrap();
-                            spawn(
+                            spawn_interruptible(
                                 client
                                     .broadcast_tx_async(to_base64(&bytes))
                                     .map_err(|err| panic_on_rpc_error!(err))
@@ -96,7 +96,7 @@ fn test_tx_propagation() {
                     future::ready(())
                 }));
 
-                spawn(
+                spawn_interruptible(
                     view_client
                         .send(TxStatus {
                             tx_hash,
@@ -162,12 +162,12 @@ fn test_tx_propagation_through_rpc() {
                 let has_sent_tx1 = has_sent_tx.clone();
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 10 && !has_sent_tx1.load(SeqCst) {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                             let bytes = transaction_copy.try_to_vec().unwrap();
-                            spawn(
+                            spawn_interruptible(
                                 client
                                     .broadcast_tx_commit(to_base64(&bytes))
                                     .map_err(|err| panic_on_rpc_error!(err))
@@ -231,12 +231,12 @@ fn test_tx_status_with_light_client() {
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
                 let tx_hash_clone = tx_hash.clone();
-                spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                             let bytes = transaction_copy.try_to_vec().unwrap();
-                            spawn(
+                            spawn_interruptible(
                                 client
                                     .broadcast_tx_async(to_base64(&bytes))
                                     .map_err(|err| panic_on_rpc_error!(err))
@@ -250,7 +250,7 @@ fn test_tx_status_with_light_client() {
                     future::ready(())
                 }));
                 let client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
-                spawn(
+                spawn_interruptible(
                     client
                         .tx(tx_hash_clone.to_string(), signer_account_id)
                         .map_err(|_| ())
@@ -305,12 +305,12 @@ fn test_tx_status_with_light_client1() {
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
                 let tx_hash_clone = tx_hash.clone();
-                spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                             let bytes = transaction_copy.try_to_vec().unwrap();
-                            spawn(
+                            spawn_interruptible(
                                 client
                                     .broadcast_tx_async(to_base64(&bytes))
                                     .map_err(|err| panic_on_rpc_error!(err))
@@ -324,7 +324,7 @@ fn test_tx_status_with_light_client1() {
                     future::ready(())
                 }));
                 let client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
-                spawn(
+                spawn_interruptible(
                     client
                         .tx(tx_hash_clone.to_string(), signer_account_id)
                         .map_err(|_| ())
@@ -362,11 +362,11 @@ fn test_rpc_routing() {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
-                spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            spawn(
+                            spawn_interruptible(
                                 client
                                     .query_by_path("account/near.2".to_string(), "".to_string())
                                     .map_err(|err| panic_on_rpc_error!(err))
@@ -414,11 +414,11 @@ fn test_rpc_routing_error() {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
-                spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            spawn(
+                            spawn_interruptible(
                                 client
                                     .query_by_path(
                                         "account/nonexistent".to_string(),
@@ -460,7 +460,7 @@ fn test_get_validator_info_rpc() {
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = clients[0].1.clone();
-                spawn(async move {
+                spawn_interruptible(async move {
                     let block_view = view_client.send(GetBlock::latest()).await.unwrap().unwrap();
                     if block_view.header.height > 1 {
                         let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
@@ -553,65 +553,75 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                 let client = new_client(&format!("http://{}", rpc_addrs[0]));
                 let bytes = transaction.try_to_vec().unwrap();
                 let view_client1 = view_client.clone();
-                spawn(client.broadcast_tx_commit(to_base64(&bytes)).then(move |res| {
-                    let final_transaction_outcome = match res {
-                        Ok(outcome) => outcome,
-                        Err(_) => return future::ready(()),
-                    };
-                    spawn(sleep(Duration::from_secs(1)).then(move |_| {
-                        let mut futures = vec![];
-                        for id in vec![TransactionOrReceiptId::Transaction {
-                            transaction_hash: final_transaction_outcome.transaction_outcome.id,
-                            sender_id: "near.0".to_string(),
-                        }]
-                        .into_iter()
-                        .chain(
-                            final_transaction_outcome.receipts_outcome.into_iter().map(|r| {
-                                TransactionOrReceiptId::Receipt {
-                                    receipt_id: r.id,
-                                    receiver_id: "near.1".to_string(),
-                                }
-                            }),
-                        ) {
-                            let view_client2 = view_client1.clone();
-                            let fut =
-                                view_client1.send(GetExecutionOutcome { id }).then(move |res| {
-                                    let execution_outcome_response = res.unwrap().unwrap();
-                                    view_client2
-                                        .send(GetBlock(BlockReference::BlockId(BlockId::Hash(
-                                            execution_outcome_response.outcome_proof.block_hash,
-                                        ))))
-                                        .then(move |res| {
-                                            let res = res.unwrap().unwrap();
-                                            let mut outcome_with_id_to_hash =
-                                                vec![execution_outcome_response.outcome_proof.id];
-                                            outcome_with_id_to_hash.extend(outcome_view_to_hashes(
-                                                &execution_outcome_response.outcome_proof.outcome,
-                                            ));
-                                            let chunk_outcome_root =
-                                                compute_root_from_path_and_item(
-                                                    &execution_outcome_response.outcome_proof.proof,
-                                                    &outcome_with_id_to_hash,
+                spawn_interruptible(client.broadcast_tx_commit(to_base64(&bytes)).then(
+                    move |res| {
+                        let final_transaction_outcome = match res {
+                            Ok(outcome) => outcome,
+                            Err(_) => return future::ready(()),
+                        };
+                        spawn_interruptible(sleep(Duration::from_secs(1)).then(move |_| {
+                            let mut futures = vec![];
+                            for id in vec![TransactionOrReceiptId::Transaction {
+                                transaction_hash: final_transaction_outcome.transaction_outcome.id,
+                                sender_id: "near.0".to_string(),
+                            }]
+                            .into_iter()
+                            .chain(
+                                final_transaction_outcome.receipts_outcome.into_iter().map(|r| {
+                                    TransactionOrReceiptId::Receipt {
+                                        receipt_id: r.id,
+                                        receiver_id: "near.1".to_string(),
+                                    }
+                                }),
+                            ) {
+                                let view_client2 = view_client1.clone();
+                                let fut = view_client1.send(GetExecutionOutcome { id }).then(
+                                    move |res| {
+                                        let execution_outcome_response = res.unwrap().unwrap();
+                                        view_client2
+                                            .send(GetBlock(BlockReference::BlockId(BlockId::Hash(
+                                                execution_outcome_response.outcome_proof.block_hash,
+                                            ))))
+                                            .then(move |res| {
+                                                let res = res.unwrap().unwrap();
+                                                let mut outcome_with_id_to_hash = vec![
+                                                    execution_outcome_response.outcome_proof.id,
+                                                ];
+                                                outcome_with_id_to_hash.extend(
+                                                    outcome_view_to_hashes(
+                                                        &execution_outcome_response
+                                                            .outcome_proof
+                                                            .outcome,
+                                                    ),
                                                 );
-                                            assert!(verify_path(
-                                                res.header.outcome_root,
-                                                &execution_outcome_response.outcome_root_proof,
-                                                &chunk_outcome_root
-                                            ));
-                                            future::ready(())
-                                        })
-                                });
-                            futures.push(fut);
-                        }
-                        spawn(join_all(futures).then(|_| {
-                            System::current().stop();
+                                                let chunk_outcome_root =
+                                                    compute_root_from_path_and_item(
+                                                        &execution_outcome_response
+                                                            .outcome_proof
+                                                            .proof,
+                                                        &outcome_with_id_to_hash,
+                                                    );
+                                                assert!(verify_path(
+                                                    res.header.outcome_root,
+                                                    &execution_outcome_response.outcome_root_proof,
+                                                    &chunk_outcome_root
+                                                ));
+                                                future::ready(())
+                                            })
+                                    },
+                                );
+                                futures.push(fut);
+                            }
+                            spawn_interruptible(join_all(futures).then(|_| {
+                                System::current().stop();
+                                future::ready(())
+                            }));
                             future::ready(())
                         }));
-                        future::ready(())
-                    }));
 
-                    future::ready(())
-                }));
+                        future::ready(())
+                    },
+                ));
             }),
             100,
             40000,
