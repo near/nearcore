@@ -8,7 +8,6 @@ use testlib::{start_nodes, test_helpers::heavy_test};
 #[derive(Debug, Default)]
 pub struct NodeCluster {
     dirs: Vec<tempfile::TempDir>,
-    is_heavy: bool,
     num_shards: Option<NumShards>,
     num_validator_seats: Option<NumSeats>,
     num_lightclient: Option<usize>,
@@ -26,11 +25,6 @@ impl NodeCluster {
                 .collect(),
             ..Default::default()
         }
-    }
-
-    pub fn set_heavy_test(mut self) -> Self {
-        self.is_heavy = true;
-        self
     }
 
     pub fn set_shards(mut self, n: NumShards) -> Self {
@@ -58,7 +52,7 @@ impl NodeCluster {
         self
     }
 
-    fn exec<F, R>(self, f: F)
+    pub fn exec_until_stop<F, R>(self, f: F)
     where
         R: future::Future<Output = ()> + 'static,
         F: FnOnce(
@@ -79,36 +73,18 @@ impl NodeCluster {
             self.epoch_length.expect("cluster config: [epoch_length] undefined"),
             self.genesis_height.expect("cluster config: [genesis_height] undefined"),
         );
-        run_actix_until_stop(async {
-            let (genesis, rpc_addrs, clients) = start_nodes(
-                num_shards,
-                &self.dirs,
-                num_validator_seats,
-                num_lightclient,
-                epoch_length,
-                genesis_height,
-            );
-            spawn_interruptible(f(genesis, rpc_addrs, clients));
+        heavy_test(|| {
+            run_actix_until_stop(async {
+                let (genesis, rpc_addrs, clients) = start_nodes(
+                    num_shards,
+                    &self.dirs,
+                    num_validator_seats,
+                    num_lightclient,
+                    epoch_length,
+                    genesis_height,
+                );
+                spawn_interruptible(f(genesis, rpc_addrs, clients));
+            });
         });
-    }
-
-    pub fn exec_until_stop<F, R>(self, f: F)
-    where
-        R: future::Future<Output = ()> + 'static,
-        F: FnOnce(
-            near_chain_configs::Genesis,
-            Vec<String>,
-            Vec<(
-                actix::Addr<ClientActor>,
-                actix::Addr<ViewClientActor>,
-                Vec<actix_rt::ArbiterHandle>,
-            )>,
-        ) -> R,
-    {
-        if self.is_heavy {
-            heavy_test(|| self.exec(f))
-        } else {
-            self.exec(f)
-        }
     }
 }

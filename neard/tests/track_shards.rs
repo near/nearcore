@@ -17,7 +17,6 @@ fn track_shards() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(4, |index| format!("track_shards_{}", index))
-        .set_heavy_test()
         .set_shards(4)
         .set_validator_seats(2)
         .set_lightclient(0)

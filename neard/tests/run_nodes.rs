@@ -23,7 +23,6 @@ fn run_heavy_nodes(
     let cluster = NodeCluster::new(num_nodes as usize, |index| {
         format!("run_nodes_{}_{}_{}", num_nodes, num_validators, index)
     })
-    .set_heavy_test()
     .set_shards(num_shards)
     .set_validator_seats(num_validators)
     .set_lightclient(0)
