@@ -23,9 +23,9 @@ fn run_heavy_nodes(
     let cluster = NodeCluster::new(num_nodes as usize, |index| {
         format!("run_nodes_{}_{}_{}", num_nodes, num_validators, index)
     })
-    .set_shards(num_shards)
-    .set_validator_seats(num_validators)
-    .set_lightclient(0)
+    .set_num_shards(num_shards)
+    .set_num_validator_seats(num_validators)
+    .set_num_lightclients(0)
     .set_epoch_length(epoch_length)
     .set_genesis_height(genesis_height);
 

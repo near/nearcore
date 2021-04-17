@@ -27,17 +27,17 @@ impl NodeCluster {
         }
     }
 
-    pub fn set_shards(mut self, n: NumShards) -> Self {
+    pub fn set_num_shards(mut self, n: NumShards) -> Self {
         self.num_shards = Some(n);
         self
     }
 
-    pub fn set_validator_seats(mut self, n: NumSeats) -> Self {
+    pub fn set_num_validator_seats(mut self, n: NumSeats) -> Self {
         self.num_validator_seats = Some(n);
         self
     }
 
-    pub fn set_lightclient(mut self, n: usize) -> Self {
+    pub fn set_num_lightclients(mut self, n: usize) -> Self {
         self.num_lightclient = Some(n);
         self
     }

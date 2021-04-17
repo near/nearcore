@@ -47,9 +47,9 @@ fn test_tx_propagation() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_shards(4)
-        .set_validator_seats(2)
-        .set_lightclient(2)
+        .set_num_shards(4)
+        .set_num_validator_seats(2)
+        .set_num_lightclients(2)
         .set_epoch_length(10)
         .set_genesis_height(0);
 
@@ -132,9 +132,9 @@ fn test_tx_propagation_through_rpc() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_shards(4)
-        .set_validator_seats(2)
-        .set_lightclient(2)
+        .set_num_shards(4)
+        .set_num_validator_seats(2)
+        .set_num_lightclients(2)
         .set_epoch_length(1000)
         .set_genesis_height(0);
 
@@ -200,9 +200,9 @@ fn test_tx_status_with_light_client() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_shards(4)
-        .set_validator_seats(2)
-        .set_lightclient(2)
+        .set_num_shards(4)
+        .set_num_validator_seats(2)
+        .set_num_lightclients(2)
         .set_epoch_length(10)
         .set_genesis_height(0);
 
@@ -273,9 +273,9 @@ fn test_tx_status_with_light_client1() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_shards(4)
-        .set_validator_seats(2)
-        .set_lightclient(2)
+        .set_num_shards(4)
+        .set_num_validator_seats(2)
+        .set_num_lightclients(2)
         .set_epoch_length(10)
         .set_genesis_height(0);
 
@@ -345,9 +345,9 @@ fn test_rpc_routing() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_shards(4)
-        .set_validator_seats(2)
-        .set_lightclient(2)
+        .set_num_shards(4)
+        .set_num_validator_seats(2)
+        .set_num_lightclients(2)
         .set_epoch_length(10)
         .set_genesis_height(0);
 
@@ -396,9 +396,9 @@ fn test_rpc_routing_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_shards(4)
-        .set_validator_seats(2)
-        .set_lightclient(2)
+        .set_num_shards(4)
+        .set_num_validator_seats(2)
+        .set_num_lightclients(2)
         .set_epoch_length(10)
         .set_genesis_height(0);
 
@@ -442,9 +442,9 @@ fn test_get_validator_info_rpc() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(1, |index| format!("validator_info{}", index))
-        .set_shards(1)
-        .set_validator_seats(1)
-        .set_lightclient(0)
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
         .set_epoch_length(10)
         .set_genesis_height(0);
 
@@ -508,9 +508,9 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
     init_integration_logger();
 
     let cluster = NodeCluster::new(2, |index| format!("tx_propagation{}", index))
-        .set_shards(1)
-        .set_validator_seats(1)
-        .set_lightclient(1)
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(1)
         .set_epoch_length(1000)
         .set_genesis_height(0);
 
@@ -637,9 +637,9 @@ fn test_protocol_config_rpc() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
-        .set_shards(1)
-        .set_validator_seats(1)
-        .set_lightclient(0)
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
         .set_epoch_length(10)
         .set_genesis_height(0);
 
@@ -673,9 +673,9 @@ fn test_query_rpc_account_view_must_succeed() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
-        .set_shards(1)
-        .set_validator_seats(1)
-        .set_lightclient(0)
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
         .set_epoch_length(10)
         .set_genesis_height(0);
 
@@ -711,9 +711,9 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
-        .set_shards(1)
-        .set_validator_seats(1)
-        .set_lightclient(0)
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
         .set_epoch_length(10)
         .set_genesis_height(0);
 
@@ -747,9 +747,9 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
-        .set_shards(1)
-        .set_validator_seats(1)
-        .set_lightclient(0)
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
         .set_epoch_length(10)
         .set_genesis_height(0);
 

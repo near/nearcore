@@ -17,9 +17,9 @@ fn track_shards() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(4, |index| format!("track_shards_{}", index))
-        .set_shards(4)
-        .set_validator_seats(2)
-        .set_lightclient(0)
+        .set_num_shards(4)
+        .set_num_validator_seats(2)
+        .set_num_lightclients(0)
         .set_epoch_length(10)
         .set_genesis_height(0);
 
