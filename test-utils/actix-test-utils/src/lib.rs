@@ -42,7 +42,7 @@ macro_rules! handle_interrupt {
             use actix_rt::signal::ctrl_c;
             use futures::{select, FutureExt};
 
-            assert!(!CAUGHT_SIGINT.load(Ordering::SeqCst), "SIGINT recieved, exiting...");
+            assert!(!CAUGHT_SIGINT.load(Ordering::SeqCst), "SIGINT received, exiting...");
 
             select! {
                 _ = ctrl_c().fuse() => {
