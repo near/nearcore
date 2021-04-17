@@ -1,3 +1,5 @@
+use actix_rt::signal;
+use futures::{future, select, task::Poll, FutureExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct ShutdownableThread {
@@ -39,16 +41,16 @@ static CAUGHT_SIGINT: AtomicBool = AtomicBool::new(false);
 macro_rules! handle_interrupt {
     ($future:expr) => {
         async move {
-            use actix_rt::signal::ctrl_c;
-            use futures::{select, FutureExt};
-
-            assert!(!CAUGHT_SIGINT.load(Ordering::SeqCst), "SIGINT received, exiting...");
-
+            assert!(!CAUGHT_SIGINT.load(Ordering::SeqCst), "SIGINT received");
             select! {
-                _ = ctrl_c().fuse() => {
-                    CAUGHT_SIGINT.store(true, Ordering::SeqCst);
-                    actix_rt::System::current().stop();
-                },
+                _ = {
+                    future::poll_fn(|_| {
+                        if CAUGHT_SIGINT.load(Ordering::SeqCst) {
+                            return Poll::Ready(());
+                        }
+                        Poll::Pending
+                    })
+                }.fuse() => panic!("SIGINT received"),
                 _ = $future.fuse() => {},
             }
         }
@@ -74,9 +76,28 @@ fn run_actix_until<F: std::future::Future>(f: F, expect_panic: bool) {
                 default_hook(info);
             }
             if actix_rt::System::is_registered() {
-                actix_rt::System::current().stop_with_code(1);
+                let exit_code = if CAUGHT_SIGINT.load(Ordering::SeqCst) { 130 } else { 1 };
+                actix_rt::System::current().stop_with_code(exit_code);
             }
         }));
+    });
+
+    static TRAP_SIGINT_HOOK: std::sync::Once = std::sync::Once::new();
+
+    // This is a workaround to ensure all threads get the exit memo.
+    // Plainly polling ctrl_c() on busy threads like ours can be problematic.
+    TRAP_SIGINT_HOOK.call_once(|| {
+        std::thread::Builder::new()
+            .name("SIGINT trap".into())
+            .spawn(|| {
+                let sys = actix_rt::System::new();
+                sys.block_on(async {
+                    signal::ctrl_c().await.expect("failed to listen for SIGINT");
+                    CAUGHT_SIGINT.store(true, Ordering::SeqCst);
+                });
+                sys.run().unwrap();
+            })
+            .expect("failed to spawn SIGINT handler thread");
     });
 
     let sys = actix_rt::System::new();
