@@ -16,17 +16,6 @@ pub struct NodeCluster {
     genesis_height: Option<BlockHeight>,
 }
 
-macro_rules! add_mut_helpers {
-    ($($method:ident($self:ident $(,$arg:ident:$type:ty)?) => $expr:expr),+) => {
-        $(
-            pub fn $method(mut $self$(, $arg: $type)?) -> Self {
-                $expr;
-                $self
-            }
-        )+
-    }
-}
-
 impl NodeCluster {
     pub fn new<F: Fn(usize) -> String>(capacity: usize, gen_dirname: F) -> Self {
         Self {
@@ -39,13 +28,34 @@ impl NodeCluster {
         }
     }
 
-    add_mut_helpers! {
-        set_heavy_test(self) => self.is_heavy = true,
-        set_shards(self, n: NumShards) => self.num_shards = Some(n),
-        set_validator_seats(self, n: NumSeats) => self.num_validator_seats = Some(n),
-        set_lightclient(self, n: usize) => self.num_lightclient = Some(n),
-        set_epoch_length(self, l: BlockHeightDelta) => self.epoch_length = Some(l),
-        set_genesis_height(self, h: BlockHeight) => self.genesis_height = Some(h)
+    pub fn set_heavy_test(mut self) -> Self {
+        self.is_heavy = true;
+        self
+    }
+
+    pub fn set_shards(mut self, n: NumShards) -> Self {
+        self.num_shards = Some(n);
+        self
+    }
+
+    pub fn set_validator_seats(mut self, n: NumSeats) -> Self {
+        self.num_validator_seats = Some(n);
+        self
+    }
+
+    pub fn set_lightclient(mut self, n: usize) -> Self {
+        self.num_lightclient = Some(n);
+        self
+    }
+
+    pub fn set_epoch_length(mut self, l: BlockHeightDelta) -> Self {
+        self.epoch_length = Some(l);
+        self
+    }
+
+    pub fn set_genesis_height(mut self, h: BlockHeight) -> Self {
+        self.genesis_height = Some(h);
+        self
     }
 
     fn exec<F, R>(self, f: F)
