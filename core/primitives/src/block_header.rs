@@ -376,13 +376,8 @@ impl BlockHeader {
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         let last_header_v2_version = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        let last_header_v2_version = Some(
-            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
-                .unwrap()
-                .clone()
-                - 1,
-        );
+        let last_header_v2_version =
+            Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
         if protocol_version <= 29 {
             let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
@@ -519,13 +514,8 @@ impl BlockHeader {
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         let last_header_v2_version = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        let last_header_v2_version = Some(
-            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
-                .unwrap()
-                .clone()
-                - 1,
-        );
+        let last_header_v2_version =
+            Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
         if genesis_protocol_version <= 29 {
             let inner_rest = BlockHeaderInnerRest {
                 chunk_receipts_root,

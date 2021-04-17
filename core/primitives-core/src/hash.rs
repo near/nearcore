@@ -15,6 +15,12 @@ pub struct Digest(pub [u8; 32]);
 #[as_ref(forward)]
 pub struct CryptoHash(pub Digest);
 
+impl CryptoHash {
+    pub fn raw_bytes(&self) -> &[u8; 32] {
+        &self.0 .0
+    }
+}
+
 impl<'a> From<&'a CryptoHash> for String {
     fn from(h: &'a CryptoHash) -> Self {
         to_base(&h.0)
@@ -113,6 +119,12 @@ impl From<CryptoHash> for Vec<u8> {
 impl From<&CryptoHash> for Vec<u8> {
     fn from(hash: &CryptoHash) -> Vec<u8> {
         (hash.0).0.to_vec()
+    }
+}
+
+impl From<CryptoHash> for [u8; 32] {
+    fn from(hash: CryptoHash) -> [u8; 32] {
+        (hash.0).0
     }
 }
 

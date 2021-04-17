@@ -54,7 +54,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::version::{ProtocolFeature, PROTOCOL_FEATURES_TO_VERSION_MAPPING};
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
@@ -379,9 +379,8 @@ impl Chain {
         #[cfg(feature = "protocol_feature_block_header_v3")]
         {
             let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-            let block_header_v3_version =
-                PROTOCOL_FEATURES_TO_VERSION_MAPPING.get(&ProtocolFeature::BlockHeaderV3).unwrap();
-            if &protocol_version < block_header_v3_version {
+            let block_header_v3_version = ProtocolFeature::BlockHeaderV3.protocol_version();
+            if protocol_version < block_header_v3_version {
                 let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
                 Chain::compute_collection_hash(validator_stakes)
             } else {

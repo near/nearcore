@@ -1,13 +1,15 @@
 use near_vm_errors::{
     CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
+    WasmTrap,
 };
-use near_vm_logic::{ReturnData, VMKind, VMOutcome};
+use near_vm_logic::{ReturnData, VMOutcome};
 
 use crate::cache::MockCompiledContractCache;
 use crate::tests::{
     make_cached_contract_call_vm, make_simple_contract_call_vm,
     make_simple_contract_call_with_gas_vm, with_vm_variants,
 };
+use crate::VMKind;
 
 fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
     VMOutcome {
@@ -130,25 +132,22 @@ fn trap_contract() -> Vec<u8> {
 
 #[test]
 fn test_trap_contract() {
-    // See the comment is test_stack_overflow.
-    with_vm_variants(|vm_kind: VMKind| match vm_kind {
-        VMKind::Wasmtime => return,
-        VMKind::Wasmer0 => assert_eq!(
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+        assert_eq!(
             make_simple_contract_call_vm(&trap_contract(), "hello", vm_kind),
             (
                 Some(vm_outcome_with_gas(47105334)),
-                Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
-            )
-        ),
-        VMKind::Wasmer1 => assert_eq!(
-            make_simple_contract_call_vm(&trap_contract(), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(47105334)),
-                Some(VMError::FunctionCallError(FunctionCallError::Wasmer1Trap(
-                    "unreachable".to_string()
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::Unreachable
                 )))
             )
-        ),
+        )
     })
 }
 
@@ -168,25 +167,149 @@ fn trap_initializer() -> Vec<u8> {
 #[test]
 fn test_trap_initializer() {
     // See the comment is test_stack_overflow.
-    with_vm_variants(|vm_kind: VMKind| match vm_kind {
-        VMKind::Wasmtime => return,
-        VMKind::Wasmer0 => assert_eq!(
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Check if can restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+        assert_eq!(
             make_simple_contract_call_vm(&trap_initializer(), "hello", vm_kind),
             (
                 Some(vm_outcome_with_gas(47755584)),
-                Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
-            )
-        ),
-        VMKind::Wasmer1 => assert_eq!(
-            make_simple_contract_call_vm(&trap_initializer(), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(47755584)),
-                Some(VMError::FunctionCallError(FunctionCallError::Wasmer1Trap(
-                    "unreachable".to_string()
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::Unreachable
                 )))
             )
-        ),
+        );
     });
+}
+
+fn div_by_zero_contract() -> Vec<u8> {
+    wabt::wat2wasm(
+        r#"
+            (module
+              (type (;0;) (func))
+              (func (;0;) (type 0)
+                i32.const 1
+                i32.const 0
+                i32.div_s
+                return
+              )
+              (export "hello" (func 0))
+            )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_div_by_zero_contract() {
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Check if can restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+        assert_eq!(
+            make_simple_contract_call_vm(&div_by_zero_contract(), "hello", vm_kind),
+            (
+                Some(vm_outcome_with_gas(59758197)),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::IllegalArithmetic
+                )))
+            )
+        )
+    })
+}
+
+fn indirect_call_to_null_contract() -> Vec<u8> {
+    wabt::wat2wasm(
+        r#"
+            (module
+              (type (;0;) (func))
+              (table (;0;) 2 funcref)
+              (func (;0;) (type 0)
+                i32.const 1
+                call_indirect (type 0)
+                return
+              )
+              (export "hello" (func 0))
+            )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_indirect_call_to_null_contract() {
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer1 => {}
+            // Wasmer 0.x cannot distinguish indirect calls to null and calls with incorrect signature.
+            VMKind::Wasmer0 => return,
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Check if can restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+        assert_eq!(
+            make_simple_contract_call_vm(&indirect_call_to_null_contract(), "hello", vm_kind),
+            (
+                Some(vm_outcome_with_gas(57202326)),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::IndirectCallToNull
+                )))
+            )
+        )
+    })
+}
+
+fn indirect_call_to_wrong_signature_contract() -> Vec<u8> {
+    wabt::wat2wasm(
+        r#"
+            (module
+              (type (;0;) (func))
+              (type (;1;) (func (result i32)))
+              (func (;0;) (type 0)
+                i32.const 1
+                call_indirect (type 1)
+                return
+              )
+              (func (;1;) (type 1)
+                i32.const 0
+                return
+              )
+              (table (;0;) 3 3 funcref)
+              (elem (;0;) (i32.const 1) 0 1)
+              (export "hello" (func 0))
+            )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_indirect_call_to_wrong_signature_contract() {
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Check if can restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+        assert_eq!(
+            make_simple_contract_call_vm(
+                &indirect_call_to_wrong_signature_contract(),
+                "hello",
+                vm_kind
+            ),
+            (
+                Some(vm_outcome_with_gas(61970826)),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::IncorrectCallIndirectSignature
+                )))
+            )
+        )
+    })
 }
 
 fn wrong_signature_contract() -> Vec<u8> {
@@ -288,23 +411,16 @@ fn test_stack_overflow() {
         // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
         // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
         match vm_kind {
-            VMKind::Wasmer0 => assert_eq!(
+            VMKind::Wasmer0 | VMKind::Wasmer1 => assert_eq!(
                 make_simple_contract_call_vm(&stack_overflow(), "hello", vm_kind),
                 (
                     Some(vm_outcome_with_gas(63226248177)),
-                    Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
-                )
-            ),
-            VMKind::Wasmer1 => assert_eq!(
-                make_simple_contract_call_vm(&stack_overflow(), "hello", vm_kind),
-                (
-                    Some(vm_outcome_with_gas(63226248177)),
-                    Some(VMError::FunctionCallError(FunctionCallError::Wasmer1Trap(
-                        "unreachable".to_string()
+                    Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                        WasmTrap::Unreachable
                     )))
                 )
             ),
-            _ => {}
+            VMKind::Wasmtime => {}
         }
     });
 }
@@ -410,7 +526,7 @@ fn test_bad_import_3() {
         let msg = match vm_kind {
             VMKind::Wasmer0 => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
             VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { sig: WasmFuncType { params: [I64], returns: [] } })\\n\"",
-            VMKind::Wasmer1 => "Error while importing \"env\".\"input\": incompatible import type. Expected Global(GlobalType { ty: I32, mutability: Const }) but received Function(FunctionType { params: [I64], results: [] })"
+            VMKind::Wasmer1 => "Error while importing \"env\".\"input\": incompatible import type. Expected Global(GlobalType { ty: I32, mutability: Const }) but received Function(FunctionType { params: [I64], results: [] })",
         }.to_string();
         assert_eq!(
             make_simple_contract_call_vm(&bad_import_global("env"), "hello", vm_kind),
@@ -553,8 +669,8 @@ fn test_external_call_error() {
 fn test_contract_error_caching() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
             VMKind::Wasmtime => return,
-            _ => {}
         }
         let mut cache = MockCompiledContractCache::default();
         let code = [42; 1000];

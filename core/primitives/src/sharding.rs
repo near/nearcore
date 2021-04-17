@@ -12,7 +12,7 @@ use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, Validato
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 #[cfg(feature = "protocol_feature_block_header_v3")]
-use crate::version::{ProtocolFeature, PROTOCOL_FEATURES_TO_VERSION_MAPPING};
+use crate::version::ProtocolFeature;
 use crate::version::{ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use reed_solomon_erasure::ReconstructShard;
 use std::sync::Arc;
@@ -530,17 +530,16 @@ impl ShardChunkHeader {
 
     #[cfg(feature = "protocol_feature_block_header_v3")]
     pub fn version_range(&self) -> ProtocolVersionRange {
-        let block_header_v3_version =
-            PROTOCOL_FEATURES_TO_VERSION_MAPPING.get(&ProtocolFeature::BlockHeaderV3).unwrap();
+        let block_header_v3_version = ProtocolFeature::BlockHeaderV3.protocol_version();
         match &self {
             ShardChunkHeader::V1(_) => {
                 ProtocolVersionRange::new(0, Some(SHARD_CHUNK_HEADER_UPGRADE_VERSION))
             }
             ShardChunkHeader::V2(_) => ProtocolVersionRange::new(
                 SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-                Some(*block_header_v3_version),
+                Some(block_header_v3_version),
             ),
-            ShardChunkHeader::V3(_) => ProtocolVersionRange::new(*block_header_v3_version, None),
+            ShardChunkHeader::V3(_) => ProtocolVersionRange::new(block_header_v3_version, None),
         }
     }
 }
@@ -1127,8 +1126,7 @@ impl EncodedShardChunk {
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         let block_header_v3_version = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        let block_header_v3_version =
-            PROTOCOL_FEATURES_TO_VERSION_MAPPING.get(&ProtocolFeature::BlockHeaderV3).copied();
+        let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
 
         if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
             #[cfg(feature = "protocol_feature_block_header_v3")]

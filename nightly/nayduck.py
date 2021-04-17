@@ -1,5 +1,24 @@
 #!/usr/bin/env python
 
+# This script runs integration tests in the cloud.  You can see the runs here:
+#
+#     http://nayduck.eastus.cloudapp.azure.com:3000/
+#
+# To request a run, use the following command:
+#
+#    python3 nightly/nayduck.py      \
+#        --branch    <your_branch>   \
+#        --test_file <test_file>.txt
+#
+# See the `.txt` files in this directory for examples of test suites. Note that
+# you must be a *public* memeber of the near org on GitHub to authenticate:
+#
+#    https://github.com/orgs/near/people
+#
+# The source code for nayduck itself is here:
+#
+#    https://github.com/utka/nayduck
+
 import argparse
 import subprocess
 import requests

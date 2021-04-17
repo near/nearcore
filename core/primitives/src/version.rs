@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
 use crate::types::Balance;
@@ -16,7 +13,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 18;
+pub const DB_VERSION: DbVersion = 19;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -109,74 +106,40 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 #[cfg(feature = "nightly_protocol")]
 pub const PROTOCOL_VERSION: ProtocolVersion = 109;
 
-lazy_static! {
-    static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
-        vec![
+impl ProtocolFeature {
+    pub const fn protocol_version(self) -> ProtocolVersion {
+        match self {
+            // Stable features
             #[cfg(feature = "protocol_feature_lower_storage_cost")]
-            (ProtocolFeature::LowerStorageCost, 42),
-            (ProtocolFeature::DeleteActionRestriction, 43),
-        ]
-        .into_iter()
-        .collect();
-}
+            ProtocolFeature::LowerStorageCost => 42,
+            ProtocolFeature::DeleteActionRestriction => 43,
 
-#[cfg(not(feature = "nightly_protocol"))]
-lazy_static! {
-    /// Map of feature to the minimal protocol version that introduces the feature. We can determine
-    /// whether to apply the new feature by comparing the current protocol version of the network to
-    /// `PROTOCOL_FEATURES_TO_VERSION_MAPPING[feature]`.
-    pub static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
-        STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.clone();
-}
-
-#[cfg(feature = "nightly_protocol")]
-lazy_static! {
-    pub static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = {
-        let mut nightly_protocol_features_to_version_mapping: HashMap<
-            ProtocolFeature,
-            ProtocolVersion,
-        > = vec![
+            // Nightly features
             #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-            (ProtocolFeature::ForwardChunkParts, 101),
+            ProtocolFeature::ForwardChunkParts => 101,
             #[cfg(feature = "protocol_feature_rectify_inflation")]
-            (ProtocolFeature::RectifyInflation, 102),
+            ProtocolFeature::RectifyInflation => 102,
             #[cfg(feature = "protocol_feature_evm")]
-            (ProtocolFeature::EVM, 103),
+            ProtocolFeature::EVM => 103,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            (ProtocolFeature::AltBn128, 105),
+            ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_access_key_nonce_range")]
-            (ProtocolFeature::AccessKeyNonceRange, 106),
+            ProtocolFeature::AccessKeyNonceRange => 106,
             #[cfg(feature = "protocol_feature_add_account_versions")]
-            (ProtocolFeature::AccountVersions, 107),
+            ProtocolFeature::AccountVersions => 107,
             #[cfg(feature = "protocol_feature_tx_size_limit")]
-            (ProtocolFeature::TransactionSizeLimit, 108),
+            ProtocolFeature::TransactionSizeLimit => 108,
             #[cfg(feature = "protocol_feature_block_header_v3")]
-            (ProtocolFeature::BlockHeaderV3, 109),
-        ]
-        .into_iter()
-        .collect();
-        for (stable_protocol_feature, stable_protocol_version) in
-            STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
-        {
-            assert!(
-                *nightly_protocol_features_to_version_mapping
-                    .get(&stable_protocol_feature)
-                    .unwrap_or(&stable_protocol_version)
-                    >= *stable_protocol_version
-            );
+            ProtocolFeature::BlockHeaderV3 => 109,
         }
-        nightly_protocol_features_to_version_mapping
-            .extend(STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter());
-        nightly_protocol_features_to_version_mapping
-    };
+    }
 }
 
 #[macro_export]
 macro_rules! checked_feature {
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
         #[cfg(feature = $feature_name)]
-        let is_feature_enabled = $crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-            [&$crate::version::ProtocolFeature::$feature]
+        let is_feature_enabled = $crate::version::ProtocolFeature::$feature.protocol_version()
             <= $current_protocol_version;
         #[cfg(not(feature = $feature_name))]
         let is_feature_enabled = {

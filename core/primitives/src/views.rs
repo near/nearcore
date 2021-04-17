@@ -446,13 +446,8 @@ impl From<BlockHeaderView> for BlockHeader {
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         let last_header_v2_version = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        let last_header_v2_version = Some(
-            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
-                .unwrap()
-                .clone()
-                - 1,
-        );
+        let last_header_v2_version =
+            Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
         if view.latest_protocol_version <= 29 {
             #[cfg(feature = "protocol_feature_block_header_v3")]
             let validator_proposals = view
@@ -1056,7 +1051,7 @@ impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum FinalExecutionOutcomeViewEnum {
     FinalExecutionOutcome(FinalExecutionOutcomeView),
@@ -1092,7 +1087,7 @@ impl fmt::Debug for FinalExecutionOutcomeView {
 
 /// Final execution outcome of the transaction and all of subsequent the receipts. Also includes
 /// the generated receipt.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct FinalExecutionOutcomeWithReceiptView {
     /// Final outcome view without receipts
     #[serde(flatten)]
