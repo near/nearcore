@@ -4,7 +4,9 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ContractCallError, ExternalError, RuntimeError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
@@ -37,6 +39,7 @@ use near_vm_logic::{VMContext, VMOutcome};
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
 /// Precompiles:
@@ -192,10 +195,45 @@ pub(crate) fn action_function_call(
         false,
     );
     let execution_succeeded = match err {
-        Some(VMError::FunctionCallError(err)) => {
-            result.result = Err(ActionErrorKind::FunctionCallError(err).into());
-            false
-        }
+        Some(VMError::FunctionCallError(err)) => match err {
+            FunctionCallError::Nondeterministic(msg) => {
+                panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+            }
+            FunctionCallError::WasmUnknownError { debug_message } => {
+                panic!("Wasmer returned unknown message: {}", debug_message)
+            }
+            FunctionCallError::CompilationError(err) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::CompilationError(err).into(),
+                )
+                .into());
+                false
+            }
+            FunctionCallError::LinkError { msg } => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError { msg: format!("Link Error: {}", msg) }
+                        .into(),
+                )
+                .into());
+                false
+            }
+            FunctionCallError::MethodResolveError(err) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::MethodResolveError(err).into(),
+                )
+                .into());
+                false
+            }
+            FunctionCallError::WasmTrap(_)
+            | FunctionCallError::HostError(_)
+            | FunctionCallError::EvmError(_) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError { msg: err.to_string() }.into(),
+                )
+                .into());
+                false
+            }
+        },
         Some(VMError::ExternalError(serialized_error)) => {
             let err: ExternalError = borsh::BorshDeserialize::try_from_slice(&serialized_error)
                 .expect("External error deserialization shouldn't fail");
@@ -421,6 +459,7 @@ pub(crate) fn action_deploy_contract(
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
+    apply_state: &ApplyState,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
@@ -436,6 +475,14 @@ pub(crate) fn action_deploy_contract(
     );
     account.set_code_hash(code.get_hash());
     set_code(state_update, account_id.clone(), &code);
+    // Precompile the contract and store result (compiled code or error) in the database.
+    if false {
+        let _ = precompile_contract(
+            &code,
+            &apply_state.config.wasm_config,
+            apply_state.cache.as_deref(),
+        );
+    }
     Ok(())
 }
 

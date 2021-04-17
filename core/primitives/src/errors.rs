@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display};
 
 use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::{FunctionCallError, VMLogicError};
+use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError, VMLogicError};
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -332,6 +332,46 @@ pub struct ActionError {
     pub kind: ActionErrorKind,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, RpcError)]
+pub enum ContractCallError {
+    MethodResolveError(MethodResolveError),
+    CompilationError(CompilationError),
+    ExecutionError { msg: String },
+}
+
+impl From<ContractCallError> for FunctionCallErrorSer {
+    fn from(e: ContractCallError) -> Self {
+        match e {
+            ContractCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
+            ContractCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
+            ContractCallError::ExecutionError { msg } => FunctionCallErrorSer::ExecutionError(msg),
+        }
+    }
+}
+
+impl From<FunctionCallErrorSer> for ContractCallError {
+    fn from(e: FunctionCallErrorSer) -> Self {
+        match e {
+            FunctionCallErrorSer::CompilationError(e) => ContractCallError::CompilationError(e),
+            FunctionCallErrorSer::MethodResolveError(e) => ContractCallError::MethodResolveError(e),
+            FunctionCallErrorSer::ExecutionError(msg) => ContractCallError::ExecutionError { msg },
+            FunctionCallErrorSer::LinkError { msg } => ContractCallError::ExecutionError { msg },
+            FunctionCallErrorSer::WasmUnknownError => {
+                ContractCallError::ExecutionError { msg: "unknown error".to_string() }
+            }
+            FunctionCallErrorSer::EvmError(e) => {
+                ContractCallError::ExecutionError { msg: format!("EVM: {:?}", e) }
+            }
+            FunctionCallErrorSer::WasmTrap(e) => {
+                ContractCallError::ExecutionError { msg: format!("WASM: {:?}", e) }
+            }
+            FunctionCallErrorSer::HostError(e) => {
+                ContractCallError::ExecutionError { msg: format!("Host: {:?}", e) }
+            }
+        }
+    }
+}
+
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -384,8 +424,8 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         minimum_stake: Balance,
     },
-    /// An error occurred during a `FunctionCall` Action.
-    FunctionCallError(FunctionCallError),
+    /// An error occurred during a `FunctionCall` Action, parameter is debug message.
+    FunctionCallError(FunctionCallErrorSer),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
@@ -689,7 +729,7 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DeleteAccountStaking { account_id } => {
                 write!(f, "Account {:?} is staking and can not be deleted", account_id)
             }
-            ActionErrorKind::FunctionCallError(s) => write!(f, "{}", s),
+            ActionErrorKind::FunctionCallError(s) => write!(f, "{:?}", s),
             ActionErrorKind::NewReceiptValidationError(e) => {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }

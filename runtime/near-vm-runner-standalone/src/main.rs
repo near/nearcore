@@ -12,8 +12,8 @@ mod tracing_timings;
 use crate::script::Script;
 use clap::{App, Arg};
 use near_vm_logic::mocks::mock_external::Receipt;
-use near_vm_logic::{VMKind, VMOutcome};
-use near_vm_runner::VMError;
+use near_vm_logic::VMOutcome;
+use near_vm_runner::{VMError, VMKind};
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeMap,
@@ -115,6 +115,13 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("state-file")
+                .long("state-file")
+                .value_name("STATE_FILE")
+                .help("Reads the state from the file")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("promise-results")
                 .long("promise-results")
                 .value_name("PROMISE-RESULTS")
@@ -197,6 +204,9 @@ fn main() {
 
     if let Some(state_str) = matches.value_of("state") {
         script.initial_state(serde_json::from_str(state_str).unwrap());
+    }
+    if let Some(path) = matches.value_of("state-file") {
+        script.initial_state_from_file(Path::new(path));
     }
 
     let code = fs::read(matches.value_of("wasm-file").unwrap()).unwrap();

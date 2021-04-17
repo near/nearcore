@@ -989,6 +989,9 @@ impl ClientActor {
                 warn!(target: "client", "receive bad block: {}", err);
             }
             Err(ref err) if err.is_error() => {
+                if let near_chain::ErrorKind::DBNotFoundErr(msg) = err.kind() {
+                    debug_assert!(!msg.starts_with("BLOCK HEIGHT"), "{:?}", err);
+                }
                 if self.client.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
                     // This leads to Old Block or EpochOutOfBounds errors.

@@ -418,7 +418,7 @@ pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
     MissingTransaction(CryptoHash),
     InvalidTx(InvalidTxError),
-    InternalError,
+    InternalError(String),
     TimeoutError,
 }
 
@@ -429,7 +429,9 @@ impl From<TxStatusError> for String {
             TxStatusError::MissingTransaction(tx_hash) => {
                 format!("Transaction {} doesn't exist", tx_hash)
             }
-            TxStatusError::InternalError => format!("Internal error"),
+            TxStatusError::InternalError(debug_message) => {
+                format!("Internal error: {}", debug_message)
+            }
             TxStatusError::TimeoutError => format!("Timeout error"),
             TxStatusError::InvalidTx(e) => format!("Invalid transaction: {}", e),
         }

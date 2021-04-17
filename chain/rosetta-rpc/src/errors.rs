@@ -37,7 +37,7 @@ impl std::convert::From<near_client::TxStatusError> for ErrorKind {
                 "Transaction is invalid, so it will never be included to the chain: {:?}",
                 err
             )),
-            near_client::TxStatusError::InternalError
+            near_client::TxStatusError::InternalError(_)
             | near_client::TxStatusError::TimeoutError => {
                 // TODO: remove the statuses from TxStatusError since they are
                 // never constructed by the view client (it is a leak of
