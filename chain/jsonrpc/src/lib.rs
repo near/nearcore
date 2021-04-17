@@ -375,7 +375,9 @@ impl JsonRpcHandler {
                     .await;
                 match tx_status_result {
                     Ok(Ok(Some(outcome))) => break Ok(outcome),
-                    Ok(Ok(None)) => {}
+                    Ok(Ok(None)) => {
+                        println!("fetching tx {:?}, return None", tx_info)
+                    }
                     Ok(Err(err @ TxStatusError::MissingTransaction(_))) => {
                         if let TransactionInfo::Transaction(tx) = &tx_info {
                             if let Ok(NetworkClientResponses::InvalidTx(e)) =
@@ -384,6 +386,7 @@ impl JsonRpcHandler {
                                 break Err(TxStatusError::InvalidTx(e));
                             }
                         }
+                        println!("fetching tx {:?}, missing transactions", tx_info);
                         break Err(err);
                     }
                     Ok(Err(err)) => break Err(err),

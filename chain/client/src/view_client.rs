@@ -358,7 +358,8 @@ impl ViewClientActor {
                     )));
                 }
                 Err(e) => match e.kind() {
-                    ErrorKind::DBNotFoundErr(_) => {
+                    ErrorKind::DBNotFoundErr(e) => {
+                        println!("fetching tx hash {}, error: {}", tx_hash, e);
                         if let Ok(execution_outcome) = self.chain.get_execution_outcome(&tx_hash) {
                             for receipt_id in execution_outcome.outcome_with_id.outcome.receipt_ids
                             {
