@@ -60,7 +60,7 @@ pub fn start_nodes(
     init_integration_logger();
 
     let num_nodes = dirs.len();
-    let num_tracking_nodes = dirs.len() - num_lightclient;
+    let num_tracking_nodes = num_nodes - num_lightclient;
     let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut genesis = Genesis::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),

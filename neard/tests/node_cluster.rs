@@ -16,9 +16,9 @@ pub struct NodeCluster {
 }
 
 impl NodeCluster {
-    pub fn new<F: Fn(usize) -> String>(capacity: usize, gen_dirname: F) -> Self {
+    pub fn new<F: Fn(usize) -> String>(node_count: usize, gen_dirname: F) -> Self {
         Self {
-            dirs: (0..capacity)
+            dirs: (0..node_count)
                 .map(|index| {
                     tempfile::Builder::new().prefix(&gen_dirname(index)).tempdir().unwrap()
                 })
