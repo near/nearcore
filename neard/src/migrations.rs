@@ -121,7 +121,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 13);
 }
 
-pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
+pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
     let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store = ChainStore::new(store.clone(), genesis_height);
@@ -182,5 +182,5 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
             }
         }
     }
-    set_store_version(&store, 19);
+    set_store_version(&store, 20);
 }
