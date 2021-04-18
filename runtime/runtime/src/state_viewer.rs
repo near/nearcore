@@ -209,7 +209,7 @@ impl TrieViewer {
             Err(message.into())
         } else {
             let outcome = outcome.unwrap();
-            debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
+            // debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
             logs.extend(outcome.logs);
             let mut result = vec![];
             if let ReturnData::Value(buf) = &outcome.return_data {
