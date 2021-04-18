@@ -1,6 +1,6 @@
-use crate::errors::IntoVMError;
+use crate::errors::{ContractPrecompilatonError, ContractPrecompilatonResult, IntoVMError};
 use crate::prepare;
-use crate::wasmer1_runner::wasmer1_vm_hash;
+use crate::wasmer1_runner::{default_wasmer1_store, wasmer1_vm_hash};
 use crate::wasmer_runner::wasmer0_vm_hash;
 use crate::wasmtime_runner::wasmtime_vm_hash;
 use crate::VMKind;
@@ -59,7 +59,7 @@ fn get_key(code: &ContractCode, vm_kind: VMKind, config: &VMConfig) -> CryptoHas
 
 fn cache_error(error: VMError, key: &CryptoHash, cache: &dyn CompiledContractCache) -> VMError {
     let record = CacheRecord::Error(error.clone());
-    if cache.put(&(key.0).0, &record.try_to_vec().unwrap()).is_err() {
+    if cache.put(key.raw_bytes(), &record.try_to_vec().unwrap()).is_err() {
         VMError::CacheError(WriteError)
     } else {
         error
@@ -123,10 +123,10 @@ pub mod wasmer0_cache {
         let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
         let artifact = module
             .cache()
-            .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
+            .map_err(|_e| VMError::CacheError(SerializationError { hash: *key.raw_bytes() }))?;
         let code = artifact
             .serialize()
-            .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
+            .map_err(|_e| VMError::CacheError(SerializationError { hash: *key.raw_bytes() }))?;
         let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
         cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
         Ok(module)
@@ -167,7 +167,7 @@ pub mod wasmer0_cache {
         }
 
         let cache = cache.unwrap();
-        match cache.get(&(key.0).0) {
+        match cache.get(key.raw_bytes()) {
             Ok(serialized) => match serialized {
                 Some(serialized) => {
                     deserialize_wasmer(serialized.as_slice()).map_err(VMError::CacheError)?
@@ -248,7 +248,7 @@ pub mod wasmer1_cache {
             .map_err(|e| cache_error(e, &key, cache))?;
         let code = module
             .serialize()
-            .map_err(|_e| VMError::CacheError(SerializationError { hash: (key.0).0 }))?;
+            .map_err(|_e| VMError::CacheError(SerializationError { hash: *key.raw_bytes() }))?;
         let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
         cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
         Ok(module)
@@ -283,7 +283,7 @@ pub mod wasmer1_cache {
         }
 
         let cache = cache.unwrap();
-        match cache.get(&(key.0).0) {
+        match cache.get(key.raw_bytes()) {
             Ok(serialized) => match serialized {
                 Some(serialized) => deserialize_wasmer1(serialized.as_slice(), store)
                     .map_err(VMError::CacheError)?,
@@ -292,4 +292,61 @@ pub mod wasmer1_cache {
             Err(_) => Err(VMError::CacheError(ReadError)),
         }
     }
+}
+
+pub(crate) fn precompile_contract_impl(
+    vm_kind: VMKind,
+    wasm_code: &ContractCode,
+    config: &VMConfig,
+    cache: Option<&dyn CompiledContractCache>,
+) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
+    let cache = match cache {
+        None => return Ok(ContractPrecompilatonResult::CacheNotAvailable),
+        Some(it) => it,
+    };
+    let key = get_key(wasm_code, vm_kind, config);
+    // Check if we already cached with such a key.
+    match cache.get(key.raw_bytes()) {
+        // If so - do not override.
+        Ok(Some(_)) => return Ok(ContractPrecompilatonResult::ContractAlreadyInCache),
+        Ok(None) | Err(_) => {}
+    };
+    match vm_kind {
+        VMKind::Wasmer0 => match wasmer0_cache::compile_and_serialize_wasmer(
+            wasm_code.code.as_slice(),
+            config,
+            &key,
+            cache,
+        ) {
+            Ok(_) => Ok(ContractPrecompilatonResult::ContractCompiled),
+            Err(err) => Err(ContractPrecompilatonError::new(err)),
+        },
+        VMKind::Wasmer1 => {
+            let store = default_wasmer1_store();
+            match wasmer1_cache::compile_and_serialize_wasmer1(
+                wasm_code.code.as_slice(),
+                &key,
+                config,
+                cache,
+                &store,
+            ) {
+                Ok(_) => Ok(ContractPrecompilatonResult::ContractCompiled),
+                Err(err) => Err(ContractPrecompilatonError::new(err)),
+            }
+        }
+        VMKind::Wasmtime => {
+            panic!("Not yet supported")
+        }
+    }
+}
+
+/// Precompiles contract for the current default VM, and stores result to the cache.
+/// Returns `Ok(true)` if compiled code was added to the cache, and `Ok(false)` if element
+/// is already in the cache, or if cache is `None`.
+pub fn precompile_contract(
+    wasm_code: &ContractCode,
+    config: &VMConfig,
+    cache: Option<&dyn CompiledContractCache>,
+) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
+    precompile_contract_impl(VMKind::default(), wasm_code, config, cache)
 }

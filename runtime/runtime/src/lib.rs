@@ -334,6 +334,7 @@ impl Runtime {
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &account_id,
                     deploy_contract,
+                    &apply_state,
                 )?;
             }
             Action::FunctionCall(function_call) => {
