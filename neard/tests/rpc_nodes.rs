@@ -73,7 +73,6 @@ fn test_tx_propagation() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
                 let transaction_copy1 = transaction.clone();
-                let tx_hash_clone = tx_hash.clone();
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
                 spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
@@ -85,9 +84,7 @@ fn test_tx_propagation() {
                                 client
                                     .broadcast_tx_async(to_base64(&bytes))
                                     .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
+                                    .map_ok(move |result| assert_eq!(tx_hash.to_string(), result))
                                     .map(drop),
                             );
                         }
@@ -227,7 +224,6 @@ fn test_tx_status_with_light_client() {
                 let rpc_addrs_copy1 = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
-                let tx_hash_clone = tx_hash.clone();
                 spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -237,9 +233,7 @@ fn test_tx_status_with_light_client() {
                                 client
                                     .broadcast_tx_async(to_base64(&bytes))
                                     .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
+                                    .map_ok(move |result| assert_eq!(tx_hash.to_string(), result))
                                     .map(drop),
                             );
                         }
@@ -249,7 +243,7 @@ fn test_tx_status_with_light_client() {
                 let client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
                 spawn_interruptible(
                     client
-                        .tx(tx_hash_clone.to_string(), signer_account_id)
+                        .tx(tx_hash.to_string(), signer_account_id)
                         .map_err(|_| ())
                         .map_ok(move |result| {
                             if result.status == FinalExecutionStatus::SuccessValue("".to_string()) {
@@ -300,7 +294,6 @@ fn test_tx_status_with_light_client1() {
                 let rpc_addrs_copy1 = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
-                let tx_hash_clone = tx_hash.clone();
                 spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -310,9 +303,7 @@ fn test_tx_status_with_light_client1() {
                                 client
                                     .broadcast_tx_async(to_base64(&bytes))
                                     .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
+                                    .map_ok(move |result| assert_eq!(tx_hash.to_string(), result))
                                     .map(drop),
                             );
                         }
@@ -322,7 +313,7 @@ fn test_tx_status_with_light_client1() {
                 let client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
                 spawn_interruptible(
                     client
-                        .tx(tx_hash_clone.to_string(), signer_account_id)
+                        .tx(tx_hash.to_string(), signer_account_id)
                         .map_err(|_| ())
                         .map_ok(move |result| {
                             if result.status == FinalExecutionStatus::SuccessValue("".to_string()) {
