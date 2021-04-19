@@ -1256,7 +1256,7 @@ impl<'a> VMLogic<'a> {
         let sir = account_id == self.context.current_account_id;
         let deps: Vec<_> = receipt_dependencies
             .iter()
-            .map(|receipt_idx| self.get_account_by_receipt(receipt_idx) == account_id)
+            .map(|receipt_idx| self.get_account_by_receipt(receipt_idx) == &account_id)
             .collect();
         self.pay_gas_for_new_receipt(sir, &deps)?;
 
@@ -1267,11 +1267,10 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Helper function to return the account id towards which the receipt is directed.
-    fn get_account_by_receipt(&self, receipt_idx: &ReceiptIndex) -> AccountId {
+    fn get_account_by_receipt(&self, receipt_idx: &ReceiptIndex) -> &AccountId {
         self.receipt_to_account
             .get(receipt_idx)
             .expect("promises and receipt_to_account should be consistent.")
-            .clone()
     }
 
     /// Helper function to return the receipt index corresponding to the given promise index.
@@ -1291,7 +1290,7 @@ impl<'a> VMLogic<'a> {
         }?;
 
         let account_id = self.get_account_by_receipt(&receipt_idx);
-        let sir = account_id == self.context.current_account_id;
+        let sir = account_id == &self.context.current_account_id;
         Ok((receipt_idx, sir))
     }
 
@@ -1487,7 +1486,7 @@ impl<'a> VMLogic<'a> {
         let receiver_id = self.get_account_by_receipt(&receipt_idx);
         let is_receiver_implicit =
             is_implicit_account_creation_enabled(self.current_protocol_version)
-                && is_account_id_64_len_hex(&receiver_id);
+                && is_account_id_64_len_hex(receiver_id);
 
         let send_fee =
             transfer_send_fee(&self.fees_config.action_creation_config, sir, is_receiver_implicit);
@@ -1756,10 +1755,10 @@ impl<'a> VMLogic<'a> {
             self.current_protocol_version
         ) {
             let receiver_id = self.get_account_by_receipt(&receipt_idx);
-            let sir = receiver_id == beneficiary_id;
+            let sir = receiver_id == &beneficiary_id;
             let is_receiver_implicit =
                 is_implicit_account_creation_enabled(self.current_protocol_version)
-                    && is_account_id_64_len_hex(&receiver_id);
+                    && is_account_id_64_len_hex(receiver_id);
 
             let transfer_to_beneficiary_send_fee = transfer_send_fee(
                 &self.fees_config.action_creation_config,
