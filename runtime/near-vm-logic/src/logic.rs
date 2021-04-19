@@ -1725,7 +1725,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading and parsing account id from memory `
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + receipt creation fees + transfer fees`
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + fees for transferring funds to the beneficiary`
     pub fn promise_batch_action_delete_account(
         &mut self,
         promise_idx: u64,

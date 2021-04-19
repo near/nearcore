@@ -543,6 +543,8 @@ pub(crate) fn action_delete_account(
             result.new_receipts.push(Receipt {
                 predecessor_id: account_id.clone(),
                 receiver_id: delete_account.beneficiary_id.clone(),
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
                 receipt_id: CryptoHash::default(),
 
                 receipt: ReceiptEnum::Action(ActionReceipt {
