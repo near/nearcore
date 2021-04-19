@@ -791,7 +791,6 @@ def apply_genesis_changes(node_dir, genesis_config_changes):
     fname = os.path.join(node_dir, 'genesis.json')
     with open(fname) as f:
         genesis_config = json.loads(f.read())
-    genesis_config_changes = process_genesis_config_changes(genesis_config_changes, genesis_config.get('protocol_version'))
     for change in genesis_config_changes:
         cur = genesis_config
         for s in change[:-2]:
@@ -949,11 +948,3 @@ def load_config():
     else:
         print(f"Use default config {config}")
     return config
-
-def process_genesis_config_changes(genesis_config_changes, protocol_version):
-    if protocol_version and protocol_version >= 107:
-        return genesis_config_changes
-    for change in genesis_config_changes:
-        if change[0] == 'records' and 'AccountV1' in change:
-            change.remove('AccountV1')
-    return genesis_config_changes
