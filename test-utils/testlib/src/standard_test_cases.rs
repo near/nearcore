@@ -1210,7 +1210,7 @@ pub fn test_delete_account_ok(node: impl Node) {
     );
     let transaction_result =
         node_user.delete_account(eve_dot_alice_account(), eve_dot_alice_account()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
 }
 
 pub fn test_delete_account_fail(node: impl Node, protocol_version: ProtocolVersion) {
