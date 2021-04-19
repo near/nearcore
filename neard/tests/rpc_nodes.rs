@@ -836,50 +836,49 @@ fn test_tx_not_enough_balance_must_return_error() {
 #[test]
 fn test_send_tx_sync_returns_transaction_hash() {
     init_integration_logger();
-    heavy_test(|| {
-        run_actix_until_stop(async move {
-            let num_nodes = 1;
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new().prefix(&format!("tx_routed{}", i)).tempdir().unwrap()
-                })
-                .collect::<Vec<_>>();
-            let (genesis, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 0, 10, 0);
-            let view_client = clients[0].1.clone();
 
-            let genesis_hash = *genesis_block(&genesis).hash();
-            let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
-            let transaction = SignedTransaction::send_money(
-                1,
-                "near.0".to_string(),
-                "near.0".to_string(),
-                &signer,
-                10000,
-                genesis_hash,
-            );
+    let cluster = NodeCluster::new(1, |index| format!("tx_not_enough_balance{}", index))
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
+        .set_epoch_length(10)
+        .set_genesis_height(0);
 
-            let client = new_client(&format!("http://{}", rpc_addrs[0]));
-            let tx_hash = transaction.get_hash();
-            let bytes = transaction.try_to_vec().unwrap();
+    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
+        let view_client = clients[0].1.clone();
 
-            actix::spawn(async move {
-                loop {
-                    let res = view_client.send(GetBlock::latest()).await;
-                    if let Ok(Ok(block)) = res {
-                        if block.header.height > 10 {
-                            let response = client
-                                .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))
-                                .map_err(|err| panic_on_rpc_error!(err))
-                                .await
-                                .unwrap();
-                            assert_eq!(response["transaction_hash"], tx_hash.to_string());
-                            actix::System::current().stop();
-                            break;
-                        }
+        let genesis_hash = *genesis_block(&genesis).hash();
+        let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
+        let transaction = SignedTransaction::send_money(
+            1,
+            "near.0".to_string(),
+            "near.0".to_string(),
+            &signer,
+            10000,
+            genesis_hash,
+        );
+
+        let client = new_client(&format!("http://{}", rpc_addrs[0]));
+        let tx_hash = transaction.get_hash();
+        let bytes = transaction.try_to_vec().unwrap();
+
+        spawn_interruptible(async move {
+            loop {
+                let res = view_client.send(GetBlock::latest()).await;
+                if let Ok(Ok(block)) = res {
+                    if block.header.height > 10 {
+                        let response = client
+                            .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))
+                            .map_err(|err| panic_on_rpc_error!(err))
+                            .await
+                            .unwrap();
+                        assert_eq!(response["transaction_hash"], tx_hash.to_string());
+                        System::current().stop();
+                        break;
                     }
-                    sleep(std::time::Duration::from_millis(500)).await;
                 }
-            });
+                sleep(std::time::Duration::from_millis(500)).await;
+            }
         });
     });
 }
