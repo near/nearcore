@@ -46,7 +46,7 @@ fn add_access_key(
     let transaction_result = node_user
         .add_key(account_id.clone(), signer2.public_key.clone(), access_key.clone())
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -219,7 +219,7 @@ pub fn test_async_call_with_logs(node: impl Node) {
     let transaction_result = node_user
         .function_call(account_id.clone(), bob_account(), "log_something", vec![], 10u64.pow(14), 0)
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -233,7 +233,7 @@ pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
     let root = node_user.get_state_root();
     let transaction_result =
         node_user.deploy_contract(account_id.clone(), wasm_binary.to_vec()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
     let new_root = node_user.get_state_root();
@@ -262,7 +262,7 @@ pub fn test_upload_contract(node: impl Node) {
             TESTING_INIT_BALANCE / 2,
         )
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
     node_user.view_contract_code(&eve_dot_alice_account()).expect_err(
@@ -273,7 +273,7 @@ pub fn test_upload_contract(node: impl Node) {
     let wasm_binary = b"test_binary";
     let transaction_result =
         node_user.deploy_contract(eve_dot_alice_account(), wasm_binary.to_vec()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -291,7 +291,7 @@ pub fn test_redeploy_contract(node: impl Node) {
     let test_binary = b"test_binary";
     let transaction_result =
         node_user.deploy_contract(account_id.clone(), test_binary.to_vec()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -308,7 +308,7 @@ pub fn test_send_money(node: impl Node) {
     let transfer_cost = fee_helper.transfer_cost();
     let transaction_result =
         node_user.send_money(account_id.clone(), bob_account(), money_used).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -341,7 +341,7 @@ pub fn transfer_tokens_implicit_account(node: impl Node) {
     let receiver_id = hex::encode(&raw_public_key);
     let transaction_result =
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -365,7 +365,7 @@ pub fn transfer_tokens_implicit_account(node: impl Node) {
     let transaction_result =
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
 
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -538,7 +538,7 @@ pub fn test_create_account(node: impl Node) {
     let fee_helper = fee_helper(&node);
     let create_account_cost = fee_helper.create_account_transfer_full_key_cost();
 
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -571,7 +571,7 @@ pub fn test_create_account_again(node: impl Node) {
         )
         .unwrap();
 
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
     let fee_helper = fee_helper(&node);
     let create_account_cost = fee_helper.create_account_transfer_full_key_cost();
@@ -732,7 +732,7 @@ pub fn test_swap_key(node: impl Node) {
             AccessKey::full_access(),
         )
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root1 = node_user.get_state_root();
     assert_ne!(new_root, new_root1);
@@ -793,7 +793,7 @@ pub fn test_delete_key(node: impl Node) {
     let root = node_user.get_state_root();
     let transaction_result =
         node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
@@ -842,7 +842,7 @@ pub fn test_delete_key_last(node: impl Node) {
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
     let transaction_result =
         node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
@@ -909,7 +909,7 @@ pub fn test_delete_access_key(node: impl Node) {
     let root = node_user.get_state_root();
     let transaction_result =
         node_user.delete_key(account_id.clone(), signer2.public_key.clone()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
@@ -969,7 +969,7 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     let delete_access_key_cost = fee_helper.delete_key_cost();
     let transaction_result =
         node_user.delete_key(account_id.clone(), signer2.public_key.clone()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
@@ -1132,7 +1132,7 @@ pub fn test_increase_stake(node: impl Node) {
     let transaction_result = node_user
         .stake(account_id.clone(), node.block_signer().public_key(), amount_staked)
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let node_user = node.user();
     let new_root = node_user.get_state_root();
@@ -1153,7 +1153,7 @@ pub fn test_decrease_stake(node: impl Node) {
         .unwrap();
     let fee_helper = fee_helper(&node);
     let stake_cost = fee_helper.stake_cost();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -1173,7 +1173,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
             TESTING_INIT_BALANCE / 2,
         )
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
     let transaction_result =
         node_user.stake(eve_dot_alice_account(), node.block_signer().public_key(), 0).unwrap();
@@ -1301,7 +1301,7 @@ pub fn test_delete_account_implicit_beneficiary_account(
             beneficiary_id.clone(),
         )
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
 
     let view_result = node_user.view_account(&beneficiary_id);
 
@@ -1343,7 +1343,7 @@ pub fn test_delete_account_while_staking(node: impl Node, protocol_version: Prot
             money_used - stake_fee - delete_account_fee,
         )
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let transaction_result =
         node_user.delete_account(eve_dot_alice_account(), eve_dot_alice_account()).unwrap();
