@@ -37,7 +37,7 @@ nodes = start_cluster(
      ["total_supply", "4210000000000000000000000000000000"],
      ["validators", 0, "amount", "260000000000000000000000000000000"],
      [
-         "records", 0, "Account", "account", "AccountV1", "locked",
+         "records", 0, "Account", "account", "locked",
          "260000000000000000000000000000000"
      ]], {
          0: consensus_config,
