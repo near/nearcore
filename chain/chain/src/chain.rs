@@ -2026,18 +2026,18 @@ impl Chain {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
-        let block = self.get_block(block_hash)?;
-        let block_height = block.header().height();
-        let chunk_headers = block
-            .chunks()
-            .iter()
-            .filter_map(
-                |h| if h.height_included() == block_height { Some(h.clone()) } else { None },
-            )
-            .collect::<Vec<_>>();
+        let block = self.get_block(block_hash)?.clone();
+        // let block_height = block.header().height();
+        // let chunk_headers = block
+        //     .chunks()
+        //     .iter()
+        //     .filter_map(
+        //         |h| if h.height_included() == block_height { Some(h.clone()) } else { None },
+        //     )
+        //     .collect::<Vec<_>>();
 
         let mut res = HashMap::new();
-        for chunk_header in chunk_headers {
+        for chunk_header in block.chunks().iter() {
             let shard_id = chunk_header.shard_id();
             let outcomes = self
                 .mut_store()
