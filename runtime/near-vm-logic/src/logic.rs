@@ -2440,7 +2440,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Serialize, Deserialize, Clone)]
 pub struct VMOutcome {
     #[serde(with = "crate::serde_with::u128_dec_format")]
     pub balance: Balance,
@@ -2449,4 +2449,19 @@ pub struct VMOutcome {
     pub burnt_gas: Gas,
     pub used_gas: Gas,
     pub logs: Vec<String>,
+}
+
+impl std::fmt::Debug for VMOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let return_data_str = match &self.return_data {
+            ReturnData::None => "None".to_string(),
+            ReturnData::ReceiptIndex(_) => "Receipt".to_string(),
+            ReturnData::Value(v) => format!("Value [{} bytes]", v.len()),
+        };
+        write!(
+            f,
+            "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
+            self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
+        )
+    }
 }
