@@ -1568,8 +1568,8 @@ fn test_gc_tail_update() {
     let prev_sync_block = blocks[blocks.len() - 3].clone();
     let sync_block = blocks[blocks.len() - 2].clone();
     env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
+    env.clients[1].chain.save_block(&prev_sync_block).unwrap();
     let mut store_update = env.clients[1].chain.mut_store().store_update();
-    store_update.save_block(prev_sync_block.clone());
     store_update.inc_block_refcount(&prev_sync_block.hash()).unwrap();
     store_update.save_block(sync_block.clone());
     store_update.commit().unwrap();
