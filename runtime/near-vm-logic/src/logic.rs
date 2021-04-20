@@ -2420,7 +2420,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Serialize, Deserialize, Clone)]
 pub struct VMOutcome {
     #[serde(with = "crate::serde_with::u128_dec_format")]
     pub balance: Balance,
@@ -2431,12 +2431,12 @@ pub struct VMOutcome {
     pub logs: Vec<String>,
 }
 
-impl std::fmt::Display for VMOutcome {
+impl std::fmt::Debug for VMOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let return_data_str = match self.return_data {
-            ReturnData::None => "None",
-            ReturnData::ReceiptIndex(_) => "Receipt",
-            ReturnData::Value(_) => "Value",
+        let return_data_str = match &self.return_data {
+            ReturnData::None => "None".to_string(),
+            ReturnData::ReceiptIndex(_) => "Receipt".to_string(),
+            ReturnData::Value(v) => format!("Value [{} bytes]", v.len()),
         };
         write!(
             f,
