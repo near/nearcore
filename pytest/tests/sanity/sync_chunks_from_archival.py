@@ -84,12 +84,12 @@ near_root, node_dirs = init_cluster(
      ["validators", 0, "amount", "110000000000000000000000000000000"],
      ["validators", 1, "amount", "110000000000000000000000000000000"],
      [
-         "records", 0, "Account", "account", "AccountV1", "locked",
+         "records", 0, "Account", "account", "locked",
          "110000000000000000000000000000000"
      ],
      # each validator account is two records, thus the index of a record for the second is 2, not 1
      [
-         "records", 2, "Account", "account", "AccountV1", "locked",
+         "records", 2, "Account", "account", "locked",
          "110000000000000000000000000000000"
      ],
      ["total_supply", "6120000000000000000000000000000000"]], {4: {
