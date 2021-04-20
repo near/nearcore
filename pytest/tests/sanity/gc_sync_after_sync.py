@@ -29,11 +29,11 @@ nodes = start_cluster(
     [["epoch_length", 10],
      ["validators", 0, "amount", "12500000000000000000000000000000"],
      [
-         "records", 0, "Account", "account", "AccountV1", "locked",
+         "records", 0, "Account", "account", "locked",
          "12500000000000000000000000000000"
      ], ["validators", 1, "amount", "12500000000000000000000000000000"],
      [
-         "records", 2, "Account", "account", "AccountV1", "locked",
+         "records", 2, "Account", "account", "locked",
          "12500000000000000000000000000000"
      ], ['total_supply', "4925000000000000000000000000000000"],
      ["num_block_producer_seats", 10],

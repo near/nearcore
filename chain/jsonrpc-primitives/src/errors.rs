@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{to_value, Value};
@@ -65,6 +65,9 @@ impl RpcError {
     pub fn parse_error(e: String) -> Self {
         RpcError::new(-32_700, "Parse error".to_owned(), Some(Value::String(e)))
     }
+    pub fn serialization_error(e: String) -> Self {
+        RpcError::new(-32_000, "Server error".to_owned(), Some(Value::String(e)))
+    }
     /// Create a method not found error.
     pub fn method_not_found(method: String) -> Self {
         RpcError::new(-32_601, "Method not found".to_owned(), Some(Value::String(method)))
@@ -89,8 +92,8 @@ impl From<crate::errors::RpcParseError> for RpcError {
     }
 }
 
-impl Display for ServerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl fmt::Display for ServerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
             ServerError::Timeout => write!(f, "ServerError: Timeout"),

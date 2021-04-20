@@ -34,7 +34,7 @@ nodes = start_cluster(
     [["epoch_length", 10], ["num_block_producer_seats_per_shard", [5]],
      ["validators", 0, "amount", "60000000000000000000000000000000"],
      [
-         "records", 0, "Account", "account", "AccountV1", "locked",
+         "records", 0, "Account", "account", "locked",
          "60000000000000000000000000000000"
      ], ["total_supply", "5010000000000000000000000000000000"]], {
          0: consensus_config,

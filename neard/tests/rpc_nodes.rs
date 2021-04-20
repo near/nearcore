@@ -73,7 +73,6 @@ fn test_tx_propagation() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
                 let transaction_copy1 = transaction.clone();
-                let tx_hash_clone = tx_hash.clone();
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
                 spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
@@ -85,9 +84,7 @@ fn test_tx_propagation() {
                                 client
                                     .broadcast_tx_async(to_base64(&bytes))
                                     .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
+                                    .map_ok(move |result| assert_eq!(tx_hash.to_string(), result))
                                     .map(drop),
                             );
                         }
@@ -227,7 +224,6 @@ fn test_tx_status_with_light_client() {
                 let rpc_addrs_copy1 = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
-                let tx_hash_clone = tx_hash.clone();
                 spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -237,9 +233,7 @@ fn test_tx_status_with_light_client() {
                                 client
                                     .broadcast_tx_async(to_base64(&bytes))
                                     .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
+                                    .map_ok(move |result| assert_eq!(tx_hash.to_string(), result))
                                     .map(drop),
                             );
                         }
@@ -249,7 +243,7 @@ fn test_tx_status_with_light_client() {
                 let client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
                 spawn_interruptible(
                     client
-                        .tx(tx_hash_clone.to_string(), signer_account_id)
+                        .tx(tx_hash.to_string(), signer_account_id)
                         .map_err(|_| ())
                         .map_ok(move |result| {
                             if result.status == FinalExecutionStatus::SuccessValue("".to_string()) {
@@ -300,7 +294,6 @@ fn test_tx_status_with_light_client1() {
                 let rpc_addrs_copy1 = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
-                let tx_hash_clone = tx_hash.clone();
                 spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -310,9 +303,7 @@ fn test_tx_status_with_light_client1() {
                                 client
                                     .broadcast_tx_async(to_base64(&bytes))
                                     .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
+                                    .map_ok(move |result| assert_eq!(tx_hash.to_string(), result))
                                     .map(drop),
                             );
                         }
@@ -322,7 +313,7 @@ fn test_tx_status_with_light_client1() {
                 let client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
                 spawn_interruptible(
                     client
-                        .tx(tx_hash_clone.to_string(), signer_account_id)
+                        .tx(tx_hash.to_string(), signer_account_id)
                         .map_err(|_| ())
                         .map_ok(move |result| {
                             if result.status == FinalExecutionStatus::SuccessValue("".to_string()) {
@@ -831,8 +822,58 @@ fn test_tx_not_enough_balance_must_return_error() {
                                 );
                                 System::current().stop();
                             })
-                            .map_ok(move |_| panic!("Transaction must not succeed"))
+                            .map_ok(|_| panic!("Transaction must not succeed"))
                             .await;
+                        break;
+                    }
+                }
+                sleep(std::time::Duration::from_millis(500)).await;
+            }
+        });
+    });
+}
+
+#[test]
+fn test_send_tx_sync_returns_transaction_hash() {
+    init_integration_logger();
+
+    let cluster = NodeCluster::new(1, |index| format!("tx_not_enough_balance{}", index))
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
+        .set_epoch_length(10)
+        .set_genesis_height(0);
+
+    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
+        let view_client = clients[0].1.clone();
+
+        let genesis_hash = *genesis_block(&genesis).hash();
+        let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
+        let transaction = SignedTransaction::send_money(
+            1,
+            "near.0".to_string(),
+            "near.0".to_string(),
+            &signer,
+            10000,
+            genesis_hash,
+        );
+
+        let client = new_client(&format!("http://{}", rpc_addrs[0]));
+        let tx_hash = transaction.get_hash();
+        let bytes = transaction.try_to_vec().unwrap();
+
+        spawn_interruptible(async move {
+            loop {
+                let res = view_client.send(GetBlock::latest()).await;
+                if let Ok(Ok(block)) = res {
+                    if block.header.height > 10 {
+                        let response = client
+                            .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))
+                            .map_err(|err| panic_on_rpc_error!(err))
+                            .await
+                            .unwrap();
+                        assert_eq!(response["transaction_hash"], tx_hash.to_string());
+                        System::current().stop();
                         break;
                     }
                 }
@@ -888,7 +929,7 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
                                 );
                                 System::current().stop();
                             })
-                            .map_ok(move |_| panic!("Transaction must not succeed"))
+                            .map_ok(|_| panic!("Transaction must not succeed"))
                             .await;
                         break;
                     }
@@ -945,7 +986,7 @@ fn test_check_unknown_tx_must_return_error() {
                                 );
                                 System::current().stop();
                             })
-                            .map_ok(move |_| panic!("Transaction must be unknown"))
+                            .map_ok(|_| panic!("Transaction must be unknown"))
                             .await;
                         break;
                     }
@@ -998,7 +1039,7 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
                                 );
                                 System::current().stop();
                             })
-                            .map_ok(move |_| panic!("Must not track shard"))
+                            .map_ok(|_| panic!("Must not track shard"))
                             .await;
                         break;
                     }

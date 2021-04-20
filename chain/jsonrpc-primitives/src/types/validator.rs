@@ -1,7 +1,8 @@
-use near_primitives::types::EpochReference;
-use near_primitives::views::EpochValidatorInfo;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+pub type RpcValidatorsOrderedResponse =
+    Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcValidatorError {
@@ -19,16 +20,21 @@ pub enum RpcValidatorError {
     Unreachable(String),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcValidatorRequest {
     #[serde(flatten)]
-    pub epoch_reference: EpochReference,
+    pub epoch_reference: near_primitives::types::EpochReference,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RpcValidatorsOrderedRequest {
+    pub block_id: near_primitives::types::MaybeBlockId,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcValidatorResponse {
     #[serde(flatten)]
-    pub validator_info: EpochValidatorInfo,
+    pub validator_info: near_primitives::views::EpochValidatorInfo,
 }
 
 impl From<near_client_primitives::types::GetValidatorInfoError> for RpcValidatorError {
@@ -62,20 +68,24 @@ impl From<actix::MailboxError> for RpcValidatorError {
 }
 
 impl RpcValidatorRequest {
-    pub fn parse(
-        value: Option<Value>,
-    ) -> Result<RpcValidatorRequest, crate::errors::RpcParseError> {
+    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         let epoch_reference = if let Ok((block_id,)) =
             crate::utils::parse_params::<(near_primitives::types::MaybeBlockId,)>(value.clone())
         {
             match block_id {
-                Some(id) => EpochReference::BlockId(id),
-                None => EpochReference::Latest,
+                Some(id) => near_primitives::types::EpochReference::BlockId(id),
+                None => near_primitives::types::EpochReference::Latest,
             }
         } else {
-            crate::utils::parse_params::<EpochReference>(value)?
+            crate::utils::parse_params::<near_primitives::types::EpochReference>(value)?
         };
-        Ok(RpcValidatorRequest { epoch_reference })
+        Ok(Self { epoch_reference })
+    }
+}
+
+impl RpcValidatorsOrderedRequest {
+    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        Ok(crate::utils::parse_params::<RpcValidatorsOrderedRequest>(value)?)
     }
 }
 
