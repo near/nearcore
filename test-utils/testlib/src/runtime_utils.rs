@@ -5,6 +5,7 @@ use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, StateRoot};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_tries;
 use near_store::{ShardTries, TrieUpdate};
 use neard::config::GenesisExt;
@@ -44,7 +45,7 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
     if !is_account_record_found {
         genesis.records.as_mut().push(StateRecord::Account {
             account_id: account_id.clone(),
-            account: Account::new(0, 0, *DEFAULT_TEST_CONTRACT_HASH, 0),
+            account: Account::new(0, 0, *DEFAULT_TEST_CONTRACT_HASH, 0, PROTOCOL_VERSION),
         });
     }
     genesis.records.as_mut().push(StateRecord::Contract {

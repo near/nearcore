@@ -14,6 +14,7 @@ use crate::runtime_utils::{
 };
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
+use near_primitives::version::PROTOCOL_VERSION;
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
@@ -28,7 +29,13 @@ impl RuntimeNode {
         add_test_contract(&mut genesis, &bob_account());
         genesis.records.as_mut().push(StateRecord::Account {
             account_id: evm_account(),
-            account: Account::new(TESTING_INIT_BALANCE, 0, CryptoHash::default(), 0),
+            account: Account::new(
+                TESTING_INIT_BALANCE,
+                0,
+                CryptoHash::default(),
+                0,
+                PROTOCOL_VERSION,
+            ),
         });
         Self::new_from_genesis(account_id, genesis)
     }

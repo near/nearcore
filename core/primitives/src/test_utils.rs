@@ -4,7 +4,7 @@ use num_rational::Rational;
 
 use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
-use crate::account::{AccessKey, AccessKeyPermission, Account};
+use crate::account::Account;
 use crate::block::Block;
 use crate::block_header::BlockHeader;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
@@ -25,9 +25,10 @@ use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, 
 use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
 use crate::views::FinalExecutionStatus;
+use near_primitives_core::access_key::{AccessKey, AccessKeyPermission};
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
+    Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64, PROTOCOL_VERSION)
 }
 
 impl Transaction {

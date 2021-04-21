@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 
-use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
+use crate::access_key::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use crate::account::Account;
 use crate::block::{Block, BlockHeader};
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderV1,
@@ -48,7 +49,7 @@ use crate::types::{
     StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
     StoreValue, ValidatorKickoutReason,
 };
-use crate::version::{ProtocolVersion, Version};
+use crate::version::{ProtocolVersion, Version, PROTOCOL_VERSION};
 use validator_stake_view::ValidatorStakeView;
 
 /// A view of the account
@@ -117,7 +118,7 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        Account::new(view.amount, view.locked, view.code_hash, view.storage_usage)
+        Account::new(view.amount, view.locked, view.code_hash, view.storage_usage, PROTOCOL_VERSION)
     }
 }
 

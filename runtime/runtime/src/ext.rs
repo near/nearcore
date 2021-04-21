@@ -4,7 +4,7 @@ use borsh::BorshDeserialize;
 use log::debug;
 
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::access_key::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ExternalError, StorageError};
 use near_primitives::hash::CryptoHash;

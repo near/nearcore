@@ -1,9 +1,17 @@
+#[cfg(feature = "protocol_feature_add_account_versions")]
+use crate::checked_feature;
+use crate::serialize::u128_dec_format_compatible;
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "protocol_feature_add_account_versions")]
+use core::default::Default;
+#[cfg(feature = "protocol_feature_add_account_versions")]
+use core::result::Result;
+#[cfg(feature = "protocol_feature_add_account_versions")]
+use core::result::Result::Ok;
+use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::{Balance, ProtocolVersion, StorageUsage};
+use serde;
 use serde::{Deserialize, Serialize};
-
-use crate::hash::CryptoHash;
-use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
-use crate::types::{AccountId, Balance, Nonce, StorageUsage};
 #[cfg(feature = "protocol_feature_add_account_versions")]
 use std::io;
 
@@ -12,7 +20,11 @@ use std::io;
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy,
 )]
 pub enum AccountVersion {
+    /// Versioning release
     V1,
+    /// Recalculated storage usage due to previous bug, see
+    /// https://github.com/near/nearcore/issues/3824
+    V2,
 }
 
 #[cfg(feature = "protocol_feature_add_account_versions")]
@@ -55,14 +67,25 @@ impl Account {
         locked: Balance,
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
+        protocol_version: ProtocolVersion,
     ) -> Self {
-        Account {
+        #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+        let _ = protocol_version;
+        Self {
             amount,
             locked,
             code_hash,
             storage_usage,
             #[cfg(feature = "protocol_feature_add_account_versions")]
-            version: AccountVersion::V1,
+            version: if checked_feature!(
+                "protocol_feature_add_account_versions",
+                AccountVersions,
+                protocol_version
+            ) {
+                AccountVersion::V2
+            } else {
+                AccountVersion::V1
+            },
         }
     }
 
@@ -129,6 +152,16 @@ struct LegacyAccount {
 }
 
 #[cfg(feature = "protocol_feature_add_account_versions")]
+#[derive(BorshSerialize, BorshDeserialize)]
+struct SerializableAccount {
+    amount: Balance,
+    locked: Balance,
+    code_hash: CryptoHash,
+    storage_usage: StorageUsage,
+    version: AccountVersion,
+}
+
+#[cfg(feature = "protocol_feature_add_account_versions")]
 impl BorshDeserialize for Account {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, io::Error> {
         if buf.len() == std::mem::size_of::<LegacyAccount>() {
@@ -143,7 +176,14 @@ impl BorshDeserialize for Account {
                 version: AccountVersion::V1,
             })
         } else {
-            unreachable!();
+            let deserialized_account = SerializableAccount::deserialize(buf)?;
+            Ok(Account {
+                amount: deserialized_account.amount,
+                locked: deserialized_account.locked,
+                code_hash: deserialized_account.code_hash,
+                storage_usage: deserialized_account.storage_usage,
+                version: deserialized_account.version,
+            })
         }
     }
 }
@@ -159,89 +199,71 @@ impl BorshSerialize for Account {
                 storage_usage: self.storage_usage,
             }
             .serialize(writer),
+            _ => SerializableAccount {
+                amount: self.amount,
+                locked: self.locked,
+                code_hash: self.code_hash,
+                storage_usage: self.storage_usage,
+                version: self.version,
+            }
+            .serialize(writer),
         }
     }
 }
 
-/// Access key provides limited access to an account. Each access key belongs to some account and
-/// is identified by a unique (within the account) public key. One account may have large number of
-/// access keys. Access keys allow to act on behalf of the account by restricting transactions
-/// that can be issued.
-/// `account_id,public_key` is a key in the state
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
-)]
-pub struct AccessKey {
-    /// The nonce for this access key.
-    /// NOTE: In some cases the access key needs to be recreated. If the new access key reuses the
-    /// same public key, the nonce of the new access key should be equal to the nonce of the old
-    /// access key. It's required to avoid replaying old transactions again.
-    pub nonce: Nonce,
-
-    /// Defines permissions for this access key.
-    pub permission: AccessKeyPermission,
-}
-
-impl AccessKey {
-    pub const ACCESS_KEY_NONCE_RANGE_MULTIPLIER: u64 = 1_000_000;
-
-    pub fn full_access() -> Self {
-        Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
-    }
-}
-
-/// Defines permissions for AccessKey
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
-)]
-pub enum AccessKeyPermission {
-    FunctionCall(FunctionCallPermission),
-
-    /// Grants full access to the account.
-    /// NOTE: It's used to replace account-level public keys.
-    FullAccess,
-}
-
-/// Grants limited permission to make transactions with FunctionCallActions
-/// The permission can limit the allowed balance to be spent on the prepaid gas.
-/// It also restrict the account ID of the receiver for this function call.
-/// It also can restrict the method name for the allowed function calls.
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
-)]
-pub struct FunctionCallPermission {
-    /// Allowance is a balance limit to use by this access key to pay for function call gas and
-    /// transaction fees. When this access key is used, both account balance and the allowance is
-    /// decreased by the same value.
-    /// `None` means unlimited allowance.
-    /// NOTE: To change or increase the allowance, the old access key needs to be deleted and a new
-    /// access key should be created.
-    #[serde(with = "option_u128_dec_format")]
-    pub allowance: Option<Balance>,
-
-    /// The access key only allows transactions with the given receiver's account id.
-    pub receiver_id: AccountId,
-
-    /// A list of method names that can be used. The access key only allows transactions with the
-    /// function call of one of the given method names.
-    /// Empty list means any method name can be used.
-    pub method_names: Vec<String>,
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::account::Account;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    use crate::account::{AccountVersion, LegacyAccount};
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    use crate::borsh::BorshDeserialize;
+    use crate::hash::CryptoHash;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    use crate::version::ProtocolFeature;
+    #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+    use crate::version::PROTOCOL_VERSION;
     use borsh::BorshSerialize;
-
-    use crate::hash::hash;
-    use crate::serialize::to_base;
-
-    use super::*;
+    use near_primitives_core::hash::hash;
+    use near_primitives_core::serialize::to_base;
 
     #[test]
     fn test_account_serialization() {
-        let acc = Account::new(1_000_000, 1_000_000, CryptoHash::default(), 100);
+        #[cfg(feature = "protocol_feature_add_account_versions")]
+        let acc = Account::new(
+            1_000_000,
+            1_000_000,
+            CryptoHash::default(),
+            100,
+            ProtocolFeature::AccountVersions.protocol_version() - 1,
+        );
+        #[cfg(not(feature = "protocol_feature_add_account_versions"))]
+        let acc = Account::new(1_000_000, 1_000_000, CryptoHash::default(), 100, PROTOCOL_VERSION);
         let bytes = acc.try_to_vec().unwrap();
         assert_eq!(to_base(&hash(&bytes)), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    fn test_account_size() {
+        let new_account = Account::new(
+            0,
+            0,
+            CryptoHash::default(),
+            0,
+            ProtocolFeature::AccountVersions.protocol_version(),
+        );
+        let old_account = Account::new(
+            0,
+            0,
+            CryptoHash::default(),
+            0,
+            ProtocolFeature::AccountVersions.protocol_version() - 1,
+        );
+        let new_bytes = new_account.try_to_vec().unwrap();
+        let old_bytes = old_account.try_to_vec().unwrap();
+        assert!(new_bytes.len() > old_bytes.len());
+        assert_eq!(old_bytes.len(), std::mem::size_of::<LegacyAccount>());
     }
 
     #[test]

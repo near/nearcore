@@ -3,7 +3,7 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::access_key::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ContractCallError, InvalidAccessKeyError, InvalidTxError,

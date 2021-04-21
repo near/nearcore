@@ -109,11 +109,12 @@ mod test {
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::account::{AccessKey, Account};
     use near_primitives::types::AccountInfo;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     const VALID_ED25519_RISTRETTO_KEY: &str = "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7";
 
     fn create_account() -> Account {
-        Account::new(100, 10, Default::default(), 0)
+        Account::new(100, 10, Default::default(), 0, PROTOCOL_VERSION)
     }
 
     #[test]

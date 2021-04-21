@@ -1,7 +1,7 @@
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::{
-    account::AccessKeyPermission,
+    access_key::AccessKeyPermission,
     config::VMLimitConfig,
     errors::{
         ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
@@ -137,8 +137,8 @@ pub fn verify_and_charge_transaction(
         current_protocol_version,
         {
             if let Some(height) = block_height {
-                let upper_bound =
-                    height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+                let upper_bound = height
+                    * near_primitives::access_key::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
                 if transaction.nonce >= upper_bound {
                     return Err(InvalidTxError::NonceTooLarge {
                         tx_nonce: transaction.nonce,

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 
-use crate::account::AccessKey;
+use crate::access_key::AccessKey;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
@@ -423,7 +423,7 @@ mod tests {
 
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 
-    use crate::account::{AccessKeyPermission, FunctionCallPermission};
+    use crate::access_key::{AccessKeyPermission, FunctionCallPermission};
     use crate::serialize::to_base;
 
     use super::*;

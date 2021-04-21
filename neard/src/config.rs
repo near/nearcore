@@ -20,7 +20,8 @@ use near_network::test_utils::open_port;
 use near_network::types::ROUTED_MESSAGE_TTL;
 use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::access_key::AccessKey;
+use near_primitives::account::Account;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::state_record::StateRecord;
@@ -719,7 +720,7 @@ fn add_account_with_key(
 ) {
     records.push(StateRecord::Account {
         account_id: account_id.to_string(),
-        account: Account::new(amount, staked, code_hash, 0),
+        account: Account::new(amount, staked, code_hash, 0, PROTOCOL_VERSION),
     });
     records.push(StateRecord::AccessKey {
         account_id: account_id.to_string(),

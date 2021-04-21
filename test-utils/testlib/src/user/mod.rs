@@ -4,7 +4,7 @@ use futures::{future::LocalBoxFuture, FutureExt};
 
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
-use near_primitives::account::AccessKey;
+use near_primitives::access_key::AccessKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{

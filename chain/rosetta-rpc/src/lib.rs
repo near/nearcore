@@ -17,6 +17,8 @@ use near_primitives::borsh::BorshDeserialize;
 use near_primitives::serialize::BaseEncode;
 
 pub use config::RosettaRpcConfig;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::AccountView;
 
 mod adapters;
 mod config;
@@ -376,7 +378,14 @@ async fn account_balance(
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
                 block.header.height,
-                near_primitives::account::Account::new(0, 0, Default::default(), 0).into(),
+                AccountView {
+                    amount: 0,
+                    locked: 0,
+                    code_hash: Default::default(),
+                    storage_usage: 0,
+                    storage_paid_at: 0,
+                }
+                .into(),
             ),
             Err(err) => return Err(err.into()),
         };

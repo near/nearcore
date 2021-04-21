@@ -21,7 +21,8 @@ use near_chain_configs::{BETANET_EVM_CHAIN_ID, MAINNET_EVM_CHAIN_ID, TESTNET_EVM
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::access_key::AccessKey;
+use near_primitives::account::Account;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;

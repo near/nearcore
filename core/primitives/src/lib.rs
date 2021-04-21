@@ -1,7 +1,8 @@
 pub use near_primitives_core::borsh;
 pub use near_primitives_core::num_rational;
 
-pub use near_primitives_core::account;
+pub use near_primitives_core::access_key;
+pub mod account;
 pub mod block;
 pub mod block_header;
 pub mod challenge;

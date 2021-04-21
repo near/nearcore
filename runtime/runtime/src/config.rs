@@ -5,7 +5,7 @@ use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
 
-use near_primitives::account::AccessKeyPermission;
+use near_primitives::access_key::AccessKeyPermission;
 use near_primitives::checked_feature;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.

@@ -4,7 +4,8 @@ use std::fmt::{Display, Formatter};
 
 use near_crypto::PublicKey;
 
-use crate::account::{AccessKey, Account};
+use crate::access_key::AccessKey;
+use crate::account::Account;
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::{Receipt, ReceivedData};
 use crate::serialize::{base64_format, option_base64_format};
