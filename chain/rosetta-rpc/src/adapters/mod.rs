@@ -1015,7 +1015,7 @@ mod tests {
         }
         .into()];
         let add_key_actions = vec![near_primitives::transaction::AddKeyAction {
-            access_key: near_primitives::account::AccessKey::full_access(),
+            access_key: near_primitives::access_key::AccessKey::full_access(),
             public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
                 .public_key(),
         }
