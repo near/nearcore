@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0
+
+* Introduce `IndexerShard` structure which contains corresponding chunks and `IndexerExecutionOutcomeWithReceipt`
+
+## Breaking change
+
+* `IndexerExecutionOutcomeWithReceipt`field `receipt` is not optional anymore and isn't included to chunk
+* `IndexerChunkView` doesn't contain field `receipt_execution_outcomes` anymore, this field has been moved to `IndexerShard`
+* `StreamerMessage` structure now looks like:
+  ```
+  StreamerMessage {
+    block: BlockView,
+    shards: Vec<IndexerShard>,
+    state_changes: StateChangesView,  
+  }
+  ```
+
 ## 0.8.1
 
 * Add `InitConfigArgs` and `indexer_init_configs`
