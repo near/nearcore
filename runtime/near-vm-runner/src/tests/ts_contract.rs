@@ -1,19 +1,13 @@
-use crate::test_utils::LATEST_PROTOCOL_VERSION;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, HostError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{External, VMConfig, VMContext, VMKind};
-use near_vm_runner::{run_vm, with_vm_variants};
+use near_vm_logic::{External, VMConfig, VMKind};
 
-pub mod test_utils;
+use crate::run_vm;
+use crate::tests::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 
-fn create_context(input: &[u8]) -> VMContext {
-    let input = input.to_vec();
-    test_utils::create_context(input)
-}
-
-const TEST_CONTRACT: &'static [u8] = include_bytes!("../tests/res/test_contract_ts.wasm");
+const TEST_CONTRACT: &'static [u8] = include_bytes!("../../tests/res/test_contract_ts.wasm");
 
 #[test]
 pub fn test_ts_contract() {
@@ -21,7 +15,7 @@ pub fn test_ts_contract() {
         let code = &TEST_CONTRACT;
         let mut fake_external = MockedExternal::new();
 
-        let context = create_context(&[]);
+        let context = create_context(Vec::new());
         let config = VMConfig::default();
         let fees = RuntimeFeesConfig::default();
 
@@ -48,7 +42,7 @@ pub fn test_ts_contract() {
         );
 
         // Call method that writes something into storage.
-        let context = create_context(b"foo bar");
+        let context = create_context(b"foo bar".to_vec());
         run_vm(
             vec![],
             &code,
@@ -74,7 +68,7 @@ pub fn test_ts_contract() {
         }
 
         // Call method that reads the value from storage using registers.
-        let context = create_context(b"foo");
+        let context = create_context(b"foo".to_vec());
         let result = run_vm(
             vec![],
             &code,

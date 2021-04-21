@@ -71,6 +71,7 @@ fn init_test_staking(
             config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
         }
         config.client_config.min_num_peers = num_node_seats as usize - 1;
+        config.client_config.epoch_sync_enabled = false;
         config
     });
     configs

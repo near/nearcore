@@ -420,6 +420,7 @@ pub struct Config {
     pub gc_blocks_limit: NumBlocks,
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
+    pub epoch_sync_enabled: bool,
 }
 
 impl Default for Config {
@@ -441,6 +442,7 @@ impl Default for Config {
             log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
             view_client_threads: 4,
+            epoch_sync_enabled: true,
         }
     }
 }
@@ -607,6 +609,7 @@ impl NearConfig {
                 log_summary_style: config.log_summary_style,
                 gc_blocks_limit: config.gc_blocks_limit,
                 view_client_threads: config.view_client_threads,
+                epoch_sync_enabled: config.epoch_sync_enabled,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,

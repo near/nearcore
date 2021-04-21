@@ -237,8 +237,8 @@ pub fn record_block_with_final_block_hash(
 ) {
     epoch_manager
         .record_block_info(
-            &cur_h,
             BlockInfo::new(
+                cur_h,
                 height,
                 height.saturating_sub(2),
                 last_final_block_hash,
@@ -270,8 +270,8 @@ pub fn record_block_with_slashes(
 ) {
     epoch_manager
         .record_block_info(
-            &cur_h,
             BlockInfo::new(
+                cur_h,
                 height,
                 height.saturating_sub(2),
                 prev_h,
@@ -304,6 +304,7 @@ pub fn record_block(
 }
 
 pub fn block_info(
+    hash: CryptoHash,
     height: BlockHeight,
     last_finalized_height: BlockHeight,
     last_final_block_hash: CryptoHash,
@@ -313,6 +314,7 @@ pub fn block_info(
     total_supply: Balance,
 ) -> BlockInfo {
     BlockInfo {
+        hash,
         height,
         last_finalized_height,
         last_final_block_hash,
@@ -329,10 +331,6 @@ pub fn block_info(
     }
 }
 
-pub fn record_with_block_info(
-    epoch_manager: &mut EpochManager,
-    cur_hash: CryptoHash,
-    block_info: BlockInfo,
-) {
-    epoch_manager.record_block_info(&cur_hash, block_info, [0; 32]).unwrap().commit().unwrap();
+pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {
+    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
 }
