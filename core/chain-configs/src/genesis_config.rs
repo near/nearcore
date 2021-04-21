@@ -13,6 +13,9 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
+use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::NumShards;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -24,6 +27,7 @@ use near_primitives::{
     },
     version::ProtocolVersion,
 };
+use std::convert::TryInto;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -134,6 +138,28 @@ pub struct GenesisConfig {
     pub minimum_stake_divisor: u64,
 }
 
+impl From<&GenesisConfig> for EpochConfig {
+    fn from(config: &GenesisConfig) -> Self {
+        EpochConfig {
+            epoch_length: config.epoch_length,
+            num_shards: config.num_block_producer_seats_per_shard.len() as NumShards,
+            num_block_producer_seats: config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard.clone(),
+            avg_hidden_validator_seats_per_shard: config
+                .avg_hidden_validator_seats_per_shard
+                .clone(),
+            block_producer_kickout_threshold: config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: config.chunk_producer_kickout_threshold,
+            fishermen_threshold: config.fishermen_threshold,
+            online_min_threshold: config.online_min_threshold,
+            online_max_threshold: config.online_max_threshold,
+            protocol_upgrade_num_epochs: config.protocol_upgrade_num_epochs,
+            protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
+            minimum_stake_divisor: config.minimum_stake_divisor,
+        }
+    }
+}
+
 /// Records in storage at genesis (get split into shards at genesis creation).
 #[derive(
     Debug,
@@ -190,6 +216,24 @@ impl GenesisConfig {
             serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
         )
         .expect("Failed to create / write a genesis config file.");
+    }
+
+    /// Get validators from genesis config
+    pub fn validators(&self) -> Vec<ValidatorStake> {
+        self.validators
+            .iter()
+            .map(|account_info| {
+                ValidatorStake::new(
+                    account_info.account_id.clone(),
+                    account_info
+                        .public_key
+                        .clone()
+                        .try_into()
+                        .expect("Failed to deserialize validator public key"),
+                    account_info.amount,
+                )
+            })
+            .collect()
     }
 }
 
@@ -260,7 +304,7 @@ impl Genesis {
         let mut digest = sha2::Sha256::new();
         serde_json::to_writer_pretty(&mut digest, self)
             .expect("Error serializing the genesis config.");
-        CryptoHash(near_primitives::hash::Digest(digest.finalize().into()))
+        CryptoHash(digest.finalize().into())
     }
 }
 

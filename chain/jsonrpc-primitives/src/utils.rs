@@ -14,16 +14,12 @@ pub(crate) fn parse_params<T: DeserializeOwned>(
     }
 }
 
-fn from_base64_or_parse_err(encoded: String) -> Result<Vec<u8>, crate::errors::RpcParseError> {
-    near_primitives_core::serialize::from_base64(&encoded)
-        .map_err(|err| crate::errors::RpcParseError(err.to_string()))
-}
-
 pub(crate) fn parse_signed_transaction(
     value: Option<Value>,
 ) -> Result<near_primitives::transaction::SignedTransaction, crate::errors::RpcParseError> {
     let (encoded,) = crate::utils::parse_params::<(String,)>(value.clone())?;
-    let bytes = crate::utils::from_base64_or_parse_err(encoded)?;
+    let bytes = near_primitives_core::serialize::from_base64(&encoded)
+        .map_err(|err| crate::errors::RpcParseError(err.to_string()))?;
     Ok(near_primitives::transaction::SignedTransaction::try_from_slice(&bytes).map_err(|err| {
         crate::errors::RpcParseError(format!("Failed to decode transaction: {}", err))
     })?)
