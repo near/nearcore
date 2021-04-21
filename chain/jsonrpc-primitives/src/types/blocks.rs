@@ -25,13 +25,13 @@ pub enum RpcBlockError {
     Unreachable { error_message: String },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RpcBlockRequest {
     #[serde(flatten)]
     pub block_reference: BlockReference,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RpcBlockResponse {
     #[serde(flatten)]
     pub block_view: near_primitives::views::BlockView,

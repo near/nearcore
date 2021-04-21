@@ -7,8 +7,8 @@ use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
-use near_vm_runner::{run_vm, MockCompiledContractCache, VMError};
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
+use near_vm_runner::{run_vm, MockCompiledContractCache, VMError, VMKind};
 
 use crate::State;
 
@@ -100,6 +100,12 @@ impl Script {
 
     pub(crate) fn initial_state(&mut self, state: State) {
         self.initial_state = Some(state);
+    }
+
+    pub(crate) fn initial_state_from_file(&mut self, path: &Path) {
+        let data = fs::read(path).unwrap();
+        let state = serde_json::from_slice(&data).unwrap();
+        self.initial_state(state)
     }
 
     pub(crate) fn step(&mut self, contract: Contract, method: &str) -> &mut Step {

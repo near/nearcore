@@ -35,7 +35,7 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash, Digest};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
@@ -981,8 +981,8 @@ fn test_bad_orphan() {
     {
         // Orphan block with unknown epoch
         let mut block = env.clients[0].produce_block(6).unwrap().unwrap();
-        block.mut_header().get_mut().inner_lite.epoch_id = EpochId(CryptoHash(Digest([1; 32])));
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([1; 32]));
+        block.mut_header().get_mut().inner_lite.epoch_id = EpochId(CryptoHash([1; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([1; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
         assert_eq!(
@@ -993,7 +993,7 @@ fn test_bad_orphan() {
     {
         // Orphan block with invalid signature
         let mut block = env.clients[0].produce_block(7).unwrap().unwrap();
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([1; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([1; 32]);
         block.mut_header().get_mut().init();
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
         assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidSignature);
@@ -1018,23 +1018,19 @@ fn test_bad_orphan() {
             };
             #[cfg(not(feature = "protocol_feature_block_header_v3"))]
             {
-                chunk.inner.outcome_root = CryptoHash(Digest([1; 32]));
+                chunk.inner.outcome_root = CryptoHash([1; 32]);
                 chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
             }
             #[cfg(feature = "protocol_feature_block_header_v3")]
             {
                 match &mut chunk.inner {
-                    ShardChunkHeaderInner::V1(inner) => {
-                        inner.outcome_root = CryptoHash(Digest([1; 32]))
-                    }
-                    ShardChunkHeaderInner::V2(inner) => {
-                        inner.outcome_root = CryptoHash(Digest([1; 32]))
-                    }
+                    ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash([1; 32]),
+                    ShardChunkHeaderInner::V2(inner) => inner.outcome_root = CryptoHash([1; 32]),
                 }
                 chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
             }
         }
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
         assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidChunkHeadersRoot);
@@ -1044,7 +1040,7 @@ fn test_bad_orphan() {
         let mut block = env.clients[0].produce_block(9).unwrap().unwrap();
         let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
         block.mut_header().get_mut().inner_rest.approvals = vec![Some(some_signature)];
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
 
@@ -1078,7 +1074,7 @@ fn test_bad_orphan() {
                 chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
             }
         }
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([4; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([4; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
         assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::Orphan);
@@ -1086,7 +1082,7 @@ fn test_bad_orphan() {
     {
         // Orphan block that's too far ahead: 20 * epoch_length
         let mut block = block.clone();
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().get_mut().inner_lite.height += 2000;
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
@@ -1572,8 +1568,8 @@ fn test_gc_tail_update() {
     let prev_sync_block = blocks[blocks.len() - 3].clone();
     let sync_block = blocks[blocks.len() - 2].clone();
     env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
+    env.clients[1].chain.save_block(&prev_sync_block).unwrap();
     let mut store_update = env.clients[1].chain.mut_store().store_update();
-    store_update.save_block(prev_sync_block.clone());
     store_update.inc_block_refcount(&prev_sync_block.hash()).unwrap();
     store_update.save_block(sync_block.clone());
     store_update.commit().unwrap();

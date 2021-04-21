@@ -139,8 +139,7 @@ pub(crate) async fn convert_block_to_transactions(
                     account_ids: touched_account_ids.into_iter().collect(),
                 },
         })
-        .await?
-        .map_err(crate::errors::ErrorKind::InternalError)?;
+        .await??;
 
     let transactions = convert_block_changes_to_transactions(
         &genesis.config.runtime_config,

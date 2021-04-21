@@ -14,6 +14,7 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 borsh = "0.8.1"
+serde = { version = "1", features = ["derive"] }
 wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
 # Always used even for wasmer 1.0 for validating wasm, will be replaced when refactor prepare.rs
 wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }

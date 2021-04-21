@@ -51,7 +51,8 @@ protocol_feature_block_header_v3 = []
 protocol_feature_alt_bn128 = ["near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
 protocol_feature_access_key_nonce_range = []
 protocol_feature_tx_size_limit = ["near-primitives-core/protocol_feature_tx_size_limit"]
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_access_key_nonce_range", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit"]
+protocol_feature_allow_create_account_on_delete = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_access_key_nonce_range", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete"]
 nightly_protocol = []
 
 
