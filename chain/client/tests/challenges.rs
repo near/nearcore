@@ -402,6 +402,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
+        #[cfg(not(feature = "protocol_feature_add_account_versions"))]
         assert_eq!(
             challenge_body.partial_state.0,
             vec![
@@ -416,6 +417,24 @@ fn test_verify_chunk_invalid_state_challenge() {
                     3, 1, 0, 0, 0, 16, 49, 233, 115, 11, 86, 10, 193, 50, 45, 253, 137, 126, 230,
                     236, 254, 86, 230, 148, 94, 141, 44, 46, 130, 154, 189, 73, 179, 223, 178, 17,
                     133, 232, 213, 5, 0, 0, 0, 0, 0, 0
+                ]
+            ],
+        );
+        #[cfg(feature = "protocol_feature_add_account_versions")]
+        assert_eq!(
+            challenge_body.partial_state.0,
+            vec![
+                vec![
+                    1, 5, 0, 197, 185, 48, 117, 208, 162, 58, 178, 211, 174, 224, 17, 151, 175,
+                    104, 50, 193, 73, 241, 135, 170, 42, 77, 144, 147, 221, 252, 5, 35, 120, 151,
+                    31, 171, 30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166,
+                    241, 148, 128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 164, 5, 0,
+                    0, 0, 0, 0, 0
+                ],
+                vec![
+                    3, 1, 0, 0, 0, 16, 63, 153, 161, 236, 209, 114, 108, 112, 213, 218, 218, 180,
+                    13, 34, 58, 16, 28, 70, 130, 240, 120, 187, 247, 141, 141, 132, 82, 113, 80,
+                    140, 82, 144, 216, 5, 0, 0, 0, 0, 0, 0
                 ]
             ],
         );
