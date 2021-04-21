@@ -55,7 +55,7 @@ use crate::AdversarialControls;
 use crate::StatusResponse;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusSyncInfo, SyncStatus,
+    StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_primitives::block_header::ApprovalType;
 
@@ -530,7 +530,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
 }
 
 impl Handler<Status> for ClientActor {
-    type Result = Result<StatusResponse, String>;
+    type Result = Result<StatusResponse, StatusError>;
 
     #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
@@ -538,12 +538,8 @@ impl Handler<Status> for ClientActor {
         let _d = DelayDetector::new("client status".to_string().into());
         self.check_triggers(ctx);
 
-        let head = self.client.chain.head().map_err(|err| err.to_string())?;
-        let header = self
-            .client
-            .chain
-            .get_block_header(&head.last_block_hash)
-            .map_err(|err| err.to_string())?;
+        let head = self.client.chain.head()?;
+        let header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = header.raw_timestamp().clone();
         if msg.is_health_check {
             let now = Utc::now();
@@ -556,19 +552,18 @@ impl Handler<Status> for ClientActor {
                             * STATUS_WAIT_TIME_MULTIPLIER,
                     )
                 {
-                    return Err(format!("No blocks for {:?}.", elapsed));
+                    return Err(StatusError::NoNewBlocks { elapsed });
                 }
             }
 
             if self.client.sync_status.is_syncing() {
-                return Err("Node is syncing.".to_string());
+                return Err(StatusError::NodeIsSyncing);
             }
         }
         let validators = self
             .client
             .runtime_adapter
-            .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
-            .map_err(|err| err.to_string())?
+            .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)?
             .into_iter()
             .map(|(validator_stake, is_slashed)| ValidatorInfo {
                 account_id: validator_stake.take_account_id(),
@@ -576,11 +571,8 @@ impl Handler<Status> for ClientActor {
             })
             .collect();
 
-        let protocol_version = self
-            .client
-            .runtime_adapter
-            .get_epoch_protocol_version(&head.epoch_id)
-            .map_err(|err| err.to_string())?;
+        let protocol_version =
+            self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
 
         let validator_account_id =
             self.client.validator_signer.as_ref().map(|vs| vs.validator_id()).cloned();

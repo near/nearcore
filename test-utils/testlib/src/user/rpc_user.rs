@@ -172,8 +172,8 @@ impl User for RpcUser {
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let account_id = self.account_id.clone();
-        let hash = *hash;
-        self.actix(move |client| client.tx((&hash).into(), account_id)).unwrap()
+        let hash = hash.to_string();
+        self.actix(move |client| client.tx(hash, account_id)).unwrap()
     }
 
     fn get_state_root(&self) -> CryptoHash {
