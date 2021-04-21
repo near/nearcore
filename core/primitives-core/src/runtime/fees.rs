@@ -3,9 +3,10 @@
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
 //!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
 //!   receiver it might or might not be a cross-shard communication.
+use serde::{Deserialize, Serialize};
+
 use crate::num_rational::Rational;
 use crate::types::Gas;
-use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "protocol_feature_evm")]
 pub type EvmGas = u64;
@@ -396,6 +397,34 @@ impl RuntimeFeesConfig {
     pub fn min_receipt_with_function_call_gas(&self) -> Gas {
         self.action_receipt_creation_config.min_send_and_exec_fee()
             + self.action_creation_config.function_call_cost.min_send_and_exec_fee()
+    }
+}
+
+/// Helper functions for computing Transfer fees.
+/// In case of implicit account creation they always include extra fees for the CreateAccount and
+/// AddFullAccessKey actions that are implicit.
+/// We can assume that no overflow will happen here.
+pub fn transfer_exec_fee(cfg: &ActionCreationConfig, is_receiver_implicit: bool) -> Gas {
+    if is_receiver_implicit {
+        cfg.create_account_cost.exec_fee()
+            + cfg.add_key_cost.full_access_cost.exec_fee()
+            + cfg.transfer_cost.exec_fee()
+    } else {
+        cfg.transfer_cost.exec_fee()
+    }
+}
+
+pub fn transfer_send_fee(
+    cfg: &ActionCreationConfig,
+    sender_is_receiver: bool,
+    is_receiver_implicit: bool,
+) -> Gas {
+    if is_receiver_implicit {
+        cfg.create_account_cost.send_fee(sender_is_receiver)
+            + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
+            + cfg.transfer_cost.send_fee(sender_is_receiver)
+    } else {
+        cfg.transfer_cost.send_fee(sender_is_receiver)
     }
 }
 

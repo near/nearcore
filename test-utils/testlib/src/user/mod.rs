@@ -207,16 +207,25 @@ pub trait User {
         )
     }
 
+    fn delete_account_with_beneficiary_set(
+        &self,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        beneficiary_id: AccountId,
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
+        self.sign_and_commit_actions(
+            signer_id.clone(),
+            receiver_id,
+            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
+        )
+    }
+
     fn delete_account(
         &self,
         signer_id: AccountId,
         receiver_id: AccountId,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
-        self.sign_and_commit_actions(
-            signer_id.clone(),
-            receiver_id,
-            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: signer_id })],
-        )
+        self.delete_account_with_beneficiary_set(signer_id.clone(), receiver_id, signer_id)
     }
 
     fn stake(
