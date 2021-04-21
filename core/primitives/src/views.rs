@@ -1324,8 +1324,10 @@ pub struct EpochValidatorInfo {
     pub current_proposals: Vec<ValidatorStakeView>,
     /// Kickout in the previous epoch
     pub prev_epoch_kickout: Vec<ValidatorKickoutView>,
-    /// Epoch start height
+    /// Epoch start block height
     pub epoch_start_height: BlockHeight,
+    /// Epoch height
+    pub epoch_height: EpochHeight,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
