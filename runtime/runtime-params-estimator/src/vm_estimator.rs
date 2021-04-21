@@ -130,6 +130,52 @@ pub fn load_and_compile(
 
 const USING_LIGHTBEAM: bool = cfg!(feature = "lightbeam");
 
+fn measure_contract(vm_kind: VMKind, gas_metric: GasMetric, contract: &ContractCode) -> u64 {
+    let start = start_count(gas_metric);
+    let prepared_code =
+        prepare::prepare_contract(contract.code.as_ref(), &VMConfig::default()).unwrap();
+    let result = compile_module(vm_kind, &prepared_code);
+    assert!(result, "Compilation failed");
+    let end = end_count(gas_metric, &start);
+    end
+}
+
+/// Returns `(a, b)` - approximation coefficients for formula `a * x + b`
+/// where `x` is is the contract size in bytes. Practically, we compute upper bound
+/// of this approximation, assuming that all contract consists of code only.
+fn compile_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<u64>, Ratio<u64>) {
+    let a = Ratio::new(0 as u64, 1);
+    let b = Ratio::new(0 as u64, 1);
+
+    let data = include_bytes!("../test-contract/res/smallest_contract.wasm");
+    let contract = ContractCode::new(data.to_vec(), None);
+    let result1 = (data.len(), measure_contract(vm_kind, gas_metric, &contract));
+
+    let data = include_bytes!("../test-contract/res/stable_small_contract.wasm");
+    let contract = ContractCode::new(data.to_vec(), None);
+    let result2 = (data.len(), measure_contract(vm_kind, gas_metric, &contract));
+
+    let data = include_bytes!("../test-contract/res/stable_medium_contract.wasm");
+    let contract = ContractCode::new(data.to_vec(), None);
+    let result3 = (data.len(), measure_contract(vm_kind, gas_metric, &contract));
+
+    let data = include_bytes!("../test-contract/res/stable_large_contract.wasm");
+    let contract = ContractCode::new(data.to_vec(), None);
+    let result4 = (data.len(), measure_contract(vm_kind, gas_metric, &contract));
+
+    println!("1 = {:?} 2 = {:?} 3 = {:?} 4 = {:?}", result1, result2, result3, result4);
+
+    (a, b)
+}
+
+#[test]
+fn test_compile_cost() {
+    let (a, b) = compile_cost(GasMetric::Time, VMKind::Wasmer0);
+    println!("Wasmer0 a = {} b = {}", a, b);
+    let (a, b) = compile_cost(GasMetric::Time, VMKind::Wasmer0);
+    println!("Wasmer1 a = {} b = {}", a, b);
+}
+
 /// Cost of the compile contract with vm_kind
 pub fn cost_to_compile(
     gas_metric: GasMetric,
