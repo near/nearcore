@@ -2,12 +2,6 @@
 use crate::checked_feature;
 use crate::serialize::u128_dec_format_compatible;
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "protocol_feature_add_account_versions")]
-use core::default::Default;
-#[cfg(feature = "protocol_feature_add_account_versions")]
-use core::result::Result;
-#[cfg(feature = "protocol_feature_add_account_versions")]
-use core::result::Result::Ok;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, ProtocolVersion, StorageUsage};
 use serde;
