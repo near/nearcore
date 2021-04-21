@@ -698,7 +698,7 @@ impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
 
                     actions.push(
                         near_primitives::transaction::AddKeyAction {
-                            access_key: near_primitives::account::AccessKey::full_access(),
+                            access_key: near_primitives::access_key::AccessKey::full_access(),
                             public_key,
                         }
                         .into(),

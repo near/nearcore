@@ -12,7 +12,7 @@ use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
-use near_primitives::account::{AccessKey, AccessKeyPermission};
+use near_primitives::access_key::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
