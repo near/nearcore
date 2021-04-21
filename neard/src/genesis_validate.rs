@@ -107,7 +107,8 @@ mod test {
 
     use near_chain_configs::GenesisRecords;
     use near_crypto::{KeyType, PublicKey};
-    use near_primitives::account::{AccessKey, Account};
+    use near_primitives::access_key::AccessKey;
+    use near_primitives::account::Account;
     use near_primitives::types::AccountInfo;
     use near_primitives::version::PROTOCOL_VERSION;
 

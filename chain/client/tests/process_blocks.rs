@@ -2623,7 +2623,7 @@ fn test_block_ordinal() {
 mod access_key_nonce_range_tests {
     use super::*;
     use near_client::test_utils::create_chunk_with_transactions;
-    use near_primitives::account::AccessKey;
+    use near_primitives::access_key::AccessKey;
 
     /// Test that duplicate transactions are properly rejected.
     #[test]

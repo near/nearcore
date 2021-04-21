@@ -468,7 +468,8 @@ mod tests {
     use std::sync::Arc;
 
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
-    use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
+    use near_primitives::access_key::{AccessKey, FunctionCallPermission};
+    use near_primitives::account::Account;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::DataReceiver;
     use near_primitives::test_utils::account_new;

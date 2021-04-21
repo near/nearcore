@@ -1,5 +1,6 @@
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::access_key::AccessKey;
+use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::state_record::StateRecord;

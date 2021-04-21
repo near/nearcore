@@ -485,7 +485,13 @@ mod tests {
         set_account(
             &mut state_update,
             alice_account(),
-            &Account::new(0, 0, CryptoHash::default(), TrieViewer::CONTRACT_STATE_SIZE_LIMIT + 1),
+            &Account::new(
+                0,
+                0,
+                CryptoHash::default(),
+                TrieViewer::CONTRACT_STATE_SIZE_LIMIT + 1,
+                PROTOCOL_VERSION,
+            ),
         );
         let trie_viewer = TrieViewer::new();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
@@ -499,7 +505,13 @@ mod tests {
         set_account(
             &mut state_update,
             alice_account(),
-            &Account::new(0, 0, CryptoHash::default(), TrieViewer::CONTRACT_STATE_SIZE_LIMIT + 1),
+            &Account::new(
+                0,
+                0,
+                CryptoHash::default(),
+                TrieViewer::CONTRACT_STATE_SIZE_LIMIT + 1,
+                PROTOCOL_VERSION,
+            ),
         );
         state_update.set(
             TrieKey::ContractCode { account_id: alice_account() },
