@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey};
 use near_network::PeerInfo;
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
+use near_primitives::access_key::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;

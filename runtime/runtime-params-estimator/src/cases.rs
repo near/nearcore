@@ -9,7 +9,7 @@ use std::process;
 use std::sync::{Arc, Mutex};
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::access_key::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
