@@ -2,8 +2,10 @@ use crate::runtime_group_tools::RuntimeGroup;
 use borsh::ser::BorshSerialize;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
+use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
+use near_primitives::version::PROTOCOL_VERSION;
 
 pub mod runtime_group_tools;
 
@@ -929,7 +931,8 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                      a6, Action::DeleteAccount(DeleteAccountAction{beneficiary_id}), {
                         assert_eq!(beneficiary_id.as_str(), "near_2");
                      }
-                     => [r2, ref1, ref2] );
+                     => [r2, r3, ref1] );
+
     assert_receipts!(group, "near_3" => r2 @ "near_0",
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
@@ -937,12 +940,28 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(*gas, GAS_3);
                         assert_eq!(*deposit, 0);
                      }
-                     => [ref3] );
+                     => [ref2] );
+
+    if checked_feature!(
+        "protocol_feature_allow_create_account_on_delete",
+        AllowCreateAccountOnDelete,
+        PROTOCOL_VERSION
+    ) {
+        assert_receipts!(group, "near_3" => r3 @ "near_2",
+                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                         actions,
+                         a0, Action::Transfer(TransferAction{deposit}), {
+                            assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                         }
+                         => [ref3] );
+        assert_refund!(group, ref3 @ "near_0");
+    } else {
+        assert_refund!(group, r3 @ "near_2");
+    }
 
     assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_2");
+    assert_refund!(group, ref1 @ "near_0");
     assert_refund!(group, ref2 @ "near_0");
-    assert_refund!(group, ref3 @ "near_0");
 }
 
 #[test]

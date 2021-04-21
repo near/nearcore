@@ -2,6 +2,7 @@
 mod test {
     use near_chain_configs::Genesis;
     use near_primitives::state_record::StateRecord;
+    use near_primitives::version::PROTOCOL_VERSION;
     use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
@@ -285,9 +286,15 @@ mod test {
     }
 
     #[test]
+    fn test_delete_account_signer_is_receiver() {
+        let node = create_runtime_node();
+        test_delete_account_ok(node);
+    }
+
+    #[test]
     fn test_delete_account_has_enough_money_runtime() {
         let node = create_runtime_node();
-        test_delete_account_fail(node);
+        test_delete_account_fail(node, PROTOCOL_VERSION);
     }
 
     #[test]
@@ -297,9 +304,15 @@ mod test {
     }
 
     #[test]
+    fn test_delete_account_implicit_beneficiary_account_runtime() {
+        let node = create_runtime_node();
+        test_delete_account_implicit_beneficiary_account(node, PROTOCOL_VERSION);
+    }
+
+    #[test]
     fn test_delete_account_while_staking_runtime() {
         let node = create_runtime_node();
-        test_delete_account_while_staking(node);
+        test_delete_account_while_staking(node, PROTOCOL_VERSION);
     }
 
     #[test]

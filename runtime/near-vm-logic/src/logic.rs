@@ -5,10 +5,14 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
+use near_primitives::checked_feature;
+use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::runtime::fees::{
+    transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
+};
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
@@ -22,7 +26,6 @@ use std::mem::size_of;
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 const LEGACY_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
-const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -1253,12 +1256,7 @@ impl<'a> VMLogic<'a> {
         let sir = account_id == self.context.current_account_id;
         let deps: Vec<_> = receipt_dependencies
             .iter()
-            .map(|receipt_idx| {
-                self.receipt_to_account
-                    .get(receipt_idx)
-                    .expect("promises and receipt_to_account should be consistent.")
-                    == &account_id
-            })
+            .map(|receipt_idx| self.get_account_by_receipt(receipt_idx) == &account_id)
             .collect();
         self.pay_gas_for_new_receipt(sir, &deps)?;
 
@@ -1266,6 +1264,13 @@ impl<'a> VMLogic<'a> {
         self.receipt_to_account.insert(new_receipt_idx, account_id);
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
+    }
+
+    /// Helper function to return the account id towards which the receipt is directed.
+    fn get_account_by_receipt(&self, receipt_idx: &ReceiptIndex) -> &AccountId {
+        self.receipt_to_account
+            .get(receipt_idx)
+            .expect("promises and receipt_to_account should be consistent.")
     }
 
     /// Helper function to return the receipt index corresponding to the given promise index.
@@ -1284,10 +1289,7 @@ impl<'a> VMLogic<'a> {
             Promise::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
         }?;
 
-        let account_id = self
-            .receipt_to_account
-            .get(&receipt_idx)
-            .expect("promises and receipt_to_account should be consistent.");
+        let account_id = self.get_account_by_receipt(&receipt_idx);
         let sir = account_id == &self.context.current_account_id;
         Ok((receipt_idx, sir))
     }
@@ -1481,31 +1483,18 @@ impl<'a> VMLogic<'a> {
         let amount = self.memory_get_u128(amount_ptr)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+        let receiver_id = self.get_account_by_receipt(&receipt_idx);
+        let is_receiver_implicit =
+            is_implicit_account_creation_enabled(self.current_protocol_version)
+                && is_account_id_64_len_hex(receiver_id);
 
-        if self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION {
-            // Need to check if the receiver_id can be an implicit account.
-            let account_id = self
-                .receipt_to_account
-                .get(&receipt_idx)
-                .expect("promises and receipt_to_account should be consistent.");
-            if is_account_id_64_len_hex(&account_id) {
-                self.gas_counter.pay_action_base(
-                    &self.fees_config.action_creation_config.create_account_cost,
-                    sir,
-                    ActionCosts::transfer,
-                )?;
-                self.gas_counter.pay_action_base(
-                    &self.fees_config.action_creation_config.add_key_cost.full_access_cost,
-                    sir,
-                    ActionCosts::transfer,
-                )?;
-            }
-        }
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.transfer_cost,
-            sir,
-            ActionCosts::transfer,
-        )?;
+        let send_fee =
+            transfer_send_fee(&self.fees_config.action_creation_config, sir, is_receiver_implicit);
+        let exec_fee =
+            transfer_exec_fee(&self.fees_config.action_creation_config, is_receiver_implicit);
+        let burn_gas = send_fee;
+        let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
+        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;
 
         self.deduct_balance(amount)?;
 
@@ -1736,7 +1725,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading and parsing account id from memory `
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + fees for transferring funds to the beneficiary`
     pub fn promise_batch_action_delete_account(
         &mut self,
         promise_idx: u64,
@@ -1754,12 +1743,43 @@ impl<'a> VMLogic<'a> {
             self.read_and_parse_account_id(beneficiary_id_ptr, beneficiary_id_len)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
-
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.delete_account_cost,
             sir,
             ActionCosts::delete_account,
         )?;
+
+        if checked_feature!(
+            "protocol_feature_allow_create_account_on_delete",
+            AllowCreateAccountOnDelete,
+            self.current_protocol_version
+        ) {
+            let receiver_id = self.get_account_by_receipt(&receipt_idx);
+            let sir = receiver_id == &beneficiary_id;
+            let is_receiver_implicit =
+                is_implicit_account_creation_enabled(self.current_protocol_version)
+                    && is_account_id_64_len_hex(receiver_id);
+
+            let transfer_to_beneficiary_send_fee = transfer_send_fee(
+                &self.fees_config.action_creation_config,
+                sir,
+                is_receiver_implicit,
+            );
+            let transfer_to_beneficiary_exec_fee =
+                transfer_exec_fee(&self.fees_config.action_creation_config, is_receiver_implicit);
+            let use_gas = self
+                .fees_config
+                .action_receipt_creation_config
+                .send_fee(sir)
+                .checked_add(self.fees_config.action_receipt_creation_config.exec_fee())
+                .ok_or(HostError::IntegerOverflow)?
+                .checked_add(transfer_to_beneficiary_send_fee)
+                .ok_or(HostError::IntegerOverflow)?
+                .checked_add(transfer_to_beneficiary_exec_fee)
+                .ok_or(HostError::IntegerOverflow)?;
+
+            self.gas_counter.pay_action_accumulated(0, use_gas, ActionCosts::transfer)?;
+        }
 
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
         Ok(())

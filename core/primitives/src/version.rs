@@ -67,6 +67,10 @@ impl ProtocolVersionRange {
     }
 }
 
+pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -> bool {
+    protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+}
+
 /// New Protocol features should go here. Features are guarded by their corresponding feature flag.
 /// For example, if we have `ProtocolFeature::EVM` and a corresponding feature flag `evm`, it will look
 /// like
@@ -96,6 +100,8 @@ pub enum ProtocolFeature {
     AccountVersions,
     #[cfg(feature = "protocol_feature_tx_size_limit")]
     TransactionSizeLimit,
+    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+    AllowCreateAccountOnDelete,
 }
 
 /// Current latest stable version of the protocol.
@@ -104,7 +110,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 43;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 109;
+pub const PROTOCOL_VERSION: ProtocolVersion = 110;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -131,6 +137,8 @@ impl ProtocolFeature {
             ProtocolFeature::TransactionSizeLimit => 108,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
+            #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
+            ProtocolFeature::AllowCreateAccountOnDelete => 110,
         }
     }
 }
