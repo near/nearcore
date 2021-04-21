@@ -16,12 +16,11 @@ use self::fetchers::{
     fetch_status,
 };
 pub use self::types::{
-    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome,
-    StreamerMessage,
+    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerShard,
+    IndexerTransactionWithOutcome, StreamerMessage,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::streamer::fetchers::get_num_shards;
-use crate::streamer::types::IndexerShard;
 
 mod errors;
 mod fetchers;

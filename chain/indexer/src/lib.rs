@@ -13,8 +13,8 @@ pub use neard::{get_default_home, init_configs, NearConfig};
 mod streamer;
 
 pub use self::streamer::{
-    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome,
-    StreamerMessage,
+    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerShard,
+    IndexerTransactionWithOutcome, StreamerMessage,
 };
 pub use near_primitives;
 
