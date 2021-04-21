@@ -15,10 +15,10 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::serialize::BaseEncode;
-
-pub use config::RosettaRpcConfig;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::AccountView;
+
+pub use config::RosettaRpcConfig;
 
 mod adapters;
 mod config;
