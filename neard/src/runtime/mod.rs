@@ -2423,7 +2423,8 @@ mod test {
                 )
                 .into()],
                 prev_epoch_kickout: Default::default(),
-                epoch_start_height: 1
+                epoch_start_height: 1,
+                epoch_height: 1,
             }
         );
         env.step_default(vec![]);

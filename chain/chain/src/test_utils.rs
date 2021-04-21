@@ -1028,6 +1028,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             current_proposals: vec![],
             prev_epoch_kickout: vec![],
             epoch_start_height: 0,
+            epoch_height: 1,
         })
     }
 
