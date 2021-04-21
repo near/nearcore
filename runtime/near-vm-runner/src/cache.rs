@@ -293,7 +293,7 @@ pub mod wasmer1_cache {
     }
 }
 
-pub(crate) fn precompile_contract_impl(
+pub fn precompile_contract_vm(
     vm_kind: VMKind,
     wasm_code: &ContractCode,
     config: &VMConfig,
@@ -347,5 +347,5 @@ pub fn precompile_contract(
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
-    precompile_contract_impl(VMKind::default(), wasm_code, config, cache)
+    precompile_contract_vm(VMKind::default(), wasm_code, config, cache)
 }

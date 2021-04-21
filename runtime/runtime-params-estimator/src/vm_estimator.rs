@@ -2,13 +2,18 @@ use crate::testbed_runners::{end_count, start_count, GasMetric};
 use glob::glob;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::types::CompiledContractCache;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
-use near_vm_runner::{compile_module, prepare, VMError, VMKind};
+use near_vm_runner::{compile_module, precompile_contract_vm, prepare, VMError, VMKind};
+use neard::get_store_path;
 use num_rational::Ratio;
+use num_traits::ToPrimitive;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use walrus::{Module, Result};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -130,50 +135,126 @@ pub fn load_and_compile(
 
 const USING_LIGHTBEAM: bool = cfg!(feature = "lightbeam");
 
-fn measure_contract(vm_kind: VMKind, gas_metric: GasMetric, contract: &ContractCode) -> u64 {
+fn measure_contract(
+    vm_kind: VMKind,
+    gas_metric: GasMetric,
+    contract: &ContractCode,
+    cache: Option<&dyn CompiledContractCache>,
+) -> u64 {
     let start = start_count(gas_metric);
-    let prepared_code =
-        prepare::prepare_contract(contract.code.as_ref(), &VMConfig::default()).unwrap();
-    let result = compile_module(vm_kind, &prepared_code);
-    assert!(result, "Compilation failed");
+    let vm_config = VMConfig::default();
+    let result = precompile_contract_vm(vm_kind, &contract, &vm_config, cache);
+    assert!(result.is_ok(), "Compilation failed");
     let end = end_count(gas_metric, &start);
     end
 }
 
-/// Returns `(a, b)` - approximation coefficients for formula `a * x + b`
+/// Returns `(a, b)` - approximation coefficients for formula `a + b * x`
 /// where `x` is is the contract size in bytes. Practically, we compute upper bound
 /// of this approximation, assuming that all contract consists of code only.
-fn compile_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<u64>, Ratio<u64>) {
-    let a = Ratio::new(0 as u64, 1);
-    let b = Ratio::new(0 as u64, 1);
+fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, Ratio<i128>) {
+    let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
+    let store = create_store(&get_store_path(workdir.path()));
+    let cache_store = Arc::new(StoreCompiledContractCache { store });
+    let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
 
-    let data = include_bytes!("../test-contract/res/smallest_contract.wasm");
+    let mut xs = vec![];
+    let mut ys = vec![];
+
+    // We use core-contracts, e2f60b5b0930a9df2c413e1460e179c65c8876e3.
+    // File 341191, code 279965, data 56627.
+    let data = include_bytes!("../test-contract/res/lockup_contract.wasm");
     let contract = ContractCode::new(data.to_vec(), None);
-    let result1 = (data.len(), measure_contract(vm_kind, gas_metric, &contract));
+    xs.push(data.len() as u64);
+    ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
 
-    let data = include_bytes!("../test-contract/res/stable_small_contract.wasm");
+    // File 257516, code 203545, data 50419.
+    let data = include_bytes!("../test-contract/res/staking_pool.wasm");
     let contract = ContractCode::new(data.to_vec(), None);
-    let result2 = (data.len(), measure_contract(vm_kind, gas_metric, &contract));
+    xs.push(data.len() as u64);
+    ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
 
-    let data = include_bytes!("../test-contract/res/stable_medium_contract.wasm");
+    // File 135358, code 113152, data 19520.
+    let data = include_bytes!("../test-contract/res/voting_contract.wasm");
     let contract = ContractCode::new(data.to_vec(), None);
-    let result3 = (data.len(), measure_contract(vm_kind, gas_metric, &contract));
+    xs.push(data.len() as u64);
+    ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
 
-    let data = include_bytes!("../test-contract/res/stable_large_contract.wasm");
+    // File 124250, code 103473, data 18176.
+    let data = include_bytes!("../test-contract/res/whitelist.wasm");
     let contract = ContractCode::new(data.to_vec(), None);
-    let result4 = (data.len(), measure_contract(vm_kind, gas_metric, &contract));
+    xs.push(data.len() as u64);
+    ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
 
-    println!("1 = {:?} 2 = {:?} 3 = {:?} 4 = {:?}", result1, result2, result3, result4);
+    // Least squares method.
+    let n = xs.len();
+    let n128 = n as i128;
 
+    let mut sum_prod = 0 as i128; // Sum of x * y.
+    for i in 0..n {
+        sum_prod = sum_prod + (xs[i] as i128) * (ys[i] as i128);
+    }
+
+    let mut sum_x = 0 as i128; // Sum of x.
+    for i in 0..n {
+        sum_x = sum_x + (xs[i] as i128);
+    }
+
+    let mut sum_y = 0 as i128; // Sum of y.
+    for i in 0..n {
+        sum_y = sum_y + (ys[i] as i128);
+    }
+
+    let mut sum_x_square = 0 as i128; // Sum of x^2.
+    for i in 0..n {
+        sum_x_square = sum_x_square + (xs[i] as i128) * (xs[i] as i128);
+    }
+
+    let b = Ratio::new(n128 * sum_prod - sum_x * sum_y, n128 * sum_x_square - sum_x * sum_x);
+    let a = Ratio::new(sum_y * b.denom() - b.numer() * sum_x, n128 * b.denom());
+
+    // Compute error estimation.
+    let mut error = 0i128;
+    for i in 0..n {
+        let expect = (a + b * (xs[i] as i128)).to_integer();
+        let diff = expect - (ys[i] as i128);
+        error = error + diff * diff;
+    }
+    println!("Error {}", (error as f64).sqrt() / (n as f64));
+
+    // We multiply `b` by 5/4 to accommodate for the fact that test contracts are typically 80% code,
+    // so in the worst case it could grow to 100% and our costs are still properly estimate.
+    // (a, b * Ratio::new(5i128, 4i128))
     (a, b)
 }
 
+fn test_compile_cost(metric: GasMetric) {
+    let (a, b) = precompilation_cost(metric, VMKind::Wasmer0);
+    println!(
+        "Wasmer0 in a + b * x:  a = {} ({}) b = {}({})",
+        a,
+        a.to_f64().unwrap(),
+        b,
+        b.to_f64().unwrap()
+    );
+    let (a, b) = precompilation_cost(metric, VMKind::Wasmer1);
+    println!(
+        "Wasmer1 in a + b * x: a = {} ({}) b = {}({})",
+        a,
+        a.to_f64().unwrap(),
+        b,
+        b.to_f64().unwrap()
+    );
+}
+
 #[test]
-fn test_compile_cost() {
-    let (a, b) = compile_cost(GasMetric::Time, VMKind::Wasmer0);
-    println!("Wasmer0 a = {} b = {}", a, b);
-    let (a, b) = compile_cost(GasMetric::Time, VMKind::Wasmer0);
-    println!("Wasmer1 a = {} b = {}", a, b);
+fn test_compile_cost_time() {
+    test_compile_cost(GasMetric::Time)
+}
+
+#[test]
+fn test_compile_cost_icount() {
+    test_compile_cost(GasMetric::ICount)
 }
 
 /// Cost of the compile contract with vm_kind
