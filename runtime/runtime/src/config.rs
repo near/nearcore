@@ -1,5 +1,5 @@
 //! Settings of the parameters of the runtime.
-use near_primitives::account::AccessKeyPermission;
+use near_primitives::access_key::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{

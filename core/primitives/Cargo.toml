@@ -28,7 +28,7 @@ rand = "0.7"
 reed-solomon-erasure = "4"
 jemallocator = { version = "0.3", optional = true }
 hex = "0.4"
-num-rational = { version = "0.3", features = ["serde"] }
+num-rational = { version = "0.3.1", features = ["serde"] }
 primitive-types = "0.9"
 
 borsh = "0.8.1"
@@ -43,7 +43,7 @@ default = ["jemallocator", "stable_protocol_features"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 stable_protocol_features = ["protocol_feature_lower_storage_cost"]
 protocol_feature_lower_storage_cost = []
-protocol_feature_add_account_versions = ["near-primitives-core/protocol_feature_add_account_versions"]
+protocol_feature_add_account_versions = []
 protocol_feature_forward_chunk_parts = []
 protocol_feature_rectify_inflation = []
 protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]

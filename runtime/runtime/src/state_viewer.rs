@@ -1,7 +1,8 @@
 use log::debug;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::{
-    account::{AccessKey, Account},
+    access_key::AccessKey,
+    account::Account,
     contract::ContractCode,
     hash::CryptoHash,
     receipt::ActionReceipt,

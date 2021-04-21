@@ -15,6 +15,7 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_utils::is_valid_account_id;
 
 /// Methods that can be called by a non-privileged access key.
@@ -196,7 +197,13 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
     let mut res = vec![StateRecord::Account {
         account_id: row.account_id.clone(),
-        account: Account::new(row.amount, row.validator_stake, smart_contract_hash.into(), 0),
+        account: Account::new(
+            row.amount,
+            row.validator_stake,
+            smart_contract_hash.into(),
+            0,
+            PROTOCOL_VERSION,
+        ),
     }];
 
     // Add restricted access keys.

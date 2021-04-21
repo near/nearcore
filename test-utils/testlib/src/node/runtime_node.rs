@@ -28,7 +28,7 @@ impl RuntimeNode {
         add_test_contract(&mut genesis, &bob_account());
         genesis.records.as_mut().push(StateRecord::Account {
             account_id: evm_account(),
-            account: Account::new(TESTING_INIT_BALANCE, 0, CryptoHash::default(), 0),
+            account: Account::new(TESTING_INIT_BALANCE, 0, CryptoHash::default(), 0, PRO),
         });
         Self::new_from_genesis(account_id, genesis)
     }

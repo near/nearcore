@@ -12,7 +12,8 @@ use serde::Serialize;
 use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::access_key::AccessKey;
+use near_primitives::account::Account;
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -780,6 +781,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         0,
                         CryptoHash::default(),
                         0,
+                        PROTOCOL_VERSION,
                     )
                     .into(),
                 ),

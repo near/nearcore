@@ -1,7 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::access_key::{AccessKey, AccessKeyPermission};
+use near_primitives::account::Account;
 use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
@@ -342,6 +343,7 @@ pub(crate) fn action_create_account(
     account_id: &AccountId,
     predecessor_id: &AccountId,
     result: &mut ActionResult,
+    protocol_version: ProtocolVersion,
 ) {
     // NOTE: The account_id is valid, because the Receipt is validated before.
     debug_assert!(is_valid_account_id(account_id));
@@ -379,6 +381,7 @@ pub(crate) fn action_create_account(
         0,
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account,
+        protocol_version,
     ));
 }
 
@@ -389,6 +392,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     actor_id: &mut AccountId,
     account_id: &AccountId,
     transfer: &TransferAction,
+    protocol_version: ProtocolVersion,
 ) {
     // NOTE: The account_id is hex like, because we've checked the permissions before.
     debug_assert!(is_account_id_64_len_hex(account_id));
@@ -415,6 +419,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             + public_key.len() as u64
             + access_key.try_to_vec().unwrap().len() as u64
             + fee_config.storage_usage_config.num_extra_bytes_record,
+        protocol_version,
     ));
 
     set_access_key(state_update, account_id.clone(), public_key, &access_key);
@@ -655,6 +660,7 @@ pub(crate) fn check_account_existence(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -675,6 +681,7 @@ mod tests {
             &account_id,
             &predecessor_id,
             &mut action_result,
+            PROTOCOL_VERSION,
         );
         if action_result.result.is_ok() {
             assert!(account.is_some());

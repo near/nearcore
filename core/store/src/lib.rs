@@ -19,7 +19,7 @@ pub use db::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC, TAIL_KEY,
 };
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::Account;
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -38,6 +38,7 @@ pub use crate::trie::{
     update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, ShardTries, Trie, TrieChanges,
     WrappedTrieChanges,
 };
+use near_primitives::access_key::AccessKey;
 
 pub mod db;
 pub mod migrations;

@@ -1,7 +1,7 @@
 pub use borsh;
 pub use num_rational;
 
-pub mod account;
+pub mod access_key;
 pub mod config;
 pub mod contract;
 pub mod hash;

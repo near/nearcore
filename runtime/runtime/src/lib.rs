@@ -9,7 +9,8 @@ use near_crypto::PublicKey;
 pub use near_primitives;
 use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::{
-    account::{AccessKey, Account},
+    access_key::AccessKey,
+    account::Account,
     contract::ContractCode,
     errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
     hash::CryptoHash,
@@ -322,6 +323,7 @@ impl Runtime {
                     &receipt.receiver_id,
                     &receipt.predecessor_id,
                     &mut result,
+                    apply_state.current_protocol_version,
                 );
             }
             Action::DeployContract(deploy_contract) => {
@@ -378,6 +380,7 @@ impl Runtime {
                         actor_id,
                         &receipt.receiver_id,
                         transfer,
+                        apply_state.current_protocol_version,
                     );
                 }
             }

@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::PublicKey;
 
-use crate::account::{AccessKey, Account};
+use crate::access_key::AccessKey;
+use crate::account::Account;
 use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;

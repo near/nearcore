@@ -1,7 +1,7 @@
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::{
-    account::AccessKeyPermission,
+    access_key::AccessKeyPermission,
     config::VMLimitConfig,
     errors::{
         ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
