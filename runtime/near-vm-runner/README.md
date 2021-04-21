@@ -12,7 +12,7 @@ This is the main crate of the "contract runtime" part of nearcore.
 * Actual code execution (`wasmer_runner.rs`).
 
 A particular runtime used for Wasm execution is an implementation detail.
-At the moment we support Wasmer and Wasmtime, with Wasmer being default.
+At the moment we support Wasmer 0.x, Wasmer 1.0 and Wasmtime, with Wasmer 0.x being default.
 
 The primary client of Wasm execution services is the blockchain proper. The
 second client is the contract sdk tooling. vm-runner provides additional API for
