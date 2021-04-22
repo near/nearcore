@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::iter::FromIterator;
 use std::path::Path;
 use std::str::FromStr;
@@ -43,16 +43,22 @@ use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChun
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
 
+use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
+    Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
+    Transaction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{BlockHeaderView, QueryRequest, QueryResponseKind};
+use near_primitives::views::{
+    BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
+};
+use near_store::get;
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::NEAR_BASE;
@@ -2616,6 +2622,126 @@ fn test_block_ordinal() {
     env.process_block(0, next_block.clone(), Provenance::PRODUCED);
     ordinal += 1;
     assert_eq!(next_block.header().block_ordinal(), ordinal);
+}
+
+#[test]
+fn test_congestion_receipt_execution() {
+    init_test_logger();
+    let epoch_length = 100;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.gas_limit = 10000000000000;
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+
+    // step 0: deploy contract to test0
+    let tx = SignedTransaction::from_actions(
+        1,
+        "test0".to_string(),
+        "test0".to_string(),
+        &signer,
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+        *genesis_block.hash(),
+    );
+    env.clients[0].process_tx(tx, false, false);
+    for i in 1..3 {
+        env.produce_block(0, i);
+    }
+
+    // step 1: create function call transactions that generate promises
+    let gas_1 = 9_000_000_000_000;
+    let gas_2 = gas_1 / 3;
+    let mut tx_hashes = vec![];
+
+    for i in 0..3 {
+        let data = serde_json::json!([
+            {"create": {
+            "account_id": "test0",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": "0",
+            "gas": gas_2,
+            }, "id": 0 }
+        ]);
+
+        let signed_transaction = SignedTransaction::from_actions(
+            i + 10,
+            "test0".to_string(),
+            "test0".to_string(),
+            &signer,
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "call_promise".to_string(),
+                args: serde_json::to_vec(&data).unwrap(),
+                gas: gas_1,
+                deposit: 0,
+            })],
+            *genesis_block.hash(),
+        );
+        tx_hashes.push(signed_transaction.get_hash());
+        env.clients[0].process_tx(signed_transaction, false, false);
+    }
+
+    // step 2: produce block with no new chunk
+    env.produce_block(0, 3);
+    let height = 4;
+    env.produce_block(0, height);
+    let prev_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+    let chunk_extra = env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
+    assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
+    let state_update =
+        env.clients[0].runtime_adapter.get_tries().new_trie_update(0, *chunk_extra.state_root());
+    let delayed_indices =
+        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
+            .unwrap()
+            .unwrap();
+    assert!(delayed_indices.next_available_index > 0);
+    let mut block = env.clients[0].produce_block(height + 1).unwrap().unwrap();
+    let chunk_headers = vec![prev_block.chunks()[0].clone()];
+    block.set_chunks(chunk_headers.clone());
+    block.mut_header().get_mut().inner_rest.chunk_headers_root =
+        Block::compute_chunk_headers_root(&chunk_headers).0;
+    block.mut_header().get_mut().inner_rest.chunk_tx_root =
+        Block::compute_chunk_tx_root(&chunk_headers);
+    block.mut_header().get_mut().inner_rest.chunk_receipts_root =
+        Block::compute_chunk_receipts_root(&chunk_headers);
+    block.mut_header().get_mut().inner_lite.prev_state_root =
+        Block::compute_state_root(&chunk_headers);
+    block.mut_header().get_mut().inner_rest.chunk_mask = vec![false];
+    block.mut_header().get_mut().inner_rest.gas_price = prev_block.header().gas_price();
+    block.mut_header().resign(&validator_signer);
+    env.process_block(0, block.clone(), Provenance::NONE);
+
+    // let all receipts finish
+    for i in height + 2..height + 7 {
+        env.produce_block(0, i);
+    }
+
+    for tx_hash in &tx_hashes {
+        let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        assert!(matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+
+        // Check that all receipt ids have corresponding execution outcomes. This means that all receipts generated are executed.
+        let transaction_outcome = env.clients[0].chain.get_execution_outcome(tx_hash).unwrap();
+        let mut receipt_ids: VecDeque<_> =
+            transaction_outcome.outcome_with_id.outcome.receipt_ids.into();
+        while !receipt_ids.is_empty() {
+            let receipt_id = receipt_ids.pop_front().unwrap();
+            let receipt_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
+            match receipt_outcome.outcome_with_id.outcome.status {
+                ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => {}
+                ExecutionStatus::Failure(_) | ExecutionStatus::Unknown => {
+                    panic!("unexpected receipt execution outcome")
+                }
+            }
+            receipt_ids.extend(receipt_outcome.outcome_with_id.outcome.receipt_ids);
+        }
+    }
 }
 
 #[cfg(feature = "protocol_feature_access_key_nonce_range")]
