@@ -118,7 +118,9 @@ impl GasCounter {
     #[cfg(feature = "protocol_feature_evm")]
     #[inline]
     pub fn inc_evm_gas_counter(&mut self, value: EvmGas) {
-        with_evm_gas_counter(|c| *c += value);
+        #[cfg(feature = "costs_counting")]
+        EVM_GAS_COUNTER.with(|f| *f.borrow_mut() += value);
+        let _ = value;
     }
 
     #[inline]

@@ -413,6 +413,7 @@ impl NightshadeRuntime {
             config: RuntimeConfig::from_protocol_version(
                 &self.genesis_runtime_config,
                 current_protocol_version,
+                self.genesis_config.is_mainnet(),
             ),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             #[cfg(feature = "protocol_feature_evm")]
@@ -548,6 +549,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let runtime_config = RuntimeConfig::from_protocol_version(
             &self.genesis_runtime_config,
             current_protocol_version,
+            self.genesis_config.is_mainnet(),
         );
 
         if let Some(state_root) = state_root {
@@ -620,6 +622,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let runtime_config = RuntimeConfig::from_protocol_version(
             &self.genesis_runtime_config,
             current_protocol_version,
+            self.genesis_config.is_mainnet(),
         );
 
         while total_gas_burnt < transactions_gas_limit {
@@ -1489,8 +1492,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
         // Currently only runtime config is changed through protocol upgrades.
-        let runtime_config =
-            RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
+        let runtime_config = RuntimeConfig::from_protocol_version(
+            &self.genesis_runtime_config,
+            protocol_version,
+            self.genesis_config.is_mainnet(),
+        );
         config.runtime_config = (*runtime_config).clone();
         Ok(config)
     }

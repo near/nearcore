@@ -410,13 +410,12 @@ impl Runtime {
             Action::DeleteKey(delete_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_DELETE_KEY_TOTAL);
                 action_delete_key(
-                    &apply_state.config.transaction_costs,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
                     account_id,
                     delete_key,
-                    apply_state.current_protocol_version,
+                    apply_state,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
@@ -1282,7 +1281,6 @@ impl Runtime {
     /// It's okay to use unsafe math here, because this method should only be called on the trusted
     /// state records (e.g. at launch from genesis)
     pub fn compute_storage_usage<Record: Borrow<StateRecord>>(
-        &self,
         records: &[Record],
         config: &RuntimeConfig,
     ) -> HashMap<AccountId, u64> {
@@ -1372,7 +1370,7 @@ impl Runtime {
                 }
             }
         }
-        for (account_id, storage_usage) in self.compute_storage_usage(records, &config) {
+        for (account_id, storage_usage) in Runtime::compute_storage_usage(records, &config) {
             let mut account = get_account(&state_update, &account_id)
                 .expect("Genesis storage error")
                 .expect("Account must exist");

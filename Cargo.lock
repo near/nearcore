@@ -3417,10 +3417,12 @@ dependencies = [
  "bs58",
  "byteorder",
  "chrono",
+ "csv",
  "derive_more",
  "easy-ext",
  "hex",
  "jemallocator",
+ "lazy-static-include",
  "lazy_static",
  "near-crypto",
  "near-primitives-core",
@@ -5326,6 +5328,15 @@ name = "stdweb-internal-runtime"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
+
+[[package]]
+name = "storage-usage-delta-calculator"
+version = "0.1.0"
+dependencies = [
+ "near-chain-configs",
+ "near-primitives",
+ "node-runtime",
+]
 
 [[package]]
 name = "store-validator"

@@ -41,6 +41,8 @@ use near_vm_logic::{VMContext, VMOutcome};
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+#[cfg(feature = "protocol_feature_add_account_versions")]
+use near_primitives::account::AccountVersion::{V1, V2};
 use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
@@ -269,6 +271,13 @@ pub(crate) fn action_function_call(
         result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
         result.logs.extend(outcome.logs.into_iter());
         if execution_succeeded {
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            recalculate_usage(
+                account,
+                account_id,
+                &apply_state.config,
+                apply_state.current_protocol_version,
+            );
             account.set_amount(outcome.balance);
             account.set_storage_usage(outcome.storage_usage);
             result.result = Ok(outcome.return_data);
@@ -470,6 +479,13 @@ pub(crate) fn action_deploy_contract(
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    recalculate_usage(
+        account,
+        account_id,
+        &apply_state.config,
+        apply_state.current_protocol_version,
+    );
     account.set_storage_usage(account.storage_usage().checked_sub(prev_code_length).unwrap_or(0));
     account.set_storage_usage(
         account.storage_usage().checked_add(code.code.len() as u64).ok_or_else(|| {
@@ -574,29 +590,35 @@ pub(crate) fn action_delete_account(
 }
 
 pub(crate) fn action_delete_key(
-    fee_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
     account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
-    current_protocol_version: ProtocolVersion,
+    apply_state: &ApplyState,
 ) -> Result<(), StorageError> {
     let access_key = get_access_key(state_update, &account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
-        let storage_usage_config = &fee_config.storage_usage_config;
-        let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
-        {
-            delete_key.public_key.try_to_vec().unwrap().len() as u64
-                + access_key.try_to_vec().unwrap().len() as u64
-                + storage_usage_config.num_extra_bytes_record
-        } else {
-            delete_key.public_key.try_to_vec().unwrap().len() as u64
-                + Some(access_key).try_to_vec().unwrap().len() as u64
-                + storage_usage_config.num_extra_bytes_record
-        };
+        let storage_usage_config = &apply_state.config.transaction_costs.storage_usage_config;
+        let storage_usage =
+            if apply_state.current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION {
+                delete_key.public_key.try_to_vec().unwrap().len() as u64
+                    + access_key.try_to_vec().unwrap().len() as u64
+                    + storage_usage_config.num_extra_bytes_record
+            } else {
+                delete_key.public_key.try_to_vec().unwrap().len() as u64
+                    + Some(access_key).try_to_vec().unwrap().len() as u64
+                    + storage_usage_config.num_extra_bytes_record
+            };
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
+        #[cfg(feature = "protocol_feature_add_account_versions")]
+        recalculate_usage(
+            account,
+            account_id,
+            &apply_state.config,
+            apply_state.current_protocol_version,
+        );
         account.set_storage_usage(account.storage_usage().checked_sub(storage_usage).unwrap_or(0));
     } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
@@ -649,6 +671,13 @@ pub(crate) fn action_add_key(
         }
     );
     let storage_config = &apply_state.config.transaction_costs.storage_usage_config;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    recalculate_usage(
+        account,
+        account_id,
+        &apply_state.config,
+        apply_state.current_protocol_version,
+    );
     account.set_storage_usage(
         account
             .storage_usage()
@@ -776,6 +805,30 @@ pub(crate) fn check_account_existence(
         }
     };
     Ok(())
+}
+
+#[cfg(feature = "protocol_feature_add_account_versions")]
+fn recalculate_usage(
+    account: &mut Account,
+    account_id: &AccountId,
+    runtime_config: &RuntimeConfig,
+    current_protocol_version: ProtocolVersion,
+) {
+    if checked_feature!(
+        "protocol_feature_add_account_versions",
+        AddAccountVersions,
+        current_protocol_version
+    ) && account.version() == V1
+    {
+        account.set_version(V2);
+        if (runtime_config.storage_usage_delta.has_element(account_id)) {
+            account.set_storage_usage(
+                account
+                    .storage_usage()
+                    .saturating_add(runtime_config.storage_usage_delta.get(account_id).unwrap()),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
