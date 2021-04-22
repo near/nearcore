@@ -1115,7 +1115,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             #[cfg(feature = "protocol_feature_rectify_inflation")]
             block_header_info.timestamp_nanosec,
         );
-        let rng_seed = (block_header_info.random_value.0).0;
+        let rng_seed = block_header_info.random_value.0;
         epoch_manager.record_block_info(block_info, rng_seed).map_err(|err| err.into())
     }
 
@@ -2429,7 +2429,8 @@ mod test {
                 )
                 .into()],
                 prev_epoch_kickout: Default::default(),
-                epoch_start_height: 1
+                epoch_start_height: 1,
+                epoch_height: 1,
             }
         );
         env.step_default(vec![]);

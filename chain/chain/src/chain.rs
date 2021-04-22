@@ -600,7 +600,7 @@ impl Chain {
             }
             let mut chain_store_update = self.store.store_update();
             if let Ok(blocks_current_height) =
-                chain_store_update.get_all_block_hashes_by_height(height)
+                chain_store_update.get_chain_store().get_all_block_hashes_by_height(height)
             {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
@@ -3244,6 +3244,7 @@ impl<'a> ChainUpdate<'a> {
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
         if let Ok(epoch_id_to_blocks) = self
             .chain_store_update
+            .get_chain_store()
             .get_all_block_hashes_by_height(header.height())
             .map(Clone::clone)
         {

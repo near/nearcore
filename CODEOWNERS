@@ -4,14 +4,14 @@
 /chain/client/src/view_client.rs @frol @khorolets @chefsale
 /chain/client-primitives/ @frol @khorolets @chefsale
 /chain/network/ @mfornet @bowenwang1996 @pmnoxx
-/chain/epoch_manager/ @bowenwang1996 @mikhailOK
+/chain/epoch_manager/ @bowenwang1996
 /chain/jsonrpc/ @frol @khorolets @chefsale
 /chain/jsonrpc-primitives/ @frol @khorolets @chefsale
 /chain/indexer/ @khorolets @frol
 /chain/rosetta-rpc/ @frol
 
 /runtime/ @evgenykuzyakov @bowenwang1996 @EgorKulikov
-/runtime/runtime-params-estimator/ @olonho @willemneal
+/runtime/runtime-params-estimator/ @olonho
 /runtime/near-evm-runner/ @ailisp @artob @frankbraun
 /runtime/near-test-contracts/ @olonho @ailisp @matklad
 /runtime/near-vm-runner-standalone/ @olonho @ailisp @matklad
@@ -22,7 +22,6 @@
 /tools/indexer/ @khorolets @frol
 
 /core/  @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
-/core/store/trie @mikhailOK
 /neard/ @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
 
 /.buildkite/ @chefsale @mhalambek

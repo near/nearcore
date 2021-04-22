@@ -35,7 +35,7 @@ nodes = start_cluster(
      ["chunk_producer_kickout_threshold", 80],
      ["validators", 0, "amount", "110000000000000000000000000000000"],
      [
-         "records", 0, "Account", "account", "AccountV1", "locked",
+         "records", 0, "Account", "account", "locked",
          "110000000000000000000000000000000"
      ], ["total_supply", "3060000000000000000000000000000000"]], {
          0: consensus_config,

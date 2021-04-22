@@ -304,7 +304,7 @@ impl Genesis {
         let mut digest = sha2::Sha256::new();
         serde_json::to_writer_pretty(&mut digest, self)
             .expect("Error serializing the genesis config.");
-        CryptoHash(near_primitives::hash::Digest(digest.finalize().into()))
+        CryptoHash(digest.finalize().into())
     }
 }
 

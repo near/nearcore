@@ -19,7 +19,7 @@ pub(crate) async fn fetch_status(
     client
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(FailedToFetchData::String)
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetches the status to retrieve `latest_block_height` to determine if we need to fetch
@@ -64,7 +64,7 @@ pub(crate) async fn fetch_state_changes(
     client
         .send(near_client::GetStateChangesWithCauseInBlock { block_hash })
         .await?
-        .map_err(FailedToFetchData::String)
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetches single chunk (as `near_primitives::views::ChunkView`) by provided `near_client::GetChunk` enum

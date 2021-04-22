@@ -45,7 +45,7 @@ fn test_send_tx_async() {
                 block_hash,
             );
             let bytes = tx.try_to_vec().unwrap();
-            let tx_hash: String = (&tx.get_hash()).into();
+            let tx_hash = tx.get_hash().to_string();
             *tx_hash2_1.lock().unwrap() = Some(tx.get_hash());
             client
                 .broadcast_tx_async(to_base64(&bytes))
@@ -59,7 +59,7 @@ fn test_send_tx_async() {
                 if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
                     actix::spawn(
                         client1
-                            .tx((&tx_hash).into(), signer_account_id)
+                            .tx(tx_hash.to_string(), signer_account_id)
                             .map_err(|err| println!("Error: {:?}", err))
                             .map_ok(|result| {
                                 if let FinalExecutionStatus::SuccessValue(_) = result.status {

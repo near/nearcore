@@ -59,7 +59,7 @@ fn get_key(code: &ContractCode, vm_kind: VMKind, config: &VMConfig) -> CryptoHas
 
 fn cache_error(error: VMError, key: &CryptoHash, cache: &dyn CompiledContractCache) -> VMError {
     let record = CacheRecord::Error(error.clone());
-    if cache.put(key.raw_bytes(), &record.try_to_vec().unwrap()).is_err() {
+    if cache.put(&key.0, &record.try_to_vec().unwrap()).is_err() {
         VMError::CacheError(WriteError)
     } else {
         error
@@ -121,12 +121,11 @@ pub mod wasmer0_cache {
         let _span = tracing::debug_span!("compile_and_serialize_wasmer").entered();
 
         let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
-        let artifact = module
-            .cache()
-            .map_err(|_e| VMError::CacheError(SerializationError { hash: *key.raw_bytes() }))?;
+        let artifact =
+            module.cache().map_err(|_e| VMError::CacheError(SerializationError { hash: key.0 }))?;
         let code = artifact
             .serialize()
-            .map_err(|_e| VMError::CacheError(SerializationError { hash: *key.raw_bytes() }))?;
+            .map_err(|_e| VMError::CacheError(SerializationError { hash: key.0 }))?;
         let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
         cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
         Ok(module)
@@ -167,7 +166,7 @@ pub mod wasmer0_cache {
         }
 
         let cache = cache.unwrap();
-        match cache.get(key.raw_bytes()) {
+        match cache.get(&key.0) {
             Ok(serialized) => match serialized {
                 Some(serialized) => {
                     deserialize_wasmer(serialized.as_slice()).map_err(VMError::CacheError)?
@@ -248,7 +247,7 @@ pub mod wasmer1_cache {
             .map_err(|e| cache_error(e, &key, cache))?;
         let code = module
             .serialize()
-            .map_err(|_e| VMError::CacheError(SerializationError { hash: *key.raw_bytes() }))?;
+            .map_err(|_e| VMError::CacheError(SerializationError { hash: key.0 }))?;
         let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
         cache.put(key.as_ref(), &serialized).map_err(|_e| VMError::CacheError(WriteError))?;
         Ok(module)
@@ -283,7 +282,7 @@ pub mod wasmer1_cache {
         }
 
         let cache = cache.unwrap();
-        match cache.get(key.raw_bytes()) {
+        match cache.get(&key.0) {
             Ok(serialized) => match serialized {
                 Some(serialized) => deserialize_wasmer1(serialized.as_slice(), store)
                     .map_err(VMError::CacheError)?,
@@ -306,7 +305,7 @@ pub(crate) fn precompile_contract_impl(
     };
     let key = get_key(wasm_code, vm_kind, config);
     // Check if we already cached with such a key.
-    match cache.get(key.raw_bytes()) {
+    match cache.get(&key.0) {
         // If so - do not override.
         Ok(Some(_)) => return Ok(ContractPrecompilatonResult::ContractAlreadyInCache),
         Ok(None) | Err(_) => {}

@@ -27,7 +27,7 @@ pub enum RpcTransactionError {
     #[error("Node doesn't track this shard. Cannot determine whether the transaction is valid")]
     DoesNotTrackShard,
     #[error("Transaction with hash {transaction_hash} was routed")]
-    RequestRouted { transaction_hash: String },
+    RequestRouted { transaction_hash: near_primitives::hash::CryptoHash },
     #[error("Transaction {requested_transaction_hash} doesn't exist")]
     UnknownTransaction { requested_transaction_hash: near_primitives::hash::CryptoHash },
     #[error("The node reached its limits. Try again later. More details: {debug_info}")]
@@ -44,7 +44,7 @@ pub struct RpcTransactionResponse {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcBroadcastTxSyncResponse {
-    pub transaction_hash: String,
+    pub transaction_hash: near_primitives::hash::CryptoHash,
 }
 
 impl RpcBroadcastTransactionRequest {
@@ -105,16 +105,21 @@ impl From<near_primitives::views::FinalExecutionOutcomeViewEnum> for RpcTransact
 
 impl From<RpcTransactionError> for crate::errors::RpcError {
     fn from(error: RpcTransactionError) -> Self {
-        let error_data = match error {
-            RpcTransactionError::InvalidTransaction { ref context } => Some(
-                serde_json::to_value(crate::errors::ServerError::TxExecutionError(
-                    near_primitives::errors::TxExecutionError::InvalidTxError(context.clone()),
-                ))
-                .unwrap_or(Value::String(error.to_string())),
-            ),
-            _ => Some(Value::String(error.to_string())),
+        let error_data = match &error {
+            RpcTransactionError::InvalidTransaction { context } => {
+                if let Ok(value) =
+                    serde_json::to_value(crate::errors::ServerError::TxExecutionError(
+                        near_primitives::errors::TxExecutionError::InvalidTxError(context.clone()),
+                    ))
+                {
+                    value
+                } else {
+                    Value::String(error.to_string())
+                }
+            }
+            _ => Value::String(error.to_string()),
         };
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        Self::new(-32_000, "Server error".to_string(), Some(error_data))
     }
 }
 

@@ -3593,6 +3593,7 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
+ "near-primitives",
  "near-primitives-core",
  "near-runtime-utils",
  "near-vm-errors",
