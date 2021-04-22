@@ -3,6 +3,9 @@
 ## 0.9.0
 
 * Introduce `IndexerShard` structure which contains corresponding chunks and `IndexerExecutionOutcomeWithReceipt`
+* `IndexerExecutionOutcomeWithReceipt` field `receipt` is always required
+* Introduce `IndexerExecutionOutcomeWithOptionalReceipt` which is the same as `IndexerExecutionOutcomeWithReceipt`
+but with optional `receipt` field.
 
 ## Breaking change
 

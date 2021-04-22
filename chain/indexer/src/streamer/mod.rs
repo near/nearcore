@@ -16,8 +16,9 @@ use self::fetchers::{
     fetch_status,
 };
 pub use self::types::{
-    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerShard,
-    IndexerTransactionWithOutcome, StreamerMessage,
+    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
+    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
+    StreamerMessage,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::streamer::fetchers::get_num_shards;
@@ -54,75 +55,76 @@ async fn build_streamer_message(
     let num_shards = get_num_shards(&client, block.header.hash).await?;
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
+    eprintln!("{:#?}", &shards_outcomes);
     let mut indexer_shards: Vec<IndexerShard> = vec![];
 
     for shard_id in 0..num_shards {
+        indexer_shards.push(IndexerShard {
+            shard_id,
+            chunk: None,
+            receipt_execution_outcomes: vec![],
+        })
+    }
+
+    for chunk in chunks {
+        let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
+            chunk;
+
         let mut outcomes = shards_outcomes
-            .remove(&shard_id)
+            .remove(&header.shard_id)
             .expect("Execution outcomes for given shard should be present");
 
-        let chunk =
-            if let Some(chunk) = chunks.iter().find(|chunk| chunk.header.shard_id == shard_id) {
-                let views::ChunkView {
-                    transactions,
-                    author,
-                    header,
-                    receipts: chunk_non_local_receipts,
-                } = chunk;
+        // Take execution outcomes for receipts from the vec and keep only the ones for transactions
+        let mut receipt_outcomes = outcomes.split_off(transactions.len());
 
-                let indexer_transactions = transactions
-                    .into_iter()
-                    .zip(outcomes.clone().into_iter())
-                    .map(|(transaction, outcome)| {
-                        assert_eq!(
-                            outcome.execution_outcome.id, transaction.hash,
-                            "This ExecutionOutcome must have the same id as Transaction hash"
-                        );
-                        IndexerTransactionWithOutcome { outcome, transaction: transaction.clone() }
-                    })
-                    .collect::<Vec<IndexerTransactionWithOutcome>>();
+        let indexer_transactions = transactions
+            .into_iter()
+            .zip(outcomes.clone().into_iter())
+            .map(|(transaction, outcome)| {
+                assert_eq!(
+                    outcome.execution_outcome.id, transaction.hash,
+                    "This ExecutionOutcome must have the same id as Transaction hash"
+                );
+                IndexerTransactionWithOutcome { outcome, transaction: transaction.clone() }
+            })
+            .collect::<Vec<IndexerTransactionWithOutcome>>();
 
-                let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
-                    &client,
-                    near_config,
-                    indexer_transactions
-                        .iter()
-                        .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
-                        .collect::<Vec<&IndexerTransactionWithOutcome>>(),
-                    &block,
-                )
-                .await?;
+        let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
+            &client,
+            near_config,
+            indexer_transactions
+                .iter()
+                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
+                .collect::<Vec<&IndexerTransactionWithOutcome>>(),
+            &block,
+        )
+        .await?;
 
-                let mut chunk_receipts = chunk_local_receipts;
-                chunk_receipts.extend(chunk_non_local_receipts.clone());
+        let mut chunk_receipts = chunk_local_receipts.clone();
+        chunk_receipts.extend(chunk_non_local_receipts);
 
-                Some(IndexerChunkView {
-                    author: author.clone(),
-                    header: header.clone(),
-                    transactions: indexer_transactions,
-                    receipts: chunk_receipts.to_vec(),
-                })
-            } else {
-                None
-            };
-
-        if let Some(chunk) = &chunk {
-            // Add local receipts to corresponding outcomes
-            for receipt in &chunk.receipts {
-                if let Some(outcome) = outcomes
-                    .iter_mut()
-                    .find(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
-                {
-                    debug_assert!(outcome.receipt.is_none());
-                    outcome.receipt = Some(receipt.clone());
-                }
+        // Add local receipts to corresponding outcomes
+        for receipt in chunk_local_receipts {
+            if let Some(outcome) = receipt_outcomes
+                .iter_mut()
+                .find(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
+            {
+                debug_assert!(outcome.receipt.is_none());
+                outcome.receipt = Some(receipt.clone());
             }
         }
 
-        indexer_shards.push(IndexerShard {
-            shard_id,
-            chunk,
-            receipt_execution_outcomes: outcomes.into_iter().map(Into::into).collect(),
+        let shard_id = header.shard_id.clone() as usize;
+
+        indexer_shards[shard_id].receipt_execution_outcomes =
+            receipt_outcomes.into_iter().map(Into::into).collect();
+
+        // Put the chunk into corresponding indexer shard
+        indexer_shards[shard_id].chunk = Some(IndexerChunkView {
+            author,
+            header,
+            transactions: indexer_transactions,
+            receipts: chunk_receipts,
         });
     }
 
