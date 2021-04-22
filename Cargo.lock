@@ -2076,6 +2076,7 @@ dependencies = [
  "near-telemetry",
  "near-test-contracts",
  "neard",
+ "node-runtime",
  "tempfile",
 ]
 

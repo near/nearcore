@@ -25,6 +25,7 @@ use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
 use neard::{get_store_path, NightshadeRuntime};
+use node_runtime::Runtime;
 
 fn get_account_id(account_index: u64) -> String {
     format!("near_{}_{}", account_index, account_index)
