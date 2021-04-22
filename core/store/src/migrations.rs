@@ -316,7 +316,7 @@ impl<'a> BatchedStoreUpdate<'a> {
         value: &T,
     ) -> Result<(), std::io::Error> {
         let value_bytes = value.try_to_vec()?;
-        self.batch_size += key.as_ref().len() + value_bytes.len() + 8;
+        self.batch_size += key.len() + value_bytes.len() + 8;
         self.store_update.as_mut().unwrap().set(col, key.as_ref(), &value_bytes);
 
         if self.batch_size > self.batch_size_limit {
