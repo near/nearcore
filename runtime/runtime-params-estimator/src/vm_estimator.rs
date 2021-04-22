@@ -149,41 +149,62 @@ fn measure_contract(
     end
 }
 
+#[derive(Default, Clone)]
+struct MockCompiledContractCache {}
+
+impl CompiledContractCache for MockCompiledContractCache {
+    fn put(&self, _key: &[u8], _value: &[u8]) -> Result<(), std::io::Error> {
+        Ok(())
+    }
+
+    fn get(&self, _key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
+       Ok(None)
+    }
+}
+
 /// Returns `(a, b)` - approximation coefficients for formula `a + b * x`
 /// where `x` is is the contract size in bytes. Practically, we compute upper bound
-/// of this approximation, assuming that all contract consists of code only.
+/// of this approximation, assuming that whole contract consists of code only.
 fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, Ratio<i128>) {
-    let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = create_store(&get_store_path(workdir.path()));
-    let cache_store = Arc::new(StoreCompiledContractCache { store });
-    let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
-
+    let cache_store1: Arc<StoreCompiledContractCache>;
+    let cache_store2: Arc<MockCompiledContractCache>;
+    let cache: Option<&dyn CompiledContractCache>;
+    let use_file_store = false;
+    if use_file_store {
+        let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
+        let store = create_store(&get_store_path(workdir.path()));
+        cache_store1 = Arc::new(StoreCompiledContractCache { store });
+        cache = Some(cache_store1.as_ref());
+    } else {
+        cache_store2 = Arc::new(MockCompiledContractCache {} );
+        cache = Some(cache_store2.as_ref());
+    }
     let mut xs = vec![];
     let mut ys = vec![];
 
     // We use core-contracts, e2f60b5b0930a9df2c413e1460e179c65c8876e3.
     // File 341191, code 279965, data 56627.
-    let data = include_bytes!("../test-contract/res/lockup_contract.wasm");
-    let contract = ContractCode::new(data.to_vec(), None);
-    xs.push(data.len() as u64);
+    let raw_bytes = include_bytes!("../test-contract/res/lockup_contract.wasm");
+    let contract = ContractCode::new(raw_bytes.to_vec(), None);
+    xs.push(raw_bytes.len() as u64);
     ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
 
     // File 257516, code 203545, data 50419.
-    let data = include_bytes!("../test-contract/res/staking_pool.wasm");
-    let contract = ContractCode::new(data.to_vec(), None);
-    xs.push(data.len() as u64);
+    let raw_bytes = include_bytes!("../test-contract/res/staking_pool.wasm");
+    let contract = ContractCode::new(raw_bytes.to_vec(), None);
+    xs.push(raw_bytes.len() as u64);
     ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
 
     // File 135358, code 113152, data 19520.
-    let data = include_bytes!("../test-contract/res/voting_contract.wasm");
-    let contract = ContractCode::new(data.to_vec(), None);
-    xs.push(data.len() as u64);
+    let raw_bytes = include_bytes!("../test-contract/res/voting_contract.wasm");
+    let contract = ContractCode::new(raw_bytes.to_vec(), None);
+    xs.push(raw_bytes.len() as u64);
     ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
 
     // File 124250, code 103473, data 18176.
-    let data = include_bytes!("../test-contract/res/whitelist.wasm");
-    let contract = ContractCode::new(data.to_vec(), None);
-    xs.push(data.len() as u64);
+    let raw_bytes = include_bytes!("../test-contract/res/whitelist.wasm");
+    let contract = ContractCode::new(raw_bytes.to_vec(), None);
+    xs.push(raw_bytes.len() as u64);
     ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
 
     // Least squares method.
@@ -254,6 +275,13 @@ fn test_compile_cost_time() {
 
 #[test]
 fn test_compile_cost_icount() {
+    // Use smth like
+    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh cargo test --color=always \
+    // --lib vm_estimator::test_compile_cost_icount --no-fail-fast -- --exact \
+    // -Z unstable-options --show-output
+    // Where runner.sh is
+    // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
+    // -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so $@
     test_compile_cost(GasMetric::ICount)
 }
 
