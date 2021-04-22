@@ -2712,6 +2712,7 @@ impl<'a> ChainUpdate<'a> {
                 &challenges_result,
                 *block.header().random_value(),
                 true,
+                true,
             )
             .unwrap();
         let partial_state = apply_result.proof.unwrap().nodes;
@@ -2864,6 +2865,7 @@ impl<'a> ChainUpdate<'a> {
                             gas_limit,
                             &block.header().challenges_result(),
                             *block.header().random_value(),
+                            true,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2918,6 +2920,7 @@ impl<'a> ChainUpdate<'a> {
                             new_extra.gas_limit(),
                             &block.header().challenges_result(),
                             *block.header().random_value(),
+                            false,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2925,6 +2928,19 @@ impl<'a> ChainUpdate<'a> {
                     *new_extra.state_root_mut() = apply_result.new_root;
 
                     self.chain_store_update.save_chunk_extra(&block.hash(), shard_id, new_extra);
+
+                    if !apply_result.outcomes.is_empty() {
+                        // debug_assert!(false);
+                        // Remove in next release
+                        let (_, outcome_paths) =
+                            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                        self.chain_store_update.save_outcomes_with_proofs(
+                            &block.hash(),
+                            shard_id,
+                            apply_result.outcomes,
+                            outcome_paths,
+                        );
+                    }
                 }
             }
         }
@@ -3612,6 +3628,7 @@ impl<'a> ChainUpdate<'a> {
             gas_limit,
             &block_header.challenges_result(),
             *block_header.random_value(),
+            true,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -3690,6 +3707,7 @@ impl<'a> ChainUpdate<'a> {
             chunk_extra.gas_limit(),
             &block_header.challenges_result(),
             *block_header.random_value(),
+            false,
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);

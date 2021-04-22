@@ -328,6 +328,7 @@ impl NightshadeRuntime {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
@@ -415,6 +416,7 @@ impl NightshadeRuntime {
                 current_protocol_version,
             ),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
+            is_new_chunk,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
             profile: Default::default(),
@@ -1134,6 +1136,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         challenges: &ChallengesResult,
         random_seed: CryptoHash,
         generate_storage_proof: bool,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id);
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
@@ -1152,6 +1155,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_limit,
             challenges,
             random_seed,
+            is_new_chunk,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e.kind() {
@@ -1179,6 +1183,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         challenges: &ChallengesResult,
         random_value: CryptoHash,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Trie::from_recorded_storage(partial_storage);
         self.process_state_update(
@@ -1196,6 +1201,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_limit,
             challenges,
             random_value,
+            is_new_chunk,
         )
     }
 
@@ -1670,6 +1676,7 @@ mod test {
                     gas_limit,
                     challenges,
                     CryptoHash::default(),
+                    true,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -2424,7 +2431,8 @@ mod test {
                 )
                 .into()],
                 prev_epoch_kickout: Default::default(),
-                epoch_start_height: 1
+                epoch_start_height: 1,
+                epoch_height: 1,
             }
         );
         env.step_default(vec![]);
