@@ -139,6 +139,7 @@ impl RuntimeUser {
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
             cache: None,
+            is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
