@@ -167,8 +167,11 @@ impl Default for AccountCreationConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
     use crate::hash::hash;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
     use crate::serialize::to_base;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
     use crate::version::ProtocolFeature::AccountVersions;
 
     #[test]
