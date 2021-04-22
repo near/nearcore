@@ -816,16 +816,16 @@ fn recalculate_usage(
 ) {
     if checked_feature!(
         "protocol_feature_add_account_versions",
-        AddAccountVersions,
+        AccountVersions,
         current_protocol_version
     ) && account.version() == V1
     {
         account.set_version(V2);
-        if (runtime_config.storage_usage_delta.has_element(account_id)) {
+        if runtime_config.storage_usage_delta.has_element(account_id) {
             account.set_storage_usage(
                 account
                     .storage_usage()
-                    .saturating_add(runtime_config.storage_usage_delta.get(account_id).unwrap()),
+                    .saturating_add(*runtime_config.storage_usage_delta.get(account_id).unwrap()),
             );
         }
     }
