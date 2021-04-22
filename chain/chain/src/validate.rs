@@ -340,6 +340,8 @@ fn validate_chunk_state_challenge(
             prev_chunk_header.gas_limit(),
             &ChallengesResult::default(),
             *block_header.random_value(),
+            // TODO: set it properly when challenges are enabled
+            true,
         )
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
     let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;

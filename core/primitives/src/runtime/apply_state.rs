@@ -34,6 +34,8 @@ pub struct ApplyState {
     pub config: Arc<RuntimeConfig>,
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
+    /// Whether the chunk being applied is new.
+    pub is_new_chunk: bool,
     /// Ethereum chain id.
     #[cfg(feature = "protocol_feature_evm")]
     pub evm_chain_id: u64,

@@ -91,6 +91,7 @@ impl RuntimeTestbed {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
