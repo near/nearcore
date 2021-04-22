@@ -821,7 +821,7 @@ fn recalculate_usage(
     ) && account.version() == V1
     {
         account.set_version(V2);
-        if *runtime_config.storage_usage_delta.has_element(account_id) {
+        if (*runtime_config.storage_usage_delta).has_element(account_id) {
             account.set_storage_usage(
                 account
                     .storage_usage()
