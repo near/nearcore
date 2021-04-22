@@ -56,7 +56,6 @@ lazy_static::lazy_static! {
 lazy_static::lazy_static! {
     static ref STORAGE_USAGE_DELTA_FROM_FILE: HashMap<AccountId, u64> = RuntimeConfig::read_storage_usage_delta();
     static ref EMPTY_STORAGE_USAGE_DELTA: HashMap<AccountId, u64> = HashMap::new();
-    // static ref STORAGE_USAGE_DELTA_CSV: str = include_str!("../../res/storage_usage_delta.csv");
 }
 
 #[cfg(feature = "protocol_feature_add_account_versions")]
