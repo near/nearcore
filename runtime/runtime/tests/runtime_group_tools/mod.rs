@@ -18,7 +18,6 @@ use std::thread;
 use std::thread::JoinHandle;
 
 pub mod random_config;
-mod storage_usage_delta_calculator;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
