@@ -43,14 +43,3 @@ pub struct IndexerShard {
     pub chunk: Option<IndexerChunkView>,
     pub receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt>,
 }
-
-impl From<IndexerExecutionOutcomeWithOptionalReceipt> for IndexerExecutionOutcomeWithReceipt {
-    fn from(outcome_with_optional_receipt: IndexerExecutionOutcomeWithOptionalReceipt) -> Self {
-        Self {
-            execution_outcome: outcome_with_optional_receipt.execution_outcome,
-            receipt: outcome_with_optional_receipt
-                .receipt
-                .expect("`receipt` must be present at this moment"),
-        }
-    }
-}

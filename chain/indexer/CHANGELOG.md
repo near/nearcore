@@ -3,15 +3,15 @@
 ## 0.9.0
 
 * Introduce `IndexerShard` structure which contains corresponding chunks and `IndexerExecutionOutcomeWithReceipt`
-* `IndexerExecutionOutcomeWithReceipt` field `receipt` is always required
+* `receipt` field in `IndexerExecutionOutcomeWithReceipt` is no longer optional as it used to be always set anyway, 
+so now we explicitly communicate this relation ("every outcome has a corresponding receipt") through the type system
 * Introduce `IndexerExecutionOutcomeWithOptionalReceipt` which is the same as `IndexerExecutionOutcomeWithReceipt`
 but with optional `receipt` field.
 
-## Breaking change
+## Breaking changes
 
-* `IndexerExecutionOutcomeWithReceipt`field `receipt` is not optional anymore and isn't included to chunk
 * `IndexerChunkView` doesn't contain field `receipt_execution_outcomes` anymore, this field has been moved to `IndexerShard`
-* `StreamerMessage` structure now looks like:
+* `StreamerMessage` structure was aligned more with NEAR Protocol specification and now looks like:
   ```
   StreamerMessage {
     block: BlockView,

@@ -55,7 +55,6 @@ async fn build_streamer_message(
     let num_shards = get_num_shards(&client, block.header.hash).await?;
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
-    eprintln!("{:#?}", &shards_outcomes);
     let mut indexer_shards: Vec<IndexerShard> = vec![];
 
     for shard_id in 0..num_shards {
@@ -85,7 +84,7 @@ async fn build_streamer_message(
                     outcome.execution_outcome.id, transaction.hash,
                     "This ExecutionOutcome must have the same id as Transaction hash"
                 );
-                IndexerTransactionWithOutcome { outcome, transaction: transaction.clone() }
+                IndexerTransactionWithOutcome { outcome, transaction }
             })
             .collect::<Vec<IndexerTransactionWithOutcome>>();
 
@@ -100,11 +99,8 @@ async fn build_streamer_message(
         )
         .await?;
 
-        let mut chunk_receipts = chunk_local_receipts.clone();
-        chunk_receipts.extend(chunk_non_local_receipts);
-
         // Add local receipts to corresponding outcomes
-        for receipt in chunk_local_receipts {
+        for receipt in &chunk_local_receipts {
             if let Some(outcome) = receipt_outcomes
                 .iter_mut()
                 .find(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
@@ -114,10 +110,20 @@ async fn build_streamer_message(
             }
         }
 
+        let mut chunk_receipts = chunk_local_receipts;
+        chunk_receipts.extend(chunk_non_local_receipts);
+
         let shard_id = header.shard_id.clone() as usize;
 
-        indexer_shards[shard_id].receipt_execution_outcomes =
-            receipt_outcomes.into_iter().map(Into::into).collect();
+        indexer_shards[shard_id].receipt_execution_outcomes = receipt_outcomes
+            .into_iter()
+            .map(|IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt }| {
+                IndexerExecutionOutcomeWithReceipt {
+                    execution_outcome,
+                    receipt: receipt.expect("`receipt` must be present at this moment"),
+                }
+            })
+            .collect();
 
         // Put the chunk into corresponding indexer shard
         indexer_shards[shard_id].chunk = Some(IndexerChunkView {
