@@ -500,7 +500,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 NetworkClientResponses::NoResponse
             }
-            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
             NetworkClientMessages::PartialEncodedChunkForward(forward) => {
                 match self.client.process_partial_encoded_chunk_forward(forward) {
                     Ok(accepted_blocks) => self.process_accepted_blocks(accepted_blocks),

@@ -31,8 +31,7 @@ use near_store::migrations::{
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_store::migrations::migrate_18_to_new_validator_stake;
 
-#[cfg(feature = "protocol_feature_rectify_inflation")]
-use near_store::migrations::migrate_18_to_rectify_inflation;
+use near_store::migrations::migrate_20_to_21;
 
 pub mod config;
 pub mod genesis_validate;
@@ -203,10 +202,9 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         // version 19 => 20: fix execution outcome
         migrate_19_to_20(&path, &near_config);
     }
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
-    if db_version <= 18 {
-        // version 18 => rectify inflation: add `timestamp` to `BlockInfo`
-        migrate_18_to_rectify_inflation(&path);
+    if db_version <= 20 {
+        // version 20 => 21: rectify inflation: add `timestamp` to `BlockInfo`
+        migrate_20_to_21(&path);
     }
     #[cfg(feature = "nightly_protocol")]
     {

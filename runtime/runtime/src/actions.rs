@@ -620,7 +620,7 @@ pub(crate) fn action_add_key(
         return Ok(());
     }
     checked_feature!(
-        "protocol_feature_access_key_nonce_range",
+        "stable",
         AccessKeyNonceRange,
         apply_state.current_protocol_version,
         {

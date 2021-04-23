@@ -50,7 +50,6 @@ use near_client_primitives::types::{Error, ShardSyncDownload};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_network::types::PartialEncodedChunkForwardMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
@@ -789,7 +788,6 @@ impl Client {
         self.process_partial_encoded_chunk(MaybeValidated::Validated(partial_chunk))
     }
 
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn process_partial_encoded_chunk_forward(
         &mut self,
         forward: PartialEncodedChunkForwardMsg,
@@ -1687,7 +1685,6 @@ mod test {
 
     use crate::test_utils::TestEnv;
     use near_network::test_utils::MockNetworkAdapter;
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::block_header::ApprovalType;
     use near_primitives::network::PeerId;
@@ -1787,7 +1784,6 @@ mod test {
             }
         }
 
-        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
         let mock_forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
             &mock_chunk.header,
             mock_chunk.parts.clone(),
@@ -1815,13 +1811,10 @@ mod test {
 
         // process_partial_encoded_chunk_forward should return UnknownChunk if it is based on a
         // a missing block.
-        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-        {
-            let result = client.process_partial_encoded_chunk_forward(mock_forward);
-            assert!(matches!(
-                result,
-                Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
-            ));
-        }
+        let result = client.process_partial_encoded_chunk_forward(mock_forward);
+        assert!(matches!(
+            result,
+            Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+        ));
     }
 }

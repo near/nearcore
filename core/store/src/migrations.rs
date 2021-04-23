@@ -632,8 +632,7 @@ pub fn migrate_17_to_18(path: &String) {
     set_store_version(&store, 18);
 }
 
-#[cfg(feature = "protocol_feature_rectify_inflation")]
-pub fn migrate_18_to_rectify_inflation(path: &String) {
+pub fn migrate_20_to_21(path: &String) {
     use near_primitives::epoch_manager::block_info::BlockInfoV1;
     use near_primitives::epoch_manager::SlashState;
     use near_primitives::types::validator_stake::ValidatorStakeV1;

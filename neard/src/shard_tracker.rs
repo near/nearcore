@@ -270,7 +270,6 @@ mod tests {
             protocol_treasury_account: "".to_string(),
             online_max_threshold: initial_epoch_config.online_max_threshold,
             online_min_threshold: initial_epoch_config.online_min_threshold,
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
             num_seconds_per_year: 1000000,
         };
         Arc::new(RwLock::new(
@@ -309,10 +308,7 @@ mod tests {
                     vec![],
                     DEFAULT_TOTAL_SUPPLY,
                     PROTOCOL_VERSION,
-                    #[cfg(feature = "protocol_feature_rectify_inflation")]
-                    {
-                        height * 10u64.pow(9)
-                    },
+                    height * 10u64.pow(9),
                 ),
                 [0; 32],
             )
