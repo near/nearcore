@@ -4,6 +4,7 @@ pub use num_rational;
 pub mod account;
 pub mod config;
 pub mod contract;
+pub mod convert;
 pub mod hash;
 pub mod logging;
 pub mod profile;
