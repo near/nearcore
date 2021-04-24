@@ -21,7 +21,7 @@ pub use self::types::{
     StreamerMessage,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
-use crate::streamer::fetchers::get_num_shards;
+use crate::streamer::fetchers::fetch_protocol_config;
 
 mod errors;
 mod fetchers;
@@ -37,7 +37,6 @@ const INTERVAL: Duration = Duration::from_millis(500);
 async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
-    near_config: &neard::NearConfig,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let chunks_to_fetch = block
         .chunks
@@ -52,7 +51,9 @@ async fn build_streamer_message(
         .collect::<Vec<_>>();
     let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
 
-    let num_shards = get_num_shards(&client, block.header.hash).await?;
+    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
+    let num_shards = protocol_config_view.num_block_producer_seats_per_shard.len()
+        as near_primitives::types::NumShards;
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
     let mut indexer_shards: Vec<IndexerShard> = vec![];
@@ -61,7 +62,25 @@ async fn build_streamer_message(
         indexer_shards.push(IndexerShard {
             shard_id,
             chunk: None,
-            receipt_execution_outcomes: vec![],
+            // Put execution outcomes which have `receipt`
+            // yet expecting it will be overwritten during chunk processing
+            // but avoid missing data in case if something went wrong with the chunks
+            receipt_execution_outcomes: shards_outcomes[&shard_id]
+                .iter()
+                .filter_map(|outcome| {
+                    if outcome.receipt.is_some() {
+                        Some(IndexerExecutionOutcomeWithReceipt {
+                            execution_outcome: outcome.clone().execution_outcome,
+                            receipt: outcome
+                                .clone()
+                                .receipt
+                                .expect("`receipt` must be present at this moment"),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
         })
     }
 
@@ -78,7 +97,7 @@ async fn build_streamer_message(
 
         let indexer_transactions = transactions
             .into_iter()
-            .zip(outcomes.clone().into_iter())
+            .zip(outcomes.into_iter())
             .map(|(transaction, outcome)| {
                 assert_eq!(
                     outcome.execution_outcome.id, transaction.hash,
@@ -90,7 +109,7 @@ async fn build_streamer_message(
 
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
             &client,
-            near_config,
+            &protocol_config_view,
             indexer_transactions
                 .iter()
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
@@ -146,7 +165,6 @@ async fn build_streamer_message(
 pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,
-    near_config: neard::NearConfig,
     indexer_config: IndexerConfig,
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
@@ -204,7 +222,7 @@ pub(crate) async fn start(
         );
         for block_height in start_syncing_block_height..=latest_block_height {
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response = build_streamer_message(&view_client, block, &near_config).await;
+                let response = build_streamer_message(&view_client, block).await;
 
                 match response {
                     Ok(streamer_message) => {

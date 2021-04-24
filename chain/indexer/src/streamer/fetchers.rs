@@ -151,15 +151,14 @@ pub(crate) async fn fetch_chunks(
     Ok(response)
 }
 
-pub(crate) async fn get_num_shards(
+pub(crate) async fn fetch_protocol_config(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: near_primitives::hash::CryptoHash,
-) -> Result<types::NumShards, FailedToFetchData> {
-    let protocol_config_view = client
+) -> Result<near_chain_configs::ProtocolConfigView, FailedToFetchData> {
+    Ok(client
         .send(near_client::GetProtocolConfig(types::BlockReference::from(types::BlockId::Hash(
             block_hash,
         ))))
         .await?
-        .map_err(|err| FailedToFetchData::String(err.to_string()))?;
-    Ok(protocol_config_view.num_block_producer_seats_per_shard.len() as types::NumShards)
+        .map_err(|err| FailedToFetchData::String(err.to_string()))?)
 }

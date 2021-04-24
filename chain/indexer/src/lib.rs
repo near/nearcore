@@ -103,7 +103,6 @@ impl Indexer {
         actix::spawn(streamer::start(
             self.view_client.clone(),
             self.client.clone(),
-            self.near_config.clone(),
             self.indexer_config.clone(),
             sender,
         ));
