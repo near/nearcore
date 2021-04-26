@@ -53,7 +53,7 @@ required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_
 no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
-nightly_protocol = ["near-primitives/nightly_protocol"]
+nightly_protocol = ["near-primitives/nightly_protocol", "neard/nightly_protocol"]
 nightly_protocol_features = ["protocol_feature_alt_bn128", "protocol_feature_evm", "protocol_feature_add_account_versions"]
 protocol_feature_alt_bn128 = [
     "near-vm-logic/protocol_feature_alt_bn128",
