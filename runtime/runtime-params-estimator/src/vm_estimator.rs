@@ -169,7 +169,7 @@ impl CompiledContractCache for MockCompiledContractCache {
 }
 
 /// Returns `(a, b)` - approximation coefficients for formula `a + b * x`
-/// where `x` is is the contract size in bytes. Practically, we compute upper bound
+/// where `x` is the contract size in bytes. Practically, we compute upper bound
 /// of this approximation, assuming that whole contract consists of code only.
 fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, Ratio<i128>) {
     let cache_store1: Arc<StoreCompiledContractCache>;
@@ -240,14 +240,16 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
     let b = Ratio::new(n128 * sum_prod - sum_x * sum_y, n128 * sum_x_square - sum_x * sum_x);
     let a = Ratio::new(sum_y * b.denom() - b.numer() * sum_x, n128 * b.denom());
 
-    // Compute error estimation.
+    // Compute error estimation
+    let mut errs = vec![];
     let mut error = 0i128;
     for i in 0..n {
         let expect = (a + b * (xs[i] as i128)).to_integer();
         let diff = expect - (ys[i] as i128);
+        errs.push(diff);
         error = error + diff * diff;
     }
-    println!("Error {}", (error as f64).sqrt() / (n as f64));
+    println!("xs={:?} ys={:?} errs={:?} Error {}", xs, ys, errs, (error as f64).sqrt() / (n as f64));
 
     // We multiply `b` by 5/4 to accommodate for the fact that test contracts are typically 80% code,
     // so in the worst case it could grow to 100% and our costs are still properly estimate.
