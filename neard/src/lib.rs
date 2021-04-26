@@ -205,7 +205,7 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
     }
     if db_version <= 20 {
         info!(target: "near", "Migrate DB from version 20 to 21");
-        // version 20 => 21: delete genesis json hash
+        // version 20 => 21: delete genesis json hash due to change in Genesis::json_hash function
         migrate_20_to_21(&path);
     }
     #[cfg(feature = "protocol_feature_rectify_inflation")]
