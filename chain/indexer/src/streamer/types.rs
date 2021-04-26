@@ -7,7 +7,7 @@ pub use near_primitives::{types, views};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StreamerMessage {
     pub block: views::BlockView,
-    pub chunks: Vec<IndexerChunkView>,
+    pub shards: Vec<IndexerShard>,
     pub state_changes: views::StateChangesView,
 }
 
@@ -17,17 +17,29 @@ pub struct IndexerChunkView {
     pub header: views::ChunkHeaderView,
     pub transactions: Vec<IndexerTransactionWithOutcome>,
     pub receipts: Vec<views::ReceiptView>,
-    pub receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexerTransactionWithOutcome {
     pub transaction: views::SignedTransactionView,
-    pub outcome: IndexerExecutionOutcomeWithReceipt,
+    pub outcome: IndexerExecutionOutcomeWithOptionalReceipt,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexerExecutionOutcomeWithOptionalReceipt {
+    pub execution_outcome: views::ExecutionOutcomeWithIdView,
+    pub receipt: Option<views::ReceiptView>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexerExecutionOutcomeWithReceipt {
     pub execution_outcome: views::ExecutionOutcomeWithIdView,
-    pub receipt: Option<views::ReceiptView>,
+    pub receipt: views::ReceiptView,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexerShard {
+    pub shard_id: types::ShardId,
+    pub chunk: Option<IndexerChunkView>,
+    pub receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt>,
 }

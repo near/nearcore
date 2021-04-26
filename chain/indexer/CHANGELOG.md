@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.9.0
+
+* Introduce `IndexerShard` structure which contains corresponding chunks and `IndexerExecutionOutcomeWithReceipt`
+* `receipt` field in `IndexerExecutionOutcomeWithReceipt` is no longer optional as it used to be always set anyway, 
+so now we explicitly communicate this relation ("every outcome has a corresponding receipt") through the type system
+* Introduce `IndexerExecutionOutcomeWithOptionalReceipt` which is the same as `IndexerExecutionOutcomeWithReceipt`
+but with optional `receipt` field.
+
+## Breaking changes
+
+* `IndexerChunkView` doesn't contain field `receipt_execution_outcomes` anymore, this field has been moved to `IndexerShard`
+* `StreamerMessage` structure was aligned more with NEAR Protocol specification and now looks like:
+  ```
+  StreamerMessage {
+    block: BlockView,
+    shards: Vec<IndexerShard>,
+    state_changes: StateChangesView,  
+  }
+  ```
+
 ## 0.8.1
 
 * Add `InitConfigArgs` and `indexer_init_configs`
