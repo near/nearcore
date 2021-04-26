@@ -1209,9 +1209,9 @@ impl ShardsManager {
         self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
 
         // Forward my parts to others tracking this chunk's shard
-        checked_feature!("stable", ForwardChunkParts, protocol_version, {
+        if checked_feature!("stable", ForwardChunkParts, protocol_version) {
             self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
-        });
+        };
 
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 

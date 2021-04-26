@@ -2826,7 +2826,7 @@ impl<'a> ChainUpdate<'a> {
                         ))));
                     }
 
-                    checked_feature!("stable", AccessKeyNonceRange, protocol_version, {
+                    if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
                         let transaction_validity_period = self.transaction_validity_period;
                         for transaction in transactions {
                             self.chain_store_update
@@ -2838,7 +2838,7 @@ impl<'a> ChainUpdate<'a> {
                                 )
                                 .map_err(|_| Error::from(ErrorKind::InvalidTransactions))?;
                         }
-                    });
+                    };
 
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit();

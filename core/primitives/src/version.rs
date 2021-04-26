@@ -144,13 +144,6 @@ macro_rules! checked_feature {
     ("stable", $feature:ident, $current_protocol_version:expr) => {{
         $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version
     }};
-    ("stable", $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{
-        if $crate::version::ProtocolFeature::$feature.protocol_version()
-            <= $current_protocol_version
-        {
-            $feature_block
-        }
-    }};
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
         #[cfg(feature = $feature_name)]
         let is_feature_enabled = $crate::version::ProtocolFeature::$feature.protocol_version()

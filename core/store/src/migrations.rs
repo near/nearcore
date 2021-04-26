@@ -633,7 +633,7 @@ pub fn migrate_17_to_18(path: &String) {
 }
 
 pub fn migrate_20_to_21(path: &String) {
-    use near_primitives::epoch_manager::block_info::BlockInfoV1;
+    use near_primitives::epoch_manager::BlockInfoV1;
     use near_primitives::epoch_manager::SlashState;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId};
@@ -665,7 +665,7 @@ pub fn migrate_20_to_21(path: &String) {
             old_block_info.last_finalized_height,
             *block_header.last_final_block(),
             *block_header.prev_hash(),
-            block_header.validator_proposals().map(|v| v.into_v1()).collect(),
+            block_header.validator_proposals().into_iter().map(|v| v.into_v1()).collect(),
             block_header.chunk_mask().to_vec(),
             vec![],
             block_header.total_supply(),

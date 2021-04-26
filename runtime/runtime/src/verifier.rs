@@ -131,7 +131,7 @@ pub fn verify_and_charge_transaction(
         }
         .into());
     }
-    checked_feature!("stable", AccessKeyNonceRange, current_protocol_version, {
+    if checked_feature!("stable", AccessKeyNonceRange, current_protocol_version) {
         if let Some(height) = block_height {
             let upper_bound =
                 height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
@@ -143,7 +143,7 @@ pub fn verify_and_charge_transaction(
                 .into());
             }
         }
-    });
+    };
 
     access_key.nonce = transaction.nonce;
 
