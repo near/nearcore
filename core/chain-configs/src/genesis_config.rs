@@ -292,7 +292,7 @@ impl GenesisJsonHasher {
         }
     }
 
-    pub fn get_hash(self) -> CryptoHash {
+    pub fn finalize(self) -> CryptoHash {
         CryptoHash(self.digest.finalize().into())
     }
 }
@@ -335,7 +335,7 @@ impl Genesis {
     pub fn json_hash(&self) -> CryptoHash {
         let mut hasher = GenesisJsonHasher::new();
         hasher.process_genesis(self);
-        hasher.get_hash()
+        hasher.finalize()
     }
 }
 
