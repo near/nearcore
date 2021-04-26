@@ -203,6 +203,7 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         migrate_19_to_20(&path, &near_config);
     }
     if db_version <= 20 {
+        info!(target: "near", "Migrate DB from version 20 to 21");
         // version 20 => 21: rectify inflation: add `timestamp` to `BlockInfo`
         migrate_20_to_21(&path);
     }
