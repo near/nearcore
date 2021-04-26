@@ -16,10 +16,12 @@ use self::fetchers::{
     fetch_status,
 };
 pub use self::types::{
-    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome,
+    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
+    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
+use crate::streamer::fetchers::fetch_protocol_config;
 
 mod errors;
 mod fetchers;
@@ -35,7 +37,6 @@ const INTERVAL: Duration = Duration::from_millis(500);
 async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
-    near_config: &neard::NearConfig,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let chunks_to_fetch = block
         .chunks
@@ -50,16 +51,30 @@ async fn build_streamer_message(
         .collect::<Vec<_>>();
     let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
 
-    let mut local_receipts: Vec<views::ReceiptView> = vec![];
+    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
+    let num_shards = protocol_config_view.num_block_producer_seats_per_shard.len()
+        as near_primitives::types::NumShards;
+
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
-    let mut indexer_chunks: Vec<IndexerChunkView> = vec![];
+    let mut indexer_shards: Vec<IndexerShard> = vec![];
+
+    for shard_id in 0..num_shards {
+        indexer_shards.push(IndexerShard {
+            shard_id,
+            chunk: None,
+            receipt_execution_outcomes: vec![],
+        })
+    }
 
     for chunk in chunks {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
+
         let mut outcomes = shards_outcomes
             .remove(&header.shard_id)
             .expect("Execution outcomes for given shard should be present");
+
+        // Take execution outcomes for receipts from the vec and keep only the ones for transactions
         let mut receipt_outcomes = outcomes.split_off(transactions.len());
 
         let indexer_transactions = transactions
@@ -76,7 +91,7 @@ async fn build_streamer_message(
 
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
             &client,
-            near_config,
+            &protocol_config_view,
             indexer_transactions
                 .iter()
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
@@ -85,13 +100,8 @@ async fn build_streamer_message(
         )
         .await?;
 
-        local_receipts.extend_from_slice(&chunk_local_receipts);
-
-        let mut chunk_receipts = chunk_local_receipts;
-        chunk_receipts.extend(chunk_non_local_receipts);
-
         // Add local receipts to corresponding outcomes
-        for receipt in &local_receipts {
+        for receipt in &chunk_local_receipts {
             if let Some(outcome) = receipt_outcomes
                 .iter_mut()
                 .find(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
@@ -101,18 +111,45 @@ async fn build_streamer_message(
             }
         }
 
-        indexer_chunks.push(IndexerChunkView {
+        let mut chunk_receipts = chunk_local_receipts;
+        chunk_receipts.extend(chunk_non_local_receipts);
+
+        let shard_id = header.shard_id.clone() as usize;
+
+        indexer_shards[shard_id].receipt_execution_outcomes = receipt_outcomes
+            .into_iter()
+            .map(|IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt }| {
+                IndexerExecutionOutcomeWithReceipt {
+                    execution_outcome,
+                    receipt: receipt.expect("`receipt` must be present at this moment"),
+                }
+            })
+            .collect();
+
+        // Put the chunk into corresponding indexer shard
+        indexer_shards[shard_id].chunk = Some(IndexerChunkView {
             author,
             header,
             transactions: indexer_transactions,
             receipts: chunk_receipts,
-            receipt_execution_outcomes: receipt_outcomes,
         });
+    }
+
+    // Ideally we expect `shards_outcomes` to be empty by this time, but if something went wrong with
+    // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
+    // That might happen before the fix https://github.com/near/nearcore/pull/4228
+    for (shard_id, outcomes) in shards_outcomes {
+        indexer_shards[shard_id as usize].receipt_execution_outcomes.extend(
+            outcomes.into_iter().map(|outcome| IndexerExecutionOutcomeWithReceipt {
+                execution_outcome: outcome.execution_outcome,
+                receipt: outcome.receipt.expect("`receipt` must be present at this moment"),
+            }),
+        )
     }
 
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
-    Ok(StreamerMessage { block, chunks: indexer_chunks, state_changes })
+    Ok(StreamerMessage { block, shards: indexer_shards, state_changes })
 }
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
@@ -122,7 +159,6 @@ async fn build_streamer_message(
 pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,
-    near_config: neard::NearConfig,
     indexer_config: IndexerConfig,
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
@@ -180,7 +216,7 @@ pub(crate) async fn start(
         );
         for block_height in start_syncing_block_height..=latest_block_height {
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response = build_streamer_message(&view_client, block, &near_config).await;
+                let response = build_streamer_message(&view_client, block).await;
 
                 match response {
                     Ok(streamer_message) => {
