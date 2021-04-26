@@ -66,6 +66,7 @@ protocol_feature_add_account_versions = [
     "near-primitives/protocol_feature_add_account_versions",
     "neard/protocol_feature_add_account_versions",
     "node-runtime/protocol_feature_add_account_versions",
+    "testlib/protocol_feature_add_account_versions",
 ]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "near-vm-runner/protocol_feature_evm",
