@@ -63,5 +63,5 @@ protocol_feature_add_account_versions = [
     "neard/protocol_feature_add_account_versions",
     "node-runtime/protocol_feature_add_account_versions",
 ]
-nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features"]
+nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_add_account_versions"]
 nightly_protocol = ["neard/nightly_protocol"]
