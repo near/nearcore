@@ -13,7 +13,8 @@ pub use neard::{get_default_home, init_configs, NearConfig};
 mod streamer;
 
 pub use self::streamer::{
-    IndexerChunkView, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome,
+    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
+    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
 pub use near_primitives;
@@ -102,7 +103,6 @@ impl Indexer {
         actix::spawn(streamer::start(
             self.view_client.clone(),
             self.client.clone(),
-            self.near_config.clone(),
             self.indexer_config.clone(),
             sender,
         ));
