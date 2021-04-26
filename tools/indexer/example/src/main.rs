@@ -12,215 +12,219 @@ mod configs;
 async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>) {
     while let Some(streamer_message) = stream.recv().await {
         // TODO: handle data as you need
-        // Example of `block` with all the data
+        // Example of `StreamerMessage` with all the data (the data is synthetic)
         //
         // Note that `outcomes` for a given transaction won't be included into the same block.
         // Execution outcomes are included into the blocks after the transaction or receipt
         // are recorded on a chain; in most cases, it is the next block after the one that has
         // the transaction or receipt.
         //
-        // BlockResponse {
+        // StreamerMessage {
         //     block: BlockView {
         //         author: "test.near",
         //         header: BlockHeaderView {
-        //             height: 426,
-        //             epoch_id: `11111111111111111111111111111111`,
-        //             next_epoch_id: `9dH4uF6d3bQtXa7v8CyLPhPXGBUikCCdWB26JWVFRsBY`,
-        //             hash: `99fpSqxeiMe8iTfh72reaLvx4R16kPYAr1TYuxS3zqkB`,
-        //             prev_hash: `8try83LRTx76jfbmPv8SxJchgW8XeQH3gt2piKT6Ykpj`,
-        //             prev_state_root: `DjCJizTpo86umJHv6urA37RJqXkztV1VXpRQysTaKpZA`,
-        //             chunk_receipts_root: `GcXz5GG5oTYvdYK7jzqUt2gGQtw36gE2Hu2MxXxuBh7`,
-        //             chunk_headers_root: `GibE7k6ychYbjJHaURHV369WSGR2jjfgCCF3xL4Qgi9Y`,
+        //             height: 63596,
+        //             epoch_id: `Bk7pvZWUTfHRRZtfgTDjnQ6y5cV8yG2h3orCqJvUbiym`,
+        //             next_epoch_id: `3JuBZ4Gz5Eauf7PzQegfqSEDyvws3eKJYPbfGHAYmeR5`,
+        //             hash: `5X37niQWWcihDGQjsvDMHYKLCurNJyQLxCeLgneDb8mk`,
+        //             prev_hash: `2vJNJca72pBiq2eETq2xvuoc6caKDaUkdRgtdefyutbA`,
+        //             prev_state_root: `GkdxSBf4Kfq8V16N4Kqn3YdcThG1f5KG1KLBmXpMzP1k`,
+        //             chunk_receipts_root: `9ETNjrt6MkwTgSVMMbpukfxRshSD1avBUUa4R4NuqwHv`,
+        //             chunk_headers_root: `C7dVr9KdXYKt31yF2BkeAu115fpo79zYTqeU3FzqbFak`,
         //             chunk_tx_root: `7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t`,
-        //             outcome_root: `JfGt9hY94ftG2sswDQduL5U3GVb7drdX14oJZvGpuoV`,
+        //             outcome_root: `7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t`,
         //             chunks_included: 1,
         //             challenges_root: `11111111111111111111111111111111`,
-        //             timestamp: 1594306903797198000,
-        //             timestamp_nanosec: 1594306903797198000,
-        //             random_value: `EhqGHhUP8W4ULtHF6N7pjB6hSJRE7noUKgmQvy6kfZTZ`,
+        //             timestamp: 1618558205803345000,
+        //             timestamp_nanosec: 1618558205803345000,
+        //             random_value: `3cAa93XmoLaKAJQgWz3K7SiKwnA3uaxi8MGgLM78HTNS`,
         //             validator_proposals: [],
         //             chunk_mask: [
         //                 true,
         //             ],
-        //             gas_price: 5000,
+        //             gas_price: 1000000000,
         //             rent_paid: 0,
         //             validator_reward: 0,
-        //             total_supply: 2049999999999999997877224687500000,
+        //             total_supply: 2050206401403887985811862247311434,
         //             challenges_result: [],
-        //             last_final_block: `2eiUwiZxqo5fRSKPqJ5Nq4oSYRQZE5gRuA9p7TcjFRSJ`,
-        //             last_ds_final_block: `8try83LRTx76jfbmPv8SxJchgW8XeQH3gt2piKT6Ykpj`,
-        //             next_bp_hash: `BsoSx2Ea1Vcomv3Ygw95E8ZeNq5QYrZLdcsYdbs3SWpC`,
-        //             block_merkle_root: `EUmovh7K8yRgboG6vXxCP2dN3ChMLByX846MZG1y6xwG`,
+        //             last_final_block: `DCkMmXYHqibzcMjgFjRXJP7eckAMLrA4ijggSApMNwKu`,
+        //             last_ds_final_block: `2vJNJca72pBiq2eETq2xvuoc6caKDaUkdRgtdefyutbA`,
+        //             next_bp_hash: `4DJWnxRbUhRrsXK6EBkx4nFeXHKgJWqteDnJ7Hv4MZ6M`,
+        //             block_merkle_root: `Bvn5K89fJ3uPNsj3324Ls9TXAGUVteHPpfKwKqL1La6W`,
         //             approvals: [
         //                 Some(
-        //                     ed25519:42QiF81ZvRx5PfFzZxKgYC3yBfFJ4nSJCSwyiiZoztf34NXx8ottoz9jj3urtuwCHV8u6gJ9GHxUhNqbB1KpTeCH,
+        //                     ed25519:F816hgJod7nPfD2qQz5yhaKDMn1JXmvzj2iXegsJpsmPNnYYZpKYJXgyuVTVJ4TKQbcJ2Q3USCGZF6fX2TcwBBv,
         //                 ),
         //             ],
-        //             signature: ed25519:27iPMfiR3fh5nC4wmWA3XXjXvA6yffNcnF7PMeMKRnLDpeHytV6GPtzrNNyDsuLVEWjFJvQLfp1kPw8S16zexy2d,
-        //             latest_protocol_version: 29,
+        //             signature: ed25519:239NbE4BuJaxneQA3AEsPrsGY7v3wBgaezbgg56HER69zPrBoc3a4fbyVWPXeoKE3LvgGma1g6pSHk9QHkmETCZY,
+        //             latest_protocol_version: 43,
         //         },
         //         chunks: [
         //             ChunkHeaderView {
-        //                 chunk_hash: `7Qz2B7MumKt68iNFjSwahG35cynVLrkCfXjopFZQFLg4`,
-        //                 prev_block_hash: `8try83LRTx76jfbmPv8SxJchgW8XeQH3gt2piKT6Ykpj`,
-        //                 outcome_root: `86VPrDDpopYnn5pXSZWh6LqHjBUui2reaQT3kPYpthUs`,
-        //                 prev_state_root: `F53dYSv5z9ejgDEt1keCY2JxEeDSTUPeGsEkVg21QbBH`,
-        //                 encoded_merkle_root: `6s1QWaxhbL7EwzE7ccmhqAAebYBaziXBbumNCEqkKL76`,
-        //                 encoded_length: 208,
-        //                 height_created: 426,
-        //                 height_included: 426,
+        //                 chunk_hash: `2M2oeNFBbUUnHfkU1UuBr8EKBCLMH9xr2vfsGRpyiBmA`,
+        //                 prev_block_hash: `2vJNJca72pBiq2eETq2xvuoc6caKDaUkdRgtdefyutbA`,
+        //                 outcome_root: `11111111111111111111111111111111`,
+        //                 prev_state_root: `3gZPPijaumgMRCvMuuZZM1Ab2LoHTSfYigMKwLqZ67m6`,
+        //                 encoded_merkle_root: `79Bt7ivt9Qhp3c6dJYnueaTyPVweYxZRpQHASRRAiyuy`,
+        //                 encoded_length: 8,
+        //                 height_created: 63596,
+        //                 height_included: 63596,
         //                 shard_id: 0,
-        //                 gas_used: 424555062500,
+        //                 gas_used: 0,
         //                 gas_limit: 1000000000000000,
         //                 rent_paid: 0,
         //                 validator_reward: 0,
-        //                 balance_burnt: 2122775312500000,
-        //                 outgoing_receipts_root: `7LstzSPfxFErjyxZg8nhvcXUxMUpDBysEF53w3uFF5dc`,
+        //                 balance_burnt: 0,
+        //                 outgoing_receipts_root: `H4Rd6SGeEBTbxkitsCdzfu9xL9HtZ2eHoPCQXUeZ6bW4`,
         //                 tx_root: `11111111111111111111111111111111`,
         //                 validator_proposals: [],
-        //                 signature: ed25519:4P2mYEGHU5L2JW2smLuy92DBRJ1iZmmjFmbHNV6PddCD46UW9Nmb5E285AKcK2XCjishc9NLyByMudursGxCatkf,
+        //                 signature: ed25519:2vWNayBzEoW5DRc7gTdhxdLbkKuK6ACQ78p3JGpKSAZZCarnLroeoALPAFwpr9ZNPxBqdVYh9QLBe7WHZebsS17Z,
         //             },
         //         ],
         //     },
-        //     chunks: [
-        //         IndexerChunkView {
-        //         author: "test.near",
-        //         header: ChunkHeaderView {
-        //             chunk_hash: `EF4KJYRKzmtgncQwPkJx3ed2XG3u42e7Dw8G2qLFizYS`,
-        //             prev_block_hash: `GXkHtzYqzkNN11RJajcGMyW18wsn3Joa2Z8aRoRzy6GK`,
-        //             outcome_root: `11111111111111111111111111111111`,
-        //             prev_state_root: `2Aw5LFRbDpcSji61VPeCeT9yX7bSToRmbzVk5vyPhCfp`,
-        //             encoded_merkle_root: `7SWuaCHcRSMt56B9MwhMtmKUhZLwAkKPUtnShTrvHaqc`,
-        //             encoded_length: 242,
-        //             height_created: 1214,
-        //             height_included: 0,
+        //     shards: [
+        //         IndexerShard {
         //             shard_id: 0,
-        //             gas_used: 0,
-        //             gas_limit: 1000000000000000,
-        //             rent_paid: 0,
-        //             validator_reward: 0,
-        //             balance_burnt: 0,
-        //             outgoing_receipts_root: `H4Rd6SGeEBTbxkitsCdzfu9xL9HtZ2eHoPCQXUeZ6bW4`,
-        //             tx_root: `E1CbQD6XaRPG5ji7K6z4eAhdjAEpTonUo6jK3FN1Bjk`,
-        //             validator_proposals: [],
-        //             signature: ed25519:4oRiWAB9hmSUKpn6ADNpckGXiPYF5SYvHeSWDEqbQdzDWEqoRLRzRQCDXwfRrnLcqodvR97CkoDUrfwmrMJydcpu,
-        //         },
-        //         transactions: [
-        //             IndexerTransactionWithOutcome {
-        //             transaction: SignedTransactionView {
-        //                 signer_id: "test.near",
-        //                 public_key: ed25519:8NA7mh6TAWzy2qz68bHp62QHTEQ6nJLfiYeKDRwEbU3X,
-        //                 nonce: 1,
-        //                 receiver_id: "some.test.near",
-        //                 actions: [
-        //                     CreateAccount,
-        //                 Transfer {
-        //                     deposit: 40000000000000000000000000,
-        //                 },
-        //                 AddKey {
-        //                     public_key: ed25519:2syGhqwJ8ba2nUGmP9tkZn9m1DYZPYYobpufiERVnug8,
-        //                     access_key: AccessKeyView {
-        //                         nonce: 0,
-        //                         permission: FullAccess,
+        //             chunk: Some(
+        //                 IndexerChunkView {
+        //                     author: "test.near",
+        //                     header: ChunkHeaderView {
+        //                         chunk_hash: `2M2oeNFBbUUnHfkU1UuBr8EKBCLMH9xr2vfsGRpyiBmA`,
+        //                         prev_block_hash: `2vJNJca72pBiq2eETq2xvuoc6caKDaUkdRgtdefyutbA`,
+        //                         outcome_root: `11111111111111111111111111111111`,
+        //                         prev_state_root: `3gZPPijaumgMRCvMuuZZM1Ab2LoHTSfYigMKwLqZ67m6`,
+        //                         encoded_merkle_root: `79Bt7ivt9Qhp3c6dJYnueaTyPVweYxZRpQHASRRAiyuy`,
+        //                         encoded_length: 8,
+        //                         height_created: 63596,
+        //                         height_included: 0,
+        //                         shard_id: 0,
+        //                         gas_used: 0,
+        //                         gas_limit: 1000000000000000,
+        //                         rent_paid: 0,
+        //                         validator_reward: 0,
+        //                         balance_burnt: 0,
+        //                         outgoing_receipts_root: `H4Rd6SGeEBTbxkitsCdzfu9xL9HtZ2eHoPCQXUeZ6bW4`,
+        //                         tx_root: `11111111111111111111111111111111`,
+        //                         validator_proposals: [],
+        //                         signature: ed25519:2vWNayBzEoW5DRc7gTdhxdLbkKuK6ACQ78p3JGpKSAZZCarnLroeoALPAFwpr9ZNPxBqdVYh9QLBe7WHZebsS17Z,
         //                     },
-        //                 },
-        //                 ],
-        //                 signature: ed25519:Qniuu7exnr6xbe6gKafV5vDhuwM1jt9Bn7sCTF6cHfPpYWVJ4Q6kq8RAxKSeLoxbCreVp1XzMMJmXt8YcUqmMYw,
-        //                 hash: `8dNv9S8rAFwso9fLwfDQXmw5yv5zscDjQpta96pMF6Bi`,
-        //             },
-        //             outcome: IndexerExecutionOutcomeWithReceipt {
-        //                 execution_outcome: ExecutionOutcomeWithIdView {
-        //                     proof: [],
-        //                     block_hash: `G9v6Fsv94xaa7BRY2N5PFF5PJwT7ec6DPzQK73Yf3CZ6`,
-        //                     id: `8dNv9S8rAFwso9fLwfDQXmw5yv5zscDjQpta96pMF6Bi`,
-        //                     outcome: ExecutionOutcomeView {
-        //                         logs: [],
-        //                         receipt_ids: [
-        //                         `CbWu7WYYbYbn3kThs5gcxANrxy7AKLcMcBLxLw8Zq1Fz`,
-        //                         ],
-        //                         gas_burnt: 424555062500,
-        //                         tokens_burnt: 424555062500000000000,
-        //                         executor_id: "test.near",
-        //                         status: SuccessReceiptId(CbWu7WYYbYbn3kThs5gcxANrxy7AKLcMcBLxLw8Zq1Fz),
-        //                     },
-        //                 },
-        //                 receipt: None,
-        //             },
-        //         },
-        //         ],
-        //         receipts: [
-        //             ReceiptView {
-        //             predecessor_id: "test.near",
-        //             receiver_id: "some.test.near",
-        //             receipt_id: `CbWu7WYYbYbn3kThs5gcxANrxy7AKLcMcBLxLw8Zq1Fz`,
-        //             receipt: Action {
-        //                 signer_id: "test.near",
-        //                 signer_public_key: ed25519:8NA7mh6TAWzy2qz68bHp62QHTEQ6nJLfiYeKDRwEbU3X,
-        //                 gas_price: 1030000000,
-        //                 output_data_receivers: [],
-        //                 input_data_ids: [],
-        //                 actions: [
-        //                     CreateAccount,
-        //                 Transfer {
-        //                     deposit: 40000000000000000000000000,
-        //                 },
-        //                 AddKey {
-        //                     public_key: ed25519:2syGhqwJ8ba2nUGmP9tkZn9m1DYZPYYobpufiERVnug8,
-        //                     access_key: AccessKeyView {
-        //                         nonce: 0,
-        //                         permission: FullAccess,
-        //                     },
-        //                 },
-        //                 ],
-        //             },
-        //         },
-        //         ],
-        //         receipt_execution_outcomes: [
-        //             IndexerExecutionOutcomeWithReceipt {
-        //             execution_outcome: ExecutionOutcomeWithIdView {
-        //                 proof: [],
-        //                 block_hash: `BXPB6DQGmBrjARvcgYwS8qKLkyto6dk9NfawGSmfjE9Q`,
-        //                 id: `CbWu7WYYbYbn3kThs5gcxANrxy7AKLcMcBLxLw8Zq1Fz`,
-        //                 outcome: ExecutionOutcomeView {
-        //                     logs: [],
-        //                     receipt_ids: [
-        //                     `8vJ1QWM4pffRDnW3c5CxFFV5cMx8wiqxsAqmZTitHvfh`,
+        //                     transactions: [
+        //                         IndexerTransactionWithOutcome {
+        //                             transaction: SignedTransactionView {
+        //                                 signer_id: "test.near",
+        //                                 public_key: ed25519:8NA7mh6TAWzy2qz68bHp62QHTEQ6nJLfiYeKDRwEbU3X,
+        //                                 nonce: 1,
+        //                                 receiver_id: "some.test.near",
+        //                                 actions: [
+        //                                     CreateAccount,
+        //                                     Transfer {
+        //                                         deposit: 40000000000000000000000000,
+        //                                     },
+        //                                     AddKey {
+        //                                         public_key: ed25519:2syGhqwJ8ba2nUGmP9tkZn9m1DYZPYYobpufiERVnug8,
+        //                                         access_key: AccessKeyView {
+        //                                             nonce: 0,
+        //                                             permission: FullAccess,
+        //                                         },
+        //                                     },
+        //                                 ],
+        //                                 signature: ed25519:Qniuu7exnr6xbe6gKafV5vDhuwM1jt9Bn7sCTF6cHfPpYWVJ4Q6kq8RAxKSeLoxbCreVp1XzMMJmXt8YcUqmMYw,
+        //                                 hash: `8dNv9S8rAFwso9fLwfDQXmw5yv5zscDjQpta96pMF6Bi`,
+        //                             },
+        //                             outcome: IndexerExecutionOutcomeWithReceipt {
+        //                                 execution_outcome: ExecutionOutcomeWithIdView {
+        //                                     proof: [],
+        //                                     block_hash: `G9v6Fsv94xaa7BRY2N5PFF5PJwT7ec6DPzQK73Yf3CZ6`,
+        //                                     id: `8dNv9S8rAFwso9fLwfDQXmw5yv5zscDjQpta96pMF6Bi`,
+        //                                     outcome: ExecutionOutcomeView {
+        //                                         logs: [],
+        //                                         receipt_ids: [
+        //                                         `CbWu7WYYbYbn3kThs5gcxANrxy7AKLcMcBLxLw8Zq1Fz`,
+        //                                         ],
+        //                                         gas_burnt: 424555062500,
+        //                                         tokens_burnt: 424555062500000000000,
+        //                                         executor_id: "test.near",
+        //                                         status: SuccessReceiptId(CbWu7WYYbYbn3kThs5gcxANrxy7AKLcMcBLxLw8Zq1Fz),
+        //                                     },
+        //                                 },
+        //                                 receipt: None,
+        //                             },
+        //                         },
         //                     ],
-        //                     gas_burnt: 424555062500,
-        //                     tokens_burnt: 424555062500000000000,
-        //                     executor_id: "some.test.near",
-        //                     status: SuccessValue(``),
+        //                     receipts: [
+        //                         ReceiptView {
+        //                             predecessor_id: "test.near",
+        //                             receiver_id: "some.test.near",
+        //                             receipt_id: `CbWu7WYYbYbn3kThs5gcxANrxy7AKLcMcBLxLw8Zq1Fz`,
+        //                             receipt: Action {
+        //                                 signer_id: "test.near",
+        //                                 signer_public_key: ed25519:8NA7mh6TAWzy2qz68bHp62QHTEQ6nJLfiYeKDRwEbU3X,
+        //                                 gas_price: 1030000000,
+        //                                 output_data_receivers: [],
+        //                                 input_data_ids: [],
+        //                                 actions: [
+        //                                     CreateAccount,
+        //                                     Transfer {
+        //                                         deposit: 40000000000000000000000000,
+        //                                     },
+        //                                     AddKey {
+        //                                         public_key: ed25519:2syGhqwJ8ba2nUGmP9tkZn9m1DYZPYYobpufiERVnug8,
+        //                                         access_key: AccessKeyView {
+        //                                             nonce: 0,
+        //                                             permission: FullAccess,
+        //                                         },
+        //                                     },
+        //                                 ],
+        //                             },
+        //                         },
+        //                     ],
         //                 },
-        //             },
-        //             receipt: Some(
-        //                 ReceiptView {
-        //                 predecessor_id: "test.near",
-        //                 receiver_id: "some.test.near",
-        //                 receipt_id: `CbWu7WYYbYbn3kThs5gcxANrxy7AKLcMcBLxLw8Zq1Fz`,
-        //                 receipt: Action {
-        //                     signer_id: "test.near",
-        //                     signer_public_key: ed25519:8NA7mh6TAWzy2qz68bHp62QHTEQ6nJLfiYeKDRwEbU3X,
-        //                     gas_price: 1030000000,
-        //                     output_data_receivers: [],
-        //                     input_data_ids: [],
-        //                     actions: [
-        //                         CreateAccount,
-        //                     Transfer {
-        //                         deposit: 40000000000000000000000000,
-        //                     },
-        //                     AddKey {
-        //                         public_key: ed25519:2syGhqwJ8ba2nUGmP9tkZn9m1DYZPYYobpufiERVnug8,
-        //                         access_key: AccessKeyView {
-        //                             nonce: 0,
-        //                             permission: FullAccess,
+        //             ),
+        //             receipt_execution_outcomes: [
+        //                 IndexerExecutionOutcomeWithReceipt {
+        //                     execution_outcome: ExecutionOutcomeWithIdView {
+        //                         proof: [],
+        //                         block_hash: `BXPB6DQGmBrjARvcgYwS8qKLkyto6dk9NfawGSmfjE9Q`,
+        //                         id: `CbWu7WYYbYbn3kThs5gcxANrxy7AKLcMcBLxLw8Zq1Fz`,
+        //                         outcome: ExecutionOutcomeView {
+        //                             logs: [],
+        //                             receipt_ids: [
+        //                             `8vJ1QWM4pffRDnW3c5CxFFV5cMx8wiqxsAqmZTitHvfh`,
+        //                             ],
+        //                             gas_burnt: 424555062500,
+        //                             tokens_burnt: 424555062500000000000,
+        //                             executor_id: "some.test.near",
+        //                             status: SuccessValue(``),
         //                         },
         //                     },
-        //                     ],
+        //                     receipt: ReceiptView {
+        //                         predecessor_id: "test.near",
+        //                         receiver_id: "some.test.near",
+        //                         receipt_id: `CbWu7WYYbYbn3kThs5gcxANrxy7AKLcMcBLxLw8Zq1Fz`,
+        //                         receipt: Action {
+        //                             signer_id: "test.near",
+        //                             signer_public_key: ed25519:8NA7mh6TAWzy2qz68bHp62QHTEQ6nJLfiYeKDRwEbU3X,
+        //                             gas_price: 1030000000,
+        //                             output_data_receivers: [],
+        //                             input_data_ids: [],
+        //                             actions: [
+        //                                 CreateAccount,
+        //                                 Transfer {
+        //                                     deposit: 40000000000000000000000000,
+        //                                 },
+        //                                 AddKey {
+        //                                     public_key: ed25519:2syGhqwJ8ba2nUGmP9tkZn9m1DYZPYYobpufiERVnug8,
+        //                                     access_key: AccessKeyView {
+        //                                         nonce: 0,
+        //                                         permission: FullAccess,
+        //                                     },
+        //                                 },
+        //                             ],
+        //                         },
+        //                     },
         //                 },
-        //             },
-        //             ),
+        //             ],
         //         },
-        //         ],
         //     ],
         //     state_changes: [
         //         StateChangeWithCauseView {
@@ -236,17 +240,17 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
         //                 },
         //             },
         //         },
-        //     ]
+        //     ],
         // }
         info!(
             target: "indexer_example",
-            "#{} {} Chunks: {}, Transactions: {}, Receipts: {}, ExecutionOutcomes: {}",
+            "#{} {} Shards: {}, Transactions: {}, Receipts: {}, ExecutionOutcomes: {}",
             streamer_message.block.header.height,
             streamer_message.block.header.hash,
-            streamer_message.chunks.len(),
-            streamer_message.chunks.iter().map(|chunk| chunk.transactions.len()).sum::<usize>(),
-            streamer_message.chunks.iter().map(|chunk| chunk.receipts.len()).sum::<usize>(),
-            streamer_message.chunks.iter().map(|chunk| chunk.receipt_execution_outcomes.len()).sum::<usize>(),
+            streamer_message.shards.len(),
+            streamer_message.shards.iter().map(|shard| if let Some(chunk) = &shard.chunk { chunk.transactions.len() } else { 0usize }).sum::<usize>(),
+            streamer_message.shards.iter().map(|shard| if let Some(chunk) = &shard.chunk { chunk.receipts.len() } else { 0usize }).sum::<usize>(),
+            streamer_message.shards.iter().map(|shard| shard.receipt_execution_outcomes.len()).sum::<usize>(),
         );
     }
 }
