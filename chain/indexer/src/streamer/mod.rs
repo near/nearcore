@@ -137,18 +137,14 @@ async fn build_streamer_message(
 
     // Ideally we expect `shards_outcomes` to be empty by this time, but if something went wrong with
     // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
-    if !shards_outcomes.is_empty() {
-        for (shard_id, outcomes) in shards_outcomes.iter() {
-            indexer_shards[*shard_id as usize].receipt_execution_outcomes.extend(
-                outcomes.iter().map(|outcome| IndexerExecutionOutcomeWithReceipt {
-                    execution_outcome: outcome.clone().execution_outcome,
-                    receipt: outcome
-                        .clone()
-                        .receipt
-                        .expect("`receipt` must be present at this moment"),
-                }),
-            )
-        }
+    // That might happen before the fix https://github.com/near/nearcore/pull/4228
+    for (shard_id, outcomes) in shards_outcomes {
+        indexer_shards[shard_id as usize].receipt_execution_outcomes.extend(
+            outcomes.into_iter().map(|outcome| IndexerExecutionOutcomeWithReceipt {
+                execution_outcome: outcome.execution_outcome,
+                receipt: outcome.receipt.expect("`receipt` must be present at this moment"),
+            }),
+        )
     }
 
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
