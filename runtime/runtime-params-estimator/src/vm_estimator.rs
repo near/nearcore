@@ -141,6 +141,12 @@ fn measure_contract(
     contract: &ContractCode,
     cache: Option<&dyn CompiledContractCache>,
 ) -> u64 {
+    match rayon::ThreadPoolBuilder::new().num_threads(1).build_global() {
+        Ok(()) => (),
+        Err(_err) if rayon::current_num_threads() == 1 => (),
+        Err(_err) => panic!("failed to set rayon to use 1 thread"),
+    };
+
     let start = start_count(gas_metric);
     let vm_config = VMConfig::default();
     let result = precompile_contract_vm(vm_kind, &contract, &vm_config, cache);
@@ -176,7 +182,7 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
         cache_store1 = Arc::new(StoreCompiledContractCache { store });
         cache = Some(cache_store1.as_ref());
     } else {
-        cache_store2 = Arc::new(MockCompiledContractCache {} );
+        cache_store2 = Arc::new(MockCompiledContractCache {});
         cache = Some(cache_store2.as_ref());
     }
     let mut xs = vec![];
