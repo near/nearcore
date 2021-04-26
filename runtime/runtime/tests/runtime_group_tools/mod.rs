@@ -74,6 +74,8 @@ impl StandaloneRuntime {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: false,
         };
 
         Self {

@@ -414,13 +414,14 @@ impl NightshadeRuntime {
             config: RuntimeConfig::from_protocol_version(
                 &self.genesis_runtime_config,
                 current_protocol_version,
-                self.genesis_config.is_mainnet(),
             ),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             is_new_chunk,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
             profile: Default::default(),
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: self.genesis_config.is_mainnet(),
         };
 
         let apply_result = self
@@ -551,7 +552,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let runtime_config = RuntimeConfig::from_protocol_version(
             &self.genesis_runtime_config,
             current_protocol_version,
-            self.genesis_config.is_mainnet(),
         );
 
         if let Some(state_root) = state_root {
@@ -624,7 +624,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let runtime_config = RuntimeConfig::from_protocol_version(
             &self.genesis_runtime_config,
             current_protocol_version,
-            self.genesis_config.is_mainnet(),
         );
 
         while total_gas_burnt < transactions_gas_limit {
@@ -1273,6 +1272,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                         current_protocol_version,
                         #[cfg(feature = "protocol_feature_evm")]
                         self.evm_chain_id(),
+                        #[cfg(feature = "protocol_feature_add_account_versions")]
+                        self.genesis_config.is_mainnet(),
                     )
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_call_function_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
@@ -1498,11 +1499,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
         // Currently only runtime config is changed through protocol upgrades.
-        let runtime_config = RuntimeConfig::from_protocol_version(
-            &self.genesis_runtime_config,
-            protocol_version,
-            self.genesis_config.is_mainnet(),
-        );
+        let runtime_config =
+            RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
         config.runtime_config = (*runtime_config).clone();
         Ok(config)
     }
@@ -1546,6 +1544,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
         #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u64,
+        #[cfg(feature = "protocol_feature_add_account_versions")] is_mainnet: bool,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let view_state = ViewApplyState {
@@ -1559,6 +1558,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id,
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet,
         };
         self.trie_viewer.call_function(
             state_update,

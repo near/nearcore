@@ -44,6 +44,8 @@ use crate::{ActionResult, ApplyState};
 #[cfg(feature = "protocol_feature_add_account_versions")]
 use near_primitives::account::AccountVersion::{V1, V2};
 use near_vm_runner::precompile_contract;
+#[cfg(feature = "protocol_feature_add_account_versions")]
+use std::collections::HashMap;
 
 /// Runs given function call with given context / apply state.
 /// Precompiles:
@@ -272,10 +274,10 @@ pub(crate) fn action_function_call(
         result.logs.extend(outcome.logs.into_iter());
         if execution_succeeded {
             #[cfg(feature = "protocol_feature_add_account_versions")]
-            recalculate_usage(
+            migrate_account(
                 account,
                 account_id,
-                &apply_state.config,
+                apply_state.is_mainnet,
                 apply_state.current_protocol_version,
             );
             account.set_amount(outcome.balance);
@@ -480,10 +482,10 @@ pub(crate) fn action_deploy_contract(
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
     #[cfg(feature = "protocol_feature_add_account_versions")]
-    recalculate_usage(
+    migrate_account(
         account,
         account_id,
-        &apply_state.config,
+        apply_state.is_mainnet,
         apply_state.current_protocol_version,
     );
     account.set_storage_usage(account.storage_usage().checked_sub(prev_code_length).unwrap_or(0));
@@ -613,10 +615,10 @@ pub(crate) fn action_delete_key(
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
         #[cfg(feature = "protocol_feature_add_account_versions")]
-        recalculate_usage(
+        migrate_account(
             account,
             account_id,
-            &apply_state.config,
+            apply_state.is_mainnet,
             apply_state.current_protocol_version,
         );
         account.set_storage_usage(account.storage_usage().checked_sub(storage_usage).unwrap_or(0));
@@ -672,10 +674,10 @@ pub(crate) fn action_add_key(
     );
     let storage_config = &apply_state.config.transaction_costs.storage_usage_config;
     #[cfg(feature = "protocol_feature_add_account_versions")]
-    recalculate_usage(
+    migrate_account(
         account,
         account_id,
-        &apply_state.config,
+        apply_state.is_mainnet,
         apply_state.current_protocol_version,
     );
     account.set_storage_usage(
@@ -808,10 +810,33 @@ pub(crate) fn check_account_existence(
 }
 
 #[cfg(feature = "protocol_feature_add_account_versions")]
-fn recalculate_usage(
+lazy_static_include::lazy_static_include_str! {
+    STORAGE_USAGE_DELTA_CSV => "res/storage_usage_delta.csv"
+}
+
+#[cfg(feature = "protocol_feature_add_account_versions")]
+fn read_storage_usage_delta() -> HashMap<AccountId, u64> {
+    let mut reader = csv::Reader::from_reader(STORAGE_USAGE_DELTA_CSV.as_bytes());
+    let mut result = HashMap::new();
+    for record in reader.records() {
+        let record = record.expect("Malformed storage_usage_delta.csv");
+        let account_id = &record[0];
+        let delta = record[1].parse::<u64>().expect("Malformed storage_usage_delta.csv");
+        result.insert(account_id.to_string() as AccountId, delta);
+    }
+    result
+}
+
+#[cfg(feature = "protocol_feature_add_account_versions")]
+lazy_static::lazy_static! {
+    static ref STORAGE_USAGE_DELTA_FROM_FILE: HashMap<AccountId, u64> = read_storage_usage_delta();
+}
+
+#[cfg(feature = "protocol_feature_add_account_versions")]
+fn migrate_account(
     account: &mut Account,
     account_id: &AccountId,
-    runtime_config: &RuntimeConfig,
+    is_mainnet: bool,
     current_protocol_version: ProtocolVersion,
 ) {
     if checked_feature!(
@@ -821,11 +846,11 @@ fn recalculate_usage(
     ) && account.version() == V1
     {
         account.set_version(V2);
-        if runtime_config.storage_usage_delta.contains_key(account_id) {
+        if is_mainnet && STORAGE_USAGE_DELTA_FROM_FILE.contains_key(account_id) {
             account.set_storage_usage(
                 account
                     .storage_usage()
-                    .saturating_add(*runtime_config.storage_usage_delta.get(account_id).unwrap()),
+                    .saturating_add(*STORAGE_USAGE_DELTA_FROM_FILE.get(account_id).unwrap()),
             );
         }
     }
@@ -838,6 +863,12 @@ mod tests {
     use near_store::test_utils::create_tries;
 
     use super::*;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    use near_primitives::account::AccountVersion;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    use near_primitives::serialize::to_base;
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    use near_primitives::version::ProtocolFeature::AccountVersions;
     use near_primitives::version::PROTOCOL_VERSION;
 
     fn test_action_create_account(
@@ -1022,5 +1053,30 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    fn test_storage_usage_delta() {
+        assert_eq!(
+            to_base(hash(STORAGE_USAGE_DELTA_CSV.as_bytes())),
+            "6vvz6vHkKekc6sEk2nzzJoWLBsiV7cy7Z5KMGKrzHGy1"
+        );
+        let version = AccountVersions.protocol_version();
+        let account_id = "near".to_string() as AccountId;
+        let mut account = Account::new(0, 0, Default::default(), 0, version - 1);
+        migrate_account(&mut account, &account_id, false, version - 1);
+        assert_eq!(account.storage_usage(), 0);
+        assert_eq!(account.version(), AccountVersion::V1);
+        migrate_account(&mut account, &account_id, false, version);
+        assert_eq!(account.storage_usage(), 0);
+        assert_eq!(account.version(), AccountVersion::V2);
+        account.set_version(AccountVersion::V1);
+        migrate_account(&mut account, &account_id, true, version - 1);
+        assert_eq!(account.storage_usage(), 0);
+        assert_eq!(account.version(), AccountVersion::V1);
+        migrate_account(&mut account, &account_id, true, version);
+        assert_eq!(account.storage_usage(), 4196);
+        assert_eq!(account.version(), AccountVersion::V2);
     }
 }

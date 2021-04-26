@@ -143,6 +143,8 @@ impl RuntimeUser {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: false,
         }
     }
 
@@ -250,6 +252,8 @@ impl User for RuntimeUser {
             cache: apply_state.cache,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: false,
         };
         result.result = self
             .trie_viewer

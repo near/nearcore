@@ -41,4 +41,7 @@ pub struct ApplyState {
     pub evm_chain_id: u64,
     /// Data collected from making a contract call
     pub profile: crate::profile::ProfileData,
+    /// True iff this ApplyState is on mainnet
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    pub is_mainnet: bool,
 }

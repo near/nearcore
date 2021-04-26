@@ -1558,6 +1558,8 @@ mod tests {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: ProfileData::new_enabled(),
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: false,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

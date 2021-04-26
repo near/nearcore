@@ -224,6 +224,8 @@ impl TrieViewer {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
             profile: Default::default(),
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: view_state.is_mainnet,
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
@@ -310,6 +312,8 @@ mod tests {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: false,
         };
         let result = viewer.call_function(
             root,
@@ -340,6 +344,8 @@ mod tests {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: false,
         };
         let result = viewer.call_function(
             root,
@@ -375,6 +381,8 @@ mod tests {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: 0x99,
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: false,
         };
         let result = viewer.call_function(
             root,
@@ -409,6 +417,8 @@ mod tests {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: 0x99,
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: false,
         };
         let view_call_result = viewer.call_function(
             root,
@@ -537,6 +547,8 @@ mod tests {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: 0x99,
+            #[cfg(feature = "protocol_feature_add_account_versions")]
+            is_mainnet: false,
         };
         let mut logs = vec![];
         viewer

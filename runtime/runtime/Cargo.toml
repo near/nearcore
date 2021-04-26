@@ -20,6 +20,9 @@ thiserror = "1.0"
 
 borsh = "0.8.1"
 
+csv = "1.1.1"
+lazy-static-include = "3"
+
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }

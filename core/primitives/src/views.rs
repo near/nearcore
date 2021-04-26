@@ -96,6 +96,9 @@ pub struct ViewApplyState {
     /// EVM chain ID
     #[cfg(feature = "protocol_feature_evm")]
     pub evm_chain_id: u64,
+    /// True iff this is on mainnet
+    #[cfg(feature = "protocol_feature_add_account_versions")]
+    pub is_mainnet: bool,
 }
 
 impl From<&Account> for AccountView {
