@@ -62,25 +62,7 @@ async fn build_streamer_message(
         indexer_shards.push(IndexerShard {
             shard_id,
             chunk: None,
-            // Put execution outcomes which have `receipt`
-            // yet expecting it will be overwritten during chunk processing
-            // but avoid missing data in case if something went wrong with the chunks
-            receipt_execution_outcomes: shards_outcomes[&shard_id]
-                .iter()
-                .filter_map(|outcome| {
-                    if outcome.receipt.is_some() {
-                        Some(IndexerExecutionOutcomeWithReceipt {
-                            execution_outcome: outcome.clone().execution_outcome,
-                            receipt: outcome
-                                .clone()
-                                .receipt
-                                .expect("`receipt` must be present at this moment"),
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
+            receipt_execution_outcomes: vec![],
         })
     }
 
@@ -151,6 +133,22 @@ async fn build_streamer_message(
             transactions: indexer_transactions,
             receipts: chunk_receipts,
         });
+    }
+
+    // Ideally we expect `shards_outcomes` to be empty by this time, but if something went wrong with
+    // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
+    if !shards_outcomes.is_empty() {
+        for (shard_id, outcomes) in shards_outcomes.iter() {
+            indexer_shards[*shard_id as usize].receipt_execution_outcomes.extend(
+                outcomes.iter().map(|outcome| IndexerExecutionOutcomeWithReceipt {
+                    execution_outcome: outcome.clone().execution_outcome,
+                    receipt: outcome
+                        .clone()
+                        .receipt
+                        .expect("`receipt` must be present at this moment"),
+                }),
+            )
+        }
     }
 
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
