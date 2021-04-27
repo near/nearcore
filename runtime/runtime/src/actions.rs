@@ -121,6 +121,10 @@ pub(crate) fn execute_function_call(
             predecessor_account_id: predecessor_id.clone(),
             input: function_call.args.clone(),
             block_index: apply_state.block_index,
+            #[cfg(feature = "protocol_feature_vm_hash")]
+            block_hash: apply_state.block_hash.0,
+            #[cfg(feature = "protocol_feature_vm_hash")]
+            prev_block_hash: apply_state.prev_block_hash.0,
             block_timestamp: apply_state.block_timestamp,
             epoch_height: apply_state.epoch_height,
             account_balance: account.amount(),

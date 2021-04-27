@@ -58,5 +58,6 @@ protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives
 protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limit", "node-runtime/protocol_feature_tx_size_limit"]
 protocol_feature_allow_create_account_on_delete = ["near-primitives/protocol_feature_allow_create_account_on_delete"]
 protocol_feature_access_key_nonce_range = ["node-runtime/protocol_feature_access_key_nonce_range"]
+protocol_feature_vm_hash = ["near-evm-runner/protocol_feature_vm_hash", "node-runtime/protocol_feature_vm_hash"]
 nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features"]
 nightly_protocol = ["neard/nightly_protocol"]

@@ -1,9 +1,12 @@
 use crate::types::PublicKey;
+#[cfg(feature = "protocol_feature_vm_hash")]
+use crate::types::BlockHash;
 use near_primitives_core::serialize::u64_dec_format;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
 };
 use serde::{Deserialize, Serialize};
+use near_primitives::hash::CryptoHash;
 
 #[derive(Serialize, Deserialize, Clone)]
 /// Context for the contract execution.
@@ -29,12 +32,17 @@ pub struct VMContext {
     /// The current block height.
     // TODO #1903 rename to `block_height`
     pub block_index: BlockHeight,
+    /// The current block hash.
+    #[cfg(feature = "protocol_feature_vm_hash")]
+    pub block_hash: BlockHash,
+    /// The previous block hash.
+    #[cfg(feature = "protocol_feature_vm_hash")]
+    pub prev_block_hash: BlockHash,
     /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     #[serde(with = "u64_dec_format")]
     pub block_timestamp: u64,
     /// The current epoch height.
     pub epoch_height: EpochHeight,
-
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.
     #[serde(with = "crate::serde_with::u128_dec_format_compatible")]

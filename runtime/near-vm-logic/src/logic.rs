@@ -2,6 +2,8 @@ use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
+#[cfg(feature = "protocol_feature_vm_hash")]
+use crate::types::BlockHash;
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
@@ -626,6 +628,28 @@ impl<'a> VMLogic<'a> {
     pub fn block_index(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         Ok(self.context.block_index)
+    }
+
+    /// Returns the current block hash.
+    ///
+    /// # Cost
+    ///
+    /// `base`
+    #[cfg(feature = "protocol_feature_vm_hash")]
+    pub fn block_hash(&mut self) -> Result<BlockHash> {
+        self.gas_counter.pay_base(base)?;
+        Ok(self.context.block_hash)
+    }
+
+    /// Returns the previous block hash.
+    ///
+    /// # Cost
+    ///
+    /// `base`
+    #[cfg(feature = "protocol_feature_vm_hash")]
+    pub fn prev_block_hash(&mut self) -> Result<BlockHash> {
+        self.gas_counter.pay_base(base)?;
+        Ok(self.context.prev_block_hash)
     }
 
     /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).

@@ -67,4 +67,11 @@ protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "near-chain-configs/protocol_feature_evm",
                         "node-runtime/protocol_feature_evm",
                         "near-primitives/protocol_feature_evm",
-                        "testlib/protocol_feature_evm"]
+                        "testlib/protocol_feature_evm",
+]
+protocol_feature_vm_hash = [
+    "near-vm-logic/protocol_feature_vm_hash",
+    "near-evm-runner/protocol_feature_vm_hash",
+    "near-vm-runner/protocol_feature_vm_hash",
+    "node-runtime/protocol_feature_vm_hash",
+]

@@ -51,6 +51,7 @@ near-crypto = { path = "../../core/crypto" }
 
 [features]
 protocol_feature_evm = ["near-vm-logic/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-errors/protocol_feature_alt_bn128"]
+protocol_feature_vm_hash = ["near-vm-logic/protocol_feature_vm_hash"]
 
 [[test]]
 name = "failures"
