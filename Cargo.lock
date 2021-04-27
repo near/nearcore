@@ -3225,6 +3225,7 @@ version = "0.8.1"
 dependencies = [
  "actix",
  "futures",
+ "near-chain-configs",
  "near-client",
  "near-crypto",
  "near-primitives",
