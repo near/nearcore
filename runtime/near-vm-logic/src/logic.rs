@@ -1,9 +1,9 @@
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
-use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 #[cfg(feature = "protocol_feature_vm_hash")]
 use crate::types::BlockHash;
+use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
@@ -24,8 +24,6 @@ use near_vm_errors::{HostError, VMLogicError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
-#[cfg(feature = "protocol_feature_vm_hash")]
-use sha2::Sha256;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 

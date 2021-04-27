@@ -1,12 +1,11 @@
 use crate::types::PublicKey;
 use near_primitives_core::serialize::u64_dec_format;
+#[cfg(feature = "protocol_feature_vm_hash")]
+use near_primitives_core::types::BlockHash;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
 };
-#[cfg(feature = "protocol_feature_vm_hash")]
-use near_primitives_core::types::BlockHash;
 use serde::{Deserialize, Serialize};
-use near_primitives::hash::CryptoHash;
 
 #[derive(Serialize, Deserialize, Clone)]
 /// Context for the contract execution.
