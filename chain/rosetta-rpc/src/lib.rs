@@ -383,8 +383,7 @@ async fn account_balance(
                     code_hash: Default::default(),
                     storage_usage: 0,
                     storage_paid_at: 0,
-                }
-                .into(),
+                },
             ),
             Err(err) => return Err(err.into()),
         };
