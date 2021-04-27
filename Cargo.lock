@@ -2990,7 +2990,8 @@ dependencies = [
 name = "near-actix-test-utils"
 version = "0.1.0"
 dependencies = [
- "actix",
+ "actix-rt",
+ "futures",
 ]
 
 [[package]]
@@ -3165,6 +3166,7 @@ dependencies = [
  "chrono",
  "log",
  "near-chain",
+ "near-chain-configs",
  "near-crypto",
  "near-primitives",
  "near-store",
@@ -3222,6 +3224,7 @@ version = "0.8.1"
 dependencies = [
  "actix",
  "futures",
+ "near-chain-configs",
  "near-client",
  "near-crypto",
  "near-primitives",
@@ -3591,6 +3594,7 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
+ "near-primitives",
  "near-primitives-core",
  "near-runtime-utils",
  "near-vm-errors",

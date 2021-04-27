@@ -219,6 +219,7 @@ impl TrieViewer {
             current_protocol_version: view_state.current_protocol_version,
             config: config.clone(),
             cache: view_state.cache,
+            is_new_chunk: false,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
             profile: Default::default(),
@@ -264,12 +265,12 @@ impl TrieViewer {
             Err(errors::CallFunctionError::VMError { error_message: message })
         } else {
             let outcome = outcome.unwrap();
-            debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
+            debug!(target: "runtime", "(exec time {}) result of execution: {:?}", time_str, outcome);
             logs.extend(outcome.logs);
-            let mut result = vec![];
-            if let ReturnData::Value(buf) = &outcome.return_data {
-                result = buf.clone();
-            }
+            let result = match outcome.return_data {
+                ReturnData::Value(buf) => buf,
+                ReturnData::ReceiptIndex(_) | ReturnData::None => vec![],
+            };
             Ok(result)
         }
     }

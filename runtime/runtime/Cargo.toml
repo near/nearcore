@@ -53,6 +53,7 @@ protocol_feature_alt_bn128 = [
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
 protocol_feature_tx_size_limit = []
+protocol_feature_allow_create_account_on_delete = ["near-primitives/protocol_feature_allow_create_account_on_delete", "near-vm-logic/protocol_feature_allow_create_account_on_delete"]
 
 [dev-dependencies]
 tempfile = "3"

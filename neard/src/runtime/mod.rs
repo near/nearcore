@@ -1,8 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::convert::TryInto;
-use std::fs::File;
-use std::io::Read;
+use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -59,9 +57,6 @@ use node_runtime::{
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_primitives::runtime::config::RuntimeConfig;
-
-#[cfg(feature = "protocol_feature_rectify_inflation")]
-use near_epoch_manager::NUM_SECONDS_IN_A_YEAR;
 
 use errors::FromStateViewerErrors;
 
@@ -150,38 +145,8 @@ impl NightshadeRuntime {
         let genesis_config = genesis.config.clone();
         let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
-        let initial_epoch_config = EpochConfig {
-            epoch_length: genesis.config.epoch_length,
-            num_shards,
-            num_block_producer_seats: genesis.config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: genesis
-                .config
-                .num_block_producer_seats_per_shard
-                .clone(),
-            avg_hidden_validator_seats_per_shard: genesis
-                .config
-                .avg_hidden_validator_seats_per_shard
-                .clone(),
-            block_producer_kickout_threshold: genesis.config.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: genesis.config.chunk_producer_kickout_threshold,
-            fishermen_threshold: genesis.config.fishermen_threshold,
-            online_min_threshold: genesis.config.online_min_threshold,
-            online_max_threshold: genesis.config.online_max_threshold,
-            protocol_upgrade_num_epochs: genesis.config.protocol_upgrade_num_epochs,
-            protocol_upgrade_stake_threshold: genesis.config.protocol_upgrade_stake_threshold,
-            minimum_stake_divisor: genesis.config.minimum_stake_divisor,
-        };
-        let reward_calculator = RewardCalculator {
-            max_inflation_rate: genesis.config.max_inflation_rate,
-            num_blocks_per_year: genesis.config.num_blocks_per_year,
-            epoch_length: genesis.config.epoch_length,
-            protocol_reward_rate: genesis.config.protocol_reward_rate,
-            protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
-            online_max_threshold: genesis.config.online_max_threshold,
-            online_min_threshold: genesis.config.online_min_threshold,
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
-            num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
-        };
+        let initial_epoch_config = EpochConfig::from(&genesis_config);
+        let reward_calculator = RewardCalculator::new(&genesis_config);
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let tries = ShardTries::new(
@@ -194,21 +159,7 @@ impl NightshadeRuntime {
                 initial_epoch_config,
                 genesis_config.protocol_version,
                 reward_calculator,
-                genesis_config
-                    .validators
-                    .iter()
-                    .map(|account_info| {
-                        ValidatorStake::new(
-                            account_info.account_id.clone(),
-                            account_info
-                                .public_key
-                                .clone()
-                                .try_into()
-                                .expect("Failed to deserialize validator public key"),
-                            account_info.amount,
-                        )
-                    })
-                    .collect(),
+                genesis_config.validators(),
             )
             .expect("Failed to start Epoch Manager"),
         ));
@@ -248,9 +199,7 @@ impl NightshadeRuntime {
         store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
         let mut roots_files = home_dir.to_path_buf();
         roots_files.push(GENESIS_ROOTS_FILE);
-        let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
-        let mut data = vec![];
-        file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
+        let data = fs::read(roots_files).expect("Failed to read genesis roots file.");
         let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
         state_roots
@@ -375,6 +324,7 @@ impl NightshadeRuntime {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
@@ -462,6 +412,7 @@ impl NightshadeRuntime {
                 current_protocol_version,
             ),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
+            is_new_chunk,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
             profile: Default::default(),
@@ -1161,7 +1112,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             #[cfg(feature = "protocol_feature_rectify_inflation")]
             block_header_info.timestamp_nanosec,
         );
-        let rng_seed = (block_header_info.random_value.0).0;
+        let rng_seed = block_header_info.random_value.0;
         epoch_manager.record_block_info(block_info, rng_seed).map_err(|err| err.into())
     }
 
@@ -1181,6 +1132,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         challenges: &ChallengesResult,
         random_seed: CryptoHash,
         generate_storage_proof: bool,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id);
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
@@ -1199,6 +1151,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_limit,
             challenges,
             random_seed,
+            is_new_chunk,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e.kind() {
@@ -1226,6 +1179,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         challenges: &ChallengesResult,
         random_value: CryptoHash,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Trie::from_recorded_storage(partial_storage);
         self.process_state_update(
@@ -1243,6 +1197,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_limit,
             challenges,
             random_value,
+            is_new_chunk,
         )
     }
 
@@ -1643,6 +1598,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 #[cfg(test)]
 mod test {
     use std::collections::BTreeSet;
+    use std::convert::TryInto;
 
     use num_rational::Rational;
 
@@ -1716,6 +1672,7 @@ mod test {
                     gas_limit,
                     challenges,
                     CryptoHash::default(),
+                    true,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -2469,7 +2426,8 @@ mod test {
                 )
                 .into()],
                 prev_epoch_kickout: Default::default(),
-                epoch_start_height: 1
+                epoch_start_height: 1,
+                epoch_height: 1,
             }
         );
         env.step_default(vec![]);
