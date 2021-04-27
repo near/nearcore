@@ -267,7 +267,7 @@ impl GenesisRecords {
 }
 
 pub struct GenesisJsonHasher {
-    pub digest: sha2::Sha256,
+    digest: sha2::Sha256,
 }
 
 impl GenesisJsonHasher {
