@@ -18,8 +18,7 @@ pub type Nonce = u64;
 pub type BlockHeight = u64;
 /// Height of the epoch.
 pub type EpochHeight = u64;
-/// Block hash.
-#[cfg(feature = "protocol_feature_vm_hash")]
+/// The hash of a block.
 pub type BlockHash = [u8; 32];
 /// Shard index, from 0 to NUM_SHARDS - 1.
 pub type ShardId = u64;
