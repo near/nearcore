@@ -36,7 +36,7 @@ default = []
 protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["bn", "near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
 protocol_feature_allow_create_account_on_delete = []
-protocol_feature_vm_hash = []
+protocol_feature_vm_hash = ["near-primitives-core/protocol_feature_vm_hash", "near-primitives/protocol_feature_vm_hash"]
 
 wasmer0_default = []
 wasmtime_default = []

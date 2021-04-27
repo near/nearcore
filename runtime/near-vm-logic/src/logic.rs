@@ -24,6 +24,7 @@ use near_vm_errors::{HostError, VMLogicError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
+use sha2::Sha256;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
