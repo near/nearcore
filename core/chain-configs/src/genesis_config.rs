@@ -304,6 +304,10 @@ impl Genesis {
         genesis
     }
 
+    pub fn new_as_is(config: GenesisConfig, records: GenesisRecords) -> Self {
+        Self { config, records, phantom: PhantomData }
+    }
+
     /// Reads Genesis from a single file.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
