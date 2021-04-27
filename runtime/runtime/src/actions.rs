@@ -846,12 +846,14 @@ fn migrate_account(
     ) && account.version() == V1
     {
         account.set_version(V2);
-        if is_mainnet && STORAGE_USAGE_DELTA_FROM_FILE.contains_key(account_id) {
-            account.set_storage_usage(
-                account
-                    .storage_usage()
-                    .saturating_add(*STORAGE_USAGE_DELTA_FROM_FILE.get(account_id).unwrap()),
-            );
+        if is_mainnet {
+            if let Some(storage_usage_delta) = STORAGE_USAGE_DELTA_FROM_FILE.get(account_id) {
+                account.set_storage_usage(
+                    account
+                        .storage_usage()
+                        .saturating_add(*storage_usage_delta),
+                );
+            }
         }
     }
 }
