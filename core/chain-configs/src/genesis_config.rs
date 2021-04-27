@@ -11,6 +11,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
+use serde_json::Serializer;
 use smart_default::SmartDefault;
 
 use near_primitives::epoch_manager::EpochConfig;
@@ -27,6 +28,7 @@ use near_primitives::{
     },
     version::ProtocolVersion,
 };
+use sha2::digest::Digest;
 use std::convert::TryInto;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
@@ -264,6 +266,37 @@ impl GenesisRecords {
     }
 }
 
+pub struct GenesisJsonHasher {
+    digest: sha2::Sha256,
+}
+
+impl GenesisJsonHasher {
+    pub fn new() -> Self {
+        Self { digest: sha2::Sha256::new() }
+    }
+
+    pub fn process_config(&mut self, config: &GenesisConfig) {
+        let mut ser = Serializer::pretty(&mut self.digest);
+        config.serialize(&mut ser).expect("Error serializing the genesis config.");
+    }
+
+    pub fn process_record(&mut self, record: &StateRecord) {
+        let mut ser = Serializer::pretty(&mut self.digest);
+        record.serialize(&mut ser).expect("Error serializing the genesis record.");
+    }
+
+    pub fn process_genesis(&mut self, genesis: &Genesis) {
+        self.process_config(&genesis.config);
+        for record in genesis.records.as_ref() {
+            self.process_record(record)
+        }
+    }
+
+    pub fn finalize(self) -> CryptoHash {
+        CryptoHash(self.digest.finalize().into())
+    }
+}
+
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
         let mut genesis = Self { config, records, phantom: PhantomData };
@@ -300,11 +333,9 @@ impl Genesis {
     /// Hash of the json-serialized input.
     /// DEVNOTE: the representation is not unique, and could change on upgrade.
     pub fn json_hash(&self) -> CryptoHash {
-        use sha2::digest::Digest;
-        let mut digest = sha2::Sha256::new();
-        serde_json::to_writer_pretty(&mut digest, self)
-            .expect("Error serializing the genesis config.");
-        CryptoHash(digest.finalize().into())
+        let mut hasher = GenesisJsonHasher::new();
+        hasher.process_genesis(self);
+        hasher.finalize()
     }
 }
 
