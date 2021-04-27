@@ -9,6 +9,10 @@ pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
         predecessor_account_id: "carol.near".to_string(),
         input,
         block_index: 0,
+        #[cfg(feature = "protocol_feature_vm_hash")]
+        block_hash: [0u8; 32],
+        #[cfg(feature = "protocol_feature_vm_hash")]
+        prev_block_hash: [0u8; 32],
         block_timestamp: 0,
         epoch_height: 0,
         account_balance: 100,

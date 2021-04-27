@@ -12,6 +12,10 @@ pub fn create_context() -> VMContext {
         predecessor_account_id: "carol".to_owned(),
         input: vec![0, 1, 2, 3, 5],
         block_index: 10,
+        #[cfg(feature = "protocol_feature_vm_hash")]
+        block_hash: [0u8; 32],
+        #[cfg(feature = "protocol_feature_vm_hash")]
+        prev_block_hash: [0u8; 32],
         block_timestamp: 42,
         epoch_height: 1,
         account_balance: 2u128,
