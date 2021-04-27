@@ -24,8 +24,8 @@ use crate::migrations::{migrate_12_to_13, migrate_18_to_19, migrate_19_to_20};
 pub use crate::runtime::NightshadeRuntime;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_6_to_7,
-    migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
+    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
+    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -204,8 +204,13 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
     }
     if db_version <= 20 {
         info!(target: "near", "Migrate DB from version 20 to 21");
-        // version 20 => 21: rectify inflation: add `timestamp` to `BlockInfo`
+        // version 20 => 21: delete genesis json hash due to change in Genesis::json_hash function
         migrate_20_to_21(&path);
+    }
+    if db_version <= 21 {
+        info!(target: "near", "Migrate DB from version 21 to 22");
+        // version 21 => 22: rectify inflation: add `timestamp` to `BlockInfo`
+        migrate_21_to_22(&path);
     }
     #[cfg(feature = "nightly_protocol")]
     {

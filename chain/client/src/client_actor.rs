@@ -347,6 +347,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::BlockApproval(approval, peer_id) => {
+                debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
                 self.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
                 NetworkClientResponses::NoResponse
             }

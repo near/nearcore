@@ -1,5 +1,5 @@
 # Spins up four nodes, and alternates [test1, test2] and [test3, test4] as block producers every epoch
-# Makes sure that before the epoch switch eash block is signed by all four
+# Makes sure that before the epoch switch each block is signed by all four
 
 import sys, time, base58, random, datetime
 
@@ -16,10 +16,13 @@ config = None
 nodes = start_cluster(
     2, 2, 1, config,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 40]],
-    {0: {"view_client_throttle_period": {"secs": 0, "nanos": 0}},
-     1: {"view_client_throttle_period": {"secs": 0, "nanos": 0}}, 2: {
-        "tracked_shards": [0]
-    }})
+    {0: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+     1: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+     2: {
+        "tracked_shards": [0], "view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}
+    },
+    3: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}}
+    })
 
 started = time.time()
 
@@ -53,7 +56,7 @@ epoch_switch_height = -2
 while True:
     assert time.time() - started < TIMEOUT
 
-    status = nodes[0].get_status()
+    status = nodes[0].get_status(check_storage=False)
     hash_ = status['sync_info']['latest_block_hash']
     block = nodes[0].get_block(hash_)
     epoch_id = block['result']['header']['epoch_id']
@@ -92,6 +95,14 @@ while True:
     if epoch_id not in seen_epochs:
         seen_epochs.add(epoch_id)
 
+        while len(seen_epochs) > 1:
+            prev_block = nodes[0].get_block(block['result']['header']['prev_hash'])
+            print(prev_block)
+            if prev_block['result']['header']['epoch_id'] != block['result']['header']['epoch_id']:
+                height = block['result']['header']['height']
+                break
+            block = prev_block
+
         print("EPOCH %s, VALS %s" % (epoch_id, get_validators()))
 
         if len(seen_epochs) > 2:  # the first two epochs share the validator set
@@ -118,5 +129,6 @@ while True:
         epoch_switch_height = height
 
     prev_hash = hash_
+    time.sleep(0.1)
 
 assert len(seen_epochs) > 3

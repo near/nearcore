@@ -13,7 +13,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
 use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts};
-use crate::db::{DBCol, RocksDB, VERSION_KEY};
+use crate::db::{DBCol, RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
@@ -633,6 +633,15 @@ pub fn migrate_17_to_18(path: &String) {
 }
 
 pub fn migrate_20_to_21(path: &String) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    store_update.delete(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY);
+    store_update.commit().unwrap();
+
+    set_store_version(&store, 21);
+}
+
+pub fn migrate_21_to_22(path: &String) {
     use near_primitives::epoch_manager::BlockInfoV1;
     use near_primitives::epoch_manager::SlashState;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
@@ -694,7 +703,7 @@ pub fn migrate_20_to_21(path: &String) {
         }
     })
     .unwrap();
-    set_store_version(&store, 21);
+    set_store_version(&store, 22);
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
