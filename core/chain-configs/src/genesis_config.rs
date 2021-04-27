@@ -3,14 +3,16 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
+use std::fmt;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read};
 use std::marker::PhantomData;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use num_rational::Rational;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use smart_default::SmartDefault;
 
@@ -264,6 +266,87 @@ impl GenesisRecords {
         )
         .expect("Failed to create / write a genesis records file.");
     }
+}
+
+/// Visitor for records
+/// Reads records one by one and passes them to sink
+struct RecordsProcessor<F> {
+    sink: F,
+}
+
+impl<'de, F: FnMut(StateRecord)> Visitor<'de> for RecordsProcessor<&'_ mut F> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("array of StateRecord")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        while let Some(record) = seq.next_element::<StateRecord>()? {
+            (self.sink)(record)
+        }
+        Ok(())
+    }
+}
+
+impl<'de, F: FnMut(StateRecord)> DeserializeSeed<'de> for RecordsProcessor<&'_ mut F> {
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(self)
+    }
+}
+
+/// Visitor for Genesis
+/// Processes records field with records_processor
+/// IGNORES OTHER FIELDS
+struct GenesisRecordsProcessor<F> {
+    records_processor: RecordsProcessor<F>,
+}
+
+impl<'de, F: FnMut(StateRecord)> Visitor<'de> for GenesisRecordsProcessor<&'_ mut F> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("map with records field which is array of StateRecord")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "records" => {
+                    map.next_value_seed(self.records_processor)?;
+                    return Ok(());
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        Err(de::Error::custom("missing field: records"))
+    }
+}
+
+pub fn stream_records_from_records_file(reader: impl Read, mut callback: impl FnMut(StateRecord)) {
+    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    let records_processor = RecordsProcessor { sink: &mut callback };
+    deserializer.deserialize_seq(records_processor).expect("error while processing records");
+}
+
+pub fn stream_records_from_genesis_file(reader: impl Read, mut callback: impl FnMut(StateRecord)) {
+    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    let genesis_processor =
+        GenesisRecordsProcessor { records_processor: RecordsProcessor { sink: &mut callback } };
+    deserializer.deserialize_map(genesis_processor).expect("error while processing records");
 }
 
 pub struct GenesisJsonHasher {
