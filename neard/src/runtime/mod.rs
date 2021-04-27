@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
+use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -200,9 +199,7 @@ impl NightshadeRuntime {
         store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
         let mut roots_files = home_dir.to_path_buf();
         roots_files.push(GENESIS_ROOTS_FILE);
-        let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
-        let mut data = vec![];
-        file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
+        let data = fs::read(roots_files).expect("Failed to read genesis roots file.");
         let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
         state_roots
