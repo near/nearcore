@@ -9,7 +9,7 @@ use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::migrations::set_store_version;
-use near_store::{create_store, DBCol, StoreUpdate};
+use near_store::{create_store, db::GENESIS_JSON_HASH_KEY, DBCol, StoreUpdate};
 use std::path::Path;
 
 fn get_chunk(chain_store: &ChainStore, chunk_hash: ChunkHash) -> ShardChunkV1 {
@@ -256,4 +256,13 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     }
 
     set_store_version(&store, 20);
+}
+
+pub fn migrate_20_to_21(path: &String) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    store_update.delete(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY);
+    store_update.commit().unwrap();
+
+    set_store_version(&store, 21);
 }

@@ -20,7 +20,7 @@ use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
-use crate::migrations::{migrate_12_to_13, migrate_18_to_19, migrate_19_to_20};
+use crate::migrations::{migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_20_to_21};
 pub use crate::runtime::NightshadeRuntime;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
@@ -202,6 +202,11 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         info!(target: "near", "Migrate DB from version 19 to 20");
         // version 19 => 20: fix execution outcome
         migrate_19_to_20(&path, &near_config);
+    }
+    if db_version <= 20 {
+        info!(target: "near", "Migrate DB from version 20 to 21");
+        // version 20 => 21: delete genesis json hash due to change in Genesis::json_hash function
+        migrate_20_to_21(&path);
     }
     #[cfg(feature = "protocol_feature_rectify_inflation")]
     if db_version <= 18 {
