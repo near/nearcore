@@ -1,10 +1,10 @@
-use std::io::Error;
-use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
-use near_store::create_store;
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
-use std::path::Path;
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::receipt::Receipt;
+use near_store::create_store;
+use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
+use std::io::Error;
+use std::path::Path;
 
 fn main() -> Result<(), Error> {
     println!("Start");
@@ -27,7 +27,7 @@ fn main() -> Result<(), Error> {
     let mut receipts_missing: Vec<Receipt> = vec![];
     // First and last heights for which lost receipts were observed
     let height_first: u64 = 34691244;
-    let height_last: u64 = 34691344; //35812045;
+    let height_last: u64 = 35812045; // TODO find
     for height in height_first..height_last {
         let block_hash_result = chain_store.get_block_hash_by_height(height);
         if block_hash_result.is_err() {
@@ -64,13 +64,14 @@ fn main() -> Result<(), Error> {
             )
             .unwrap();
 
-        let receipts_missing_after_apply: Vec<Receipt> = apply_result.receipt_result.values().cloned().into_iter().flatten().collect();
+        let receipts_missing_after_apply: Vec<Receipt> =
+            apply_result.receipt_result.values().cloned().into_iter().flatten().collect();
         receipts_missing.extend(receipts_missing_after_apply.into_iter());
         println!("{} applied", height);
     }
 
     let bytes = receipts_missing.try_to_vec().unwrap();
-    std::fs::write("./utils/restored-receipts-verifier/receipts_missing.dat", bytes);
+    std::fs::write("./utils/restored-receipts-verifier/receipts_missing.borsh", bytes);
 
     Ok(())
 }
