@@ -394,8 +394,15 @@ impl GenesisJsonHasher {
 
     pub fn process_genesis(&mut self, genesis: &Genesis) {
         self.process_config(&genesis.config);
-        for record in genesis.records.as_ref() {
-            self.process_record(record)
+        if !genesis.records.as_ref().is_empty() {
+            for record in genesis.records.as_ref() {
+                self.process_record(record);
+            }
+        } else {
+            let callback = |record: StateRecord| {
+                self.process_record(&record);
+            };
+            genesis.stream_records_with_callback(callback);
         }
     }
 
