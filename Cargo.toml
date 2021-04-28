@@ -44,7 +44,8 @@ members = [
     "genesis-tools/keypair-generator",
     "tools/restaked",
     "tools/indexer/example",
-    "tools/delay_detector"
+    "tools/delay_detector",
+    "utils/restored-receipts-verifier"
 ]
 
 [dev-dependencies]
