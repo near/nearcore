@@ -196,7 +196,7 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
 
 pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
-    if near_config.client_config.archive {
+    if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
