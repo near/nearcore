@@ -13,7 +13,10 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, GenesisRecords, LogSummaryStyle};
+use near_chain_configs::{
+    ClientConfig, Genesis, GenesisConfig, GenesisRecords, GenesisRecordsFile,
+    GenesisRecordsFileType, LogSummaryStyle,
+};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -1050,6 +1053,18 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
+    let genesis_records_file =
+        if let Some(ref genesis_records_file_path) = config.genesis_records_file {
+            GenesisRecordsFile {
+                path: dir.join(genesis_records_file_path),
+                file_type: GenesisRecordsFileType::RecordsArray,
+            }
+        } else {
+            GenesisRecordsFile {
+                path: dir.join(&config.genesis_file),
+                file_type: GenesisRecordsFileType::FullGenesis,
+            }
+        };
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
         let signer =
             Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))
@@ -1061,7 +1076,7 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     let network_signer = InMemorySigner::from_file(&dir.join(&config.node_key_file));
     NearConfig::new(
         config,
-        Genesis::new_as_is(genesis_config, GenesisRecords(vec![])),
+        Genesis::new_as_is(genesis_config, GenesisRecords(vec![]), genesis_records_file),
         (&network_signer).into(),
         validator_signer,
     )

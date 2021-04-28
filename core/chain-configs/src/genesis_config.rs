@@ -7,7 +7,7 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::marker::PhantomData;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use num_rational::Rational;
@@ -177,11 +177,29 @@ impl From<&GenesisConfig> for EpochConfig {
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
+#[derive(Debug, Copy, Clone)]
+pub enum GenesisRecordsFileType {
+    FullGenesis,
+    RecordsArray,
+}
+
+#[derive(Debug, Clone)]
+pub struct GenesisRecordsFile {
+    pub path: PathBuf,
+    pub file_type: GenesisRecordsFileType,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
     pub records: GenesisRecords,
+    /// Genesis object may not contain records
+    /// In this case records can be found in records_file
+    /// The idea is that all records consume too much memory
+    /// So they should be processed in streaming fashion with stream_records_with_callback
+    #[serde(skip)]
+    pub records_file: GenesisRecordsFile,
     /// Using zero-size PhantomData is a Rust pattern preventing a structure being constructed
     /// without calling `new` method, which has some initialization routine.
     #[serde(skip)]
@@ -265,6 +283,12 @@ impl GenesisRecords {
             serde_json::to_vec_pretty(self).expect("Error serializing the genesis records."),
         )
         .expect("Failed to create / write a genesis records file.");
+    }
+}
+
+impl Default for GenesisRecordsFile {
+    fn default() -> Self {
+        GenesisRecordsFile { path: PathBuf::new(), file_type: GenesisRecordsFileType::FullGenesis }
     }
 }
 
@@ -382,13 +406,22 @@ impl GenesisJsonHasher {
 
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
-        let mut genesis = Self { config, records, phantom: PhantomData };
+        let mut genesis = Self {
+            config,
+            records,
+            records_file: GenesisRecordsFile::default(),
+            phantom: PhantomData,
+        };
         genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
         genesis
     }
 
-    pub fn new_as_is(config: GenesisConfig, records: GenesisRecords) -> Self {
-        Self { config, records, phantom: PhantomData }
+    pub fn new_as_is(
+        config: GenesisConfig,
+        records: GenesisRecords,
+        records_file: GenesisRecordsFile,
+    ) -> Self {
+        Self { config, records, records_file, phantom: PhantomData }
     }
 
     /// Reads Genesis from a single file.
@@ -423,6 +456,20 @@ impl Genesis {
         let mut hasher = GenesisJsonHasher::new();
         hasher.process_genesis(self);
         hasher.finalize()
+    }
+
+    pub fn stream_records_with_callback(&self, callback: impl FnMut(StateRecord)) {
+        let reader = BufReader::new(
+            File::open(&self.records_file.path).expect("could not open genesis records file"),
+        );
+        match &self.records_file.file_type {
+            GenesisRecordsFileType::FullGenesis => {
+                stream_records_from_genesis_file(reader, callback);
+            }
+            GenesisRecordsFileType::RecordsArray => {
+                stream_records_from_records_file(reader, callback);
+            }
+        }
     }
 }
 
