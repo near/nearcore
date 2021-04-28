@@ -133,7 +133,7 @@ impl TrieViewer {
                     .map(|c| c.code.len() as u64)
                     .unwrap_or_default();
                 if let Some(limit) = self.state_size_limit {
-                    if account.storage_usage() - code_len > limit {
+                    if account.storage_usage().saturating_sub(code_len) > limit {
                         return Err(errors::ViewStateError::AccountStateTooLarge {
                             requested_account_id: account_id.clone(),
                         });
