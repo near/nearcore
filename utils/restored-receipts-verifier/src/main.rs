@@ -25,7 +25,10 @@ fn main() -> Result<(), Error> {
     );
 
     let mut receipts_missing: Vec<Receipt> = vec![];
-    for height in 34691244..35812045 {
+    // First and last heights for which lost receipts were observed
+    let height_first: u64 = 34691244;
+    let height_last: u64 = 34691344; //35812045;
+    for height in height_first..height_last {
         let block_hash_result = chain_store.get_block_hash_by_height(height);
         if block_hash_result.is_err() {
             println!("{} does not exist, skip", height);
