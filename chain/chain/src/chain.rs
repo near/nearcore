@@ -2929,18 +2929,7 @@ impl<'a> ChainUpdate<'a> {
 
                     self.chain_store_update.save_chunk_extra(&block.hash(), shard_id, new_extra);
 
-                    if !apply_result.outcomes.is_empty() {
-                        // debug_assert!(false);
-                        // Remove in next release
-                        let (_, outcome_paths) =
-                            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-                        self.chain_store_update.save_outcomes_with_proofs(
-                            &block.hash(),
-                            shard_id,
-                            apply_result.outcomes,
-                            outcome_paths,
-                        );
-                    }
+                    debug_assert!(protocol_version < ProtocolFeature::FixApplyChunks.protocol_version() || apply_result.outcomes.is_empty());
                 }
             }
         }
