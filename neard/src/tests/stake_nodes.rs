@@ -19,11 +19,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use neard::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
 use testlib::{genesis_hash, test_helpers::heavy_test};
 
 use {near_primitives::types::BlockId, primitive_types::U256};
+
+use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use crate::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
 
 #[derive(Clone)]
 struct TestNode {

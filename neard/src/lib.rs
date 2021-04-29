@@ -39,6 +39,9 @@ mod migrations;
 mod runtime;
 mod shard_tracker;
 
+#[cfg(test)]
+mod tests;
+
 const STORE_PATH: &str = "data";
 
 pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {

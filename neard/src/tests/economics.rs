@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use num_rational::Rational;
 
+use crate::config::GenesisExt;
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -11,7 +12,6 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_store::test_utils::create_test_store;
-use neard::config::GenesisExt;
 use testlib::fees_utils::FeeHelper;
 
 use primitive_types::U256;
@@ -25,7 +25,7 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
         genesis.config.runtime_config.transaction_costs.clone(),
         genesis.config.min_gas_price,
     );
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(crate::NightshadeRuntime::new(
         Path::new("."),
         store1,
         &genesis,

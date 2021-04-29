@@ -23,11 +23,10 @@ use near_primitives::types::{BlockId, BlockReference, Finality, TransactionOrRec
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
 };
-use neard::config::TESTING_INIT_BALANCE;
 use testlib::genesis_block;
 
-mod node_cluster;
-use node_cluster::NodeCluster;
+use crate::config::TESTING_INIT_BALANCE;
+use crate::tests::NodeCluster;
 
 macro_rules! panic_on_rpc_error {
     ($e:expr) => {
