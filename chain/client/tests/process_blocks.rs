@@ -72,6 +72,7 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
                 genesis,
                 vec![],
                 vec![],
+                None,
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()
@@ -1717,6 +1718,7 @@ fn test_incorrect_validator_key_produce_block() {
         &genesis,
         vec![],
         vec![],
+        None,
     ));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "seed"));
     let mut config = ClientConfig::test(true, 10, 20, 2, false, true);
