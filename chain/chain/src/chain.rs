@@ -53,7 +53,6 @@ use near_primitives::types::{
     ShardId,
 };
 use near_primitives::unwrap_or_return;
-#[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
@@ -2737,11 +2736,14 @@ impl<'a> ChainUpdate<'a> {
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
+        // Re-introduce receipts missing before apply_chunks fix (see https://github.com/near/nearcore/pull/4228)
         if self.runtime_adapter.is_next_block_epoch_start(prev_block.hash()).unwrap_or(false)
-            && protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+            && protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
+        {
             let mut receipt_result = HashMap::default();
             let receipts_json = include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
-            let receipts = serde_json::from_str::<Vec<Receipt>>(receipts_json).expect("File with receipts restored after apply_chunks fix have to be correct");
+            let receipts = serde_json::from_str::<Vec<Receipt>>(receipts_json)
+                .expect("File with receipts restored after apply_chunks fix have to be correct");
             // let rxs_read = <Vec<Receipt>>::try_from_slice(bytes).unwrap();
             receipt_result.insert(0, receipts);
             self.chain_store_update.save_outgoing_receipt(&block.hash(), 0, receipt_result);
