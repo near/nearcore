@@ -66,6 +66,7 @@ impl GenesisBuilder {
             // there is no reason to track accounts or shards.
             vec![],
             vec![],
+            None,
         );
         Self {
             home_dir: home_dir.to_path_buf(),

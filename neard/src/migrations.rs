@@ -98,6 +98,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
             near_config.client_config.tracked_shards.clone(),
+            None,
         );
         let mut store_update = store.store_update();
         store_update.delete_all(DBCol::ColTransactionResult);
@@ -206,6 +207,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
             near_config.client_config.tracked_shards.clone(),
+            None,
         );
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.

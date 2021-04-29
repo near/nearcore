@@ -258,6 +258,7 @@ pub fn start_with_config(
         &config.genesis,
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),
+        config.client_config.trie_viewer_state_size_limit,
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
