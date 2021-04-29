@@ -1,12 +1,11 @@
 use clap::{App, Arg};
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptResult, RuntimeAdapter};
-use near_primitives::borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_FEATURES_TO_VERSION_MAPPING};
+use near_primitives::version::ProtocolFeature;
 use near_store::create_store;
 use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::Error;
 use std::iter::FromIterator;
 use std::path::Path;
@@ -70,7 +69,7 @@ fn main() -> Result<(), Error> {
         let apply_result = runtime
             .apply_transactions(
                 shard_id,
-                &chunk_extra.state_root,
+                chunk_extra.state_root(),
                 block.header().height(),
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
@@ -79,7 +78,7 @@ fn main() -> Result<(), Error> {
                 &[],
                 chunk_extra.validator_proposals(),
                 block.header().gas_price(),
-                chunk_extra.gas_limit,
+                chunk_extra.gas_limit(),
                 &block.header().challenges_result(),
                 *block.header().random_value(),
                 false,
