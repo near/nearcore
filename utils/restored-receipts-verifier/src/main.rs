@@ -40,22 +40,21 @@ fn main() -> Result<(), Error> {
 
     let mut receipts_missing: Vec<Receipt> = vec![];
     // First and last heights for which lost receipts were observed
-    let height_first: u64 = 34691244;
-    let mut height_last: u64 =
-        chain_store.get_latest_known().expect("Couldn't get upper bound for block height").height;
+    let height_first: u64 = 30691244; // 34691244;
+    let mut height_last: u64 = 35524259;
     // println!("{} -> {}", height_last, 34692244);
     // height_last = 34692244;
     for height in height_first..height_last {
         let block_hash_result = chain_store.get_block_hash_by_height(height);
         if block_hash_result.is_err() {
-            println!("{} does not exist, skip", height);
+            // println!("{} does not exist, skip", height);
             continue;
         }
         let block_hash = block_hash_result.unwrap();
 
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         if block.chunks()[shard_id as usize].height_included() == height {
-            println!("{} included, skip", height);
+            // println!("{} included, skip", height);
             continue;
         }
 
