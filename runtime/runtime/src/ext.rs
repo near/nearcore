@@ -14,7 +14,7 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, BlockHashProvider};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
@@ -35,6 +35,7 @@ pub struct RuntimeExt<'a> {
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
+    block_hash_provider: &'a dyn BlockHashProvider,
 }
 
 pub struct RuntimeExtValuePtr<'a>(TrieUpdateValuePtr<'a>);
@@ -62,6 +63,7 @@ impl<'a> RuntimeExt<'a> {
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        block_hash_provider: &'a dyn BlockHashProvider
     ) -> Self {
         RuntimeExt {
             trie_update,
@@ -77,6 +79,7 @@ impl<'a> RuntimeExt<'a> {
             last_block_hash,
             epoch_info_provider,
             current_protocol_version,
+            block_hash_provider,
         }
     }
 
@@ -383,5 +386,9 @@ impl<'a> External for RuntimeExt<'a> {
         self.epoch_info_provider
             .validator_total_stake(self.epoch_id, self.last_block_hash)
             .map_err(|e| ExternalError::ValidatorError(e).into())
+    }
+
+    fn block_hash(&self, block_height: BlockHeight) -> ExtResult<Option<CryptoHash>> {
+        self.block_hash_provider.block_hash(block_height).map_err(|_| ExternalError::StorageError(StorageError::StorageInternalError).into())
     }
 }

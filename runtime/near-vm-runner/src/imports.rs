@@ -206,6 +206,7 @@ wrapped_imports! {
     block_timestamp<[] -> [u64]>,
     epoch_height<[] -> [u64]>,
     storage_usage<[] -> [u64]>,
+    block_hash<[block_height: u64, register_id: u64] -> []>,
     // #################
     // # Economics API #
     // #################

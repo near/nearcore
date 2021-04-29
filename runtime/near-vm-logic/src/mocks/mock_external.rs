@@ -1,8 +1,9 @@
 use crate::{External, ValuePtr};
-use near_primitives_core::types::{AccountId, Balance, Gas};
+use near_primitives_core::types::{AccountId, Balance, BlockHeight, Gas};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use near_primitives::hash::CryptoHash;
 
 #[derive(Default, Clone)]
 /// Emulates the trie and the mock handling code.
@@ -210,6 +211,10 @@ impl External for MockedExternal {
 
     fn validator_total_stake(&self) -> Result<Balance> {
         Ok(self.validators.values().sum())
+    }
+
+    fn block_hash(&self, _block_height: BlockHeight) -> Result<Option<CryptoHash>> {
+        Ok(None)
     }
 }
 

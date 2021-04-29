@@ -696,6 +696,22 @@ impl<'a> VMLogic<'a> {
         Ok(self.current_storage_usage)
     }
 
+    /// Returns the block hash for the block at the given height (if any). It can
+    /// only return a result for the most recent 256 blocks.
+    ///
+    /// # Cost
+    ///
+    /// `base + storage_read_base + storage_read_key_byte * 8 + write_register_base + write_register_byte * 32
+    pub fn block_hash(&mut self, block_height: u64, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        // we assume that under the hood this is a DB read, where the block height
+        // is the key, and it is 64 bits = 8 bytes
+        self.gas_counter.pay_base(storage_read_base)?;
+        self.gas_counter.pay_per_byte(storage_read_key_byte, 8)?;
+        let result = self.ext.block_hash(block_height)?.unwrap_or_default();
+        self.internal_write_register(register_id, result.0.to_vec())
+    }
+
     // #################
     // # Economics API #
     // #################

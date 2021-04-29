@@ -205,6 +205,8 @@ impl TrieViewer {
             &view_state.block_hash,
             epoch_info_provider,
             view_state.current_protocol_version,
+            // TODO: what should this be?
+            &near_primitives::types::NullBlockHashProvider,
         );
         let config = Arc::new(RuntimeConfig::default());
         let apply_state = ApplyState {
@@ -225,6 +227,8 @@ impl TrieViewer {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
             profile: Default::default(),
+            // TODO: ?
+            block_hash_provider: Arc::new(near_primitives::types::NullBlockHashProvider),
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),

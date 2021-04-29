@@ -1,8 +1,9 @@
 //! External dependencies of the near-vm-logic.
 
 use crate::types::{PublicKey, ReceiptIndex};
-use near_primitives_core::types::{AccountId, Balance, Gas};
+use near_primitives_core::types::{AccountId, Balance, Gas, BlockHeight};
 use near_vm_errors::VMLogicError;
+use near_primitives::hash::CryptoHash;
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
@@ -481,4 +482,8 @@ pub trait External {
 
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
+
+    /// Meant to provide compatibility with Ethereum's BLOCKHASH op-code.
+    /// See `near_primitives::types::BlockHashProvider` for details.
+    fn block_hash(&self, block_height: BlockHeight) -> Result<Option<CryptoHash>>;
 }

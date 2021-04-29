@@ -397,6 +397,10 @@ impl NightshadeRuntime {
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
 
+        let block_hash_provider = near_store::StoreBlockHashProvider::new(
+            Arc::clone(&self.store),
+            block_height,
+        );
         let apply_state = ApplyState {
             block_index: block_height,
             prev_block_hash: *prev_block_hash,
@@ -417,6 +421,7 @@ impl NightshadeRuntime {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
             profile: Default::default(),
+            block_hash_provider: Arc::new(block_hash_provider),
         };
 
         let apply_result = self

@@ -986,3 +986,18 @@ pub trait EpochInfoProvider {
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
 }
+
+/// Meant to provide compatibility with Ethereum's BLOCKHASH op-code.
+/// Only the most recent 256 block heights can return a result, all other inputs will
+/// return `None`. If the requested height was skipped then `None` is returned in that case also.
+pub trait BlockHashProvider {
+    fn block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, std::io::Error>;
+}
+
+pub struct NullBlockHashProvider;
+
+impl BlockHashProvider for NullBlockHashProvider {
+    fn block_hash(&self, _height: BlockHeight) -> Result<Option<CryptoHash>, std::io::Error> {
+        Ok(None)
+    }
+}

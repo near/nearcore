@@ -73,6 +73,7 @@ impl StandaloneRuntime {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
+            block_hash_provider: Arc::new(near_primitives::types::NullBlockHashProvider),
         };
 
         Self {
