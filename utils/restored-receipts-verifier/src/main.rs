@@ -97,8 +97,8 @@ fn main() -> Result<(), Error> {
 
         let receipts_missing_after_apply: Vec<Receipt> =
             apply_result.receipt_result.values().cloned().into_iter().flatten().collect();
+        println!("{} applied, got {}", height, receipts_missing_after_apply.len());
         receipts_missing.extend(receipts_missing_after_apply.into_iter());
-        println!("{} applied", height);
     }
 
     // Temporary, to save to file
