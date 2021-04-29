@@ -394,16 +394,10 @@ impl GenesisJsonHasher {
 
     pub fn process_genesis(&mut self, genesis: &Genesis) {
         self.process_config(&genesis.config);
-        if !genesis.records.as_ref().is_empty() {
-            for record in genesis.records.as_ref() {
-                self.process_record(record);
-            }
-        } else {
-            let callback = |record: StateRecord| {
-                self.process_record(&record);
-            };
-            genesis.stream_records_with_callback(callback);
-        }
+        let callback = |record: &StateRecord| {
+            self.process_record(record);
+        };
+        genesis.process_records(callback);
     }
 
     pub fn finalize(self) -> CryptoHash {
@@ -476,6 +470,19 @@ impl Genesis {
             GenesisRecordsFileType::RecordsArray => {
                 stream_records_from_records_file(reader, callback);
             }
+        }
+    }
+
+    pub fn process_records(&self, mut callback: impl FnMut(&StateRecord)) {
+        if !self.records.as_ref().is_empty() {
+            for record in self.records.as_ref() {
+                callback(record);
+            }
+        } else {
+            let callback_move = |record: StateRecord| {
+                callback(&record);
+            };
+            self.stream_records_with_callback(callback_move);
         }
     }
 }
