@@ -23,7 +23,7 @@ use crate::validate::{
     validate_transactions_order,
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
-use crate::{metrics, DoomslugThresholdMode};
+use crate::{metrics, DoomslugThresholdMode, ReceiptResult};
 
 use near_chain_primitives::error::{Error, ErrorKind, LogTransientStorageError};
 use near_primitives::block::{genesis_chunks, Tip};
@@ -2733,19 +2733,19 @@ impl<'a> ChainUpdate<'a> {
             Some(&block.hash()),
         )?;
         self.chain_store_update.save_block_extra(&block.hash(), BlockExtra { challenges_result });
+        let prev_protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(prev_block.header().epoch_id())?;
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
         // Re-introduce receipts missing before apply_chunks fix (see https://github.com/near/nearcore/pull/4228)
         if self.runtime_adapter.is_next_block_epoch_start(prev_block.hash()).unwrap_or(false)
-            && protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
+            && prev_protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
+            && ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() <= protocol_version
         {
-            let mut receipt_result = HashMap::default();
-            let receipts_json = include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
-            let receipts = serde_json::from_str::<Vec<Receipt>>(receipts_json)
+            let receipt_result_json = include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
+            let receipt_result = serde_json::from_str::<ReceiptResult>(receipt_result_json)
                 .expect("File with receipts restored after apply_chunks fix have to be correct");
-            // let rxs_read = <Vec<Receipt>>::try_from_slice(bytes).unwrap();
-            receipt_result.insert(0, receipts);
             self.chain_store_update.save_outgoing_receipt(&block.hash(), 0, receipt_result);
         }
 

@@ -57,7 +57,7 @@ fn main() -> Result<(), Error> {
             continue;
         }
 
-        if runtime.get_epoch_protocol_version(block.header().epoch_id()) >= ProtocolFeature::FixApplyChunks.protocol_version() {
+        if runtime.get_epoch_protocol_version(block.header().epoch_id()).unwrap() >= ProtocolFeature::FixApplyChunks.protocol_version() {
             println!(
                 "Found block height {} for which apply_chunks was already fixed. Stopping the loop...",
                 height
