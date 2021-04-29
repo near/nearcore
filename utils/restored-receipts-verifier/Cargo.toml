@@ -8,12 +8,9 @@ edition = "2018"
 
 [dependencies]
 clap = "2.33"
-serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
 
 near-primitives = { path = "../../core/primitives" }
-near-crypto = { path = "../../core/crypto" }
-state-viewer = { path = "../../test-utils/state-viewer" }
 neard = { path = "../../neard" }
 near-store = { path = "../../core/store" }
 near-chain = { path = "../../chain/chain" }

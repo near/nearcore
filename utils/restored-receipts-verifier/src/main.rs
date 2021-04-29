@@ -1,15 +1,15 @@
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
-use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter, ReceiptResult};
+use clap::{App, Arg};
+use near_chain::{ChainStore, ChainStoreAccess, ReceiptResult, RuntimeAdapter};
 use near_primitives::borsh::BorshSerialize;
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_FEATURES_TO_VERSION_MAPPING};
 use near_store::create_store;
 use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
+use std::collections::{HashMap, HashSet};
 use std::io::Error;
+use std::iter::FromIterator;
 use std::path::Path;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_FEATURES_TO_VERSION_MAPPING};
-use clap::{App, Arg};
-use near_primitives::hash::CryptoHash;
 
 fn main() -> Result<(), Error> {
     let default_home = get_default_home();
@@ -20,7 +20,8 @@ fn main() -> Result<(), Error> {
                 .default_value(&default_home)
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
-        ).get_matches();
+        )
+        .get_matches();
 
     println!("Start");
 
@@ -40,7 +41,8 @@ fn main() -> Result<(), Error> {
     let mut receipts_missing: Vec<Receipt> = vec![];
     // First and last heights for which lost receipts were observed
     let height_first: u64 = 34691244;
-    let mut height_last: u64 = chain_store.get_latest_known().expect("Couldn't get upper bound for block height").height;
+    let mut height_last: u64 =
+        chain_store.get_latest_known().expect("Couldn't get upper bound for block height").height;
     // println!("{} -> {}", height_last, 34692244);
     // height_last = 34692244;
     for height in height_first..height_last {
@@ -57,8 +59,13 @@ fn main() -> Result<(), Error> {
             continue;
         }
 
-        if runtime.get_epoch_protocol_version(block.header().epoch_id()).unwrap() >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::FixApplyChunks] {
-            println!("Found block height {} for which apply_chunks was already fixed. Finishing...", height);
+        if runtime.get_epoch_protocol_version(block.header().epoch_id()).unwrap()
+            >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::FixApplyChunks]
+        {
+            println!(
+                "Found block height {} for which apply_chunks was already fixed. Finishing...",
+                height
+            );
             break;
         }
 
@@ -98,21 +105,31 @@ fn main() -> Result<(), Error> {
     // Temporary, to save to file
     let mut receipt_result_missing: ReceiptResult = HashMap::default();
     receipt_result_missing.insert(shard_id, receipts_missing.clone());
-    let receipt_result_missing_str = serde_json::to_string::<ReceiptResult>(&receipt_result_missing)?;
+    let receipt_result_missing_str =
+        serde_json::to_string::<ReceiptResult>(&receipt_result_missing)?;
     // let bytes = receipts_missing.try_to_vec().unwrap();
     std::fs::write("./fix_apply_chunks_receipts.json", receipt_result_missing_str);
 
-    // Check that receipts from repo were actually generated and lost
+    // Check that receipts from repo were actually generated
     // let receipt_result_in_repo_json = include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
     let receipt_result_in_repo_json = include_str!("../../../fix_apply_chunks_receipts.json");
     let receipt_result_in_repo = serde_json::from_str::<ReceiptResult>(receipt_result_in_repo_json)
         .expect("File with receipts restored after apply_chunks fix have to be correct");
     let receipts_in_repo = receipt_result_in_repo.get(&shard_id).unwrap();
-    let receipt_hashes_in_repo = HashSet::<_>::from_iter(receipts_in_repo.into_iter().map(|receipt| receipt.get_hash()));
-    let receipt_hashes_missing = HashSet::<_>::from_iter(receipts_missing.into_iter().map(|receipt| receipt.get_hash()));
+    let receipt_hashes_in_repo =
+        HashSet::<_>::from_iter(receipts_in_repo.into_iter().map(|receipt| receipt.get_hash()));
+    let receipt_hashes_missing =
+        HashSet::<_>::from_iter(receipts_missing.into_iter().map(|receipt| receipt.get_hash()));
 
-    let receipt_hashes_not_verified: Vec<CryptoHash> = receipt_hashes_in_repo.difference(&receipt_hashes_missing).cloned().collect();
-    assert_eq!(receipt_hashes_not_verified.len(), 0, "Some of receipt hashes in repo were not verified successfully: {:?}", receipt_hashes_not_verified);
+    let receipt_hashes_not_verified: Vec<CryptoHash> =
+        receipt_hashes_in_repo.difference(&receipt_hashes_missing).cloned().collect();
+    assert_eq!(
+        receipt_hashes_not_verified.len(),
+        0,
+        "Some of receipt hashes in repo were not verified successfully: {:?}",
+        receipt_hashes_not_verified
+    );
+    println!("Receipt hashes in repo were verified successfully!");
 
     Ok(())
 }

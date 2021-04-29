@@ -4725,13 +4725,10 @@ version = "0.1.0"
 dependencies = [
  "clap 2.33.3",
  "near-chain",
- "near-crypto",
  "near-primitives",
  "near-store",
  "neard",
- "serde",
  "serde_json",
- "state-viewer",
 ]
 
 [[package]]
