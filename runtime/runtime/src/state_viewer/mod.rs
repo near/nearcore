@@ -25,11 +25,12 @@ pub mod errors;
 pub struct TrieViewer {
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     state_size_limit: Option<u64>,
+    enable_gas_profiling: bool,
 }
 
 impl TrieViewer {
     pub fn new_with_state_size_limit(state_size_limit: Option<u64>) -> Self {
-        Self { state_size_limit }
+        Self { state_size_limit, enable_gas_profiling: false }
     }
 
     pub fn view_account(
