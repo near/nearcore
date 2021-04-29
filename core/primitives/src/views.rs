@@ -3,6 +3,7 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
+use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::sync::Arc;
@@ -219,6 +220,16 @@ pub struct ViewStateResult {
 pub struct CallResult {
     pub result: Vec<u8>,
     pub logs: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<CallProfile>,
+}
+
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default,
+)]
+#[serde(transparent)]
+pub struct CallProfile {
+    pub map: BTreeMap<String, u64>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

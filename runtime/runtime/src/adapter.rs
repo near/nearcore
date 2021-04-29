@@ -2,6 +2,7 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
+use near_primitives::profile::ProfileData;
 use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash, ShardId,
 };
@@ -41,6 +42,7 @@ pub trait ViewRuntimeAdapter {
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
         #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u64,
+        profile_data: ProfileData,
     ) -> Result<Vec<u8>, crate::state_viewer::errors::CallFunctionError>;
 
     fn view_access_key(

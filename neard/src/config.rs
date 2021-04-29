@@ -568,6 +568,7 @@ pub struct NearConfig {
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    pub enable_gas_profiling: bool,
 }
 
 impl NearConfig {
@@ -673,6 +674,7 @@ impl NearConfig {
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
+            enable_gas_profiling: true,
         }
     }
 }

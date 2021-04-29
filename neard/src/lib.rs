@@ -254,8 +254,11 @@ pub fn start_with_config(
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>) {
     let store = init_and_migrate_store(home_dir, &config);
 
+    let mut trie_viewer =
+        TrieViewer::new_with_state_size_limit(config.client_config.trie_viewer_state_size_limit);
+    trie_viewer.enable_gas_profiling = config.enable_gas_profiling;
     let runtime = Arc::new(NightshadeRuntime::new(
-        TrieViewer::new_with_state_size_limit(config.client_config.trie_viewer_state_size_limit),
+        trie_viewer,
         home_dir,
         Arc::clone(&store),
         &config.genesis,

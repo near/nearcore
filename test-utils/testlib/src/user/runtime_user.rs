@@ -6,6 +6,7 @@ use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
+use near_primitives::profile::ProfileData;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::test_utils::MockEpochInfoProvider;
@@ -261,6 +262,7 @@ impl User for RuntimeUser {
                 args,
                 &mut result.logs,
                 &self.epoch_info_provider,
+                ProfileData::default(),
             )
             .map_err(|err| err.to_string())?;
         Ok(result)

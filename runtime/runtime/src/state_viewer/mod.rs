@@ -5,6 +5,7 @@ use near_primitives::{
     borsh::BorshDeserialize,
     contract::ContractCode,
     hash::CryptoHash,
+    profile::ProfileData,
     receipt::ActionReceipt,
     runtime::{apply_state::ApplyState, config::RuntimeConfig},
     serialize::to_base64,
@@ -25,14 +26,13 @@ pub mod errors;
 pub struct TrieViewer {
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     state_size_limit: Option<u64>,
-    enable_gas_profiling: bool,
+    pub enable_gas_profiling: bool,
 }
 
 impl TrieViewer {
     pub fn new_with_state_size_limit(state_size_limit: Option<u64>) -> Self {
         Self { state_size_limit, enable_gas_profiling: false }
     }
-
     pub fn view_account(
         &self,
         state_update: &TrieUpdate,
@@ -177,6 +177,7 @@ impl TrieViewer {
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
+        profile_data: ProfileData,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
@@ -225,7 +226,7 @@ impl TrieViewer {
             is_new_chunk: false,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
-            profile: Default::default(),
+            profile: profile_data,
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),

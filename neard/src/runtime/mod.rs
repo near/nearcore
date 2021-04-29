@@ -29,6 +29,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::profile::ProfileData;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
@@ -40,7 +41,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
+    AccessKeyInfoView, CallProfile, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
 use near_store::{
@@ -415,7 +416,7 @@ impl NightshadeRuntime {
             is_new_chunk,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
-            profile: Default::default(),
+            profile: ProfileData::new(self.trie_viewer.enable_gas_profiling),
         };
 
         let apply_result = self
@@ -1247,7 +1248,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     })?;
                     (epoch_info.epoch_height(), epoch_info.protocol_version())
                 };
-
+                let profile_data = ProfileData::new(self.trie_viewer.enable_gas_profiling);
                 let call_function_result = self
                     .call_function(
                         shard_id,
@@ -1266,12 +1267,24 @@ impl RuntimeAdapter for NightshadeRuntime {
                         current_protocol_version,
                         #[cfg(feature = "protocol_feature_evm")]
                         self.evm_chain_id(),
+                        profile_data.clone(),
                     )
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_call_function_error(err, block_height, *block_hash))?;
+
+                let profile = if self.trie_viewer.enable_gas_profiling {
+                    let mut profile = CallProfile::default();
+                    for (k, v) in profile_data.non_zero_costs() {
+                        profile.map.insert(k.to_string(), v);
+                    }
+                    Some(profile)
+                } else {
+                    None
+                };
                 Ok(QueryResponse {
                     kind: QueryResponseKind::CallResult(CallResult {
                         result: call_function_result,
                         logs,
+                        profile,
                     }),
                     block_height,
                     block_hash: *block_hash,
@@ -1536,6 +1549,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
         #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u64,
+        profile_data: ProfileData,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let view_state = ViewApplyState {
@@ -1558,6 +1572,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             args,
             logs,
             epoch_info_provider,
+            profile_data,
         )
     }
 
