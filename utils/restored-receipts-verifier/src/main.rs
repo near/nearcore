@@ -37,20 +37,20 @@ fn main() -> Result<(), Error> {
     );
 
     let mut receipts_missing: Vec<Receipt> = vec![];
-    let height_first: u64 = 30691244; //34691244; // First height for which lost receipts were found
+    let height_first: u64 = 34691244; // First height for which lost receipts were found
     let height_last: u64 = 35524259; // Height for which apply_chunks was already fixed
 
     for height in height_first..height_last {
         let block_hash_result = chain_store.get_block_hash_by_height(height);
         if block_hash_result.is_err() {
-            // println!("{} does not exist, skip", height);
+            println!("{} does not exist, skip", height);
             continue;
         }
         let block_hash = block_hash_result.unwrap();
 
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         if block.chunks()[shard_id as usize].height_included() == height {
-            // println!("{} included, skip", height);
+            println!("{} included, skip", height);
             continue;
         }
 
