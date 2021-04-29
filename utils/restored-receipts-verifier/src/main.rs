@@ -40,8 +40,8 @@ fn main() -> Result<(), Error> {
 
     let mut receipts_missing: Vec<Receipt> = vec![];
     // First and last heights for which lost receipts were observed
-    let height_first: u64 = 30691244; // 34691244;
-    let mut height_last: u64 = 35524259;
+    let height_first: u64 = 34691244;
+    let height_last: u64 = 34691246;
     // println!("{} -> {}", height_last, 34692244);
     // height_last = 34692244;
     for height in height_first..height_last {
@@ -102,12 +102,12 @@ fn main() -> Result<(), Error> {
     }
 
     // Temporary, to save to file
-    let mut receipt_result_missing: ReceiptResult = HashMap::default();
-    receipt_result_missing.insert(shard_id, receipts_missing.clone());
-    let receipt_result_missing_str =
-        serde_json::to_string::<ReceiptResult>(&receipt_result_missing)?;
-    // let bytes = receipts_missing.try_to_vec().unwrap();
-    std::fs::write("./fix_apply_chunks_receipts.json", receipt_result_missing_str);
+    // let mut receipt_result_missing: ReceiptResult = HashMap::default();
+    // receipt_result_missing.insert(shard_id, receipts_missing.clone());
+    // let receipt_result_missing_str =
+    //     serde_json::to_string::<ReceiptResult>(&receipt_result_missing)?;
+    // // let bytes = receipts_missing.try_to_vec().unwrap();
+    // std::fs::write("./fix_apply_chunks_receipts.json", receipt_result_missing_str);
 
     // Check that receipts from repo were actually generated
     // let receipt_result_in_repo_json = include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
