@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::{cell::Cell, fmt};
 
 use crate::config::{ActionCosts, ExtCosts};
@@ -15,15 +16,9 @@ pub struct ProfileData {
 
 #[derive(Clone)]
 enum Repr {
-    #[cfg(feature = "costs_counting")]
-    Enabled {
-        data: std::rc::Rc<DataArray>,
-    },
+    Enabled { data: std::rc::Rc<DataArray> },
     Disabled,
 }
-
-#[cfg(not(feature = "costs_counting"))]
-const _ASSERT_NO_OP_IF_COUNTING_DISABLED: [(); 0] = [(); std::mem::size_of::<ProfileData>()];
 
 impl Default for ProfileData {
     fn default() -> ProfileData {
@@ -37,7 +32,15 @@ impl ProfileData {
     const LEN: usize = 1 + ActionCosts::count() + ExtCosts::count();
 
     #[inline]
-    #[cfg(feature = "costs_counting")]
+    pub fn new(enabled: bool) -> ProfileData {
+        if enabled {
+            ProfileData::new_enabled()
+        } else {
+            ProfileData::new_disabled()
+        }
+    }
+
+    #[inline]
     pub fn new_enabled() -> Self {
         // We must manually promote to a constant for array literal to work.
         const ZERO: Cell<u64> = Cell::new(0);
@@ -45,12 +48,6 @@ impl ProfileData {
         let data = std::rc::Rc::new([ZERO; ProfileData::LEN]);
         let repr = Repr::Enabled { data };
         ProfileData { repr }
-    }
-
-    #[inline]
-    #[cfg(not(feature = "costs_counting"))]
-    pub fn new_enabled() -> Self {
-        Self::new_disabled()
     }
 
     #[inline]
@@ -71,14 +68,13 @@ impl ProfileData {
     fn add_val(&self, index: usize, value: u64) {
         self.with_slot(index, |slot| {
             let old = slot.get();
-            slot.set(old + value);
+            slot.set(old.saturating_add(value));
         })
     }
 
     #[inline]
     fn with_slot(&self, index: usize, f: impl FnOnce(&Cell<u64>)) {
         match &self.repr {
-            #[cfg(feature = "costs_counting")]
             Repr::Enabled { data } => f(&data[index]),
             Repr::Disabled => drop((index, f)),
         }
@@ -86,6 +82,30 @@ impl ProfileData {
     fn read(&self, index: usize) -> u64 {
         let mut res = 0;
         self.with_slot(index, |slot| res = slot.get());
+        res
+    }
+
+    /// Returns profiling results in a format suitable for exposing via RPC or
+    /// storing in a database.
+    pub fn non_zero_costs(&self) -> BTreeMap<&'static str, u64> {
+        let mut res = BTreeMap::new();
+        for e in 0..ExtCosts::count() {
+            let cost = self.get_ext_cost(e);
+            if cost > 0 {
+                res.insert(ExtCosts::name_of(e), cost);
+            }
+        }
+        for e in 0..ActionCosts::count() {
+            let cost = self.get_action_cost(e);
+            if cost > 0 {
+                res.insert(ActionCosts::name_of(e), cost);
+            }
+        }
+
+        let cost = self.wasm_gas();
+        if cost > 0 {
+            res.insert("wasm_execution", cost);
+        }
         res
     }
 
@@ -130,13 +150,6 @@ impl ProfileData {
 }
 
 impl fmt::Debug for ProfileData {
-    #[cfg(not(feature = "costs_counting"))]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "ERROR: cost_counting feature is not enabled in near-primitives-core, cannot print profile data")?;
-        Ok(())
-    }
-
-    #[cfg(feature = "costs_counting")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use num_rational::Ratio;
         let all_gas = self.all_gas();
@@ -216,8 +229,6 @@ mod test {
     fn test_profile_all_gas() {
         let profile_data = ProfileData::new_enabled();
         profile_data.set_burnt_gas(42);
-        #[cfg(not(feature = "costs_counting"))]
-        assert_eq!(profile_data.all_gas(), 0);
         #[cfg(feature = "costs_counting")]
         assert_eq!(profile_data.all_gas(), 42);
     }
