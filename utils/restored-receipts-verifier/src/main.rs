@@ -40,7 +40,9 @@ fn main() -> Result<(), Error> {
     let mut receipts_missing: Vec<Receipt> = vec![];
     // First and last heights for which lost receipts were observed
     let height_first: u64 = 34691244;
-    let height_last: u64 = chain_store.get_latest_known().expect("Couldn't get upper bound for block height").height;
+    let mut height_last: u64 = chain_store.get_latest_known().expect("Couldn't get upper bound for block height").height;
+    println!("{} -> {}", height_last, 34692244);
+    height_last = 34692244;
     for height in height_first..height_last {
         let block_hash_result = chain_store.get_block_hash_by_height(height);
         if block_hash_result.is_err() {
