@@ -40,6 +40,8 @@ mod migrations;
 mod runtime;
 mod shard_tracker;
 
+pub use node_runtime::state_viewer::TrieViewer;
+
 const STORE_PATH: &str = "data";
 
 pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {
@@ -253,12 +255,12 @@ pub fn start_with_config(
     let store = init_and_migrate_store(home_dir, &config);
 
     let runtime = Arc::new(NightshadeRuntime::new(
+        TrieViewer::new_with_state_size_limit(config.client_config.trie_viewer_state_size_limit),
         home_dir,
         Arc::clone(&store),
         &config.genesis,
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),
-        config.client_config.trie_viewer_state_size_limit,
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();

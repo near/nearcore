@@ -13,7 +13,9 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
-use neard::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
+use neard::{
+    config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime, TrieViewer,
+};
 
 pub mod fees_utils;
 pub mod node;
@@ -34,8 +36,14 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let dir = tempdir().unwrap();
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(genesis);
-    let runtime =
-        Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![], None));
+    let runtime = Arc::new(NightshadeRuntime::new(
+        TrieViewer::new_with_state_size_limit(None),
+        dir.path(),
+        store,
+        genesis,
+        vec![],
+        vec![],
+    ));
     let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.genesis().clone()
 }
@@ -45,8 +53,14 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
     let dir = tempdir().unwrap();
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(genesis);
-    let runtime =
-        Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![], None));
+    let runtime = Arc::new(NightshadeRuntime::new(
+        TrieViewer::new_with_state_size_limit(None),
+        dir.path(),
+        store,
+        genesis,
+        vec![],
+        vec![],
+    ));
     let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap().clone()
 }

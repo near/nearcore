@@ -134,15 +134,14 @@ pub struct NightshadeRuntime {
 
 impl NightshadeRuntime {
     pub fn new(
+        trie_viewer: TrieViewer,
         home_dir: &Path,
         store: Arc<Store>,
         genesis: &Genesis,
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
-        trie_viewer_state_size_limit: Option<u64>,
     ) -> Self {
         let runtime = Runtime::new();
-        let trie_viewer = TrieViewer::new_with_state_size_limit(trie_viewer_state_size_limit);
         let genesis_config = genesis.config.clone();
         let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
@@ -1726,12 +1725,12 @@ mod test {
             let genesis_total_supply = genesis.config.total_supply;
             let genesis_protocol_version = genesis.config.protocol_version;
             let runtime = NightshadeRuntime::new(
+                TrieViewer::new_with_state_size_limit(None),
                 dir.path(),
                 store,
                 &genesis,
                 initial_tracked_accounts,
                 initial_tracked_shards,
-                None,
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);

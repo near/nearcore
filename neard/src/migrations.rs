@@ -10,6 +10,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::migrations::set_store_version;
 use near_store::{create_store, db::GENESIS_JSON_HASH_KEY, DBCol, StoreUpdate};
+use node_runtime::state_viewer::TrieViewer;
 use std::path::Path;
 
 fn get_chunk(chain_store: &ChainStore, chunk_hash: ChunkHash) -> ShardChunkV1 {
@@ -93,12 +94,12 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().expect("head must exist");
         let runtime = NightshadeRuntime::new(
+            TrieViewer::new_with_state_size_limit(None),
             &Path::new(path),
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
             near_config.client_config.tracked_shards.clone(),
-            None,
         );
         let mut store_update = store.store_update();
         store_update.delete_all(DBCol::ColTransactionResult);
@@ -202,12 +203,12 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
         let runtime = NightshadeRuntime::new(
+            TrieViewer::new_with_state_size_limit(None),
             &Path::new(path),
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
             near_config.client_config.tracked_shards.clone(),
-            None,
         );
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.

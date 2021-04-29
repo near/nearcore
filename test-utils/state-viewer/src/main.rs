@@ -24,7 +24,9 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
-use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
+use neard::{
+    get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime, TrieViewer,
+};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use state_dump::state_dump;
 
@@ -57,12 +59,12 @@ fn load_trie_stop_at_height(
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
 
     let runtime = NightshadeRuntime::new(
+        TrieViewer::new_with_state_size_limit(None),
         &home_dir,
         store,
         &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
-        None,
     );
     let head = chain_store.head().unwrap();
     let last_block = match mode {
@@ -114,12 +116,12 @@ fn print_chain(
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::new(
+        TrieViewer::new_with_state_size_limit(None),
         &home_dir,
         store,
         &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
-        None,
     );
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
@@ -184,12 +186,12 @@ fn replay_chain(
     let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
     let new_store = create_test_store();
     let runtime = NightshadeRuntime::new(
+        TrieViewer::new_with_state_size_limit(None),
         &home_dir,
         new_store,
         &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
-        None,
     );
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
@@ -215,12 +217,12 @@ fn apply_block_at_height(
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::new(
+        TrieViewer::new_with_state_size_limit(None),
         &home_dir,
         store,
         &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
-        None,
     );
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();

@@ -32,12 +32,12 @@ fn main() {
     let store = create_store(&get_store_path(&home_dir));
 
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(neard::NightshadeRuntime::new(
+        neard::TrieViewer::new_with_state_size_limit(None),
         &home_dir,
         store.clone(),
         &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
-        None,
     ));
 
     let mut store_validator = StoreValidator::new(

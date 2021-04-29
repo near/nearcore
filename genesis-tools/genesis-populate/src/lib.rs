@@ -23,7 +23,7 @@ use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCa
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
-use neard::{get_store_path, NightshadeRuntime};
+use neard::{get_store_path, NightshadeRuntime, TrieViewer};
 
 fn get_account_id(account_index: u64) -> String {
     format!("near_{}_{}", account_index, account_index)
@@ -59,6 +59,7 @@ impl GenesisBuilder {
     ) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
         let runtime = NightshadeRuntime::new(
+            TrieViewer::new_with_state_size_limit(None),
             tmpdir.path(),
             store.clone(),
             &genesis,
@@ -66,7 +67,6 @@ impl GenesisBuilder {
             // there is no reason to track accounts or shards.
             vec![],
             vec![],
-            None,
         );
         Self {
             home_dir: home_dir.to_path_buf(),

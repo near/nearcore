@@ -11,7 +11,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_store::test_utils::create_test_store;
-use neard::config::GenesisExt;
+use neard::{config::GenesisExt,};
 use testlib::fees_utils::FeeHelper;
 
 #[cfg(feature = "protocol_feature_rectify_inflation")]
@@ -27,12 +27,12 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
         genesis.config.min_gas_price,
     );
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        neard::TrieViewer::new_with_state_size_limit(None),
         Path::new("."),
         store1,
         &genesis,
         vec![],
         vec![],
-        None,
     ))];
     let env = TestEnv::new_with_runtime(ChainGenesis::from(&genesis), 1, 1, runtimes);
     (env, fee_helper)
