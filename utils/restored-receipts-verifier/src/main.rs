@@ -98,9 +98,8 @@ fn main() -> Result<()> {
 
     let receipt_hashes_not_verified: Vec<CryptoHash> =
         receipt_hashes_in_repo.difference(&receipt_hashes_missing).cloned().collect();
-    assert_eq!(
-        receipt_hashes_not_verified.len(),
-        0,
+    assert!(
+        receipt_hashes_not_verified.is_empty(),
         "Some of receipt hashes in repo were not verified successfully: {:?}",
         receipt_hashes_not_verified
     );
