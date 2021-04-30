@@ -50,7 +50,7 @@ fn main() -> Result<()> {
                 println!("{} does not exist, skip", height);
                 continue;
             }
-        }
+        };
 
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         if block.chunks()[shard_id as usize].height_included() == height {
