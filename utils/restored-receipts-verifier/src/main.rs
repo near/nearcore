@@ -26,7 +26,7 @@ fn main() -> Result<()> {
     println!("Start");
 
     let shard_id = 0u64;
-    let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
+    let home_dir = matches.value_of("home").map(Path::new).unwrap();
     let near_config = load_config(&home_dir);
     let store = create_store(&get_store_path(&home_dir));
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
