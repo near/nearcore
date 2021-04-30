@@ -44,11 +44,13 @@ fn main() -> Result<()> {
 
     for height in height_first..height_last {
         let block_hash_result = chain_store.get_block_hash_by_height(height);
-        if block_hash_result.is_err() {
-            println!("{} does not exist, skip", height);
-            continue;
+        let block_hash = match block_hash_result {
+            Ok(it) => it,
+            Err(it) => {
+                println!("{} does not exist, skip", height);
+                continue;
+            }
         }
-        let block_hash = block_hash_result.unwrap();
 
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         if block.chunks()[shard_id as usize].height_included() == height {
