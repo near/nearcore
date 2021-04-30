@@ -43,7 +43,10 @@ use near_primitives::types::{
     ShardId,
 };
 use near_primitives::unwrap_or_return;
-#[cfg(any(feature = "protocol_feature_block_header_v3", feature = "protocol_feature_restore_receipts_after_fix"))]
+#[cfg(any(
+    feature = "protocol_feature_block_header_v3",
+    feature = "protocol_feature_restore_receipts_after_fix"
+))]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
@@ -2746,8 +2749,9 @@ impl<'a> ChainUpdate<'a> {
                 RestoreReceiptsAfterFix,
                 protocol_version,
                 {
-                    let prev_protocol_version =
-                        self.runtime_adapter.get_epoch_protocol_version(prev_block.header().epoch_id())?;
+                    let prev_protocol_version = self
+                        .runtime_adapter
+                        .get_epoch_protocol_version(prev_block.header().epoch_id())?;
                     if !checked_feature!(
                         "protocol_feature_restore_receipts_after_fix",
                         RestoreReceiptsAfterFix,
@@ -2758,7 +2762,11 @@ impl<'a> ChainUpdate<'a> {
                             .get_protocol_config(block.header().epoch_id())?
                             .runtime_config
                             .receipts_to_restore;
-                        self.chain_store_update.save_outgoing_receipt(&block.hash(), 0, receipt_result);
+                        self.chain_store_update.save_outgoing_receipt(
+                            &block.hash(),
+                            0,
+                            receipt_result,
+                        );
                     }
                 }
             );

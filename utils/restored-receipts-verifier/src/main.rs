@@ -47,7 +47,7 @@ fn main() -> Result<()> {
         let block_hash_result = chain_store.get_block_hash_by_height(height);
         let block_hash = match block_hash_result {
             Ok(it) => it,
-            Err(it) => {
+            Err(_) => {
                 println!("{} does not exist, skip", height);
                 continue;
             }
@@ -91,8 +91,7 @@ fn main() -> Result<()> {
 
     // Check that receipts from repo were actually generated
     let receipt_hashes_in_repo: HashSet<CryptoHash> = {
-        let receipt_result_json =
-            include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
+        let receipt_result_json = include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
         let receipt_result = serde_json::from_str::<ReceiptResult>(receipt_result_json)
             .expect("File with receipts restored after apply_chunks fix have to be correct");
         let receipts = receipt_result.get(&shard_id).unwrap();

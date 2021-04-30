@@ -787,7 +787,8 @@ pub fn init_configs(
                 .expect("Failed to deserialize MainNet genesis");
 
             #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
-            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize MainNet genesis");
+            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
+                .expect("Failed to deserialize MainNet genesis");
 
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
