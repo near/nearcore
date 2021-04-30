@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::io::Error;
+use std::io::Result;
 use std::iter::FromIterator;
 use std::path::Path;
 
@@ -11,7 +11,7 @@ use near_primitives::receipt::{Receipt, ReceiptResult};
 use near_store::create_store;
 use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 
-fn main() -> io::Result<()> {
+fn main() -> Result<()> {
     let default_home = get_default_home();
     let matches = App::new("restored-receipts-verifier")
         .arg(
