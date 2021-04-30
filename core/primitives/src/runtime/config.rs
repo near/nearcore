@@ -58,6 +58,8 @@ impl RuntimeConfig {
             transaction_costs: RuntimeFeesConfig::free(),
             wasm_config: VMConfig::free(),
             account_creation_config: AccountCreationConfig::default(),
+            #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+            receipts_to_restore: HashMap::default(),
         }
     }
 

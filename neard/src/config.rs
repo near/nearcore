@@ -23,8 +23,6 @@ use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
