@@ -152,11 +152,13 @@ def main():
 
     hash = status0['sync_info']['latest_block_hash']
 
+    status = nodes[0].get_status()
+    block_height = status['sync_info']['latest_block_height']
     beneficiary_account_id = '1982374698376abd09265034ef35034756298375462323456294875193563756'
     tx = sign_delete_account_tx(key=new_signer_key,
                                 to=new_account_id,
                                 beneficiary=beneficiary_account_id,
-                                nonce=7,
+                                nonce=block_height * 1_000_000 - 1,
                                 block_hash=base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     # Successfully deleted an account

@@ -232,7 +232,6 @@ fn chunks_produced_and_distributed_common(
                         return (NetworkResponses::NoResponse, false);
                     }
                 }
-                #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                 NetworkRequests::PartialEncodedChunkForward { account_id: to_whom, .. } => {
                     if drop_from_1_to_4 && from_whom == "test1" && to_whom == "test4" {
                         println!(

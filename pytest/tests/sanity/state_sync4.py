@@ -57,7 +57,7 @@ status = nodes[0].get_status()
 block_hash = status['sync_info']['latest_block_hash']
 
 for signer_key in account_keys:
-    staking_tx = sign_staking_tx(signer_key, nodes[0].validator_key, balance // (num_new_accounts * 2), 1, base58.b58decode(block_hash.encode('utf8')))
+    staking_tx = sign_staking_tx(signer_key, nodes[0].validator_key, balance // (num_new_accounts * 2), cur_height * 1_000_000 - 1, base58.b58decode(block_hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(staking_tx, timeout=15)
     assert 'error' not in res
 
