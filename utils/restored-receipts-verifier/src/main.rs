@@ -11,7 +11,7 @@ use near_primitives::receipt::{Receipt, ReceiptResult};
 use near_store::create_store;
 use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 
-fn main() -> Result<(), Error> {
+fn main() -> io::Result<()> {
     let default_home = get_default_home();
     let matches = App::new("restored-receipts-verifier")
         .arg(
