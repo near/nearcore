@@ -684,8 +684,7 @@ fn test_ecrecover() {
     let signature = hex!("5d99b6f7f6d1f73d1a26497f2b1c89b24c0993913f86e9a2d02cd69887d9c94f3c880358579d811b21dd1b7fd9bb01c1d81d10e69f0384e675c32b39643be8921b");
     let signer = hex!("2cc1166f6212628A0deEf2B33BEFB2187D35b86c");
 
-    let (r, s, v) = (&signature[0..32], &signature[32..64], signature[64] as u32);
-    logic.ecrecover(hash.as_ptr() as _, v, r.as_ptr() as _, s.as_ptr() as _, 0).unwrap();
+    logic.ecrecover(hash.as_ptr() as _, signature.as_ptr() as _, 0).unwrap();
 
     let result = &vec![0u8; 20];
     logic.read_register(0, result.as_ptr() as _).expect("OK");

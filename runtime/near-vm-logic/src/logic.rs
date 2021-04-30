@@ -1090,46 +1090,30 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + write_register_base + write_register_byte * 20 + ecrecover_base`
     #[cfg(feature = "protocol_feature_evm")]
-    pub fn ecrecover(
-        &mut self,
-        hash_ptr: u64,
-        v: u32,
-        r_ptr: u64,
-        s_ptr: u64,
-        register_id: u64,
-    ) -> Result<()> {
-        self.gas_counter.pay_base(ecrecover_base)?;
-        if v != 27 && v != 28 {
-            return Err(HostError::InvalidECDSASignature.into());
-        }
-        let hash = self.memory_get_vec(hash_ptr, 32)?;
-        let v = (v & 0xFF) as u8;
-        let r = self.memory_get_vec(r_ptr, 32)?;
-        let s = self.memory_get_vec(s_ptr, 32)?;
-
-        let hash = secp256k1::Message::parse_slice(hash.as_slice()).unwrap();
-
-        let mut signature = [0u8; 64];
-        signature[0..32].copy_from_slice(r.as_slice());
-        signature[32..64].copy_from_slice(s.as_slice());
-        let signature = secp256k1::Signature::parse(&signature);
-
-        let recovery_id = match secp256k1::RecoveryId::parse_rpc(v) {
-            Err(_) => return Err(HostError::InvalidECDSASignature.into()),
-            Ok(rid) => rid,
-        };
-
-        let public_key = match secp256k1::recover(&hash, &signature, &recovery_id) {
-            Err(_) => return Err(HostError::InvalidECDSASignature.into()),
-            Ok(pk) => pk,
-        };
-
+    pub fn ecrecover(&mut self, hash_ptr: u64, sig_ptr: u64, register_id: u64) -> Result<()> {
         use sha3::Digest;
-        let result = sha3::Keccak256::digest(&public_key.serialize()[1..]);
-        let mut address = [0u8; 20];
-        address.copy_from_slice(&result[12..]);
+        self.gas_counter.pay_base(ecrecover_base)?;
 
-        self.internal_write_register(register_id, address.to_vec())
+        let signature = self.memory_get_vec(sig_ptr, 65)?;
+        let hash = self.memory_get_vec(hash_ptr, 32)?;
+
+        let hash = secp256k1::Message::parse_slice(&hash).unwrap();
+        let v = signature[64];
+        let signature = secp256k1::Signature::parse_slice(&signature[0..64]).unwrap();
+        let bit = match v {
+            0..=26 => v,
+            _ => v - 27,
+        };
+        if let Ok(recovery_id) = secp256k1::RecoveryId::parse(bit) {
+            if let Ok(public_key) = secp256k1::recover(&hash, &signature, &recovery_id) {
+                // recover returns a 65-byte key, but addresses come from the raw 64-byte key
+                let result = sha3::Keccak256::digest(&public_key.serialize()[1..]);
+                let mut address = [0u8; 20];
+                address.copy_from_slice(&result[12..]);
+                return self.internal_write_register(register_id, address.to_vec());
+            }
+        }
+        return Err(HostError::InvalidECDSASignature.into());
     }
 
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
