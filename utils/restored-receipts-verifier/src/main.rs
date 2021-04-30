@@ -25,7 +25,7 @@ fn main() -> Result<()> {
 
     println!("Start");
 
-    let shard_id: u64 = 0;
+    let shard_id = 0u64;
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
     let near_config = load_config(&home_dir);
     let store = create_store(&get_store_path(&home_dir));
