@@ -18,7 +18,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, ReceiptResult};
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -75,9 +75,6 @@ pub struct AcceptedBlock {
     pub status: BlockStatus,
     pub provenance: Provenance,
 }
-
-/// Map of shard to list of receipts to send to it.
-pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,

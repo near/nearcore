@@ -11,20 +11,8 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use tracing::{debug, error, info, warn};
 
-use crate::lightclient::get_epoch_block_producers_view;
-use crate::missing_chunks::{BlockLike, MissingChunksPool};
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
-use crate::types::{
-    AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
-    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter,
-};
-use crate::validate::{
-    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
-    validate_transactions_order,
-};
-use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
-use crate::{metrics, DoomslugThresholdMode, ReceiptResult};
-
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_chain_primitives::error::{Error, ErrorKind, LogTransientStorageError};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
@@ -36,7 +24,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
     combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
 };
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, ReceiptResult};
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo,
     ShardProof, StateSyncInfo,
@@ -61,8 +49,19 @@ use near_primitives::views::{
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
+use crate::lightclient::get_epoch_block_producers_view;
+use crate::missing_chunks::{BlockLike, MissingChunksPool};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
+use crate::types::{
+    AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
+    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter,
+};
+use crate::validate::{
+    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
+    validate_transactions_order,
+};
+use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
+use crate::{metrics, DoomslugThresholdMode};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -2744,10 +2743,11 @@ impl<'a> ChainUpdate<'a> {
             && prev_protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
             && ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() <= protocol_version
         {
-            let receipt_result_json =
-                include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
-            let receipt_result = serde_json::from_str::<ReceiptResult>(receipt_result_json)
-                .expect("File with receipts restored after apply_chunks fix have to be correct");
+            let receipt_result = self
+                .runtime_adapter
+                .get_protocol_config(block.header().epoch_id())?
+                .runtime_config
+                .receipts_to_restore;
             self.chain_store_update.save_outgoing_receipt(&block.hash(), 0, receipt_result);
         }
 

@@ -237,6 +237,11 @@ impl GenesisConfig {
             })
             .collect()
     }
+
+    /// Returns true iff chain_id is mainnet
+    pub fn is_mainnet(&self) -> bool {
+        self.chain_id.as_str() == "mainnet"
+    }
 }
 
 impl GenesisRecords {

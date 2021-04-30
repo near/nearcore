@@ -1,8 +1,11 @@
 //! Settings of the parameters of the runtime.
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use std::collections::HashMap;
 
 use crate::checked_feature;
 use crate::config::VMConfig;
+use crate::receipt::ReceiptResult;
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance};
@@ -24,6 +27,8 @@ pub struct RuntimeConfig {
     pub wasm_config: VMConfig,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfig,
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    pub receipts_to_restore: ReceiptResult,
 }
 
 impl Default for RuntimeConfig {
@@ -34,6 +39,8 @@ impl Default for RuntimeConfig {
             transaction_costs: RuntimeFeesConfig::default(),
             wasm_config: VMConfig::default(),
             account_creation_config: AccountCreationConfig::default(),
+            #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+            receipts_to_restore: HashMap::default(),
         }
     }
 }

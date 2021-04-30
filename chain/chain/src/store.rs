@@ -13,7 +13,7 @@ use near_primitives::block::{Approval, Tip};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, ReceiptResult};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
@@ -48,8 +48,8 @@ use near_store::{
     TAIL_KEY,
 };
 
+use crate::byzantine_assert;
 use crate::types::{Block, BlockHeader, LatestKnown};
-use crate::{byzantine_assert, ReceiptResult};
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
