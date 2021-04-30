@@ -1,4 +1,5 @@
 //! Settings of the parameters of the runtime.
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
 use crate::checked_feature;
@@ -7,7 +8,7 @@ use crate::runtime::fees::RuntimeFeesConfig;
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance};
 use crate::version::ProtocolVersion;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -26,6 +27,34 @@ pub struct RuntimeConfig {
     pub account_creation_config: AccountCreationConfig,
 }
 
+/// We start with a specific runtime config at the genesis, but we might want to
+/// do slight adjustments to it, depending on the protocol version.
+///
+/// This struct takes care of returning a config appropriate for particular
+/// protocol version.
+pub struct CurrentRuntimeConfig {
+    genesis_runtime_config: Arc<RuntimeConfig>,
+    with_lower_storage_cost: OnceCell<Arc<RuntimeConfig>>,
+}
+
+impl CurrentRuntimeConfig {
+    pub fn new(genesis_runtime_config: RuntimeConfig) -> Self {
+        Self {
+            genesis_runtime_config: Arc::new(genesis_runtime_config),
+            with_lower_storage_cost: OnceCell::new(),
+        }
+    }
+
+    pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &Arc<RuntimeConfig> {
+        if checked_feature!("stable", LowerStorageCost, protocol_version) {
+            self.with_lower_storage_cost
+                .get_or_init(|| Arc::new(self.genesis_runtime_config.decrease_storage_cost()))
+        } else {
+            &self.genesis_runtime_config
+        }
+    }
+}
+
 impl Default for RuntimeConfig {
     fn default() -> Self {
         RuntimeConfig {
@@ -38,10 +67,6 @@ impl Default for RuntimeConfig {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref LOWER_STORAGE_COST_CONFIG: Mutex<Option<Arc<RuntimeConfig>>> = Mutex::new(None);
-}
-
 impl RuntimeConfig {
     pub fn free() -> Self {
         Self {
@@ -49,23 +74,6 @@ impl RuntimeConfig {
             transaction_costs: RuntimeFeesConfig::free(),
             wasm_config: VMConfig::free(),
             account_creation_config: AccountCreationConfig::default(),
-        }
-    }
-
-    /// Returns a `RuntimeConfig` for the corresponding protocol version.
-    /// It uses `genesis_runtime_config` to identify the original
-    /// config and `protocol_version` for the current protocol version.
-    pub fn from_protocol_version(
-        genesis_runtime_config: &Arc<RuntimeConfig>,
-        protocol_version: ProtocolVersion,
-    ) -> Arc<Self> {
-        if checked_feature!("stable", LowerStorageCost, protocol_version) {
-            let mut config = LOWER_STORAGE_COST_CONFIG.lock().unwrap();
-            config
-                .get_or_insert_with(|| Arc::new(genesis_runtime_config.decrease_storage_cost()))
-                .clone()
-        } else {
-            genesis_runtime_config.clone()
         }
     }
 
@@ -113,15 +121,16 @@ mod tests {
 
     #[test]
     fn test_lower_cost() {
-        let config = Arc::new(RuntimeConfig::default());
-        let config_same = RuntimeConfig::from_protocol_version(&config, 0);
+        let genesis_config = RuntimeConfig::default();
+        let current_config = CurrentRuntimeConfig::new(genesis_config.clone());
+        let config_same = current_config.for_protocol_version(0);
         assert_eq!(
             config_same.as_ref().storage_amount_per_byte,
-            config.as_ref().storage_amount_per_byte
+            genesis_config.storage_amount_per_byte
         );
-        let config_lower = RuntimeConfig::from_protocol_version(&config, ProtocolVersion::MAX);
+        let config_lower = current_config.for_protocol_version(ProtocolVersion::MAX);
         assert!(
-            config_lower.as_ref().storage_amount_per_byte < config.as_ref().storage_amount_per_byte
+            config_lower.as_ref().storage_amount_per_byte < genesis_config.storage_amount_per_byte
         );
     }
 }
