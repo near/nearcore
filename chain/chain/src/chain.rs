@@ -2742,7 +2742,10 @@ impl<'a> ChainUpdate<'a> {
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
-        // Re-introduce receipts missing before apply_chunks fix (see https://github.com/near/nearcore/pull/4228)
+        // This part of code re-introduces outgoing receipts lost because of a bug in apply_chunks
+        // (see https://github.com/near/nearcore/pull/4248/)
+        // We take the first block in the first epoch in which protocol feature RestoreReceiptsAfterFix
+        // is enabled, and save the restored receipts there.
         if self.runtime_adapter.is_next_block_epoch_start(prev_block.hash()).unwrap_or(false) {
             checked_feature!(
                 "protocol_feature_restore_receipts_after_fix",

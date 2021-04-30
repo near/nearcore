@@ -747,7 +747,8 @@ fn generate_validator_key(account_id: &str, path: &Path) {
 }
 
 lazy_static_include::lazy_static_include_bytes! {
-    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
+    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
+    RESTORED_RECEIPTS_JSON => "res/fix_apply_chunks_receipts.json",
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -794,14 +795,15 @@ pub fn init_configs(
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
 
+            // Put receipts which were lost because of a bug in apply_chunks to the runtime config.
+            // See https://github.com/near/nearcore/pull/4248/ for more details
             checked_feature!(
                 "protocol_feature_restore_receipts_after_fix",
                 RestoreReceiptsAfterFix,
                 PROTOCOL_VERSION,
                 {
-                    let receipt_result_json = include_str!("../res/fix_apply_chunks_receipts.json");
                     genesis.config.runtime_config.receipts_to_restore =
-                        serde_json::from_str::<ReceiptResult>(receipt_result_json).expect(
+                        serde_json::from_slice(*RESTORED_RECEIPTS_JSON).expect(
                             "File with receipts restored after apply_chunks fix have to be correct",
                         );
                 }

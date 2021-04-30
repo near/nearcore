@@ -28,6 +28,7 @@ pub struct RuntimeConfig {
     pub wasm_config: VMConfig,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfig,
+    /// All receipts which were lost because of a bug in apply_chunks (see https://github.com/near/nearcore/pull/4248/)
     #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     pub receipts_to_restore: ReceiptResult,
 }
