@@ -59,11 +59,7 @@ impl RuntimeConfig {
         genesis_runtime_config: &Arc<RuntimeConfig>,
         protocol_version: ProtocolVersion,
     ) -> Arc<Self> {
-        if checked_feature!(
-            "protocol_feature_lower_storage_cost",
-            LowerStorageCost,
-            protocol_version
-        ) {
+        if checked_feature!("stable", LowerStorageCost, protocol_version) {
             let mut config = LOWER_STORAGE_COST_CONFIG.lock().unwrap();
             config
                 .get_or_insert_with(|| Arc::new(genesis_runtime_config.decrease_storage_cost()))

@@ -619,6 +619,11 @@ pub mod validator_stake {
         }
 
         #[inline]
+        pub fn into_v1(self) -> ValidatorStakeV1 {
+            self
+        }
+
+        #[inline]
         pub fn take_account_id(self) -> AccountId {
             self.account_id
         }

@@ -2746,7 +2746,6 @@ fn test_congestion_receipt_execution() {
     }
 }
 
-#[cfg(feature = "protocol_feature_access_key_nonce_range")]
 #[cfg(test)]
 mod access_key_nonce_range_tests {
     use super::*;

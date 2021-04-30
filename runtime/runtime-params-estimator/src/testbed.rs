@@ -78,7 +78,7 @@ impl RuntimeTestbed {
 
         let apply_state = ApplyState {
             // Put each runtime into a separate shard.
-            block_index: 0,
+            block_index: 1,
             // Epoch length is long enough to avoid corner cases.
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
