@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use crate::checked_feature;
 use crate::config::VMConfig;
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use crate::receipt::ReceiptResult;
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::serialize::u128_dec_format;

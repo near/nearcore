@@ -24,7 +24,9 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
     combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
 };
-use near_primitives::receipt::{Receipt, ReceiptResult};
+use near_primitives::receipt::Receipt;
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use near_primitives::receipt::ReceiptResult;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo,
     ShardProof, StateSyncInfo,
@@ -41,6 +43,7 @@ use near_primitives::types::{
     ShardId,
 };
 use near_primitives::unwrap_or_return;
+#[cfg(any(feature = "protocol_feature_block_header_v3", feature = "protocol_feature_restore_receipts_after_fix"))]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
@@ -2738,26 +2741,27 @@ impl<'a> ChainUpdate<'a> {
 
         // Re-introduce receipts missing before apply_chunks fix (see https://github.com/near/nearcore/pull/4228)
         if self.runtime_adapter.is_next_block_epoch_start(prev_block.hash()).unwrap_or(false) {
-            if checked_feature!(
+            checked_feature!(
                 "protocol_feature_restore_receipts_after_fix",
                 RestoreReceiptsAfterFix,
-                protocol_version
-            ) {
-                let prev_protocol_version =
-                    self.runtime_adapter.get_epoch_protocol_version(prev_block.header().epoch_id())?;
-                if !checked_feature!(
-                    "protocol_feature_restore_receipts_after_fix",
-                    RestoreReceiptsAfterFix,
-                    prev_protocol_version
-                ) {
-                    let receipt_result = self
-                        .runtime_adapter
-                        .get_protocol_config(block.header().epoch_id())?
-                        .runtime_config
-                        .receipts_to_restore;
-                    self.chain_store_update.save_outgoing_receipt(&block.hash(), 0, receipt_result);
+                protocol_version,
+                {
+                    let prev_protocol_version =
+                        self.runtime_adapter.get_epoch_protocol_version(prev_block.header().epoch_id())?;
+                    if !checked_feature!(
+                        "protocol_feature_restore_receipts_after_fix",
+                        RestoreReceiptsAfterFix,
+                        prev_protocol_version
+                    ) {
+                        let receipt_result = self
+                            .runtime_adapter
+                            .get_protocol_config(block.header().epoch_id())?
+                            .runtime_config
+                            .receipts_to_restore;
+                        self.chain_store_update.save_outgoing_receipt(&block.hash(), 0, receipt_result);
+                    }
                 }
-            }
+            );
         }
 
         for (shard_id, (chunk_header, prev_chunk_header)) in

@@ -92,10 +92,10 @@ fn main() -> Result<()> {
     let receipt_hashes_in_repo: HashSet<CryptoHash> = {
         let receipt_result_json =
             include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
-        let receipt_result = serde_json::from_str::<ReceiptResult>(receipt_result_in_repo_json)
+        let receipt_result = serde_json::from_str::<ReceiptResult>(receipt_result_json)
             .expect("File with receipts restored after apply_chunks fix have to be correct");
-        let receipts = receipt_result_in_repo.get(&shard_id).unwrap();
-        HashSet::<_>::from_iter(receipts_in_repo.into_iter().map(|receipt| receipt.get_hash()))
+        let receipts = receipt_result.get(&shard_id).unwrap();
+        HashSet::<_>::from_iter(receipts.into_iter().map(|receipt| receipt.get_hash()))
     };
 
     let receipt_hashes_not_verified: Vec<CryptoHash> =
