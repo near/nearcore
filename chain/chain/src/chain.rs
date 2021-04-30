@@ -2732,23 +2732,32 @@ impl<'a> ChainUpdate<'a> {
             Some(&block.hash()),
         )?;
         self.chain_store_update.save_block_extra(&block.hash(), BlockExtra { challenges_result });
-        let prev_protocol_version =
-            self.runtime_adapter.get_epoch_protocol_version(prev_block.header().epoch_id())?;
+
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
         // Re-introduce receipts missing before apply_chunks fix (see https://github.com/near/nearcore/pull/4228)
-        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-        if self.runtime_adapter.is_next_block_epoch_start(prev_block.hash()).unwrap_or(false)
-            && prev_protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
-            && ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() <= protocol_version
-        {
-            let receipt_result = self
-                .runtime_adapter
-                .get_protocol_config(block.header().epoch_id())?
-                .runtime_config
-                .receipts_to_restore;
-            self.chain_store_update.save_outgoing_receipt(&block.hash(), 0, receipt_result);
+        if self.runtime_adapter.is_next_block_epoch_start(prev_block.hash()).unwrap_or(false) {
+            if checked_feature!(
+                "protocol_feature_restore_receipts_after_fix",
+                RestoreReceiptsAfterFix,
+                protocol_version
+            ) {
+                let prev_protocol_version =
+                    self.runtime_adapter.get_epoch_protocol_version(prev_block.header().epoch_id())?;
+                if !checked_feature!(
+                    "protocol_feature_restore_receipts_after_fix",
+                    RestoreReceiptsAfterFix,
+                    prev_protocol_version
+                ) {
+                    let receipt_result = self
+                        .runtime_adapter
+                        .get_protocol_config(block.header().epoch_id())?
+                        .runtime_config
+                        .receipts_to_restore;
+                    self.chain_store_update.save_outgoing_receipt(&block.hash(), 0, receipt_result);
+                }
+            }
         }
 
         for (shard_id, (chunk_header, prev_chunk_header)) in
