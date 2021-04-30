@@ -38,7 +38,7 @@ fn main() -> Result<()> {
         near_config.client_config.tracked_shards.clone(),
     );
 
-    let mut receipts_missing: Vec<Receipt> = vec![];
+    let mut receipts_missing = Vec::<Receipt>::new();
     let height_first: u64 = 34691244; // First height for which lost receipts were found
     let height_last: u64 = 35524259; // Height for which apply_chunks was already fixed
 
@@ -85,16 +85,18 @@ fn main() -> Result<()> {
         println!("{} applied", height);
     }
 
-    // Check that receipts from repo were actually generated
-    let receipt_result_in_repo_json =
-        include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
-    let receipt_result_in_repo = serde_json::from_str::<ReceiptResult>(receipt_result_in_repo_json)
-        .expect("File with receipts restored after apply_chunks fix have to be correct");
-    let receipts_in_repo = receipt_result_in_repo.get(&shard_id).unwrap();
-    let receipt_hashes_in_repo =
-        HashSet::<_>::from_iter(receipts_in_repo.into_iter().map(|receipt| receipt.get_hash()));
-    let receipt_hashes_missing =
+    let receipt_hashes_missing: HashSet<CryptoHash> =
         HashSet::<_>::from_iter(receipts_missing.into_iter().map(|receipt| receipt.get_hash()));
+
+    // Check that receipts from repo were actually generated
+    let receipt_hashes_in_repo: HashSet<CryptoHash> = {
+        let receipt_result_json =
+            include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
+        let receipt_result = serde_json::from_str::<ReceiptResult>(receipt_result_in_repo_json)
+            .expect("File with receipts restored after apply_chunks fix have to be correct");
+        let receipts = receipt_result_in_repo.get(&shard_id).unwrap();
+        HashSet::<_>::from_iter(receipts_in_repo.into_iter().map(|receipt| receipt.get_hash()))
+    };
 
     let receipt_hashes_not_verified: Vec<CryptoHash> =
         receipt_hashes_in_repo.difference(&receipt_hashes_missing).cloned().collect();
