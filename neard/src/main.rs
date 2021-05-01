@@ -18,7 +18,7 @@ use near_primitives::version::{Version, PROTOCOL_VERSION};
 use near_rust_allocator_proxy::allocator::MyAllocator;
 use neard::config::{init_testnet_configs, load_config_without_genesis_records};
 use neard::genesis_validate::validate_genesis;
-use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
+use neard::{get_default_home, get_store_path, init_configs, start_with_config};
 
 #[cfg(feature = "memory_stats")]
 #[global_allocator]
