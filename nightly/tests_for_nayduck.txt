@@ -79,9 +79,6 @@ pytest adversarial/start_from_genesis.py overtake
 pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py overtake doomslug_off
 
-# python test for enable inflation
-pytest sanity/enable_inflation.py
-
 # python upgradable test
 # upgradable.py moves `near` binary, and must be the last python test in the set
 pytest --timeout=600 sanity/upgradable.py

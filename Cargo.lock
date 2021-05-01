@@ -3231,6 +3231,7 @@ version = "0.8.1"
 dependencies = [
  "actix",
  "futures",
+ "near-chain-configs",
  "near-client",
  "near-crypto",
  "near-primitives",
@@ -3604,6 +3605,7 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
+ "near-primitives",
  "near-primitives-core",
  "near-runtime-utils",
  "near-vm-errors",

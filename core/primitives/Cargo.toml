@@ -39,19 +39,15 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
-default = ["jemallocator", "stable_protocol_features"]
+default = ["jemallocator"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
-stable_protocol_features = ["protocol_feature_lower_storage_cost"]
-protocol_feature_lower_storage_cost = []
 protocol_feature_add_account_versions = ["near-primitives-core/protocol_feature_add_account_versions"]
-protocol_feature_forward_chunk_parts = []
-protocol_feature_rectify_inflation = []
 protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
 protocol_feature_block_header_v3 = []
 protocol_feature_alt_bn128 = ["near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
-protocol_feature_access_key_nonce_range = []
 protocol_feature_tx_size_limit = ["near-primitives-core/protocol_feature_tx_size_limit"]
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_forward_chunk_parts", "protocol_feature_rectify_inflation", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_access_key_nonce_range", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit"]
+protocol_feature_allow_create_account_on_delete = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete"]
 nightly_protocol = []
 
 

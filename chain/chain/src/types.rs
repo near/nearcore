@@ -118,7 +118,6 @@ pub struct BlockHeaderInfo {
     pub chunk_mask: Vec<bool>,
     pub total_supply: Balance,
     pub latest_protocol_version: ProtocolVersion,
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
     pub timestamp_nanosec: u64,
 }
 
@@ -136,7 +135,6 @@ impl BlockHeaderInfo {
             chunk_mask: header.chunk_mask().to_vec(),
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
             timestamp_nanosec: header.raw_timestamp(),
         }
     }
@@ -515,6 +513,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -531,6 +530,7 @@ pub trait RuntimeAdapter: Send + Sync {
             challenges_result,
             random_seed,
             false,
+            is_new_chunk,
         )
     }
 
@@ -550,6 +550,7 @@ pub trait RuntimeAdapter: Send + Sync {
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         generate_storage_proof: bool,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(
@@ -568,6 +569,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_value: CryptoHash,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.

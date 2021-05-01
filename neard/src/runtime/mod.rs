@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
+use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -140,9 +139,10 @@ impl NightshadeRuntime {
         genesis: &Genesis,
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
+        trie_viewer_state_size_limit: Option<u64>,
     ) -> Self {
         let runtime = Runtime::new();
-        let trie_viewer = TrieViewer::new();
+        let trie_viewer = TrieViewer::new_with_state_size_limit(trie_viewer_state_size_limit);
         let genesis_config = genesis.config.clone();
         let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
@@ -200,9 +200,7 @@ impl NightshadeRuntime {
         store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
         let mut roots_files = home_dir.to_path_buf();
         roots_files.push(GENESIS_ROOTS_FILE);
-        let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
-        let mut data = vec![];
-        file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
+        let data = fs::read(roots_files).expect("Failed to read genesis roots file.");
         let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
         state_roots
@@ -327,6 +325,7 @@ impl NightshadeRuntime {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
@@ -414,6 +413,7 @@ impl NightshadeRuntime {
                 current_protocol_version,
             ),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
+            is_new_chunk,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
             profile: Default::default(),
@@ -1110,7 +1110,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_header_info.slashed_validators,
             block_header_info.total_supply,
             block_header_info.latest_protocol_version,
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
             block_header_info.timestamp_nanosec,
         );
         let rng_seed = block_header_info.random_value.0;
@@ -1133,6 +1132,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         challenges: &ChallengesResult,
         random_seed: CryptoHash,
         generate_storage_proof: bool,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id);
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
@@ -1151,6 +1151,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_limit,
             challenges,
             random_seed,
+            is_new_chunk,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e.kind() {
@@ -1178,6 +1179,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         challenges: &ChallengesResult,
         random_value: CryptoHash,
+        is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Trie::from_recorded_storage(partial_storage);
         self.process_state_update(
@@ -1195,6 +1197,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_limit,
             challenges,
             random_value,
+            is_new_chunk,
         )
     }
 
@@ -1618,7 +1621,6 @@ mod test {
 
     use super::*;
 
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
     use primitive_types::U256;
 
     fn stake(
@@ -1669,6 +1671,7 @@ mod test {
                     gas_limit,
                     challenges,
                     CryptoHash::default(),
+                    true,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -1686,7 +1689,6 @@ mod test {
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
         pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
         pub last_proposals: Vec<ValidatorStake>,
-        #[cfg(feature = "protocol_feature_rectify_inflation")]
         time: u64,
     }
 
@@ -1726,6 +1728,7 @@ mod test {
                 &genesis,
                 initial_tracked_accounts,
                 initial_tracked_shards,
+                None,
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
@@ -1742,7 +1745,6 @@ mod test {
                     chunk_mask: vec![],
                     total_supply: genesis_total_supply,
                     latest_protocol_version: genesis_protocol_version,
-                    #[cfg(feature = "protocol_feature_rectify_inflation")]
                     timestamp_nanosec: 0,
                 })
                 .unwrap()
@@ -1761,7 +1763,6 @@ mod test {
                 last_receipts: HashMap::default(),
                 last_proposals: vec![],
                 last_shard_proposals: HashMap::default(),
-                #[cfg(feature = "protocol_feature_rectify_inflation")]
                 time: 0,
             }
         }
@@ -1816,7 +1817,6 @@ mod test {
                     chunk_mask,
                     total_supply: self.runtime.genesis_config.total_supply,
                     latest_protocol_version: self.runtime.genesis_config.protocol_version,
-                    #[cfg(feature = "protocol_feature_rectify_inflation")]
                     timestamp_nanosec: self.time + 10u64.pow(9),
                 })
                 .unwrap()
@@ -1824,10 +1824,7 @@ mod test {
                 .unwrap();
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
-            {
-                self.time += 10u64.pow(9);
-            }
+            self.time += 10u64.pow(9);
 
             self.head = Tip {
                 last_block_hash: new_hash,
@@ -1859,44 +1856,26 @@ mod test {
         pub fn compute_reward(
             &self,
             num_validators: usize,
-            #[cfg(feature = "protocol_feature_rectify_inflation")] epoch_duration: u64,
+            epoch_duration: u64,
         ) -> (Balance, Balance) {
-            #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
-            {
-                let per_epoch_total_reward = *self.runtime.genesis_config.max_inflation_rate.numer()
-                    as u128
-                    * self.runtime.genesis_config.total_supply
-                    * self.runtime.genesis_config.epoch_length as u128
-                    / (self.runtime.genesis_config.num_blocks_per_year as u128
-                        * *self.runtime.genesis_config.max_inflation_rate.denom() as u128);
-                let per_epoch_protocol_treasury = per_epoch_total_reward
-                    * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
-                    / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
-                let per_epoch_per_validator_reward =
-                    (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
-                (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
-            }
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
-            {
-                let num_seconds_per_year = 60 * 60 * 24 * 365;
-                let num_ns_in_second = 1_000_000_000;
-                let per_epoch_total_reward =
-                    (U256::from(*self.runtime.genesis_config.max_inflation_rate.numer() as u64)
-                        * U256::from(self.runtime.genesis_config.total_supply)
-                        * U256::from(epoch_duration)
-                        / (U256::from(num_seconds_per_year)
-                            * U256::from(
-                                *self.runtime.genesis_config.max_inflation_rate.denom() as u128
-                            )
-                            * U256::from(num_ns_in_second)))
-                    .as_u128();
-                let per_epoch_protocol_treasury = per_epoch_total_reward
-                    * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
-                    / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
-                let per_epoch_per_validator_reward =
-                    (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
-                (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
-            }
+            let num_seconds_per_year = 60 * 60 * 24 * 365;
+            let num_ns_in_second = 1_000_000_000;
+            let per_epoch_total_reward =
+                (U256::from(*self.runtime.genesis_config.max_inflation_rate.numer() as u64)
+                    * U256::from(self.runtime.genesis_config.total_supply)
+                    * U256::from(epoch_duration)
+                    / (U256::from(num_seconds_per_year)
+                        * U256::from(
+                            *self.runtime.genesis_config.max_inflation_rate.denom() as u128
+                        )
+                        * U256::from(num_ns_in_second)))
+                .as_u128();
+            let per_epoch_protocol_treasury = per_epoch_total_reward
+                * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
+                / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
+            let per_epoch_per_validator_reward =
+                (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
+            (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
         }
     }
 
@@ -2256,7 +2235,6 @@ mod test {
                     chunk_mask: vec![true],
                     total_supply: new_env.runtime.genesis_config.total_supply,
                     latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
-                    #[cfg(feature = "protocol_feature_rectify_inflation")]
                     timestamp_nanosec: new_env.time,
                 })
                 .unwrap()
@@ -2266,10 +2244,7 @@ mod test {
             new_env.head.last_block_hash = cur_hash;
             new_env.head.prev_block_hash = prev_hash;
             new_env.last_proposals = proposals;
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
-            {
-                new_env.time += 10u64.pow(9);
-            }
+            new_env.time += 10u64.pow(9);
         }
         assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]));
         let mut root_node_wrong = root_node.clone();
@@ -2422,7 +2397,8 @@ mod test {
                 )
                 .into()],
                 prev_epoch_kickout: Default::default(),
-                epoch_start_height: 1
+                epoch_start_height: 1,
+                epoch_height: 1,
             }
         );
         env.step_default(vec![]);
@@ -2886,9 +2862,6 @@ mod test {
             env.step_default(vec![]);
         }
 
-        #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
-        let (validator_reward, protocol_treasury_reward) = env.compute_reward(num_nodes);
-        #[cfg(feature = "protocol_feature_rectify_inflation")]
         let (validator_reward, protocol_treasury_reward) =
             env.compute_reward(num_nodes, epoch_length * 10u64.pow(9));
         for i in 0..4 {

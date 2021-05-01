@@ -60,7 +60,7 @@ impl RuntimeUser {
         let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
         RuntimeUser {
             signer,
-            trie_viewer: TrieViewer::new(),
+            trie_viewer: TrieViewer::new_with_state_size_limit(None),
             account_id: account_id.to_string(),
             client,
             transaction_results: Default::default(),
@@ -139,6 +139,7 @@ impl RuntimeUser {
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
             cache: None,
+            is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),

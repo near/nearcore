@@ -603,6 +603,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _challenges: &ChallengesResult,
         _random_seed: CryptoHash,
         generate_storage_proof: bool,
+        _is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
@@ -781,6 +782,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_limit: Gas,
         _challenges: &ChallengesResult,
         _random_value: CryptoHash,
+        _is_new_chunk: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();
     }
@@ -1026,6 +1028,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             current_proposals: vec![],
             prev_epoch_kickout: vec![],
             epoch_start_height: 0,
+            epoch_height: 1,
         })
     }
 

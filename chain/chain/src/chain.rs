@@ -600,7 +600,7 @@ impl Chain {
             }
             let mut chain_store_update = self.store.store_update();
             if let Ok(blocks_current_height) =
-                chain_store_update.get_all_block_hashes_by_height(height)
+                chain_store_update.get_chain_store().get_all_block_hashes_by_height(height)
             {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
@@ -2027,14 +2027,7 @@ impl Chain {
         block_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
         let block = self.get_block(block_hash)?;
-        let block_height = block.header().height();
-        let chunk_headers = block
-            .chunks()
-            .iter()
-            .filter_map(
-                |h| if h.height_included() == block_height { Some(h.clone()) } else { None },
-            )
-            .collect::<Vec<_>>();
+        let chunk_headers = block.chunks().iter().cloned().collect::<Vec<_>>();
 
         let mut res = HashMap::new();
         for chunk_header in chunk_headers {
@@ -2712,6 +2705,7 @@ impl<'a> ChainUpdate<'a> {
                 &challenges_result,
                 *block.header().random_value(),
                 true,
+                true,
             )
             .unwrap();
         let partial_state = apply_result.proof.unwrap().nodes;
@@ -2825,24 +2819,19 @@ impl<'a> ChainUpdate<'a> {
                         ))));
                     }
 
-                    checked_feature!(
-                        "protocol_feature_access_key_nonce_range",
-                        AccessKeyNonceRange,
-                        protocol_version,
-                        {
-                            let transaction_validity_period = self.transaction_validity_period;
-                            for transaction in transactions {
-                                self.chain_store_update
-                                    .get_chain_store()
-                                    .check_transaction_validity_period(
-                                        prev_block.header(),
-                                        &transaction.transaction.block_hash,
-                                        transaction_validity_period,
-                                    )
-                                    .map_err(|_| Error::from(ErrorKind::InvalidTransactions))?;
-                            }
+                    if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
+                        let transaction_validity_period = self.transaction_validity_period;
+                        for transaction in transactions {
+                            self.chain_store_update
+                                .get_chain_store()
+                                .check_transaction_validity_period(
+                                    prev_block.header(),
+                                    &transaction.transaction.block_hash,
+                                    transaction_validity_period,
+                                )
+                                .map_err(|_| Error::from(ErrorKind::InvalidTransactions))?;
                         }
-                    );
+                    };
 
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit();
@@ -2864,6 +2853,7 @@ impl<'a> ChainUpdate<'a> {
                             gas_limit,
                             &block.header().challenges_result(),
                             *block.header().random_value(),
+                            true,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2918,6 +2908,7 @@ impl<'a> ChainUpdate<'a> {
                             new_extra.gas_limit(),
                             &block.header().challenges_result(),
                             *block.header().random_value(),
+                            false,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2925,6 +2916,19 @@ impl<'a> ChainUpdate<'a> {
                     *new_extra.state_root_mut() = apply_result.new_root;
 
                     self.chain_store_update.save_chunk_extra(&block.hash(), shard_id, new_extra);
+
+                    if !apply_result.outcomes.is_empty() {
+                        // debug_assert!(false);
+                        // Remove in next release
+                        let (_, outcome_paths) =
+                            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                        self.chain_store_update.save_outcomes_with_proofs(
+                            &block.hash(),
+                            shard_id,
+                            apply_result.outcomes,
+                            outcome_paths,
+                        );
+                    }
                 }
             }
         }
@@ -3228,6 +3232,7 @@ impl<'a> ChainUpdate<'a> {
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
         if let Ok(epoch_id_to_blocks) = self
             .chain_store_update
+            .get_chain_store()
             .get_all_block_hashes_by_height(header.height())
             .map(Clone::clone)
         {
@@ -3611,6 +3616,7 @@ impl<'a> ChainUpdate<'a> {
             gas_limit,
             &block_header.challenges_result(),
             *block_header.random_value(),
+            true,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -3689,6 +3695,7 @@ impl<'a> ChainUpdate<'a> {
             chunk_extra.gas_limit(),
             &block_header.challenges_result(),
             *block_header.random_value(),
+            false,
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);

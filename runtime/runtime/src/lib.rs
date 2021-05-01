@@ -44,13 +44,16 @@ pub use near_vm_runner::with_ext_cost_counter;
 use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
-    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, RuntimeConfig,
+    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit,
+    total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig,
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_primitives::version::{
+    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
+};
 use std::borrow::Borrow;
 use std::rc::Rc;
 
@@ -65,7 +68,6 @@ pub mod state_viewer;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
-pub use near_primitives::runtime::apply_state::ApplyState;
 
 /// Contains information to update validators accounts at the first block of a new epoch.
 #[derive(Debug)]
@@ -368,10 +370,9 @@ impl Runtime {
                     }
                 } else {
                     // Implicit account creation
-                    debug_assert!(
+                    debug_assert!(is_implicit_account_creation_enabled(
                         apply_state.current_protocol_version
-                            >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-                    );
+                    ));
                     debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,
@@ -424,10 +425,12 @@ impl Runtime {
                     account,
                     actor_id,
                     receipt,
+                    action_receipt,
                     &mut result,
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
+                    &apply_state.config.transaction_costs,
                 )?;
             }
         };
@@ -445,8 +448,8 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        let action_receipt = match receipt.receipt {
-            ReceiptEnum::Action(ref action_receipt) => action_receipt,
+        let action_receipt = match &receipt.receipt {
+            ReceiptEnum::Action(action_receipt) => action_receipt,
             _ => unreachable!("given receipt should be an action receipt"),
         };
         let account_id = &receipt.receiver_id;
@@ -726,8 +729,8 @@ impl Runtime {
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
-        let exec_gas = safe_add_gas(
-            total_exec_fees(
+        let prepaid_exec_gas = safe_add_gas(
+            total_prepaid_exec_fees(
                 &transaction_costs,
                 &action_receipt.actions,
                 &receipt.receiver_id,
@@ -737,9 +740,9 @@ impl Runtime {
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
-            safe_add_gas(prepaid_gas, exec_gas)? - result.gas_burnt
+            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_burnt
         } else {
-            safe_add_gas(prepaid_gas, exec_gas)? - result.gas_used
+            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
         };
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
         let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
@@ -1098,6 +1101,23 @@ impl Runtime {
                 validator_accounts_update,
                 &mut stats,
             )?;
+        }
+        if !apply_state.is_new_chunk
+            && apply_state.current_protocol_version
+                >= ProtocolFeature::FixApplyChunks.protocol_version()
+        {
+            let (trie_changes, state_changes) = state_update.finalize()?;
+            let proof = trie.recorded_storage();
+            return Ok(ApplyResult {
+                state_root: trie_changes.new_root,
+                trie_changes,
+                validator_proposals: vec![],
+                outgoing_receipts: vec![],
+                outcomes: vec![],
+                state_changes,
+                stats,
+                proof,
+            });
         }
 
         let mut outgoing_receipts = Vec::new();
@@ -1533,6 +1553,7 @@ mod tests {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: ProfileData::new_enabled(),
@@ -2116,7 +2137,7 @@ mod tests {
 
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-            total_exec_fees(
+            total_prepaid_exec_fees(
                 &apply_state.config.transaction_costs,
                 &actions,
                 &alice_account(),
@@ -2185,7 +2206,7 @@ mod tests {
 
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-            total_exec_fees(
+            total_prepaid_exec_fees(
                 &apply_state.config.transaction_costs,
                 &actions,
                 &alice_account(),

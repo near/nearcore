@@ -23,6 +23,10 @@ pub fn evm_account() -> AccountId {
     "evm".to_string()
 }
 
+pub fn implicit_account() -> AccountId {
+    "3885505359911f2493f0c40a2bf042981936ec5dddd59708581b155a047864d8".to_string()
+}
+
 lazy_static::lazy_static! {
     static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(near_test_contracts::rs_contract());
 }
@@ -82,7 +86,7 @@ pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
 
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
     let (_, tries, root) = get_runtime_and_trie();
-    let trie_viewer = TrieViewer::new();
+    let trie_viewer = TrieViewer::new_with_state_size_limit(None);
     let state_update = tries.new_trie_update(0, root);
     (trie_viewer, state_update)
 }
