@@ -124,10 +124,9 @@ impl<'a> GenesisValidator<'a> {
 /// Validate genesis config and records. Panics if genesis is ill-formed.
 pub fn validate_genesis(genesis: &Genesis) {
     let mut genesis_validator = GenesisValidator::new(&genesis.config);
-    let callback = |record: &StateRecord| {
+    genesis.process_records(|record: &StateRecord| {
         genesis_validator.process_record(record);
-    };
-    genesis.process_records(callback);
+    });
     genesis_validator.validate();
 }
 

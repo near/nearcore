@@ -394,10 +394,9 @@ impl GenesisJsonHasher {
 
     pub fn process_genesis(&mut self, genesis: &Genesis) {
         self.process_config(&genesis.config);
-        let callback = |record: &StateRecord| {
+        genesis.process_records(|record: &StateRecord| {
             self.process_record(record);
-        };
-        genesis.process_records(callback);
+        });
     }
 
     pub fn finalize(self) -> CryptoHash {
