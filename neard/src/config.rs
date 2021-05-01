@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix;
-use actix_web;
 use chrono::Utc;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
@@ -1021,7 +1020,7 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
     let path = path.clone();
 
     actix::System::new().block_on(async move {
-        let client = actix_web::client::Client::new();
+        let client = awc::Client::new();
         let mut response =
             client.get(url).send().await.expect("Unable to download the genesis file");
 
