@@ -147,3 +147,16 @@ fn to_printable(blob: &[u8]) -> String {
         }
     }
 }
+
+pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
+    match &state_record {
+        StateRecord::Account { account_id, .. }
+        | StateRecord::AccessKey { account_id, .. }
+        | StateRecord::Contract { account_id, .. }
+        | StateRecord::ReceivedData { account_id, .. }
+        | StateRecord::Data { account_id, .. } => account_id,
+        StateRecord::PostponedReceipt(receipt) | StateRecord::DelayedReceipt(receipt) => {
+            &receipt.receiver_id
+        }
+    }
+}

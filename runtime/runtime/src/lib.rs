@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use borsh::BorshSerialize;
 use log::debug;
 
+use near_chain_configs::Genesis;
 pub use near_crypto;
 use near_crypto::PublicKey;
 pub use near_primitives;
@@ -16,7 +17,7 @@ use near_primitives::{
     receipt::{
         ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
     },
-    state_record::StateRecord,
+    state_record::{state_record_to_account_id, StateRecord},
     transaction::{
         Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
         SignedTransaction,
@@ -35,7 +36,7 @@ pub use near_store;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_access_key, set_account, set_code, set_postponed_receipt, set_received_data,
-    PartialStorage, ShardTries, StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
+    PartialStorage, ShardTries, StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -50,7 +51,7 @@ use crate::config::{
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 pub use near_primitives::runtime::apply_state::ApplyState;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
@@ -66,6 +67,8 @@ pub mod ext;
 mod metrics;
 pub mod state_viewer;
 mod verifier;
+
+use std::iter::FromIterator;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
@@ -1294,7 +1297,60 @@ impl Runtime {
             })?;
         Ok(())
     }
+}
 
+struct StorageComputer<'a> {
+    result: HashMap<String, u64>,
+    config: &'a StorageUsageConfig,
+}
+
+impl<'a> StorageComputer<'a> {
+    pub fn new(config: &'a RuntimeConfig) -> Self {
+        Self { result: HashMap::new(), config: &config.transaction_costs.storage_usage_config }
+    }
+
+    pub fn process_record<Record: Borrow<StateRecord>>(&mut self, record: Record) {
+        let account_and_storage = match record.borrow() {
+            StateRecord::Account { account_id, .. } => {
+                Some((account_id.clone(), self.config.num_bytes_account))
+            }
+            StateRecord::Data { account_id, data_key, value } => {
+                let storage_usage =
+                    self.config.num_extra_bytes_record + data_key.len() as u64 + value.len() as u64;
+                Some((account_id.clone(), storage_usage))
+            }
+            StateRecord::Contract { account_id, code } => {
+                Some((account_id.clone(), code.len() as u64))
+            }
+            StateRecord::AccessKey { account_id, public_key, access_key } => {
+                let public_key: PublicKey = public_key.clone();
+                let access_key: AccessKey = access_key.clone().into();
+                let storage_usage = self.config.num_extra_bytes_record
+                    + public_key.try_to_vec().unwrap().len() as u64
+                    + access_key.try_to_vec().unwrap().len() as u64;
+                Some((account_id.clone(), storage_usage))
+            }
+            StateRecord::PostponedReceipt(_) => None,
+            StateRecord::ReceivedData { .. } => None,
+            StateRecord::DelayedReceipt(_) => None,
+        };
+        if let Some((account, storage_usage)) = account_and_storage {
+            *self.result.entry(account).or_default() += storage_usage;
+        }
+    }
+
+    pub fn process_records<Record: Borrow<StateRecord>>(&mut self, records: &[Record]) {
+        for record in records {
+            self.process_record(record.borrow());
+        }
+    }
+
+    pub fn finalize(self) -> HashMap<String, u64> {
+        self.result
+    }
+}
+
+impl Runtime {
     /// It's okay to use unsafe math here, because this method should only be called on the trusted
     /// state records (e.g. at launch from genesis)
     pub fn compute_storage_usage<Record: Borrow<StateRecord>>(
@@ -1302,54 +1358,64 @@ impl Runtime {
         records: &[Record],
         config: &RuntimeConfig,
     ) -> HashMap<AccountId, u64> {
-        let mut result = HashMap::new();
-        let config = &config.transaction_costs.storage_usage_config;
-        for record in records {
-            let account_and_storage = match record.borrow() {
-                StateRecord::Account { account_id, .. } => {
-                    Some((account_id.clone(), config.num_bytes_account))
-                }
-                StateRecord::Data { account_id, data_key, value } => {
-                    let storage_usage =
-                        config.num_extra_bytes_record + data_key.len() as u64 + value.len() as u64;
-                    Some((account_id.clone(), storage_usage))
-                }
-                StateRecord::Contract { account_id, code } => {
-                    Some((account_id.clone(), code.len() as u64))
-                }
-                StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    let public_key: PublicKey = public_key.clone();
-                    let access_key: AccessKey = access_key.clone().into();
-                    let storage_usage = config.num_extra_bytes_record
-                        + public_key.try_to_vec().unwrap().len() as u64
-                        + access_key.try_to_vec().unwrap().len() as u64;
-                    Some((account_id.clone(), storage_usage))
-                }
-                StateRecord::PostponedReceipt(_) => None,
-                StateRecord::ReceivedData { .. } => None,
-                StateRecord::DelayedReceipt(_) => None,
-            };
-            if let Some((account, storage_usage)) = account_and_storage {
-                *result.entry(account).or_default() += storage_usage;
-            }
-        }
-        result
+        let mut storage_computer = StorageComputer::new(config);
+        storage_computer.process_records(records);
+        storage_computer.finalize()
     }
+}
 
-    /// Balances are account, publickey, initial_balance, initial_tx_stake
-    pub fn apply_genesis_state<Record: Borrow<StateRecord>>(
-        &self,
+struct GenesisStateApplier<'a> {
+    tries: ShardTries,
+    shard_id: ShardId,
+    validators: &'a [(AccountId, PublicKey, Balance)],
+    config: &'a RuntimeConfig,
+    current_state_root: CryptoHash,
+    delayed_receipts_indices: DelayedReceiptIndices,
+}
+
+impl<'a> GenesisStateApplier<'a> {
+    pub fn new(
         tries: ShardTries,
         shard_id: ShardId,
-        validators: &[(AccountId, PublicKey, Balance)],
-        records: &[Record],
-        config: &RuntimeConfig,
-    ) -> (StoreUpdate, StateRoot) {
-        let mut state_update = tries.new_trie_update(shard_id, MerkleHash::default());
+        validators: &'a [(AccountId, PublicKey, Balance)],
+        config: &'a RuntimeConfig,
+    ) -> Self {
+        Self {
+            tries,
+            shard_id,
+            validators,
+            config,
+            current_state_root: MerkleHash::default(),
+            delayed_receipts_indices: DelayedReceiptIndices::default(),
+        }
+    }
+
+    fn commit(&mut self, mut state_update: TrieUpdate) {
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
+
+        let (store_update, new_state_root) = self
+            .tries
+            .apply_all(&trie_changes, self.shard_id)
+            .expect("Failed to apply genesis chunk");
+        store_update.commit().expect("Store update failed on genesis initialization");
+        self.current_state_root = new_state_root;
+    }
+
+    fn apply_chunk(&mut self, genesis: &Genesis, chunk_account_ids: HashSet<&AccountId>) {
+        let mut state_update = self.tries.new_trie_update(self.shard_id, self.current_state_root);
         let mut postponed_receipts: Vec<Receipt> = vec![];
-        let mut delayed_receipts_indices = DelayedReceiptIndices::default();
-        for record in records {
-            match record.borrow().clone() {
+
+        let mut storage_computer = StorageComputer::new(self.config);
+
+        genesis.process_records(|record: &StateRecord| {
+            if !chunk_account_ids.contains(state_record_to_account_id(record.borrow())) {
+                return;
+            }
+
+            storage_computer.process_record(record);
+
+            match record.clone() {
                 StateRecord::Account { account_id, account } => {
                     set_account(&mut state_update, account_id, &account);
                 }
@@ -1379,22 +1445,24 @@ impl Runtime {
                     );
                 }
                 StateRecord::DelayedReceipt(receipt) => {
-                    Self::delay_receipt(
+                    Runtime::delay_receipt(
                         &mut state_update,
-                        &mut delayed_receipts_indices,
+                        &mut self.delayed_receipts_indices,
                         &*receipt,
                     )
                     .unwrap();
                 }
             }
-        }
-        for (account_id, storage_usage) in self.compute_storage_usage(records, &config) {
+        });
+
+        for (account_id, storage_usage) in storage_computer.finalize() {
             let mut account = get_account(&state_update, &account_id)
                 .expect("Genesis storage error")
                 .expect("Account must exist");
             account.set_storage_usage(storage_usage);
             set_account(&mut state_update, account_id, &account);
         }
+
         // Processing postponed receipts after we stored all received data
         for receipt in postponed_receipts {
             let account_id = &receipt.receiver_id;
@@ -1434,22 +1502,55 @@ impl Runtime {
                 set_postponed_receipt(&mut state_update, &receipt);
             }
         }
-        if delayed_receipts_indices != DelayedReceiptIndices::default() {
-            set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
-        }
 
-        for (account_id, _, amount) in validators {
+        for (account_id, _, amount) in self.validators {
+            if !chunk_account_ids.contains(account_id) {
+                continue;
+            }
             let mut account: Account = get_account(&state_update, account_id)
                 .expect("Genesis storage error")
                 .expect("account must exist");
             account.set_locked(*amount);
             set_account(&mut state_update, account_id.clone(), &account);
         }
-        state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
 
-        let (store_update, state_root) = tries.apply_genesis(trie_changes, shard_id);
-        (store_update, state_root)
+        self.commit(state_update);
+    }
+
+    pub fn apply_delayed_receipts(&mut self) {
+        let mut state_update = self.tries.new_trie_update(self.shard_id, self.current_state_root);
+
+        if self.delayed_receipts_indices != DelayedReceiptIndices::default() {
+            set(&mut state_update, TrieKey::DelayedReceiptIndices, &self.delayed_receipts_indices);
+            self.commit(state_update);
+        }
+    }
+
+    pub fn apply(&mut self, genesis: &Genesis, shard_account_ids: HashSet<AccountId>) -> StateRoot {
+        for chunk_account_ids in
+            shard_account_ids.into_iter().collect::<Vec<AccountId>>().chunks(120000)
+        {
+            self.apply_chunk(genesis, HashSet::from_iter(chunk_account_ids));
+        }
+        self.apply_delayed_receipts();
+        self.current_state_root
+    }
+}
+
+impl Runtime {
+    /// Balances are account, publickey, initial_balance, initial_tx_stake
+    pub fn apply_genesis_state(
+        &self,
+        tries: ShardTries,
+        shard_id: ShardId,
+        validators: &[(AccountId, PublicKey, Balance)],
+        genesis: &Genesis,
+        config: &RuntimeConfig,
+        shard_account_ids: HashSet<AccountId>,
+    ) -> StateRoot {
+        let mut genesis_state_applier =
+            GenesisStateApplier::new(tries, shard_id, validators, config);
+        genesis_state_applier.apply(genesis, shard_account_ids)
     }
 }
 
