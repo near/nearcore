@@ -17,6 +17,8 @@ fn main() -> Result<()> {
     // See https://github.com/near/nearcore/pull/4248/ for more details.
     // Requirement: mainnet archival node dump.
 
+    eprintln!("restored-receipts-verifier started");
+
     let default_home = get_default_home();
     let matches = App::new("restored-receipts-verifier")
         .arg(
@@ -27,8 +29,6 @@ fn main() -> Result<()> {
                 .takes_value(true),
         )
         .get_matches();
-
-    println!("Start");
 
     let shard_id = 0u64;
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
@@ -48,19 +48,20 @@ fn main() -> Result<()> {
     let height_first: u64 = 34691244; // First height for which lost receipts were found
     let height_last: u64 = 35524259; // Height for which apply_chunks was already fixed
 
+    eprintln!("Collecting missing receipts from blocks...");
     for height in height_first..height_last {
         let block_hash_result = chain_store.get_block_hash_by_height(height);
         let block_hash = match block_hash_result {
             Ok(it) => it,
             Err(_) => {
-                println!("{} does not exist, skip", height);
+                eprintln!("{} does not exist, skip", height);
                 continue;
             }
         };
 
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         if block.chunks()[shard_id as usize].height_included() == height {
-            println!("{} included, skip", height);
+            eprintln!("{} included, skip", height);
             continue;
         }
 
@@ -88,13 +89,13 @@ fn main() -> Result<()> {
         let receipts_missing_after_apply: Vec<Receipt> =
             apply_result.receipt_result.values().cloned().into_iter().flatten().collect();
         receipts_missing.extend(receipts_missing_after_apply.into_iter());
-        println!("{} applied", height);
+        eprintln!("{} applied", height);
     }
 
     let receipt_hashes_missing: HashSet<CryptoHash> =
         HashSet::<_>::from_iter(receipts_missing.into_iter().map(|receipt| receipt.get_hash()));
 
-    // Check that receipts from repo were actually generated
+    eprintln!("Taking receipt hashes from repo...");
     let receipt_hashes_in_repo: HashSet<CryptoHash> = {
         let receipt_result_json = include_str!("../../../neard/res/mainnet_restored_receipts.json");
         let receipt_result = serde_json::from_str::<ReceiptResult>(receipt_result_json)
@@ -103,6 +104,7 @@ fn main() -> Result<()> {
         HashSet::<_>::from_iter(receipts.into_iter().map(|receipt| receipt.get_hash()))
     };
 
+    eprintln!("Verifying receipt hashes...");
     let receipt_hashes_not_verified: Vec<CryptoHash> =
         receipt_hashes_in_repo.difference(&receipt_hashes_missing).cloned().collect();
     assert!(
@@ -110,7 +112,7 @@ fn main() -> Result<()> {
         "Some of receipt hashes in repo were not verified successfully: {:?}",
         receipt_hashes_not_verified
     );
-    println!("Receipt hashes in repo were verified successfully!");
+    eprintln!("Receipt hashes in repo were verified successfully!");
 
     Ok(())
 }
