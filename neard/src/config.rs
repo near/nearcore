@@ -746,7 +746,9 @@ fn generate_validator_key(account_id: &str, path: &Path) {
 
 lazy_static_include::lazy_static_include_bytes! {
     MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
-    RESTORED_RECEIPTS_JSON => "res/fix_apply_chunks_receipts.json",
+    // File with receipts which were lost because of a bug in apply_chunks to the runtime config.
+    // Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
+    MAINNET_RESTORED_RECEIPTS_JSON => "res/mainnet_restored_receipts.json",
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -801,7 +803,7 @@ pub fn init_configs(
                 PROTOCOL_VERSION,
                 {
                     genesis.config.runtime_config.receipts_to_restore =
-                        serde_json::from_slice(*RESTORED_RECEIPTS_JSON).expect(
+                        serde_json::from_slice(*MAINNET_RESTORED_RECEIPTS_JSON).expect(
                             "File with receipts restored after apply_chunks fix have to be correct",
                         );
                 }

@@ -96,7 +96,7 @@ fn main() -> Result<()> {
 
     // Check that receipts from repo were actually generated
     let receipt_hashes_in_repo: HashSet<CryptoHash> = {
-        let receipt_result_json = include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
+        let receipt_result_json = include_str!("../../../neard/res/mainnet_restored_receipts.json");
         let receipt_result = serde_json::from_str::<ReceiptResult>(receipt_result_json)
             .expect("File with receipts restored after apply_chunks fix have to be correct");
         let receipts = receipt_result.get(&shard_id).unwrap();
