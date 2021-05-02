@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use tracing::warn;
 
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{
@@ -20,7 +21,9 @@ use crate::migrations::v6_to_v7::{
 use crate::migrations::v8_to_v9::{
     recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
 };
-use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
+use crate::{
+    create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY,
+};
 
 use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
@@ -359,13 +362,13 @@ where
 fn map_col_from_key<U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
 where
     U: BorshSerialize,
-    F: Fn(&[u8]) -> U,
+    F: Fn(&[u8], &mut StoreUpdate) -> U,
 {
     let mut store_update = store.store_update();
     let batch_size_limit = 10_000_000;
     let mut batch_size = 0;
     for (key, _) in store.iter(col) {
-        let new_value = f(&key);
+        let new_value = f(&key, &mut store_update);
         let new_bytes = new_value.try_to_vec()?;
         batch_size += key.as_ref().len() + new_bytes.len() + 8;
         store_update.set(col, key.as_ref(), &new_bytes);
@@ -560,10 +563,11 @@ pub fn migrate_14_to_15(path: &String) {
     set_store_version(&store, 15);
 }
 
-pub fn migrate_17_to_18(path: &String) {
+pub fn migrate_17_to_18(path: &String, is_archival: bool) {
     use std::convert::TryFrom;
 
     use near_primitives::challenge::SlashedValidator;
+    use near_primitives::epoch_manager::BlockInfoV1;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{Balance, BlockHeight, EpochId};
     use near_primitives::version::ProtocolVersion;
@@ -583,27 +587,41 @@ pub fn migrate_17_to_18(path: &String) {
         pub slashed: Vec<SlashedValidator>,
         pub total_supply: Balance,
     }
-    #[derive(BorshSerialize)]
-    struct NewBlockInfo {
-        pub hash: CryptoHash,
-        pub height: BlockHeight,
-        pub last_finalized_height: BlockHeight,
-        pub last_final_block_hash: CryptoHash,
-        pub prev_hash: CryptoHash,
-        pub epoch_first_block: CryptoHash,
-        pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStakeV1>,
-        pub validator_mask: Vec<bool>,
-        pub latest_protocol_version: ProtocolVersion,
-        pub slashed: Vec<SlashedValidator>,
-        pub total_supply: Balance,
-    }
+
     let store = create_store(path);
-    map_col_from_key(&store, DBCol::ColBlockInfo, |key| {
+    let tail = store.get_ser::<u64>(DBCol::ColBlockMisc, TAIL_KEY).unwrap().unwrap_or_default();
+    if is_archival && tail != 0 {
+        warn!("archival node has non empty tail {}", tail);
+    }
+    map_col_from_key(&store, DBCol::ColBlockInfo, |key, store_update| {
         let hash = CryptoHash::try_from(key).unwrap();
         let old_block_info =
             store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
-        NewBlockInfo {
+        if old_block_info.height < tail {
+            store_update.delete(DBCol::ColBlockInfo, key);
+        }
+
+        if key == &[0; 32] {
+            // dummy value
+            return BlockInfoV1 {
+                hash,
+                height: old_block_info.height,
+                last_finalized_height: old_block_info.last_finalized_height,
+                last_final_block_hash: old_block_info.last_final_block_hash,
+                prev_hash: old_block_info.prev_hash,
+                epoch_first_block: old_block_info.epoch_first_block,
+                epoch_id: old_block_info.epoch_id,
+                proposals: old_block_info.proposals,
+                chunk_mask: old_block_info.validator_mask,
+                latest_protocol_version: old_block_info.latest_protocol_version,
+                slashed: HashMap::default(),
+                total_supply: old_block_info.total_supply,
+                timestamp_nanosec: 0,
+            };
+        }
+        let block_header =
+            store.get_ser::<BlockHeader>(DBCol::ColBlockHeader, key).unwrap().unwrap();
+        BlockInfoV1 {
             hash,
             height: old_block_info.height,
             last_finalized_height: old_block_info.last_finalized_height,
@@ -612,10 +630,11 @@ pub fn migrate_17_to_18(path: &String) {
             epoch_first_block: old_block_info.epoch_first_block,
             epoch_id: old_block_info.epoch_id,
             proposals: old_block_info.proposals,
-            validator_mask: old_block_info.validator_mask,
+            chunk_mask: old_block_info.validator_mask,
             latest_protocol_version: old_block_info.latest_protocol_version,
-            slashed: old_block_info.slashed,
+            slashed: HashMap::default(),
             total_supply: old_block_info.total_supply,
+            timestamp_nanosec: block_header.raw_timestamp(),
         }
     })
     .unwrap();
@@ -639,71 +658,6 @@ pub fn migrate_20_to_21(path: &String) {
     store_update.commit().unwrap();
 
     set_store_version(&store, 21);
-}
-
-pub fn migrate_21_to_22(path: &String) {
-    use near_primitives::epoch_manager::BlockInfoV1;
-    use near_primitives::epoch_manager::SlashState;
-    use near_primitives::types::validator_stake::ValidatorStakeV1;
-    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId};
-    use near_primitives::version::ProtocolVersion;
-    #[derive(BorshDeserialize)]
-    struct OldBlockInfo {
-        pub hash: CryptoHash,
-        pub height: BlockHeight,
-        pub last_finalized_height: BlockHeight,
-        pub last_final_block_hash: CryptoHash,
-        pub prev_hash: CryptoHash,
-        pub epoch_first_block: CryptoHash,
-        pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStakeV1>,
-        pub chunk_mask: Vec<bool>,
-        pub latest_protocol_version: ProtocolVersion,
-        pub slashed: HashMap<AccountId, SlashState>,
-        pub total_supply: Balance,
-    }
-    let store = create_store(path);
-    map_col_from_key(&store, DBCol::ColBlockInfo, |key| {
-        let old_block_info =
-            store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
-        if key == &[0; 32] {
-            // dummy value
-            return BlockInfoV1 {
-                hash: old_block_info.hash,
-                height: old_block_info.height,
-                last_finalized_height: old_block_info.last_finalized_height,
-                last_final_block_hash: old_block_info.last_final_block_hash,
-                prev_hash: old_block_info.prev_hash,
-                epoch_first_block: old_block_info.epoch_first_block,
-                epoch_id: old_block_info.epoch_id,
-                proposals: old_block_info.proposals,
-                chunk_mask: old_block_info.chunk_mask,
-                latest_protocol_version: old_block_info.latest_protocol_version,
-                slashed: old_block_info.slashed,
-                total_supply: old_block_info.total_supply,
-                timestamp_nanosec: 0,
-            };
-        }
-        let block_header =
-            store.get_ser::<BlockHeader>(DBCol::ColBlockHeader, key).unwrap().unwrap();
-        BlockInfoV1 {
-            hash: old_block_info.hash,
-            height: old_block_info.height,
-            last_finalized_height: old_block_info.last_finalized_height,
-            last_final_block_hash: old_block_info.last_final_block_hash,
-            prev_hash: old_block_info.prev_hash,
-            epoch_first_block: old_block_info.epoch_first_block,
-            epoch_id: old_block_info.epoch_id,
-            proposals: old_block_info.proposals,
-            chunk_mask: old_block_info.chunk_mask,
-            latest_protocol_version: old_block_info.latest_protocol_version,
-            slashed: old_block_info.slashed,
-            total_supply: old_block_info.total_supply,
-            timestamp_nanosec: block_header.raw_timestamp(),
-        }
-    })
-    .unwrap();
-    set_store_version(&store, 22);
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]

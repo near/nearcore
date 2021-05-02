@@ -195,6 +195,7 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 19);
 }
 
+#[allow(unused)]
 pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
