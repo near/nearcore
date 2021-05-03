@@ -402,7 +402,7 @@ impl NightshadeRuntime {
 
         #[cfg(feature = "protocol_feature_block_hash_host_fn")]
         let block_hash_provider =
-            near_store::StoreBlockHashProvider::new(Arc::clone(&self.store), block_height);
+            StoreBlockHashProvider::new(Arc::clone(&self.store), block_height);
         let apply_state = ApplyState {
             block_index: block_height,
             prev_block_hash: *prev_block_hash,
