@@ -40,8 +40,9 @@ no_cache = []
 adversarial = []
 protocol_feature_rectify_inflation = []
 protocol_feature_block_header_v3 = []
+protocol_feature_block_hash_host_fn = ["near-primitives/protocol_feature_block_hash_host_fn"]
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_rectify_inflation", "protocol_feature_block_header_v3"]
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_rectify_inflation", "protocol_feature_block_header_v3", "protocol_feature_block_hash_host_fn"]
 
 [package.metadata.workspaces]
 independent = true

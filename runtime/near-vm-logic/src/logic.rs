@@ -702,6 +702,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + storage_read_base + storage_read_key_byte * 8 + write_register_base + write_register_byte * 32
+    #[cfg(feature = "protocol_feature_block_hash_host_fn")]
     pub fn block_hash(&mut self, block_height: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         // we assume that under the hood this is a DB read, where the block height

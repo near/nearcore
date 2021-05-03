@@ -369,6 +369,7 @@ impl fmt::Debug for dyn CompiledContractCache {
     }
 }
 
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
 impl fmt::Debug for dyn crate::types::BlockHashProvider {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Block hash provider")

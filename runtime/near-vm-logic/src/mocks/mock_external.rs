@@ -1,8 +1,12 @@
 use crate::{External, ValuePtr};
-use near_primitives_core::types::{AccountId, Balance, BlockHeight, Gas};
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
+use near_primitives_core::types::BlockHeight;
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
 use near_primitives::hash::CryptoHash;
 
 #[derive(Default, Clone)]
@@ -213,6 +217,7 @@ impl External for MockedExternal {
         Ok(self.validators.values().sum())
     }
 
+    #[cfg(feature = "protocol_feature_block_hash_host_fn")]
     fn block_hash(&self, _block_height: BlockHeight) -> Result<Option<CryptoHash>> {
         Ok(None)
     }

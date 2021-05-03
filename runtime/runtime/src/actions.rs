@@ -181,6 +181,7 @@ pub(crate) fn action_function_call(
         &apply_state.block_hash,
         epoch_info_provider,
         apply_state.current_protocol_version,
+        #[cfg(feature = "protocol_feature_block_hash_host_fn")]
         apply_state.block_hash_provider.as_ref(),
     );
     let (outcome, err) = execute_function_call(

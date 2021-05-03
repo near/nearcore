@@ -1,8 +1,12 @@
 //! External dependencies of the near-vm-logic.
 
 use crate::types::{PublicKey, ReceiptIndex};
-use near_primitives_core::types::{AccountId, Balance, Gas, BlockHeight};
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::VMLogicError;
+
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
+use near_primitives_core::types::BlockHeight;
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
 use near_primitives::hash::CryptoHash;
 
 /// An abstraction over the memory of the smart contract.
@@ -485,5 +489,6 @@ pub trait External {
 
     /// Meant to provide compatibility with Ethereum's BLOCKHASH op-code.
     /// See `near_primitives::types::BlockHashProvider` for details.
+    #[cfg(feature = "protocol_feature_block_hash_host_fn")]
     fn block_hash(&self, block_height: BlockHeight) -> Result<Option<CryptoHash>>;
 }

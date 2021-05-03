@@ -54,6 +54,7 @@ protocol_feature_alt_bn128 = [
 ]
 protocol_feature_tx_size_limit = []
 protocol_feature_allow_create_account_on_delete = ["near-primitives/protocol_feature_allow_create_account_on_delete", "near-vm-logic/protocol_feature_allow_create_account_on_delete"]
+protocol_feature_block_hash_host_fn = ["near-primitives/protocol_feature_block_hash_host_fn", "near-store/protocol_feature_block_hash_host_fn", "near-vm-logic/protocol_feature_block_hash_host_fn"]
 
 [dev-dependencies]
 tempfile = "3"

@@ -990,12 +990,15 @@ pub trait EpochInfoProvider {
 /// Meant to provide compatibility with Ethereum's BLOCKHASH op-code.
 /// Only the most recent 256 block heights can return a result, all other inputs will
 /// return `None`. If the requested height was skipped then `None` is returned in that case also.
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
 pub trait BlockHashProvider {
     fn block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, std::io::Error>;
 }
 
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
 pub struct NullBlockHashProvider;
 
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
 impl BlockHashProvider for NullBlockHashProvider {
     fn block_hash(&self, _height: BlockHeight) -> Result<Option<CryptoHash>, std::io::Error> {
         Ok(None)

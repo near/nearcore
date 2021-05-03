@@ -1,10 +1,13 @@
 use crate::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
-    types::{Balance, BlockHeight, BlockHashProvider, CompiledContractCache, EpochHeight, EpochId, Gas},
+    types::{Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId, Gas},
     version::ProtocolVersion,
 };
 use std::sync::Arc;
+
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
+use crate::types::BlockHashProvider;
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -41,5 +44,6 @@ pub struct ApplyState {
     pub evm_chain_id: u64,
     /// Data collected from making a contract call
     pub profile: crate::profile::ProfileData,
+    #[cfg(feature = "protocol_feature_block_hash_host_fn")]
     pub block_hash_provider: Arc<dyn BlockHashProvider>,
 }

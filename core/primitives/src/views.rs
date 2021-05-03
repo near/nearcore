@@ -46,10 +46,13 @@ use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
     EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
     StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason, BlockHashProvider,
+    StoreValue, ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;
+
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
+use crate::types::BlockHashProvider;
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -95,6 +98,7 @@ pub struct ViewApplyState {
     /// EVM chain ID
     #[cfg(feature = "protocol_feature_evm")]
     pub evm_chain_id: u64,
+    #[cfg(feature = "protocol_feature_block_hash_host_fn")]
     pub block_hash_provider: Arc<dyn BlockHashProvider>,
 }
 

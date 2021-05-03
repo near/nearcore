@@ -103,6 +103,8 @@ pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
     AllowCreateAccountOnDelete,
     FixApplyChunks,
+    #[cfg(feature = "protocol_feature_block_hash_host_fn")]
+    BlockHashHostFn,
 }
 
 /// Current latest stable version of the protocol.
@@ -111,7 +113,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 44;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 110;
+pub const PROTOCOL_VERSION: ProtocolVersion = 111;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -141,6 +143,8 @@ impl ProtocolFeature {
             ProtocolFeature::BlockHeaderV3 => 109,
             #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
             ProtocolFeature::AllowCreateAccountOnDelete => 110,
+            #[cfg(feature = "protocol_feature_block_hash_host_fn")]
+            ProtocolFeature::BlockHashHostFn => 111,
         }
     }
 }

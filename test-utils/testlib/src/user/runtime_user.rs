@@ -143,6 +143,7 @@ impl RuntimeUser {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
+            #[cfg(feature = "protocol_feature_block_hash_host_fn")]
             block_hash_provider: Arc::new(near_primitives::types::NullBlockHashProvider),
         }
     }
@@ -251,6 +252,7 @@ impl User for RuntimeUser {
             cache: apply_state.cache,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
+            #[cfg(feature = "protocol_feature_block_hash_host_fn")]
             block_hash_provider: apply_state.block_hash_provider,
         };
         result.result = self
