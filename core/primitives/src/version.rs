@@ -13,7 +13,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 21;
+pub const DB_VERSION: DbVersion = 22;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -80,36 +80,34 @@ pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -
 ///
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+    // stable features
     ForwardChunkParts,
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
     RectifyInflation,
+    AccessKeyNonceRange,
+    FixApplyChunks,
+    LowerStorageCost,
+    DeleteActionRestriction,
+
+    // nightly features
     #[cfg(feature = "protocol_feature_evm")]
     EVM,
     #[cfg(feature = "protocol_feature_block_header_v3")]
     BlockHeaderV3,
-    /// Decreases the storage cost of 1 byte by 10X.
-    #[cfg(feature = "protocol_feature_lower_storage_cost")]
-    LowerStorageCost,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128,
-    #[cfg(feature = "protocol_feature_access_key_nonce_range")]
-    AccessKeyNonceRange,
-    DeleteActionRestriction,
     #[cfg(feature = "protocol_feature_add_account_versions")]
     AccountVersions,
     #[cfg(feature = "protocol_feature_tx_size_limit")]
     TransactionSizeLimit,
     #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
     AllowCreateAccountOnDelete,
-    FixApplyChunks,
     #[cfg(feature = "protocol_feature_block_hash_host_fn")]
     BlockHashHostFn,
 }
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 44;
+pub const PROTOCOL_VERSION: ProtocolVersion = 45;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
@@ -119,22 +117,18 @@ impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
         match self {
             // Stable features
-            #[cfg(feature = "protocol_feature_lower_storage_cost")]
             ProtocolFeature::LowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
+            ProtocolFeature::ForwardChunkParts => 45,
+            ProtocolFeature::RectifyInflation => 45,
+            ProtocolFeature::AccessKeyNonceRange => 45,
 
             // Nightly features
-            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-            ProtocolFeature::ForwardChunkParts => 101,
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
-            ProtocolFeature::RectifyInflation => 102,
             #[cfg(feature = "protocol_feature_evm")]
             ProtocolFeature::EVM => 103,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             ProtocolFeature::AltBn128 => 105,
-            #[cfg(feature = "protocol_feature_access_key_nonce_range")]
-            ProtocolFeature::AccessKeyNonceRange => 106,
             #[cfg(feature = "protocol_feature_add_account_versions")]
             ProtocolFeature::AccountVersions => 107,
             #[cfg(feature = "protocol_feature_tx_size_limit")]
@@ -151,6 +145,9 @@ impl ProtocolFeature {
 
 #[macro_export]
 macro_rules! checked_feature {
+    ("stable", $feature:ident, $current_protocol_version:expr) => {{
+        $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version
+    }};
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
         #[cfg(feature = $feature_name)]
         let is_feature_enabled = $crate::version::ProtocolFeature::$feature.protocol_version()

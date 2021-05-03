@@ -47,7 +47,6 @@ use std::fmt::{Debug, Error, Formatter};
 use std::io;
 
 use conqueue::QueueSender;
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_primitives::merkle::combine_hash;
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
@@ -472,7 +471,6 @@ pub enum RoutedMessageBody {
     Pong(Pong),
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     VersionedStateResponse(StateResponseInfo),
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
@@ -541,7 +539,6 @@ impl Debug for RoutedMessageBody {
                 response.shard_id(),
                 response.sync_hash()
             ),
-            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
             RoutedMessageBody::PartialEncodedChunkForward(forward) => write!(
                 f,
                 "PartialChunkForward({:?}, {:?})",
@@ -805,7 +802,6 @@ impl PeerMessage {
                 | RoutedMessageBody::StateResponse(_)
                 | RoutedMessageBody::VersionedPartialEncodedChunk(_)
                 | RoutedMessageBody::VersionedStateResponse(_) => true,
-                #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                 RoutedMessageBody::PartialEncodedChunkForward(_) => true,
                 _ => false,
             },
@@ -1234,7 +1230,6 @@ pub enum NetworkRequests {
         partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
     },
     /// Forwarding a chunk part to a validator tracking the shard
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     PartialEncodedChunkForward {
         account_id: AccountId,
         forward: PartialEncodedChunkForwardMsg,
@@ -1451,7 +1446,6 @@ pub enum NetworkClientMessages {
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
     /// Forwarding parts to those tracking the shard (so they don't need to send requests)
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 
     /// A challenge to invalidate the block.
@@ -1633,7 +1627,6 @@ pub struct PartialEncodedChunkResponseMsg {
 /// This reduces the number of requests a node tracking a shard needs to send to obtain enough
 /// parts to reconstruct the message (in the best case no such requests are needed).
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 pub struct PartialEncodedChunkForwardMsg {
     pub chunk_hash: ChunkHash,
     pub inner_header_hash: CryptoHash,
@@ -1645,7 +1638,6 @@ pub struct PartialEncodedChunkForwardMsg {
     pub parts: Vec<PartialEncodedChunkPart>,
 }
 
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 impl PartialEncodedChunkForwardMsg {
     pub fn from_header_and_parts(
         header: &ShardChunkHeader,

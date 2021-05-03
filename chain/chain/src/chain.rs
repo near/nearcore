@@ -2819,24 +2819,19 @@ impl<'a> ChainUpdate<'a> {
                         ))));
                     }
 
-                    checked_feature!(
-                        "protocol_feature_access_key_nonce_range",
-                        AccessKeyNonceRange,
-                        protocol_version,
-                        {
-                            let transaction_validity_period = self.transaction_validity_period;
-                            for transaction in transactions {
-                                self.chain_store_update
-                                    .get_chain_store()
-                                    .check_transaction_validity_period(
-                                        prev_block.header(),
-                                        &transaction.transaction.block_hash,
-                                        transaction_validity_period,
-                                    )
-                                    .map_err(|_| Error::from(ErrorKind::InvalidTransactions))?;
-                            }
+                    if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
+                        let transaction_validity_period = self.transaction_validity_period;
+                        for transaction in transactions {
+                            self.chain_store_update
+                                .get_chain_store()
+                                .check_transaction_validity_period(
+                                    prev_block.header(),
+                                    &transaction.transaction.block_hash,
+                                    transaction_validity_period,
+                                )
+                                .map_err(|_| Error::from(ErrorKind::InvalidTransactions))?;
                         }
-                    );
+                    };
 
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit();

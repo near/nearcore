@@ -33,12 +33,14 @@ near_root, node_dirs = init_cluster(
 started = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
+boot_node.stop_checking_store()
 node3 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk,
                      boot_node.addr())
 node4 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node.node_key.pk,
                      boot_node.addr())
 observer = spin_up_node(config, near_root, node_dirs[4], 4,
                         boot_node.node_key.pk, boot_node.addr())
+observer.stop_checking_store()
 
 ctx = TxContext([4, 4, 4, 4, 4], [boot_node, None, node3, node4, observer])
 initial_balances = ctx.get_balances()
@@ -56,7 +58,7 @@ largest_height = 0
 #    observer for the shard it doesn't care about
 while True:
     assert time.time() - started < TIMEOUT
-    status = boot_node.get_status()
+    status = observer.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     new_height = status['sync_info']['latest_block_height']
     seen_boot_heights.add(new_height)
@@ -78,6 +80,7 @@ print("stage 1 done")
 # 2. Spin up the second node and make sure it gets to 35 as well, and doesn't diverge
 node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
                      boot_node.addr())
+node2.stop_checking_store()
 
 status = boot_node.get_status()
 new_height = status['sync_info']['latest_block_height']
@@ -157,7 +160,7 @@ print("stage 4 done")
 
 ctx.next_nonce = 100
 # 5. Record the latest height and bring down the first node, wait for couple epochs to pass
-status = node2.get_status()
+status = observer.get_status()
 last_height = status['sync_info']['latest_block_height']
 
 ctx.nodes = [boot_node, node2, node3, node4, observer]
@@ -169,7 +172,7 @@ sent_txs = False
 
 while True:
     assert time.time() - started < TIMEOUT
-    status = node2.get_status()
+    status = observer.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     new_height = status['sync_info']['latest_block_height']
     seen_boot_heights.add(new_height)
@@ -193,5 +196,5 @@ ctx.nodes = [observer, node2]
 ctx.act_to_val = [0, 0, 0, 0, 0]
 print("Observer sees: %s" % ctx.get_balances())
 
-assert (balances != initial_balances)
-assert (sum(balances) == total_supply)
+assert balances != initial_balances, "current balance %s, initial balance %s" % (balances, initial_balances)
+assert sum(balances) == total_supply

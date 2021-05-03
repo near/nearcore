@@ -13,7 +13,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
 use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts};
-use crate::db::{DBCol, RocksDB, VERSION_KEY};
+use crate::db::{DBCol, RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
@@ -632,9 +632,17 @@ pub fn migrate_17_to_18(path: &String) {
     set_store_version(&store, 18);
 }
 
-#[cfg(feature = "protocol_feature_rectify_inflation")]
-pub fn migrate_18_to_rectify_inflation(path: &String) {
-    use near_primitives::epoch_manager::block_info::BlockInfoV1;
+pub fn migrate_20_to_21(path: &String) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    store_update.delete(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY);
+    store_update.commit().unwrap();
+
+    set_store_version(&store, 21);
+}
+
+pub fn migrate_21_to_22(path: &String) {
+    use near_primitives::epoch_manager::BlockInfoV1;
     use near_primitives::epoch_manager::SlashState;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId};
@@ -656,25 +664,46 @@ pub fn migrate_18_to_rectify_inflation(path: &String) {
     }
     let store = create_store(path);
     map_col_from_key(&store, DBCol::ColBlockInfo, |key| {
-        let block_header =
-            store.get_ser::<BlockHeader>(DBCol::ColBlockHeader, key).unwrap().unwrap();
         let old_block_info =
             store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
-        BlockInfoV1::new(
-            *block_header.hash(),
-            block_header.height(),
-            old_block_info.last_finalized_height,
-            *block_header.last_final_block(),
-            *block_header.prev_hash(),
-            block_header.validator_proposals().map(|v| v.into_v1()).collect(),
-            block_header.chunk_mask().to_vec(),
-            vec![],
-            block_header.total_supply(),
-            block_header.latest_protocol_version(),
-            block_header.raw_timestamp(),
-        )
+        if key == &[0; 32] {
+            // dummy value
+            return BlockInfoV1 {
+                hash: old_block_info.hash,
+                height: old_block_info.height,
+                last_finalized_height: old_block_info.last_finalized_height,
+                last_final_block_hash: old_block_info.last_final_block_hash,
+                prev_hash: old_block_info.prev_hash,
+                epoch_first_block: old_block_info.epoch_first_block,
+                epoch_id: old_block_info.epoch_id,
+                proposals: old_block_info.proposals,
+                chunk_mask: old_block_info.chunk_mask,
+                latest_protocol_version: old_block_info.latest_protocol_version,
+                slashed: old_block_info.slashed,
+                total_supply: old_block_info.total_supply,
+                timestamp_nanosec: 0,
+            };
+        }
+        let block_header =
+            store.get_ser::<BlockHeader>(DBCol::ColBlockHeader, key).unwrap().unwrap();
+        BlockInfoV1 {
+            hash: old_block_info.hash,
+            height: old_block_info.height,
+            last_finalized_height: old_block_info.last_finalized_height,
+            last_final_block_hash: old_block_info.last_final_block_hash,
+            prev_hash: old_block_info.prev_hash,
+            epoch_first_block: old_block_info.epoch_first_block,
+            epoch_id: old_block_info.epoch_id,
+            proposals: old_block_info.proposals,
+            chunk_mask: old_block_info.chunk_mask,
+            latest_protocol_version: old_block_info.latest_protocol_version,
+            slashed: old_block_info.slashed,
+            total_supply: old_block_info.total_supply,
+            timestamp_nanosec: block_header.raw_timestamp(),
+        }
     })
     .unwrap();
+    set_store_version(&store, 22);
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]

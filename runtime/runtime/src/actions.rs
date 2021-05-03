@@ -621,30 +621,19 @@ pub(crate) fn action_add_key(
         .into());
         return Ok(());
     }
-    checked_feature!(
-        "protocol_feature_access_key_nonce_range",
-        AccessKeyNonceRange,
-        apply_state.current_protocol_version,
-        {
-            let mut access_key = add_key.access_key.clone();
-            access_key.nonce = (apply_state.block_index - 1)
-                * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-            set_access_key(
-                state_update,
-                account_id.clone(),
-                add_key.public_key.clone(),
-                &access_key,
-            );
-        },
-        {
-            set_access_key(
-                state_update,
-                account_id.clone(),
-                add_key.public_key.clone(),
-                &add_key.access_key,
-            );
-        }
-    );
+    if checked_feature!("stable", AccessKeyNonceRange, apply_state.current_protocol_version) {
+        let mut access_key = add_key.access_key.clone();
+        access_key.nonce = (apply_state.block_index - 1)
+            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+        set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
+    } else {
+        set_access_key(
+            state_update,
+            account_id.clone(),
+            add_key.public_key.clone(),
+            &add_key.access_key,
+        );
+    };
     let storage_config = &apply_state.config.transaction_costs.storage_usage_config;
     account.set_storage_usage(
         account
