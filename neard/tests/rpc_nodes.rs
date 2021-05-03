@@ -10,7 +10,7 @@ use futures::future::join_all;
 use futures::{future, FutureExt, TryFutureExt};
 
 use near_actix_test_utils::spawn_interruptible;
-use near_client::{GetBlock, GetExecutionOutcome, TxStatus};
+use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::init_integration_logger;
@@ -19,7 +19,9 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
-use near_primitives::types::{BlockId, BlockReference, Finality, TransactionOrReceiptId};
+use near_primitives::types::{
+    BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
+};
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
 };
@@ -1043,6 +1045,42 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
                             .await;
                         break;
                     }
+                }
+                sleep(std::time::Duration::from_millis(500)).await;
+            }
+        });
+    });
+}
+
+#[test]
+fn test_validators_by_epoch_id_current_epoch_not_fails() {
+    init_integration_logger();
+
+    let cluster = NodeCluster::new(1, |index| format!("validators_epoch_id{}", index))
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
+        .set_epoch_length(10)
+        .set_genesis_height(0);
+
+    cluster.exec_until_stop(|_genesis, _rpc_addrs, clients| async move {
+        let view_client = clients[0].1.clone();
+
+        spawn_interruptible(async move {
+            loop {
+                let final_block = view_client.send(GetBlock::latest()).await.unwrap().unwrap();
+
+                let res = view_client
+                    .send(GetValidatorInfo {
+                        epoch_reference: EpochReference::EpochId(EpochId(
+                            final_block.header.epoch_id,
+                        )),
+                    })
+                    .await;
+
+                if let Ok(Ok(validators)) = res {
+                    assert_eq!(validators.current_validators.len(), 1);
+                    System::current().stop();
                 }
                 sleep(std::time::Duration::from_millis(500)).await;
             }
