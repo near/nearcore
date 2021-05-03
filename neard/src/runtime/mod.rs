@@ -43,11 +43,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
-use near_store::{
-    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ColState,
-    PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreUpdate, Trie,
-    WrappedTrieChanges,
-};
+use near_store::{get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreUpdate, Trie, WrappedTrieChanges, StoreBlockHashProvider};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -1544,6 +1540,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u64,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let store = self.tries.get_store();
+        let block_hash_provider = StoreBlockHashProvider::new(store, height);
         let view_state = ViewApplyState {
             block_height: height,
             prev_block_hash: *prev_block_hash,
@@ -1555,6 +1553,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id,
+            block_hash_provider: Arc::new(block_hash_provider),
         };
         self.trie_viewer.call_function(
             state_update,

@@ -46,7 +46,7 @@ use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
     EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
     StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason,
+    StoreValue, ValidatorKickoutReason, BlockHashProvider,
 };
 use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;
@@ -95,6 +95,7 @@ pub struct ViewApplyState {
     /// EVM chain ID
     #[cfg(feature = "protocol_feature_evm")]
     pub evm_chain_id: u64,
+    pub block_hash_provider: Arc<dyn BlockHashProvider>,
 }
 
 impl From<&Account> for AccountView {

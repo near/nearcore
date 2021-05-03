@@ -205,8 +205,7 @@ impl TrieViewer {
             &view_state.block_hash,
             epoch_info_provider,
             view_state.current_protocol_version,
-            // TODO: what should this be?
-            &near_primitives::types::NullBlockHashProvider,
+            view_state.block_hash_provider.as_ref(),
         );
         let config = Arc::new(RuntimeConfig::default());
         let apply_state = ApplyState {
@@ -227,8 +226,7 @@ impl TrieViewer {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
             profile: Default::default(),
-            // TODO: ?
-            block_hash_provider: Arc::new(near_primitives::types::NullBlockHashProvider),
+            block_hash_provider: Arc::clone(&view_state.block_hash_provider),
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
@@ -315,6 +313,7 @@ mod tests {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
+            block_hash_provider: Arc::new(near_primitives::types::NullBlockHashProvider),
         };
         let result = viewer.call_function(
             root,
@@ -345,6 +344,7 @@ mod tests {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
+            block_hash_provider: Arc::new(near_primitives::types::NullBlockHashProvider),
         };
         let result = viewer.call_function(
             root,
@@ -380,6 +380,7 @@ mod tests {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: 0x99,
+            block_hash_provider: Arc::new(near_primitives::types::NullBlockHashProvider),
         };
         let result = viewer.call_function(
             root,
@@ -414,6 +415,7 @@ mod tests {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: 0x99,
+            block_hash_provider: Arc::new(near_primitives::types::NullBlockHashProvider),
         };
         let view_call_result = viewer.call_function(
             root,
@@ -530,6 +532,7 @@ mod tests {
             cache: None,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: 0x99,
+            block_hash_provider: Arc::new(near_primitives::types::NullBlockHashProvider),
         };
         let mut logs = vec![];
         viewer
