@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[cfg(feature = "protocol_feature_block_hash_host_fn")]
-use near_primitives_core::types::BlockHeight;
-#[cfg(feature = "protocol_feature_block_hash_host_fn")]
 use near_primitives::hash::CryptoHash;
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
+use near_primitives_core::types::BlockHeight;
 
 #[derive(Default, Clone)]
 /// Emulates the trie and the mock handling code.

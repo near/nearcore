@@ -43,7 +43,11 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
-use near_store::{get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{
+    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ColState,
+    PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreUpdate, Trie,
+    WrappedTrieChanges,
+};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -397,10 +401,8 @@ impl NightshadeRuntime {
         let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
 
         #[cfg(feature = "protocol_feature_block_hash_host_fn")]
-        let block_hash_provider = near_store::StoreBlockHashProvider::new(
-            Arc::clone(&self.store),
-            block_height,
-        );
+        let block_hash_provider =
+            near_store::StoreBlockHashProvider::new(Arc::clone(&self.store), block_height);
         let apply_state = ApplyState {
             block_index: block_height,
             prev_block_hash: *prev_block_hash,

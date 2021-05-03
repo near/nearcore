@@ -5,9 +5,9 @@ use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::VMLogicError;
 
 #[cfg(feature = "protocol_feature_block_hash_host_fn")]
-use near_primitives_core::types::BlockHeight;
-#[cfg(feature = "protocol_feature_block_hash_host_fn")]
 use near_primitives::hash::CryptoHash;
+#[cfg(feature = "protocol_feature_block_hash_host_fn")]
+use near_primitives_core::types::BlockHeight;
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {

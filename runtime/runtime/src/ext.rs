@@ -22,7 +22,7 @@ use near_vm_errors::{HostError, InconsistentStateError, VMLogicError};
 use near_vm_logic::{External, ValuePtr};
 
 #[cfg(feature = "protocol_feature_block_hash_host_fn")]
-use near_primitives::types::{BlockHeight, BlockHashProvider};
+use near_primitives::types::{BlockHashProvider, BlockHeight};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -67,8 +67,7 @@ impl<'a> RuntimeExt<'a> {
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-        #[cfg(feature = "protocol_feature_block_hash_host_fn")]
-        block_hash_provider: &'a dyn BlockHashProvider
+        block_hash_provider: &'a dyn BlockHashProvider,
     ) -> Self {
         RuntimeExt {
             trie_update,
@@ -396,6 +395,8 @@ impl<'a> External for RuntimeExt<'a> {
 
     #[cfg(feature = "protocol_feature_block_hash_host_fn")]
     fn block_hash(&self, block_height: BlockHeight) -> ExtResult<Option<CryptoHash>> {
-        self.block_hash_provider.block_hash(block_height).map_err(|_| ExternalError::StorageError(StorageError::StorageInternalError).into())
+        self.block_hash_provider
+            .block_hash(block_height)
+            .map_err(|_| ExternalError::StorageError(StorageError::StorageInternalError).into())
     }
 }
