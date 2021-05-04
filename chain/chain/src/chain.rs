@@ -2733,42 +2733,8 @@ impl<'a> ChainUpdate<'a> {
             Some(&block.hash()),
         )?;
         self.chain_store_update.save_block_extra(&block.hash(), BlockExtra { challenges_result });
-
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
-
-        // This part of code re-introduces outgoing receipts lost because of a bug in apply_chunks
-        // (see https://github.com/near/nearcore/pull/4248/)
-        // We take the first block in the first epoch in which protocol feature RestoreReceiptsAfterFix
-        // is enabled, and save the restored receipts there.
-        if self.runtime_adapter.is_next_block_epoch_start(prev_block.hash()).unwrap_or(false) {
-            checked_feature!(
-                "protocol_feature_restore_receipts_after_fix",
-                RestoreReceiptsAfterFix,
-                protocol_version,
-                {
-                    let prev_protocol_version = self
-                        .runtime_adapter
-                        .get_epoch_protocol_version(prev_block.header().epoch_id())?;
-                    if !checked_feature!(
-                        "protocol_feature_restore_receipts_after_fix",
-                        RestoreReceiptsAfterFix,
-                        prev_protocol_version
-                    ) {
-                        let receipt_result = self
-                            .runtime_adapter
-                            .get_protocol_config(block.header().epoch_id())?
-                            .runtime_config
-                            .receipts_to_restore;
-                        self.chain_store_update.save_outgoing_receipt(
-                            &block.hash(),
-                            0,
-                            receipt_result,
-                        );
-                    }
-                }
-            );
-        }
 
         for (shard_id, (chunk_header, prev_chunk_header)) in
             (block.chunks().iter().zip(prev_block.chunks().iter())).enumerate()
@@ -2825,7 +2791,6 @@ impl<'a> ChainUpdate<'a> {
                             Err(err) => err,
                         }
                     })?;
-
                     let receipt_proof_response: Vec<ReceiptProofResponse> =
                         self.chain_store_update.get_incoming_receipts_for_shard(
                             shard_id,
@@ -2833,6 +2798,43 @@ impl<'a> ChainUpdate<'a> {
                             prev_chunk_header.height_included(),
                         )?;
                     let receipts = collect_receipts_from_response(&receipt_proof_response);
+
+                    // This part of code re-introduces receipts lost because of a bug in apply_chunks
+                    // (see https://github.com/near/nearcore/pull/4248/)
+                    // We take the first block in the first epoch in which protocol feature RestoreReceiptsAfterFix
+                    // is enabled, and save the restored receipts there.
+                    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+                    let receipts = if shard_id == 0
+                        && self
+                            .runtime_adapter
+                            .is_next_block_epoch_start(prev_block.hash())
+                            .unwrap_or(false)
+                        && checked_feature!(
+                            "protocol_feature_restore_receipts_after_fix",
+                            RestoreReceiptsAfterFix,
+                            protocol_version
+                        ) {
+                        let prev_protocol_version = self
+                            .runtime_adapter
+                            .get_epoch_protocol_version(prev_block.header().epoch_id())?;
+                        let receipts_to_restore = if !checked_feature!(
+                            "protocol_feature_restore_receipts_after_fix",
+                            RestoreReceiptsAfterFix,
+                            prev_protocol_version
+                        ) {
+                            self.runtime_adapter
+                                .get_protocol_config(block.header().epoch_id())?
+                                .runtime_config
+                                .receipts_to_restore
+                                .get(&shard_id)
+                                .expect("Receipts to restore must contain an entry for shard 0")
+                        } else {
+                            Vec::<Receipt>::new()
+                        };
+                        receipts_to_restore.into_iter().chain(receipts.into_iter()).collect()
+                    } else {
+                        receipts
+                    };
 
                     let chunk = self
                         .chain_store_update
