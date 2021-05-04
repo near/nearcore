@@ -80,7 +80,7 @@ Note: `EpochManager` is constructed in `NightshadeRuntime` rather than in `Chain
 
 ### `chain/jsonrpc`
 
-This crates contains the jsonrpc interface and implementation
+This crate implements [JSON-RPC](https://www.jsonrpc.org/) API server to enable submission of new transactions and inspection of the blockchain data, the network state, and the node status.
 
 ### `runtime/runtime`
 
