@@ -187,7 +187,7 @@ fn convert_block_changes_to_transactions(
                 ));
             }
             StateChangeCauseView::Migration { description } => {
-                format!("migration due to {}", description);
+                format!("migration due to {}", description)
             }
         };
 
