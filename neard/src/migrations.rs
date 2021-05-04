@@ -284,6 +284,7 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
     use super::*;
     #[cfg(feature = "protocol_feature_fix_storage_usage")]
     use near_primitives::hash::hash;
