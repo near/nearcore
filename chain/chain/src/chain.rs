@@ -2828,6 +2828,7 @@ impl<'a> ChainUpdate<'a> {
                                 .receipts_to_restore
                                 .get(&shard_id)
                                 .expect("Receipts to restore must contain an entry for shard 0")
+                                .clone()
                         } else {
                             Vec::<Receipt>::new()
                         };
