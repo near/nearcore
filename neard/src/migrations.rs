@@ -281,3 +281,25 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    use near_primitives::hash::hash;
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    use near_primitives::serialize::to_base;
+
+    #[test]
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    fn test_migration_data() {
+        assert_eq!(
+            to_base(&hash(&MAINNET_STORAGE_USAGE_DELTA)),
+            "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx"
+        );
+        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        assert_eq!(mainnet_migration_data.storage_usage_delta.len(), 3112);
+        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        assert_eq!(testnet_migration_data.storage_usage_delta.len(), 0);
+    }
+}
