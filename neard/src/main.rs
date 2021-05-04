@@ -13,7 +13,7 @@ use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
 use near_performance_metrics;
-use near_primitives::version::{Version, PROTOCOL_VERSION};
+use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 #[cfg(feature = "memory_stats")]
 use near_rust_allocator_proxy::allocator::MyAllocator;
 use neard::config::init_testnet_configs;
@@ -83,7 +83,7 @@ fn main() {
     };
     let matches = App::new("NEAR Protocol Node")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .version(format!("{} (build {}) (protocol {})", version.version, version.build, PROTOCOL_VERSION).as_str())
+        .version(format!("{} (build {}) (protocol {}) (db {})", version.version, version.build, PROTOCOL_VERSION, DB_VERSION).as_str())
         .arg(Arg::with_name("verbose").long("verbose").help("Verbose logging").takes_value(true))
         .arg(
             Arg::with_name("home")
