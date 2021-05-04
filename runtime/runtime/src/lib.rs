@@ -1104,7 +1104,8 @@ impl Runtime {
                 }
             }
             gas_used += Runtime::GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION;
-            state_update.commit(StateChangeCause::Migration);
+            state_update
+                .commit(StateChangeCause::Migration { description: "Storage usage fix".to_string });
         }
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         (state_update, apply_state);

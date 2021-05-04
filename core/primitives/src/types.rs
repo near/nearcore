@@ -154,7 +154,7 @@ pub enum StateChangeCause {
     ValidatorAccountsUpdate,
     /// State change that is happens due to migration that happens in first block of an epoch
     /// after protocol upgrade
-    Migration,
+    Migration { description: String },
 }
 
 /// This represents the committed changes in the Trie with a change cause.
