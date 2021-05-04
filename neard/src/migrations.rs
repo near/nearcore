@@ -5,6 +5,7 @@ use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -258,4 +259,25 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     }
 
     set_store_version(&store, 20);
+}
+
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+lazy_static_include::lazy_static_include_bytes! {
+    /// File with account ids and deltas that need to be applied in order to fix storage usage
+    /// difference between actual and stored usage, introduced due to bug in access key deletion,
+    /// see https://github.com/near/nearcore/issues/3824
+    MAINNET_STORAGE_USAGE_DELTA => "res/storage_usage_delta.json",
+}
+
+pub fn load_migration_data(chain_id: &String) -> MigrationData {
+    #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+    let _ = chain_id;
+    MigrationData {
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        storage_usage_delta: if chain_id == "mainnet" {
+            serde_json::from_slice(&MAINNET_STORAGE_USAGE_DELTA).unwrap()
+        } else {
+            Vec::new()
+        },
+    }
 }

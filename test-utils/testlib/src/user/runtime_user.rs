@@ -143,6 +143,7 @@ impl RuntimeUser {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
+            migration_context: Default::default(),
         }
     }
 

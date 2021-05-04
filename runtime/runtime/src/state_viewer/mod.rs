@@ -225,6 +225,7 @@ impl TrieViewer {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
             profile: Default::default(),
+            migration_context: Default::default(),
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),

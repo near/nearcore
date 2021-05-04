@@ -1070,6 +1070,47 @@ impl Runtime {
         Ok(())
     }
 
+    // In test runs reads and writes here used 442 TGas. Added 10% to account for possible bigger
+    // state
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 490_000_000_000_000;
+
+    pub fn apply_migrations(
+        &self,
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+    ) -> Result<Gas, StorageError> {
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        let mut gas_used: Gas = 0;
+        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+        let gas_used: Gas = 0;
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        if ProtocolFeature::FixStorageUsage.protocol_version()
+            == apply_state.current_protocol_version
+        {
+            for (account_id, delta) in
+                &apply_state.migration_context.migration_data.storage_usage_delta
+            {
+                match get_account(state_update, account_id)? {
+                    Some(mut account) => {
+                        // Storage usage is saved in state, hence it is nowhere close to max value
+                        // of u64, and maximal delta is 4196, se we can add here without checking
+                        // for overflow
+                        account.set_storage_usage(account.storage_usage() + delta);
+                        set_account(state_update, account_id.clone(), &account);
+                    }
+                    // Account could have been deleted in the meantime
+                    None => {}
+                }
+            }
+            gas_used += Runtime::GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION;
+            state_update.commit(StateChangeCause::Migration);
+        }
+        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+        (state_update, apply_state);
+        Ok(gas_used)
+    }
+
     /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     /// If the validator accounts update is provided, updates validators accounts.
@@ -1120,11 +1161,19 @@ impl Runtime {
             });
         }
 
+        let gas_used_for_migrations =
+            if apply_state.migration_context.is_first_block_with_current_version {
+                self.apply_migrations(&mut state_update, apply_state)
+                    .map_err(|e| RuntimeError::StorageError(e))?
+            } else {
+                0 as Gas
+            };
+
         let mut outgoing_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
-        let mut total_gas_burnt = 0;
+        let mut total_gas_burnt = gas_used_for_migrations;
 
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
@@ -1557,6 +1606,7 @@ mod tests {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: ProfileData::new_enabled(),
+            migration_context: Default::default(),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
