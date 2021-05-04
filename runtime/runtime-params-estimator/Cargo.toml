@@ -54,7 +54,7 @@ no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
 wasmtime = ["near-vm-logic/wasmtime_default"]
 lightbeam = ["wasmtime", "near-vm-runner/lightbeam"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
-nightly_protocol_features = ["protocol_feature_alt_bn128", "protocol_feature_evm"]
+nightly_protocol_features = ["protocol_feature_alt_bn128", "protocol_feature_evm", "protocol_feature_block_hash_host_fn"]
 protocol_feature_alt_bn128 = [
     "near-vm-logic/protocol_feature_alt_bn128",
     "near-vm-runner/protocol_feature_alt_bn128",
@@ -73,5 +73,7 @@ protocol_feature_block_hash_host_fn = [
     "near-vm-logic/protocol_feature_block_hash_host_fn",
     "near-vm-runner/protocol_feature_block_hash_host_fn",
     "near-store/protocol_feature_block_hash_host_fn",
-    "node-runtime/protocol_feature_block_hash_host_fn"
+    "node-runtime/protocol_feature_block_hash_host_fn",
+    "neard/protocol_feature_block_hash_host_fn",
+    "testlib/protocol_feature_block_hash_host_fn"
 ]
