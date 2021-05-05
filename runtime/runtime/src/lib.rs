@@ -55,7 +55,6 @@ use near_primitives::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
-use std::borrow::Borrow;
 use std::rc::Rc;
 
 mod actions;
@@ -1309,8 +1308,8 @@ impl<'a> StorageComputer<'a> {
         Self { result: HashMap::new(), config: &config.transaction_costs.storage_usage_config }
     }
 
-    pub fn process_record<Record: Borrow<StateRecord>>(&mut self, record: Record) {
-        let account_and_storage = match record.borrow() {
+    pub fn process_record(&mut self, record: &StateRecord) {
+        let account_and_storage = match record {
             StateRecord::Account { account_id, .. } => {
                 Some((account_id.clone(), self.config.num_bytes_account))
             }
@@ -1339,9 +1338,9 @@ impl<'a> StorageComputer<'a> {
         }
     }
 
-    pub fn process_records<Record: Borrow<StateRecord>>(&mut self, records: &[Record]) {
+    pub fn process_records(&mut self, records: &[StateRecord]) {
         for record in records {
-            self.process_record(record.borrow());
+            self.process_record(record);
         }
     }
 
@@ -1353,9 +1352,9 @@ impl<'a> StorageComputer<'a> {
 impl Runtime {
     /// It's okay to use unsafe math here, because this method should only be called on the trusted
     /// state records (e.g. at launch from genesis)
-    pub fn compute_storage_usage<Record: Borrow<StateRecord>>(
+    pub fn compute_storage_usage(
         &self,
-        records: &[Record],
+        records: &[StateRecord],
         config: &RuntimeConfig,
     ) -> HashMap<AccountId, u64> {
         let mut storage_computer = StorageComputer::new(config);
@@ -1409,7 +1408,7 @@ impl<'a> GenesisStateApplier<'a> {
         let mut storage_computer = StorageComputer::new(self.config);
 
         genesis.process_records(|record: &StateRecord| {
-            if !chunk_account_ids.contains(state_record_to_account_id(record.borrow())) {
+            if !chunk_account_ids.contains(state_record_to_account_id(record)) {
                 return;
             }
 
