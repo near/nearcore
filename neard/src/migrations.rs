@@ -5,6 +5,8 @@ use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_primitives::epoch_manager::EpochConfig;
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
@@ -268,10 +270,14 @@ lazy_static_include::lazy_static_include_bytes! {
     /// see https://github.com/near/nearcore/issues/3824
     /// This file was generated using tools/storage-usage-delta-calculator
     MAINNET_STORAGE_USAGE_DELTA => "res/storage_usage_delta.json",
+    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
+    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
+    /// See https://github.com/near/nearcore/pull/4248/ for more details.
+    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
 }
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
-    #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+    #[cfg(not(any(feature = "protocol_feature_fix_storage_usage", feature = "protocol_feature_restore_receipts_after_fix")))]
     let _ = chain_id;
     MigrationData {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
@@ -279,6 +285,14 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
             serde_json::from_slice(&MAINNET_STORAGE_USAGE_DELTA).unwrap()
         } else {
             Vec::new()
+        },
+        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+        restored_receipts: if chain_id == "mainnet" {
+            serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS).expect(
+                "File with receipts restored after apply_chunks fix have to be correct",
+            )
+        } else {
+            ReceiptResult::default()
         },
     }
 }

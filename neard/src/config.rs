@@ -744,10 +744,7 @@ fn generate_validator_key(account_id: &str, path: &Path) {
 }
 
 lazy_static_include::lazy_static_include_bytes! {
-    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
-    // File with receipts which were lost because of a bug in apply_chunks to the runtime config.
-    // Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
-    MAINNET_RESTORED_RECEIPTS_JSON => "res/mainnet_restored_receipts.json",
+    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
 }
 
 /// Initializes genesis and client configs and stores in the given folder
