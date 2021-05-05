@@ -29,13 +29,16 @@ import os
 from colorama import Fore
 
 
+DEFAULT_TEST_FILE = 'tests_for_nayduck.txt'
+DEFAULT_TEST_PATH = os.path.join(os.path.dirname(__file__), DEFAULT_TEST_FILE)
+
 parser = argparse.ArgumentParser(description='Run tests.')
 parser.add_argument('--branch', '-b', dest='branch',
                     help='Branch to test. By default gets current one.' )
 parser.add_argument('--sha', '-s', dest='sha',
                     help='Sha to test. By default gets current one.')
-parser.add_argument('--test_file', '-t', dest='test_file', default='tests_for_nayduck.txt',
-                    help='Test file with list of tests. By default nayduck.txt')
+parser.add_argument('--test_file', '-t', dest='test_file', default=DEFAULT_TEST_PATH,
+                    help=f'Test file with list of tests. By default {DEFAULT_TEST_FILE}')
 parser.add_argument('--run_type', '-r', dest='run_type', default='custom',
                     help='The type of the run. When triggered by user, the type is custom.')
 
