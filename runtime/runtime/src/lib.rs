@@ -1528,7 +1528,7 @@ impl<'a> GenesisStateApplier<'a> {
 
     pub fn apply(&mut self, genesis: &Genesis, shard_account_ids: HashSet<AccountId>) -> StateRoot {
         for chunk_account_ids in
-            shard_account_ids.into_iter().collect::<Vec<AccountId>>().chunks(120000)
+            shard_account_ids.into_iter().collect::<Vec<AccountId>>().chunks(300_000)
         {
             self.apply_chunk(genesis, HashSet::from_iter(chunk_account_ids));
         }
