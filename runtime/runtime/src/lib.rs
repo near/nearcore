@@ -1317,9 +1317,7 @@ impl Runtime {
         config: &RuntimeConfig,
         shard_account_ids: HashSet<AccountId>,
     ) -> StateRoot {
-        let mut genesis_state_applier =
-            GenesisStateApplier::new(tries, shard_id, validators, config);
-        genesis_state_applier.apply(genesis, shard_account_ids)
+        GenesisStateApplier::apply(tries, shard_id, validators, config, genesis, shard_account_ids)
     }
 }
 
