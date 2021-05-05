@@ -71,17 +71,21 @@ def main():
     res = stable_node.send_tx_and_wait(transfer_tx, timeout=20)
     assert 'error' not in res, res
 
+    status = stable_node.get_status()
+    block_height = status['sync_info']['latest_block_height']
+    nonce = block_height * 1_000_000 - 1
+
     tx = sign_deploy_contract_tx(
         new_signer_key,
         load_binary_file(
-            '../runtime/near-test-contracts/res/test_contract_rs.wasm'), 1,
+            '../runtime/near-test-contracts/res/test_contract_rs.wasm'), nonce,
         block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
     tx = sign_function_call_tx(new_signer_key,
                                new_account_id,
-                               'write_random_value', [], 10**13, 0, 2,
+                               'write_random_value', [], 10**13, 0, nonce + 1,
                                block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
@@ -103,7 +107,7 @@ def main():
             "gas": 30000000000000,
         }, "id": 1}])
 
-    tx = sign_function_call_tx(new_signer_key, new_account_id, 'call_promise', bytes(data, 'utf-8'), 90000000000000, 0, 3, block_hash)
+    tx = sign_function_call_tx(new_signer_key, new_account_id, 'call_promise', bytes(data, 'utf-8'), 90000000000000, 0, nonce + 2, block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
 
     assert 'error' not in res, res
