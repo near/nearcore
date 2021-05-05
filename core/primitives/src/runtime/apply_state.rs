@@ -44,6 +44,8 @@ pub struct ApplyState {
     pub evm_chain_id: u64,
     /// Data collected from making a contract call
     pub profile: crate::profile::ProfileData,
+    /// Structure used to look up the block hashes of blocks by their height. See documentation
+    /// for `BlockHashProvider` for more details.
     #[cfg(feature = "protocol_feature_block_hash_host_fn")]
     pub block_hash_provider: Arc<dyn BlockHashProvider>,
 }
