@@ -13,10 +13,7 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use near_chain_configs::{
-    ClientConfig, Genesis, GenesisConfig, GenesisRecords, GenesisRecordsFile,
-    GenesisRecordsFileType, LogSummaryStyle,
-};
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, GenesisRecords, LogSummaryStyle};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -1053,17 +1050,10 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
-    let genesis_records_file = if let Some(genesis_records_file_path) = &config.genesis_records_file
-    {
-        GenesisRecordsFile {
-            path: dir.join(genesis_records_file_path),
-            file_type: GenesisRecordsFileType::RecordsArray,
-        }
+    let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
+        dir.join(genesis_records_file)
     } else {
-        GenesisRecordsFile {
-            path: dir.join(&config.genesis_file),
-            file_type: GenesisRecordsFileType::FullGenesis,
-        }
+        dir.join(&config.genesis_file)
     };
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
         let signer =

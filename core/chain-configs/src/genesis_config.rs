@@ -177,18 +177,6 @@ impl From<&GenesisConfig> for EpochConfig {
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
-#[derive(Debug, Copy, Clone)]
-pub enum GenesisRecordsFileType {
-    FullGenesis,
-    RecordsArray,
-}
-
-#[derive(Debug, Clone)]
-pub struct GenesisRecordsFile {
-    pub path: PathBuf,
-    pub file_type: GenesisRecordsFileType,
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
@@ -197,9 +185,9 @@ pub struct Genesis {
     /// Genesis object may not contain records.
     /// In this case records can be found in records_file.
     /// The idea is that all records consume too much memory,
-    /// so they should be processed in streaming fashion with stream_records_with_callback.
+    /// so they should be processed in streaming fashion with for_each_record.
     #[serde(skip)]
-    pub records_file: GenesisRecordsFile,
+    pub records_file: PathBuf,
     /// Using zero-size PhantomData is a Rust pattern preventing a structure being constructed
     /// without calling `new` method, which has some initialization routine.
     #[serde(skip)]
@@ -286,14 +274,10 @@ impl GenesisRecords {
     }
 }
 
-impl Default for GenesisRecordsFile {
-    fn default() -> Self {
-        GenesisRecordsFile { path: PathBuf::new(), file_type: GenesisRecordsFileType::FullGenesis }
-    }
-}
-
-/// Visitor for records
-/// Reads records one by one and passes them to sink
+/// Visitor for records.
+/// Reads records one by one and passes them to sink.
+/// If full genesis file is passed, reads records from "records" field and
+/// IGNORES OTHER FIELDS.
 struct RecordsProcessor<F> {
     sink: F,
 }
@@ -302,7 +286,11 @@ impl<'de, F: FnMut(StateRecord)> Visitor<'de> for RecordsProcessor<&'_ mut F> {
     type Value = ();
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("array of StateRecord")
+        formatter.write_str(
+            "either:\
+        1. array of StateRecord\
+        2. map with records field which is array of StateRecord",
+        )
     }
 
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -313,6 +301,24 @@ impl<'de, F: FnMut(StateRecord)> Visitor<'de> for RecordsProcessor<&'_ mut F> {
             (self.sink)(record)
         }
         Ok(())
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "records" => {
+                    map.next_value_seed(self)?;
+                    return Ok(());
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        Err(de::Error::custom("missing field: records"))
     }
 }
 
@@ -327,56 +333,13 @@ impl<'de, F: FnMut(StateRecord)> DeserializeSeed<'de> for RecordsProcessor<&'_ m
     }
 }
 
-/// Visitor for Genesis
-/// Processes records field with records_processor
-/// IGNORES OTHER FIELDS
-struct GenesisRecordsProcessor<F> {
-    records_processor: RecordsProcessor<F>,
-}
-
-impl<'de, F: FnMut(StateRecord)> Visitor<'de> for GenesisRecordsProcessor<&'_ mut F> {
-    type Value = ();
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("map with records field which is array of StateRecord")
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-    where
-        A: MapAccess<'de>,
-    {
-        while let Some(key) = map.next_key::<String>()? {
-            match key.as_str() {
-                "records" => {
-                    map.next_value_seed(self.records_processor)?;
-                    return Ok(());
-                }
-                _ => {
-                    map.next_value::<IgnoredAny>()?;
-                }
-            }
-        }
-        Err(de::Error::custom("missing field: records"))
-    }
-}
-
-pub fn stream_records_from_records_file(
+fn stream_records_from_file(
     reader: impl Read,
     mut callback: impl FnMut(StateRecord),
 ) -> serde_json::Result<()> {
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
     let records_processor = RecordsProcessor { sink: &mut callback };
-    deserializer.deserialize_seq(records_processor)
-}
-
-pub fn stream_records_from_genesis_file(
-    reader: impl Read,
-    mut callback: impl FnMut(StateRecord),
-) -> serde_json::Result<()> {
-    let mut deserializer = serde_json::Deserializer::from_reader(reader);
-    let genesis_processor =
-        GenesisRecordsProcessor { records_processor: RecordsProcessor { sink: &mut callback } };
-    deserializer.deserialize_map(genesis_processor)
+    deserializer.deserialize_any(records_processor)
 }
 
 pub struct GenesisJsonHasher {
@@ -412,12 +375,8 @@ impl GenesisJsonHasher {
 
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
-        let mut genesis = Self {
-            config,
-            records,
-            records_file: GenesisRecordsFile::default(),
-            phantom: PhantomData,
-        };
+        let mut genesis =
+            Self { config, records, records_file: PathBuf::new(), phantom: PhantomData };
         genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
         genesis
     }
@@ -425,7 +384,7 @@ impl Genesis {
     pub fn new_as_is(
         config: GenesisConfig,
         records: GenesisRecords,
-        records_file: GenesisRecordsFile,
+        records_file: PathBuf,
     ) -> Self {
         Self { config, records, records_file, phantom: PhantomData }
     }
@@ -468,15 +427,8 @@ impl Genesis {
         &self,
         callback: impl FnMut(StateRecord),
     ) -> std::io::Result<()> {
-        let reader = BufReader::new(File::open(&self.records_file.path)?);
-        match &self.records_file.file_type {
-            GenesisRecordsFileType::FullGenesis => {
-                stream_records_from_genesis_file(reader, callback).map_err(std::io::Error::from)
-            }
-            GenesisRecordsFileType::RecordsArray => {
-                stream_records_from_records_file(reader, callback).map_err(std::io::Error::from)
-            }
-        }
+        let reader = BufReader::new(File::open(&self.records_file)?);
+        stream_records_from_file(reader, callback).map_err(std::io::Error::from)
     }
 
     pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
