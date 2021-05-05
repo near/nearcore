@@ -11,7 +11,10 @@ pub struct MigrationData {
 }
 
 impl MigrationData {
-    pub const EMPTY: MigrationData = Default::default();
+    pub const EMPTY: MigrationData = MigrationData {
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        storage_usage_delta: Vec::new(),
+    };
 }
 
 #[derive(Default)]
