@@ -5,8 +5,6 @@ use crate::types::AccountId;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-// #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-// use crate::borsh::maybestd::collections::HashMap;
 
 #[derive(Default)]
 pub struct MigrationData {
