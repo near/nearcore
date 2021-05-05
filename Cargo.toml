@@ -45,7 +45,8 @@ members = [
     "tools/restaked",
     "tools/indexer/example",
     "tools/delay_detector",
-    "tools/storage-usage-delta-calculator"
+    "tools/storage-usage-delta-calculator",
+    "utils/restored-receipts-verifier"
 ]
 
 [dev-dependencies]
