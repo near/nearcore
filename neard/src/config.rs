@@ -1054,7 +1054,7 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
     let genesis_records_file =
-        if let Some(ref genesis_records_file_path) = config.genesis_records_file {
+        if let Some(genesis_records_file_path) = &config.genesis_records_file {
             GenesisRecordsFile {
                 path: dir.join(genesis_records_file_path),
                 file_type: GenesisRecordsFileType::RecordsArray,
