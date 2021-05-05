@@ -51,6 +51,7 @@ use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::types::MigrationId;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
@@ -1104,9 +1105,8 @@ impl Runtime {
                 }
             }
             gas_used += Runtime::GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION;
-            state_update.commit(StateChangeCause::Migration {
-                description: "Storage usage fix".to_string(),
-            });
+            state_update
+                .commit(StateChangeCause::Migration { migration_id: MigrationId::StorageUsageFix });
         }
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         (state_update, apply_state);

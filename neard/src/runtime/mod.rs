@@ -431,7 +431,7 @@ impl NightshadeRuntime {
             migration_context: MigrationContext {
                 is_first_block_with_current_version: current_protocol_version
                     != prev_block_protocol_version,
-                migration_data: self.migration_data.clone(),
+                migration_data: Arc::clone(&self.migration_data),
             },
         };
 
