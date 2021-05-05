@@ -10,13 +10,6 @@ pub struct MigrationData {
     pub storage_usage_delta: Vec<(AccountId, u64)>,
 }
 
-impl MigrationData {
-    pub const EMPTY: MigrationData = MigrationData {
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
-        storage_usage_delta: Vec::new(),
-    };
-}
-
 #[derive(Default)]
 pub struct MigrationContext {
     pub is_first_block_with_current_version: bool,
