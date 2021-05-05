@@ -2823,9 +2823,8 @@ impl<'a> ChainUpdate<'a> {
                             prev_protocol_version
                         ) {
                             self.runtime_adapter
-                                .get_protocol_config(block.header().epoch_id())?
-                                .runtime_config
-                                .receipts_to_restore
+                                .get_migration_data()
+                                .restored_receipts
                                 .get(&shard_id)
                                 .expect("Receipts to restore must contain an entry for shard 0")
                                 .clone()

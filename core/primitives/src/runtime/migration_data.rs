@@ -1,10 +1,12 @@
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use crate::receipt::ReceiptResult;
 #[cfg(feature = "protocol_feature_fix_storage_usage")]
 use crate::types::AccountId;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-use crate::receipt::ReceiptResult;
+// #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+// use crate::borsh::maybestd::collections::HashMap;
 
 #[derive(Default)]
 pub struct MigrationData {
@@ -12,15 +14,6 @@ pub struct MigrationData {
     pub storage_usage_delta: Vec<(AccountId, u64)>,
     #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     pub restored_receipts: ReceiptResult,
-}
-
-impl MigrationData {
-    pub const EMPTY: MigrationData = MigrationData {
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
-        storage_usage_delta: Vec::new(),
-        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-        restored_receipts: ReceiptResult::default(),
-    };
 }
 
 #[derive(Default)]

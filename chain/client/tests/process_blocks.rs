@@ -54,7 +54,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -2781,7 +2781,8 @@ fn test_restoring_receipts() {
         //     &format!("test{}", index),
         // );
 
-        block.mut_header().get_mut().inner_rest.latest_protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version();
+        block.mut_header().get_mut().inner_rest.latest_protocol_version =
+            ProtocolFeature::RestoreReceiptsAfterFix.protocol_version();
         // block.mut_header().resign(&validator_signer);
 
         for j in 0..1 {
@@ -2798,16 +2799,16 @@ fn test_restoring_receipts() {
             .unwrap();
         println!("pv({}) = {}", i, protocol_version);
 
-        if prev_protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1 && protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+        if prev_protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1
+            && protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
+        {
             // update
             // add two same rxs intentionally
-            // maybe 
+            // maybe
         } else {
             // no update
-
         }
     }
-
 }
 
 #[cfg(test)]

@@ -1512,6 +1512,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         config.runtime_config = (*runtime_config).clone();
         Ok(config)
     }
+
+    fn get_migration_data(&self) -> Arc<MigrationData> {
+        self.migration_data.clone()
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {

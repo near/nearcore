@@ -263,7 +263,10 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 20);
 }
 
-#[cfg(feature = "protocol_feature_fix_storage_usage")]
+#[cfg(any(
+    feature = "protocol_feature_fix_storage_usage",
+    feature = "protocol_feature_restore_receipts_after_fix"
+))]
 lazy_static_include::lazy_static_include_bytes! {
     /// File with account ids and deltas that need to be applied in order to fix storage usage
     /// difference between actual and stored usage, introduced due to bug in access key deletion,
@@ -277,7 +280,10 @@ lazy_static_include::lazy_static_include_bytes! {
 }
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
-    #[cfg(not(any(feature = "protocol_feature_fix_storage_usage", feature = "protocol_feature_restore_receipts_after_fix")))]
+    #[cfg(not(any(
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
+    )))]
     let _ = chain_id;
     MigrationData {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
@@ -288,9 +294,8 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
         },
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         restored_receipts: if chain_id == "mainnet" {
-            serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS).expect(
-                "File with receipts restored after apply_chunks fix have to be correct",
-            )
+            serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+                .expect("File with receipts restored after apply_chunks fix have to be correct")
         } else {
             ReceiptResult::default()
         },

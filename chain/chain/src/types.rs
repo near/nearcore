@@ -35,6 +35,7 @@ use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTr
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
+use near_primitives::runtime::migration_data::MigrationData;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -648,6 +649,8 @@ pub trait RuntimeAdapter: Send + Sync {
     fn evm_chain_id(&self) -> u64;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+
+    fn get_migration_data(&self) -> Arc<MigrationData>;
 
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
