@@ -164,8 +164,43 @@ impl CompiledContractCache for MockCompiledContractCache {
     }
 
     fn get(&self, _key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
-       Ok(None)
+        Ok(None)
     }
+}
+
+fn least_squares_method(xs: &Vec<u64>, ys: &Vec<u64>) -> (Ratio<i128>, Ratio<i128>, Vec<i128>) {
+    let n = xs.len();
+    let n128 = n as i128;
+
+    let mut sum_prod = 0 as i128; // Sum of x * y.
+    for i in 0..n {
+        sum_prod = sum_prod + (xs[i] as i128) * (ys[i] as i128);
+    }
+    let mut sum_x = 0 as i128; // Sum of x.
+    for i in 0..n {
+        sum_x = sum_x + (xs[i] as i128);
+    }
+    let mut sum_y = 0 as i128; // Sum of y.
+    for i in 0..n {
+        sum_y = sum_y + (ys[i] as i128);
+    }
+    let mut sum_x_square = 0 as i128; // Sum of x^2.
+    for i in 0..n {
+        sum_x_square = sum_x_square + (xs[i] as i128) * (xs[i] as i128);
+    }
+    let b = Ratio::new(n128 * sum_prod - sum_x * sum_y, n128 * sum_x_square - sum_x * sum_x);
+    let a = Ratio::new(sum_y * b.denom() - b.numer() * sum_x, n128 * b.denom());
+
+    // Compute error estimations
+    let mut errs = vec![];
+    let mut error = 0i128;
+    for i in 0..n {
+        let expect = (a + b * (xs[i] as i128)).to_integer();
+        let diff = expect - (ys[i] as i128);
+        errs.push(diff);
+    }
+
+    (a, b, errs)
 }
 
 /// Returns `(a, b)` - approximation coefficients for formula `a + b * x`
@@ -189,72 +224,50 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
     let mut ys = vec![];
 
     // We use core-contracts, e2f60b5b0930a9df2c413e1460e179c65c8876e3.
-    // File 341191, code 279965, data 56627.
-    let raw_bytes = include_bytes!("../test-contract/res/lockup_contract.wasm");
-    let contract = ContractCode::new(raw_bytes.to_vec(), None);
-    xs.push(raw_bytes.len() as u64);
-    ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
+    let measure_contracts = vec![
+        // File 341191, code 279965, data 56627.
+        include_bytes!("../test-contract/res/lockup_contract.wasm"),
+        // File 257516, code 203545, data 50419.
+        include_bytes!("../test-contract/res/staking_pool.wasm"),
+        // File 135358, code 113152, data 19520.
+        include_bytes!("../test-contract/res/voting_contract.wasm"),
+        // File 124250, code 103473, data 18176.
+        include_bytes!("../test-contract/res/whitelist.wasm"),
+    ];
 
-    // File 257516, code 203545, data 50419.
-    let raw_bytes = include_bytes!("../test-contract/res/staking_pool.wasm");
-    let contract = ContractCode::new(raw_bytes.to_vec(), None);
-    xs.push(raw_bytes.len() as u64);
-    ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
-
-    // File 135358, code 113152, data 19520.
-    let raw_bytes = include_bytes!("../test-contract/res/voting_contract.wasm");
-    let contract = ContractCode::new(raw_bytes.to_vec(), None);
-    xs.push(raw_bytes.len() as u64);
-    ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
-
-    // File 124250, code 103473, data 18176.
-    let raw_bytes = include_bytes!("../test-contract/res/whitelist.wasm");
-    let contract = ContractCode::new(raw_bytes.to_vec(), None);
-    xs.push(raw_bytes.len() as u64);
-    ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
-
-    // Least squares method.
-    let n = xs.len();
-    let n128 = n as i128;
-
-    let mut sum_prod = 0 as i128; // Sum of x * y.
-    for i in 0..n {
-        sum_prod = sum_prod + (xs[i] as i128) * (ys[i] as i128);
+    for raw_bytes in measure_contracts {
+        let contract = ContractCode::new(raw_bytes.to_vec(), None);
+        xs.push(raw_bytes.len() as u64);
+        ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
     }
 
-    let mut sum_x = 0 as i128; // Sum of x.
-    for i in 0..n {
-        sum_x = sum_x + (xs[i] as i128);
-    }
+    let (a, b, errs) = least_squares_method(&xs, &ys);
 
-    let mut sum_y = 0 as i128; // Sum of y.
-    for i in 0..n {
-        sum_y = sum_y + (ys[i] as i128);
-    }
-
-    let mut sum_x_square = 0 as i128; // Sum of x^2.
-    for i in 0..n {
-        sum_x_square = sum_x_square + (xs[i] as i128) * (xs[i] as i128);
-    }
-
-    let b = Ratio::new(n128 * sum_prod - sum_x * sum_y, n128 * sum_x_square - sum_x * sum_x);
-    let a = Ratio::new(sum_y * b.denom() - b.numer() * sum_x, n128 * b.denom());
-
-    // Compute error estimation
-    let mut errs = vec![];
-    let mut error = 0i128;
-    for i in 0..n {
-        let expect = (a + b * (xs[i] as i128)).to_integer();
-        let diff = expect - (ys[i] as i128);
-        errs.push(diff);
-        error = error + diff * diff;
-    }
-    println!("xs={:?} ys={:?} errs={:?} Error {}", xs, ys, errs, (error as f64).sqrt() / (n as f64));
+    println!("xs={:?} ys={:?} errs={:?}: a = {:?} b = {:?}", xs, ys, errs, a, b);
 
     // We multiply `b` by 5/4 to accommodate for the fact that test contracts are typically 80% code,
     // so in the worst case it could grow to 100% and our costs are still properly estimate.
-    // (a, b * Ratio::new(5i128, 4i128))
-    (a, b)
+    let safety = Ratio::new(5i128, 4i128); // 5/4.
+    let (corrected_a, corrected_b) = (a * safety, b * safety);
+    let validate_contracts = vec![
+        // File 139637.
+        include_bytes!("../test-contract/res/status_message.wasm"),
+        // File 157010.
+        include_bytes!("../test-contract/res/mission_control.wasm"),
+        // File 218444.
+        include_bytes!("../test-contract/res/fungible_token.wasm"),
+    ];
+
+    for raw_bytes in validate_contracts {
+        let x = raw_bytes.len() as u64;
+        let y = measure_contract(vm_kind, gas_metric, &contract, cache);
+        let expect = (a + b * (x as i128)).to_integer();
+        let error = expect - y;
+        print!("x = {} y = {} error is {}", x, y, error);
+        assert!(error >= 0);
+    }
+
+    (corrected_a, corrected_b)
 }
 
 fn test_compile_cost(metric: GasMetric) {
