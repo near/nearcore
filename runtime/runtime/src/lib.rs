@@ -9,7 +9,7 @@ use near_crypto::PublicKey;
 pub use near_primitives;
 use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::{
-    account::Account,
+    account::{AccessKey, Account},
     errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
     hash::CryptoHash,
     receipt::{
@@ -33,8 +33,8 @@ use near_primitives::{
 pub use near_store;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
-    StorageError, Trie, TrieChanges, TrieUpdate,
+    set_access_key, set_account, set_postponed_receipt, set_received_data, PartialStorage,
+    ShardTries, StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
