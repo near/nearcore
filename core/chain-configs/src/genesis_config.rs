@@ -194,10 +194,10 @@ pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
     pub records: GenesisRecords,
-    /// Genesis object may not contain records
-    /// In this case records can be found in records_file
-    /// The idea is that all records consume too much memory
-    /// So they should be processed in streaming fashion with stream_records_with_callback
+    /// Genesis object may not contain records.
+    /// In this case records can be found in records_file.
+    /// The idea is that all records consume too much memory,
+    /// so they should be processed in streaming fashion with stream_records_with_callback.
     #[serde(skip)]
     pub records_file: GenesisRecordsFile,
     /// Using zero-size PhantomData is a Rust pattern preventing a structure being constructed
