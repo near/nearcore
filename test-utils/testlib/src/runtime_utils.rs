@@ -59,7 +59,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
     let tries = create_tries();
     let runtime = Runtime::new();
     let mut account_ids: HashSet<AccountId> = HashSet::new();
-    genesis.process_records(|record: &StateRecord| {
+    genesis.for_each_record(|record: &StateRecord| {
         account_ids.insert(state_record_to_account_id(record).clone());
     });
     let genesis_root = runtime.apply_genesis_state(

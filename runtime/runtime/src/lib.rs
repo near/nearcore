@@ -1407,7 +1407,7 @@ impl<'a> GenesisStateApplier<'a> {
 
         let mut storage_computer = StorageComputer::new(self.config);
 
-        genesis.process_records(|record: &StateRecord| {
+        genesis.for_each_record(|record: &StateRecord| {
             if !chunk_account_ids.contains(state_record_to_account_id(record)) {
                 return;
             }

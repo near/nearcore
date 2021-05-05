@@ -56,7 +56,7 @@ impl StandaloneRuntime {
             Genesis::new(GenesisConfig::default(), GenesisRecords(state_records.to_vec()));
 
         let mut account_ids: HashSet<AccountId> = HashSet::new();
-        genesis.process_records(|record: &StateRecord| {
+        genesis.for_each_record(|record: &StateRecord| {
             account_ids.insert(state_record_to_account_id(record).clone());
         });
         let root = runtime.apply_genesis_state(

@@ -217,7 +217,7 @@ impl NightshadeRuntime {
         let mut shard_account_ids: Vec<HashSet<AccountId>> =
             (0..num_shards).map(|_| HashSet::new()).collect();
         let mut has_protocol_account = false;
-        genesis.process_records(|record: &StateRecord| {
+        genesis.for_each_record(|record: &StateRecord| {
             shard_account_ids[state_record_to_shard_id(record, num_shards) as usize]
                 .insert(state_record_to_account_id(record).clone());
             if let StateRecord::Account { account_id, .. } = record {

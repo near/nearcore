@@ -400,7 +400,7 @@ impl GenesisJsonHasher {
 
     pub fn process_genesis(&mut self, genesis: &Genesis) {
         self.process_config(&genesis.config);
-        genesis.process_records(|record: &StateRecord| {
+        genesis.for_each_record(|record: &StateRecord| {
             self.process_record(record);
         });
     }
@@ -481,7 +481,7 @@ impl Genesis {
         }
     }
 
-    pub fn process_records(&self, mut callback: impl FnMut(&StateRecord)) {
+    pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
         if self.records.as_ref().is_empty() {
             let callback_move = |record: StateRecord| {
                 callback(&record);
