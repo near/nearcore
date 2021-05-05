@@ -38,6 +38,9 @@ nodes = start_cluster(
     [["epoch_length", 6], ["block_producer_kickout_threshold", 40],
      ["chunk_producer_kickout_threshold", 40]], client_config_changes)
 
+for node in nodes:
+    node.stop_checking_store()
+
 started = time.time()
 
 hash_to_height = {}
@@ -56,7 +59,7 @@ def get_light_client_block(hash_, last_known_block):
     global block_producers_map
 
     ret = nodes[0].json_rpc('next_light_client_block', [hash_])
-    if ret['result'] is not None and last_known_block is not None:
+    if ret['result'] != {} and last_known_block is not None:
         validate_light_client_block(last_known_block,
                                     ret['result'],
                                     block_producers_map,
@@ -122,7 +125,7 @@ while True:
     res = get_light_client_block(last_known_block_hash, last_known_block)
 
     if last_known_block_hash == height_to_hash[20 + first_epoch_switch_height]:
-        assert res['result'] is None
+        assert res['result'] == {}
         break
 
     assert res['result']['inner_lite']['epoch_id'] == epochs[iter_]
@@ -174,7 +177,7 @@ for i in range(2):
 
     res = get_light_client_block(height_to_hash[21 + first_epoch_switch_height],
                                  last_known_block)
-    assert res['result'] is None
+    assert res['result'] == {}
 
     get_up_to(i + 25 + first_epoch_switch_height,
               i + 25 + first_epoch_switch_height)
