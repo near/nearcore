@@ -67,7 +67,7 @@ impl<'a> RuntimeExt<'a> {
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-        #[cfg(feature = "protocol_feature_block_hash_host_fn")]
+        #[cfg(feature = "protocol_feature_block_hash_host_fn")] // comment because rustfmt bug
         block_hash_provider: &'a dyn BlockHashProvider,
     ) -> Self {
         RuntimeExt {
