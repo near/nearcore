@@ -2,7 +2,6 @@ use clap::{App, Arg};
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptResult, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::version::ProtocolFeature;
 use near_store::create_store;
 use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 use std::collections::HashSet;

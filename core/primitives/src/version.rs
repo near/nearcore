@@ -103,6 +103,8 @@ pub enum ProtocolFeature {
     AllowCreateAccountOnDelete,
     #[cfg(feature = "protocol_feature_fix_storage_usage")]
     FixStorageUsage,
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    RestoreReceiptsAfterFix,
 }
 
 /// Current latest stable version of the protocol.
