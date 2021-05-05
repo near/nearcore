@@ -697,20 +697,28 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Returns the block hash for the block at the given height (if any). It can
-    /// only return a result for the most recent 256 blocks.
+    /// only return a result for the most recent 256 blocks. The return value indicates whether a
+    /// blockhash was found at the given height; if yes then 1 (i.e. true) is returned, otherwise
+    /// 0 (i.e. false) is returned. In the case that no blockhash is found then no bytes are written
+    /// to the register.
     ///
     /// # Cost
     ///
     /// `base + storage_read_base + storage_read_key_byte * 8 + write_register_base + write_register_byte * 32
     #[cfg(feature = "protocol_feature_block_hash_host_fn")]
-    pub fn block_hash(&mut self, block_height: u64, register_id: u64) -> Result<()> {
+    pub fn block_hash(&mut self, block_height: u64, register_id: u64) -> Result<u32> {
         self.gas_counter.pay_base(base)?;
         // we assume that under the hood this is a DB read, where the block height
         // is the key, and it is 64 bits = 8 bytes
         self.gas_counter.pay_base(storage_read_base)?;
         self.gas_counter.pay_per_byte(storage_read_key_byte, 8)?;
-        let result = self.ext.block_hash(block_height)?.unwrap_or_default();
-        self.internal_write_register(register_id, result.0.to_vec())
+        match self.ext.block_hash(block_height)? {
+            Some(result) => {
+                self.internal_write_register(register_id, result.0.to_vec())?;
+                Ok(1)
+            }
+            None => Ok(0),
+        }
     }
 
     // #################
