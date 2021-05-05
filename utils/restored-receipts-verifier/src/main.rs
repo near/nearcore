@@ -39,8 +39,7 @@ fn main() -> Result<(), Error> {
 
     let mut receipts_missing: Vec<Receipt> = vec![];
     let height_first: u64 = 34691244; // First height for which lost receipts were found
-    let mut height_last: u64 =
-        chain_store.get_latest_known().expect("Couldn't get upper bound for block height").height;
+    let height_last: u64 = 35524259; // Height for which apply_chunks was already fixed
 
     for height in height_first..height_last {
         let block_hash_result = chain_store.get_block_hash_by_height(height);
@@ -54,14 +53,6 @@ fn main() -> Result<(), Error> {
         if block.chunks()[shard_id as usize].height_included() == height {
             println!("{} included, skip", height);
             continue;
-        }
-
-        if runtime.get_epoch_protocol_version(block.header().epoch_id()).unwrap() >= ProtocolFeature::FixApplyChunks.protocol_version() {
-            println!(
-                "Found block height {} for which apply_chunks was already fixed. Stopping the loop...",
-                height
-            );
-            break;
         }
 
         let chunk_extra =

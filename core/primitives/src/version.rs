@@ -107,11 +107,11 @@ pub enum ProtocolFeature {
 
 /// Current latest stable version of the protocol.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 45;
+pub const PROTOCOL_VERSION: ProtocolVersion = 44;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 111;
+pub const PROTOCOL_VERSION: ProtocolVersion = 112;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -139,6 +139,8 @@ impl ProtocolFeature {
             ProtocolFeature::AllowCreateAccountOnDelete => 110,
             #[cfg(feature = "protocol_feature_fix_storage_usage")]
             ProtocolFeature::FixStorageUsage => 111,
+            #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+            ProtocolFeature::RestoreReceiptsAfterFix => 112,
         }
     }
 }

@@ -2928,9 +2928,6 @@ impl<'a> ChainUpdate<'a> {
                     *new_extra.state_root_mut() = apply_result.new_root;
 
                     self.chain_store_update.save_chunk_extra(&block.hash(), shard_id, new_extra);
-
-                    #[cfg(not(feature = "nightly_protocol"))]
-                    debug_assert!(protocol_version < ProtocolFeature::FixApplyChunks.protocol_version() || apply_result.outcomes.is_empty());
                 }
             }
         }

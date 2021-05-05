@@ -116,6 +116,7 @@ protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128", "testlib/proto
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
 protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limit", "node-runtime/protocol_feature_tx_size_limit", "neard/protocol_feature_tx_size_limit"]
 protocol_feature_allow_create_account_on_delete = ["testlib/protocol_feature_allow_create_account_on_delete", "near-primitives/protocol_feature_allow_create_account_on_delete", "node-runtime/protocol_feature_allow_create_account_on_delete", "neard/protocol_feature_allow_create_account_on_delete"]
+protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix", "neard/protocol_feature_restore_receipts_after_fix"]
 protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
 protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage", "neard/protocol_feature_fix_storage_usage", "node-runtime/protocol_feature_fix_storage_usage"]
 
