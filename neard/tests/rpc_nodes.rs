@@ -1067,22 +1067,27 @@ fn test_validators_by_epoch_id_current_epoch_not_fails() {
         let view_client = clients[0].1.clone();
 
         spawn_interruptible(async move {
-            loop {
-                let final_block = view_client.send(GetBlock::latest()).await.unwrap().unwrap();
+            let final_block = loop {
+                let res = view_client.send(GetBlock::latest()).await;
+                if let Ok(Ok(block)) = res {
+                    if block.header.height > 1 {
+                        break block;
+                    }
+                }
+            };
 
-                let res = view_client
-                    .send(GetValidatorInfo {
-                        epoch_reference: EpochReference::EpochId(EpochId(
-                            final_block.header.epoch_id,
-                        )),
-                    })
-                    .await;
+            let res = view_client
+                .send(GetValidatorInfo {
+                    epoch_reference: EpochReference::EpochId(EpochId(final_block.header.epoch_id)),
+                })
+                .await;
 
-                if let Ok(Ok(validators)) = res {
+            match res {
+                Ok(Ok(validators)) => {
                     assert_eq!(validators.current_validators.len(), 1);
                     System::current().stop();
                 }
-                sleep(std::time::Duration::from_millis(500)).await;
+                err => panic!("Validators list by EpochId must succeed: {:?}", err),
             }
         });
     });
