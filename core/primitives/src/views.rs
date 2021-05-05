@@ -1507,7 +1507,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration { description } => {
-                Self::Migration { description: description.clone() }
+                Self::Migration { description }
             }
         }
     }
