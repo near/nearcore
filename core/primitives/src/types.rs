@@ -164,17 +164,11 @@ pub enum MigrationId {
     StorageUsageFix,
 }
 
-impl fmt::Display for MigrationId {
+impl fmt::Debug for MigrationId {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::StorageUsageFix => write!(f, "Storage usage fix"),
         }
-    }
-}
-
-impl fmt::Debug for MigrationId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        (self as &dyn fmt::Display).fmt(f)
     }
 }
 
