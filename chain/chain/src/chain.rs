@@ -2737,6 +2737,16 @@ impl<'a> ChainUpdate<'a> {
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
+        if self.runtime_adapter.is_next_block_epoch_start(prev_block.hash()).unwrap_or(false)
+            && protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+            let mut receipt_result = HashMap::default();
+            let receipts_json = include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
+            let receipts = serde_json::from_str::<Vec<Receipt>>(receipts_json).expect("File with receipts restored after apply_chunks fix have to be correct");
+            // let rxs_read = <Vec<Receipt>>::try_from_slice(bytes).unwrap();
+            receipt_result.insert(0, receipts);
+            self.chain_store_update.save_outgoing_receipt(&block.hash(), 0, receipt_result);
+        }
+
         for (shard_id, (chunk_header, prev_chunk_header)) in
             (block.chunks().iter().zip(prev_block.chunks().iter())).enumerate()
         {
