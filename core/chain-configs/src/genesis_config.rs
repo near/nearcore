@@ -468,9 +468,7 @@ impl Genesis {
         &self,
         callback: impl FnMut(StateRecord),
     ) -> std::io::Result<()> {
-        let reader = BufReader::new(
-            File::open(&self.records_file.path).expect("could not open genesis records file"),
-        );
+        let reader = BufReader::new(File::open(&self.records_file.path)?);
         match &self.records_file.file_type {
             GenesisRecordsFileType::FullGenesis => {
                 stream_records_from_genesis_file(reader, callback).map_err(std::io::Error::from)
