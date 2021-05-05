@@ -21,7 +21,6 @@ use near_network::types::ROUTED_MESSAGE_TTL;
 use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::state_record::StateRecord;
@@ -783,32 +782,8 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // TODO: add download genesis for mainnet
-            #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-            let mut genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
-                .expect("Failed to deserialize MainNet genesis");
-
-            #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
             let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
                 .expect("Failed to deserialize MainNet genesis");
-
-            if let Some(account_id) = account_id {
-                generate_validator_key(account_id, &dir.join(config.validator_key_file));
-            }
-
-            // Put receipts which were lost because of a bug in apply_chunks to the runtime config.
-            // See https://github.com/near/nearcore/pull/4248/ for more details
-            checked_feature!(
-                "protocol_feature_restore_receipts_after_fix",
-                RestoreReceiptsAfterFix,
-                PROTOCOL_VERSION,
-                {
-                    genesis.config.runtime_config.receipts_to_restore =
-                        serde_json::from_slice(*MAINNET_RESTORED_RECEIPTS_JSON).expect(
-                            "File with receipts restored after apply_chunks fix have to be correct",
-                        );
-                }
-            );
-
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 

@@ -54,7 +54,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -2744,6 +2744,70 @@ fn test_congestion_receipt_execution() {
             receipt_ids.extend(receipt_outcome.outcome_with_id.outcome.receipt_ids);
         }
     }
+}
+
+#[test]
+fn test_restoring_receipts() {
+    init_test_logger();
+    let epoch_length = 5;
+    let mut prev_protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
+    let mut protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = protocol_version;
+    genesis.config.gas_limit = 10000000000000;
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+
+    for i in 1..=16 {
+        let head = env.clients[0].chain.head().unwrap();
+        let epoch_id = env.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .unwrap();
+        let block_producer =
+            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
+        let index = if block_producer == "test0".to_string() { 0 } else { 1 };
+        let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
+        // upgrade
+        // do we need this?
+        // let validator_signer = InMemoryValidatorSigner::from_seed(
+        //     &format!("test{}", index),
+        //     KeyType::ED25519,
+        //     &format!("test{}", index),
+        // );
+
+        block.mut_header().get_mut().inner_rest.latest_protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version();
+        // block.mut_header().resign(&validator_signer);
+
+        for j in 0..1 {
+            let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
+            assert!(res.is_ok());
+            env.clients[j].run_catchup(&vec![]).unwrap();
+        }
+
+        let last_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+        prev_protocol_version = protocol_version;
+        protocol_version = env.clients[0]
+            .runtime_adapter
+            .get_epoch_protocol_version(last_block.header().epoch_id())
+            .unwrap();
+        println!("pv({}) = {}", i, protocol_version);
+
+        if prev_protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1 && protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+            // update
+            // add two same rxs intentionally
+            // maybe 
+        } else {
+            // no update
+
+        }
+    }
+
 }
 
 #[cfg(test)]
