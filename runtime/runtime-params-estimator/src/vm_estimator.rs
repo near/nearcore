@@ -1,3 +1,4 @@
+use crate::cases::ratio_to_gas_signed;
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use glob::glob;
 use near_primitives::contract::ContractCode;
@@ -146,12 +147,11 @@ fn measure_contract(
         Err(_err) if rayon::current_num_threads() == 1 => (),
         Err(_err) => panic!("failed to set rayon to use 1 thread"),
     };
-
-    let start = start_count(gas_metric);
     let vm_config = VMConfig::default();
+    let start = start_count(gas_metric);
     let result = precompile_contract_vm(vm_kind, &contract, &vm_config, cache);
-    assert!(result.is_ok(), "Compilation failed");
     let end = end_count(gas_metric, &start);
+    assert!(result.is_ok(), "Compilation failed");
     end
 }
 
@@ -209,7 +209,7 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
     let cache_store1: Arc<StoreCompiledContractCache>;
     let cache_store2: Arc<MockCompiledContractCache>;
     let cache: Option<&dyn CompiledContractCache>;
-    let use_file_store = false;
+    let use_file_store = true;
     if use_file_store {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         let store = create_store(&get_store_path(workdir.path()));
@@ -240,14 +240,18 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
         ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
     }
 
-    let (a, b, errs) = least_squares_method(&xs, &ys);
+    let (a, b, _) = least_squares_method(&xs, &ys);
 
     // println!("xs={:?} ys={:?} errs={:?}: a = {} b = {}", xs, ys, errs, a.to_f64().unwrap(), b.to_f64().unwrap());
 
     // We multiply `b` by 5/4 to accommodate for the fact that test contracts are typically 80% code,
-    // so in the worst case it could grow to 100% and our costs are still properly estimate.
+    // so in the worst case it could grow to 100% and our costs still give better upper estimation.
     let safety = Ratio::new(5i128, 4i128); // 5/4.
     let (corrected_a, corrected_b) = (a * safety, b * safety);
+
+    // Now validate that estimations obtained earlier provides correct upper estimation
+    // for several other contracts.
+    // Contracts binaries are taken from near-sdk-rs examples, ae20fc458858144e4a35faf58be778d13c2b0511.
     let validate_contracts = vec![
         // File 139637.
         &include_bytes!("../test-contract/res/status_message.wasm")[..],
@@ -264,29 +268,35 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
         let expect = (corrected_a + corrected_b * (x as i128)).to_integer();
         let error = expect - (y as i128);
         println!("x = {} y = {} error is {}", x, y, error);
-        assert!(error >= 0);
+        if gas_metric == GasMetric::ICount {
+            // Time based metric may lead to unpredictable results.
+            assert!(error >= 0);
+        }
     }
 
     (corrected_a, corrected_b)
 }
 
+fn test_compile_cost_vm(metric: GasMetric, vm_kind: VMKind) {
+    let (a, b) = precompilation_cost(metric, vm_kind);
+    let base = ratio_to_gas_signed(metric, a);
+    let per_byte = ratio_to_gas_signed(metric, b);
+    println!(
+        "{:?} using {:?}: in a + b * x: a = {} ({}) b = {}({}) base = {} per_byte = {}",
+        vm_kind,
+        metric,
+        a,
+        a.to_f64().unwrap(),
+        b,
+        b.to_f64().unwrap(),
+        base,
+        per_byte
+    );
+}
+
 fn test_compile_cost(metric: GasMetric) {
-    let (a, b) = precompilation_cost(metric, VMKind::Wasmer0);
-    println!(
-        "Wasmer0 in a + b * x:  a = {} ({}) b = {}({})",
-        a,
-        a.to_f64().unwrap(),
-        b,
-        b.to_f64().unwrap()
-    );
-    let (a, b) = precompilation_cost(metric, VMKind::Wasmer1);
-    println!(
-        "Wasmer1 in a + b * x: a = {} ({}) b = {}({})",
-        a,
-        a.to_f64().unwrap(),
-        b,
-        b.to_f64().unwrap()
-    );
+    test_compile_cost_vm(metric, VMKind::Wasmer0);
+    test_compile_cost_vm(metric, VMKind::Wasmer1);
 }
 
 #[test]
@@ -297,12 +307,11 @@ fn test_compile_cost_time() {
 #[test]
 fn test_compile_cost_icount() {
     // Use smth like
-    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh cargo test --color=always \
-    // --lib vm_estimator::test_compile_cost_icount --no-fail-fast -- --exact \
-    // -Z unstable-options --show-output
+    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh cargo test \
+    // --lib vm_estimator::test_compile_cost_icount --no-fail-fast -- --exact --nocapture
     // Where runner.sh is
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
-    // -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so $@
+    // -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so,arg="count_per_thread" $@
     test_compile_cost(GasMetric::ICount)
 }
 

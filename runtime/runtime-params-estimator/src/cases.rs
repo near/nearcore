@@ -654,6 +654,23 @@ fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> u64 {
     .unwrap()
 }
 
+pub(crate) fn ratio_to_gas_signed(gas_metric: GasMetric, value: Ratio<i128>) -> i64 {
+    let divisor = match gas_metric {
+        // We use factor of 8 to approximately match the price of SHA256 operation between
+        // time-based and icount-based metric as measured on 3.2Ghz Core i5.
+        GasMetric::ICount => 8i128,
+        GasMetric::Time => 1i128,
+    };
+    i64::try_from(
+        Ratio::<i128>::new(
+            (*value.numer() as i128) * (GAS_IN_MEASURE_UNIT as i128),
+            (*value.denom() as i128) * divisor,
+        )
+        .to_integer(),
+    )
+    .unwrap()
+}
+
 /// Converts cost of a certain action to a fee, spliting it evenly between send and execution fee.
 fn measured_to_fee(gas_metric: GasMetric, value: Ratio<u64>) -> Fee {
     let value = ratio_to_gas(gas_metric, value);
