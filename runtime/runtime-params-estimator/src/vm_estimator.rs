@@ -307,7 +307,7 @@ fn test_compile_cost_time() {
 #[test]
 fn test_compile_cost_icount() {
     // Use smth like
-    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh cargo test \
+    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh cargo test --release \
     // --lib vm_estimator::test_compile_cost_icount --no-fail-fast -- --exact --nocapture
     // Where runner.sh is
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
