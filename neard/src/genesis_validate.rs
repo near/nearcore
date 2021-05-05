@@ -4,7 +4,7 @@ use near_primitives::state_record::StateRecord;
 use num_rational::Rational;
 use std::collections::{HashMap, HashSet};
 
-pub struct GenesisValidator<'a> {
+struct GenesisValidator<'a> {
     genesis_config: &'a GenesisConfig,
     total_supply: u128,
     staked_accounts: HashMap<String, u128>,
