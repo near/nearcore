@@ -4,11 +4,6 @@ use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[cfg(feature = "protocol_feature_block_hash_host_fn")]
-use near_primitives::hash::CryptoHash;
-#[cfg(feature = "protocol_feature_block_hash_host_fn")]
-use near_primitives_core::types::BlockHeight;
-
 #[derive(Default, Clone)]
 /// Emulates the trie and the mock handling code.
 pub struct MockedExternal {
@@ -218,7 +213,10 @@ impl External for MockedExternal {
     }
 
     #[cfg(feature = "protocol_feature_block_hash_host_fn")]
-    fn block_hash(&self, _block_height: BlockHeight) -> Result<Option<CryptoHash>> {
+    fn block_hash(
+        &self,
+        _block_height: near_primitives_core::types::BlockHeight,
+    ) -> Result<Option<near_primitives::hash::CryptoHash>> {
         Ok(None)
     }
 }
