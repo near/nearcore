@@ -193,7 +193,6 @@ fn least_squares_method(xs: &Vec<u64>, ys: &Vec<u64>) -> (Ratio<i128>, Ratio<i12
 
     // Compute error estimations
     let mut errs = vec![];
-    let mut error = 0i128;
     for i in 0..n {
         let expect = (a + b * (xs[i] as i128)).to_integer();
         let diff = expect - (ys[i] as i128);
@@ -226,13 +225,13 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
     // We use core-contracts, e2f60b5b0930a9df2c413e1460e179c65c8876e3.
     let measure_contracts = vec![
         // File 341191, code 279965, data 56627.
-        include_bytes!("../test-contract/res/lockup_contract.wasm"),
+        &include_bytes!("../test-contract/res/lockup_contract.wasm")[..],
         // File 257516, code 203545, data 50419.
-        include_bytes!("../test-contract/res/staking_pool.wasm"),
+        &include_bytes!("../test-contract/res/staking_pool.wasm")[..],
         // File 135358, code 113152, data 19520.
-        include_bytes!("../test-contract/res/voting_contract.wasm"),
+        &include_bytes!("../test-contract/res/voting_contract.wasm")[..],
         // File 124250, code 103473, data 18176.
-        include_bytes!("../test-contract/res/whitelist.wasm"),
+        &include_bytes!("../test-contract/res/whitelist.wasm")[..],
     ];
 
     for raw_bytes in measure_contracts {
@@ -243,7 +242,7 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
 
     let (a, b, errs) = least_squares_method(&xs, &ys);
 
-    println!("xs={:?} ys={:?} errs={:?}: a = {:?} b = {:?}", xs, ys, errs, a, b);
+    // println!("xs={:?} ys={:?} errs={:?}: a = {} b = {}", xs, ys, errs, a.to_f64().unwrap(), b.to_f64().unwrap());
 
     // We multiply `b` by 5/4 to accommodate for the fact that test contracts are typically 80% code,
     // so in the worst case it could grow to 100% and our costs are still properly estimate.
@@ -251,19 +250,20 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
     let (corrected_a, corrected_b) = (a * safety, b * safety);
     let validate_contracts = vec![
         // File 139637.
-        include_bytes!("../test-contract/res/status_message.wasm"),
+        &include_bytes!("../test-contract/res/status_message.wasm")[..],
         // File 157010.
-        include_bytes!("../test-contract/res/mission_control.wasm"),
+        &include_bytes!("../test-contract/res/mission_control.wasm")[..],
         // File 218444.
-        include_bytes!("../test-contract/res/fungible_token.wasm"),
+        &include_bytes!("../test-contract/res/fungible_token.wasm")[..],
     ];
 
     for raw_bytes in validate_contracts {
+        let contract = ContractCode::new(raw_bytes.to_vec(), None);
         let x = raw_bytes.len() as u64;
         let y = measure_contract(vm_kind, gas_metric, &contract, cache);
-        let expect = (a + b * (x as i128)).to_integer();
-        let error = expect - y;
-        print!("x = {} y = {} error is {}", x, y, error);
+        let expect = (corrected_a + corrected_b * (x as i128)).to_integer();
+        let error = expect - (y as i128);
+        println!("x = {} y = {} error is {}", x, y, error);
         assert!(error >= 0);
     }
 
