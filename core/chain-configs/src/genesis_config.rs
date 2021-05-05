@@ -360,17 +360,23 @@ impl<'de, F: FnMut(StateRecord)> Visitor<'de> for GenesisRecordsProcessor<&'_ mu
     }
 }
 
-pub fn stream_records_from_records_file(reader: impl Read, mut callback: impl FnMut(StateRecord)) {
+pub fn stream_records_from_records_file(
+    reader: impl Read,
+    mut callback: impl FnMut(StateRecord),
+) -> serde_json::Result<()> {
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
     let records_processor = RecordsProcessor { sink: &mut callback };
-    deserializer.deserialize_seq(records_processor).expect("error while processing records");
+    deserializer.deserialize_seq(records_processor)
 }
 
-pub fn stream_records_from_genesis_file(reader: impl Read, mut callback: impl FnMut(StateRecord)) {
+pub fn stream_records_from_genesis_file(
+    reader: impl Read,
+    mut callback: impl FnMut(StateRecord),
+) -> serde_json::Result<()> {
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
     let genesis_processor =
         GenesisRecordsProcessor { records_processor: RecordsProcessor { sink: &mut callback } };
-    deserializer.deserialize_map(genesis_processor).expect("error while processing records");
+    deserializer.deserialize_map(genesis_processor)
 }
 
 pub struct GenesisJsonHasher {
@@ -458,30 +464,34 @@ impl Genesis {
         hasher.finalize()
     }
 
-    pub fn stream_records_with_callback(&self, callback: impl FnMut(StateRecord)) {
+    fn stream_records_with_callback(
+        &self,
+        callback: impl FnMut(StateRecord),
+    ) -> std::io::Result<()> {
         let reader = BufReader::new(
             File::open(&self.records_file.path).expect("could not open genesis records file"),
         );
         match &self.records_file.file_type {
             GenesisRecordsFileType::FullGenesis => {
-                stream_records_from_genesis_file(reader, callback);
+                stream_records_from_genesis_file(reader, callback).map_err(std::io::Error::from)
             }
             GenesisRecordsFileType::RecordsArray => {
-                stream_records_from_records_file(reader, callback);
+                stream_records_from_records_file(reader, callback).map_err(std::io::Error::from)
             }
         }
     }
 
     pub fn process_records(&self, mut callback: impl FnMut(&StateRecord)) {
-        if !self.records.as_ref().is_empty() {
-            for record in self.records.as_ref() {
-                callback(record);
-            }
-        } else {
+        if self.records.as_ref().is_empty() {
             let callback_move = |record: StateRecord| {
                 callback(&record);
             };
-            self.stream_records_with_callback(callback_move);
+            self.stream_records_with_callback(callback_move)
+                .expect("error while streaming records");
+        } else {
+            for record in self.records.as_ref() {
+                callback(record);
+            }
         }
     }
 }
