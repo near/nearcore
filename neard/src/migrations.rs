@@ -266,6 +266,7 @@ lazy_static_include::lazy_static_include_bytes! {
     /// File with account ids and deltas that need to be applied in order to fix storage usage
     /// difference between actual and stored usage, introduced due to bug in access key deletion,
     /// see https://github.com/near/nearcore/issues/3824
+    /// This file was generated using tools/storage-usage-delta-calculator
     MAINNET_STORAGE_USAGE_DELTA => "res/storage_usage_delta.json",
 }
 
