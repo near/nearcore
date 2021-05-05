@@ -2739,11 +2739,13 @@ impl<'a> ChainUpdate<'a> {
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
         // Re-introduce receipts missing before apply_chunks fix (see https://github.com/near/nearcore/pull/4228)
+        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         if self.runtime_adapter.is_next_block_epoch_start(prev_block.hash()).unwrap_or(false)
             && prev_protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
             && ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() <= protocol_version
         {
-            let receipt_result_json = include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
+            let receipt_result_json =
+                include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
             let receipt_result = serde_json::from_str::<ReceiptResult>(receipt_result_json)
                 .expect("File with receipts restored after apply_chunks fix have to be correct");
             self.chain_store_update.save_outgoing_receipt(&block.hash(), 0, receipt_result);

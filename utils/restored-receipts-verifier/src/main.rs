@@ -82,7 +82,8 @@ fn main() -> Result<(), Error> {
     }
 
     // Check that receipts from repo were actually generated
-    let receipt_result_in_repo_json = include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
+    let receipt_result_in_repo_json =
+        include_str!("../../../neard/res/fix_apply_chunks_receipts.json");
     let receipt_result_in_repo = serde_json::from_str::<ReceiptResult>(receipt_result_in_repo_json)
         .expect("File with receipts restored after apply_chunks fix have to be correct");
     let receipts_in_repo = receipt_result_in_repo.get(&shard_id).unwrap();
