@@ -37,10 +37,6 @@ protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["bn", "near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
 protocol_feature_allow_create_account_on_delete = []
 
-wasmer0_default = []
-wasmtime_default = []
-wasmer1_default = []
-
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-primitives-core/costs_counting"]
 
