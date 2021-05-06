@@ -9,7 +9,7 @@ use near_crypto::PublicKey;
 pub use near_primitives;
 use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::{
-    account::{AccessKey, Account},
+    account::Account,
     errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
     hash::CryptoHash,
     receipt::{
@@ -33,8 +33,8 @@ use near_primitives::{
 pub use near_store;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_access_key, set_account, set_postponed_receipt, set_received_data, PartialStorage,
-    ShardTries, StorageError, Trie, TrieChanges, TrieUpdate,
+    set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
+    StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -1384,6 +1384,9 @@ mod tests {
         gas_limit: Gas,
     ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
     {
+        use near_primitives::account::AccessKey;
+        use near_store::set_access_key;
+
         let tries = create_tries();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
@@ -2119,6 +2122,8 @@ mod tests {
 
     #[test]
     fn test_delete_key_add_key() {
+        use near_primitives::account::AccessKey;
+
         let initial_locked = to_yocto(500_000);
         let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
