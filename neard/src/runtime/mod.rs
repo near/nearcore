@@ -60,7 +60,7 @@ use near_primitives::runtime::config::RuntimeConfig;
 
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
-use near_primitives::runtime::migration_data::{MigrationContext, MigrationData};
+use near_primitives::runtime::migration_data::MigrationData;
 
 pub mod errors;
 
@@ -428,10 +428,10 @@ impl NightshadeRuntime {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
             profile: Default::default(),
-            migration_context: MigrationContext {
-                is_first_block_with_current_version: current_protocol_version
-                    != prev_block_protocol_version,
-                migration_data: Arc::clone(&self.migration_data),
+            migration_data: if current_protocol_version != prev_block_protocol_version {
+                Some(Arc::clone(&self.migration_data))
+            } else {
+                None
             },
         };
 

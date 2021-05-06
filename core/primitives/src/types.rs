@@ -161,6 +161,7 @@ pub enum StateChangeCause {
 
 #[derive(Serialize, Deserialize, Clone, BorshSerialize, BorshDeserialize)]
 pub enum MigrationId {
+    /// See https://github.com/near/nearcore/issues/3824
     StorageUsageFix,
 }
 
