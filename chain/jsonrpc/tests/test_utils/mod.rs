@@ -71,7 +71,7 @@ type RpcRequest<T> = LocalBoxFuture<'static, Result<T, near_jsonrpc_primitives::
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 pub fn call_method<R>(
-    client: &actix_web::client::Client,
+    client: &awc::Client,
     server_addr: &str,
     method: &str,
     params: serde_json::Value,
