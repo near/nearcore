@@ -2801,7 +2801,7 @@ impl<'a> ChainUpdate<'a> {
 
                     // This part of code re-introduces receipts lost because of a bug in apply_chunks
                     // (see https://github.com/near/nearcore/pull/4248/)
-                    // We take the first block in the first epoch in which protocol feature RestoreReceiptsAfterFix
+                    // We take the first block with new chunk in which protocol feature RestoreReceiptsAfterFix
                     // is enabled, and save the restored receipts there.
                     #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
                     let receipts = if shard_id == 0
@@ -2810,9 +2810,21 @@ impl<'a> ChainUpdate<'a> {
                             RestoreReceiptsAfterFix,
                             protocol_version
                         ) {
-                        let prev_protocol_version = self
-                            .runtime_adapter
-                            .get_epoch_protocol_version(prev_block.header().epoch_id())?;
+                        let prev_protocol_version = {
+                            let block_with_new_chunk_hash = self
+                                .chain_store_update
+                                .get_last_block_with_new_chunk(0)
+                                .unwrap()
+                                .unwrap()
+                                .clone();
+                            let block_header = self
+                                .chain_store_update
+                                .get_block_header(&block_with_new_chunk_hash)
+                                .unwrap();
+                            let epoch_id = block_header.epoch_id();
+                            self.runtime_adapter.get_epoch_protocol_version(epoch_id)?
+                        };
+
                         let receipts_to_restore = if !checked_feature!(
                             "protocol_feature_restore_receipts_after_fix",
                             RestoreReceiptsAfterFix,

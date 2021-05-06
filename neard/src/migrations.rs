@@ -323,4 +323,17 @@ mod tests {
         let testnet_migration_data = load_migration_data(&"testnet".to_string());
         assert_eq!(testnet_migration_data.storage_usage_delta.len(), 0);
     }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    fn test_restored_receipts_data() {
+        assert_eq!(
+            to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),
+            "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx"
+        );
+        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        assert_eq!(mainnet_migration_data.restored_receipts.len(), 383);
+        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        assert_eq!(testnet_migration_data.restored_receipts.len(), 0);
+    }
 }

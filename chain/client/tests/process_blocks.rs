@@ -56,7 +56,10 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-#[cfg(any(feature = "protocol_feature_fix_storage_usage", feature = "protocol_feature_restore_receipts_after_fix"))]
+#[cfg(any(
+    feature = "protocol_feature_fix_storage_usage",
+    feature = "protocol_feature_restore_receipts_after_fix"
+))]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -2763,6 +2766,23 @@ fn test_block_ordinal() {
     assert_eq!(next_block.header().block_ordinal(), ordinal);
 }
 
+fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
+    let chunk_headers = vec![prev_block.chunks()[0].clone()];
+    block.set_chunks(chunk_headers.clone());
+    block.mut_header().get_mut().inner_rest.chunk_headers_root =
+        Block::compute_chunk_headers_root(&chunk_headers).0;
+    block.mut_header().get_mut().inner_rest.chunk_tx_root =
+        Block::compute_chunk_tx_root(&chunk_headers);
+    block.mut_header().get_mut().inner_rest.chunk_receipts_root =
+        Block::compute_chunk_receipts_root(&chunk_headers);
+    block.mut_header().get_mut().inner_lite.prev_state_root =
+        Block::compute_state_root(&chunk_headers);
+    block.mut_header().get_mut().inner_rest.chunk_mask = vec![false];
+    block.mut_header().get_mut().inner_rest.gas_price = prev_block.header().gas_price();
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    block.mut_header().resign(&validator_signer);
+}
+
 #[test]
 fn test_congestion_receipt_execution() {
     init_test_logger();
@@ -2775,7 +2795,6 @@ fn test_congestion_receipt_execution() {
         TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
 
     // step 0: deploy contract to test0
     let tx = SignedTransaction::from_actions(
@@ -2841,19 +2860,7 @@ fn test_congestion_receipt_execution() {
             .unwrap();
     assert!(delayed_indices.next_available_index > 0);
     let mut block = env.clients[0].produce_block(height + 1).unwrap().unwrap();
-    let chunk_headers = vec![prev_block.chunks()[0].clone()];
-    block.set_chunks(chunk_headers.clone());
-    block.mut_header().get_mut().inner_rest.chunk_headers_root =
-        Block::compute_chunk_headers_root(&chunk_headers).0;
-    block.mut_header().get_mut().inner_rest.chunk_tx_root =
-        Block::compute_chunk_tx_root(&chunk_headers);
-    block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-        Block::compute_chunk_receipts_root(&chunk_headers);
-    block.mut_header().get_mut().inner_lite.prev_state_root =
-        Block::compute_state_root(&chunk_headers);
-    block.mut_header().get_mut().inner_rest.chunk_mask = vec![false];
-    block.mut_header().get_mut().inner_rest.gas_price = prev_block.header().gas_price();
-    block.mut_header().resign(&validator_signer);
+    set_no_chunk_in_block(&mut block, &prev_block);
     env.process_block(0, block.clone(), Provenance::NONE);
 
     // let all receipts finish
@@ -2885,53 +2892,89 @@ fn test_congestion_receipt_execution() {
 
 #[test]
 fn test_restoring_receipts_mainnet() {
-    init_test_logger();
-    let epoch_length = 5;
-    let height_timeout = 10;
-    let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
-    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.chain_id = String::from("mainnet");
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = protocol_version;
-    genesis.config.gas_limit = 10000000000000;
-    let chain_genesis = ChainGenesis::from(&genesis);
-    let mut env =
-        TestEnv::new_with_runtime(chain_genesis.clone(), 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let mut run_test = |test_with_block_with_no_chunk: bool| {
+        // init_test_logger();
+        let epoch_length = 5;
+        let height_timeout = 10;
+        let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        genesis.config.chain_id = String::from("mainnet");
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = protocol_version;
+        genesis.config.gas_limit = 10000000000000;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let mut env = TestEnv::new_with_runtime(
+            chain_genesis.clone(),
+            1,
+            1,
+            create_nightshade_runtimes(&genesis, 1),
+        );
 
-    let mut receipt_hashes_to_restore: HashSet<CryptoHash> = HashSet::from_iter(
-        env.clients[0].runtime_adapter.get_migration_data().restored_receipts.get(&0u64)
-            .expect("Receipts to restore must contain an entry for shard 0").clone().iter()
-            .map(|receipt| receipt.receipt_id));
-    let mut execution_is_too_slow= false;
-    let mut height: BlockHeight = 1;
-    let mut last_update_height: BlockHeight = 0;
-
-    while !receipt_hashes_to_restore.is_empty() && !execution_is_too_slow {
-        let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
-        block.mut_header().get_mut().inner_rest.latest_protocol_version =
-            ProtocolFeature::RestoreReceiptsAfterFix.protocol_version();
-        env.process_block(0, block, Provenance::PRODUCED);
-
-        let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
-        let protocol_version = env.clients[0].runtime_adapter.get_epoch_protocol_version(last_block.header().epoch_id()).unwrap();
-
-        for receipt_id in receipt_hashes_to_restore.clone().iter() {
-            if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
-                assert!(protocol_version >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(), "Restored receipt {} was executed before protocol upgrade", receipt_id);
-                receipt_hashes_to_restore.remove(receipt_id);
-                last_update_height = height;
-            };
-        }
+        let mut receipt_hashes_to_restore: HashSet<CryptoHash> = HashSet::from_iter(
+            env.clients[0]
+                .runtime_adapter
+                .get_migration_data()
+                .restored_receipts
+                .get(&0u64)
+                .expect("Receipts to restore must contain an entry for shard 0")
+                .clone()
+                .iter()
+                .map(|receipt| receipt.receipt_id),
+        );
+        let mut height: BlockHeight = 1;
+        let mut last_update_height: BlockHeight = 0;
 
         // If some receipts are still not applied, upgrade already happened, and no new receipt was
-        // applied in some last blocks, consider the process stuck to avoid any possibility of infinite loop
-        execution_is_too_slow |= protocol_version >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() && height - last_update_height >= height_timeout;
+        // applied in some last blocks, consider the process stuck to avoid any possibility of infinite loop.
+        while !receipt_hashes_to_restore.is_empty() && height - last_update_height < height_timeout
+        {
+            let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
+            block.mut_header().get_mut().inner_rest.latest_protocol_version =
+                ProtocolFeature::RestoreReceiptsAfterFix.protocol_version();
+            if test_with_block_with_no_chunk && (height >= 8 && height <= 11) {
+                let prev_block =
+                    env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
+                set_no_chunk_in_block(&mut block, &prev_block);
+            }
+            env.process_block(0, block, Provenance::PRODUCED);
 
-        height += 1;
-    }
+            let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+            let protocol_version = env.clients[0]
+                .runtime_adapter
+                .get_epoch_protocol_version(last_block.header().epoch_id())
+                .unwrap();
+            println!("{} {}", height, protocol_version);
 
-    assert!(receipt_hashes_to_restore.is_empty(), "Some of receipts were not executed, hashes: {:?}", receipt_hashes_to_restore);
-    println!("{}", height);
+            for receipt_id in receipt_hashes_to_restore.clone().iter() {
+                if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
+                    assert!(
+                        protocol_version
+                            >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+                        "Restored receipt {} was executed before protocol upgrade",
+                        receipt_id
+                    );
+                    receipt_hashes_to_restore.remove(receipt_id);
+                    last_update_height = height;
+                };
+            }
+
+            // Update last updated height anyway if upgrade did not happen
+            if protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+                last_update_height = height;
+            }
+            height += 1;
+        }
+
+        assert!(
+            receipt_hashes_to_restore.is_empty(),
+            "Some of receipts were not executed, hashes: {:?}",
+            receipt_hashes_to_restore
+        );
+        println!("{}", height);
+    };
+
+    run_test(true);
+    run_test(false);
 }
 
 #[cfg(test)]
