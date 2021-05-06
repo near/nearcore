@@ -1090,20 +1090,23 @@ impl Runtime {
         if ProtocolFeature::FixStorageUsage.protocol_version()
             == apply_state.current_protocol_version
         {
-            for (account_id, delta) in
-                &apply_state.migration_context.migration_data.storage_usage_delta
-            {
-                match get_account(state_update, account_id)? {
-                    Some(mut account) => {
-                        // Storage usage is saved in state, hence it is nowhere close to max value
-                        // of u64, and maximal delta is 4196, se we can add here without checking
-                        // for overflow
-                        account.set_storage_usage(account.storage_usage() + delta);
-                        set_account(state_update, account_id.clone(), &account);
+            match &apply_state.migration_data {
+                Some(migration_data) => {
+                    for (account_id, delta) in &migration_data.storage_usage_delta {
+                        match get_account(state_update, account_id)? {
+                            Some(mut account) => {
+                                // Storage usage is saved in state, hence it is nowhere close to max value
+                                // of u64, and maximal delta is 4196, se we can add here without checking
+                                // for overflow
+                                account.set_storage_usage(account.storage_usage() + delta);
+                                set_account(state_update, account_id.clone(), &account);
+                            }
+                            // Account could have been deleted in the meantime
+                            None => {}
+                        }
                     }
-                    // Account could have been deleted in the meantime
-                    None => {}
                 }
+                None => unreachable!(),
             }
             gas_used += Runtime::GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION;
             state_update
@@ -1146,6 +1149,14 @@ impl Runtime {
                 &mut stats,
             )?;
         }
+
+        let gas_used_for_migrations = match apply_state.migration_data {
+            Some(_) => self
+                .apply_migrations(&mut state_update, apply_state)
+                .map_err(|e| RuntimeError::StorageError(e))?,
+            None => 0 as Gas,
+        };
+
         if !apply_state.is_new_chunk
             && apply_state.current_protocol_version
                 >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1163,14 +1174,6 @@ impl Runtime {
                 proof,
             });
         }
-
-        let gas_used_for_migrations =
-            if apply_state.migration_context.is_first_block_with_current_version {
-                self.apply_migrations(&mut state_update, apply_state)
-                    .map_err(|e| RuntimeError::StorageError(e))?
-            } else {
-                0 as Gas
-            };
 
         let mut outgoing_receipts = Vec::new();
         let mut validator_proposals = vec![];
@@ -1609,7 +1612,7 @@ mod tests {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: ProfileData::new_enabled(),
-            migration_context: Default::default(),
+            migration_data: None,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

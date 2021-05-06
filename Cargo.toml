@@ -72,8 +72,8 @@ neard = { path = "./neard"}
 
 testlib = { path = "./test-utils/testlib" }
 
-[replace]
-"ethereum-types:0.10.0" = { path = "./patches/ethereum-types-0.10.0-to-0.11.0" }
+[patch.crates-io]
+ethereum-types = { path = "./patches/ethereum-types-0.10.0-to-0.11.0" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

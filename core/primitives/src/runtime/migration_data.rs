@@ -4,7 +4,6 @@ use crate::receipt::ReceiptResult;
 use crate::types::AccountId;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
 
 #[derive(Default)]
 pub struct MigrationData {
@@ -14,16 +13,8 @@ pub struct MigrationData {
     pub restored_receipts: ReceiptResult,
 }
 
-#[derive(Default)]
-pub struct MigrationContext {
-    pub is_first_block_with_current_version: bool,
-    pub migration_data: Arc<MigrationData>,
-}
-
-impl Debug for MigrationContext {
+impl Debug for MigrationData {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MigrationContext")
-            .field("is_first_block_with_current_version", &self.is_first_block_with_current_version)
-            .finish()
+        f.debug_struct("MigrationData").finish()
     }
 }

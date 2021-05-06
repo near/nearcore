@@ -630,7 +630,17 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Self::Context) -> Self::Result {
         let epoch_identifier = match msg.epoch_reference {
-            EpochReference::EpochId(id) => ValidatorInfoIdentifier::EpochId(id),
+            EpochReference::EpochId(id) => {
+                // By `EpochId` we can get only cached epochs.
+                // Request for not finished epoch by `EpochId` will return an error because epoch has not been cached yet
+                // If the requested one is current ongoing we need to handle it like `Latest`
+                let tip = self.chain.header_head()?;
+                if tip.epoch_id == id {
+                    ValidatorInfoIdentifier::BlockHash(tip.last_block_hash)
+                } else {
+                    ValidatorInfoIdentifier::EpochId(id)
+                }
+            }
             EpochReference::BlockId(block_id) => {
                 let block_header = match block_id {
                     BlockId::Hash(h) => self.chain.get_block_header(&h)?.clone(),

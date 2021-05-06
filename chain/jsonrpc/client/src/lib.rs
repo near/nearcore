@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use actix_web::client::{Client, Connector};
+use awc::{Client, Connector};
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde::Deserialize;
 use serde::Serialize;
@@ -260,8 +260,7 @@ fn create_client() -> Client {
         .connector(
             Connector::new()
                 .conn_lifetime(Duration::from_secs(u64::max_value()))
-                .conn_keep_alive(Duration::from_secs(30))
-                .finish(),
+                .conn_keep_alive(Duration::from_secs(30)),
         )
         .finish()
 }
