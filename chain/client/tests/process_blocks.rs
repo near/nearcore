@@ -2747,68 +2747,54 @@ fn test_congestion_receipt_execution() {
 }
 
 #[test]
-fn test_restoring_receipts() {
+fn test_restoring_receipts_mainnet() {
     init_test_logger();
     let epoch_length = 5;
-    let mut prev_protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
-    let mut protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
+    let height_timeout = 10;
+    let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.chain_id = String::from("mainnet");
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = protocol_version;
     genesis.config.gas_limit = 10000000000000;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
-        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+        TestEnv::new_with_runtime(chain_genesis.clone(), 1, 1, create_nightshade_runtimes(&genesis, 1));
 
-    for i in 1..=16 {
-        let head = env.clients[0].chain.head().unwrap();
-        let epoch_id = env.clients[0]
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&head.last_block_hash)
-            .unwrap();
-        let block_producer =
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
-        let index = if block_producer == "test0".to_string() { 0 } else { 1 };
-        let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
-        // upgrade
-        // do we need this?
-        // let validator_signer = InMemoryValidatorSigner::from_seed(
-        //     &format!("test{}", index),
-        //     KeyType::ED25519,
-        //     &format!("test{}", index),
-        // );
+    let mut receipt_hashes_to_restore: HashSet<CryptoHash> = HashSet::from_iter(
+        env.clients[0].runtime_adapter.get_migration_data().restored_receipts.get(&0u64)
+            .expect("Receipts to restore must contain an entry for shard 0").clone().iter()
+            .map(|receipt| receipt.receipt_id));
+    let mut execution_is_too_slow= false;
+    let mut height: BlockHeight = 1;
+    let mut last_update_height: BlockHeight = 0;
 
+    while !receipt_hashes_to_restore.is_empty() && !execution_is_too_slow {
+        let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
         block.mut_header().get_mut().inner_rest.latest_protocol_version =
             ProtocolFeature::RestoreReceiptsAfterFix.protocol_version();
-        // block.mut_header().resign(&validator_signer);
+        env.process_block(0, block, Provenance::PRODUCED);
 
-        for j in 0..1 {
-            let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
-            assert!(res.is_ok());
-            env.clients[j].run_catchup(&vec![]).unwrap();
+        let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+        let protocol_version = env.clients[0].runtime_adapter.get_epoch_protocol_version(last_block.header().epoch_id()).unwrap();
+
+        for receipt_id in receipt_hashes_to_restore.clone().iter() {
+            if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
+                assert!(protocol_version >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(), "Restored receipt {} was executed before protocol upgrade", receipt_id);
+                receipt_hashes_to_restore.remove(receipt_id);
+                last_update_height = height;
+            };
         }
 
-        let last_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
-        prev_protocol_version = protocol_version;
-        protocol_version = env.clients[0]
-            .runtime_adapter
-            .get_epoch_protocol_version(last_block.header().epoch_id())
-            .unwrap();
-        println!("pv({}) = {}", i, protocol_version);
+        // If some receipts are still not applied, upgrade already happened, and no new receipt was
+        // applied in some last blocks, consider the process stuck to avoid any possibility of infinite loop
+        execution_is_too_slow |= protocol_version >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() && height - last_update_height >= height_timeout;
 
-        if prev_protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1
-            && protocol_version == ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
-        {
-            // update
-            // add two same rxs intentionally
-            // maybe
-        } else {
-            // no update
-        }
+        height += 1;
     }
+
+    assert!(receipt_hashes_to_restore.is_empty(), "Some of receipts were not executed, hashes: {:?}", receipt_hashes_to_restore);
+    println!("{}", height);
 }
 
 #[cfg(test)]

@@ -2805,10 +2805,6 @@ impl<'a> ChainUpdate<'a> {
                     // is enabled, and save the restored receipts there.
                     #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
                     let receipts = if shard_id == 0
-                        && self
-                            .runtime_adapter
-                            .is_next_block_epoch_start(prev_block.hash())
-                            .unwrap_or(false)
                         && checked_feature!(
                             "protocol_feature_restore_receipts_after_fix",
                             RestoreReceiptsAfterFix,
