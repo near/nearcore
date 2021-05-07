@@ -49,6 +49,11 @@ default = ["wasmer0_vm", "wasmtime_vm", "wasmer1_vm"]
 wasmer0_vm = [ "wasmer-runtime" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-compiler-cranelift", "wasmer-engine-native", ]
+
+wasmer0_default = []
+wasmtime_default = []
+wasmer1_default = []
+
 lightbeam = ["wasmtime/lightbeam"]
 no_cpu_compatibility_checks = []
 protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
