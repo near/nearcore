@@ -51,6 +51,7 @@ adversarial = []
 metric_recorder = []
 delay_detector = ["delay-detector"]
 performance_stats = ["near-performance-metrics/performance_stats"]
+ganache = []
 
 [[bench]]
 name = "graph"

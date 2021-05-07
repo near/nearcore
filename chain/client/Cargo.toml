@@ -59,3 +59,4 @@ protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_head
 protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_add_account_versions"]
+ganache = ["near-network/ganache", "near-chain/ganache"]

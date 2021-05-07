@@ -24,11 +24,13 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
+use near_network::types::NetworkGanacheMessage;
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
@@ -88,7 +90,7 @@ impl RpcConfig {
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(any(feature = "adversarial", feature = "ganache"))]
 fn parse_params<T: serde::de::DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
@@ -222,6 +224,21 @@ impl JsonRpcHandler {
                 "adv_switch_to_height" => Some(self.adv_switch_to_height(params).await),
                 "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
                 "adv_check_store" => Some(self.adv_check_store(params).await),
+                _ => None,
+            };
+
+            if let Some(res) = res {
+                return res;
+            }
+        }
+
+        #[cfg(feature = "ganache")]
+        {
+            let params = request.params.clone();
+
+            let res = match request.method.as_ref() {
+                // Ganache controls
+                "ganache_patch_state" => Some(self.ganache_patch_state(params).await),
                 _ => None,
             };
 
@@ -955,6 +972,21 @@ impl JsonRpcHandler {
         let near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest { block_id } =
             request;
         Ok(self.view_client_addr.send(GetValidatorOrdered { block_id }).await??.into())
+    }
+}
+
+#[cfg(feature = "ganache")]
+impl JsonRpcHandler {
+    async fn ganache_patch_state(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let records = parse_params::<Vec<StateRecord>>(params)?;
+        actix::spawn(
+            self.client_addr
+                .send(NetworkClientMessages::Ganache(NetworkGanacheMessage::GanachePatchState(
+                    records,
+                )))
+                .map(|_| ()),
+        );
+        Ok(Value::String("".to_string()))
     }
 }
 

@@ -62,6 +62,13 @@ use near_primitives::views::{
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
+#[cfg(feature = "ganache")]
+use near_primitives::state_record::StateRecord;
+#[cfg(feature = "ganache")]
+use near_primitives::trie_key::TrieKey;
+#[cfg(feature = "ganache")]
+use std::borrow::Borrow;
+
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 
@@ -2463,6 +2470,45 @@ impl Chain {
                 Err(_) => false,
             })
             .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)).into())
+    }
+}
+
+/// Ganache node specific operations
+#[cfg(feature = "ganache")]
+impl Chain {
+    pub fn patch_state<Record: Borrow<StateRecord>>(
+        &mut self,
+        records: &[Record],
+    ) -> Result<(), Error> {
+        let mut store_update = self.store.owned_store().store_update();
+        for record in records {
+            match record.borrow().clone() {
+                StateRecord::Account { account_id, account } => store_update.set(
+                    ColState,
+                    &(TrieKey::Account { account_id }.to_vec()),
+                    &account.try_to_vec()?,
+                ),
+                StateRecord::AccessKey { account_id, public_key, access_key } => store_update.set(
+                    ColState,
+                    &(TrieKey::AccessKey { account_id, public_key }.to_vec()),
+                    &access_key.try_to_vec()?,
+                ),
+                StateRecord::Contract { account_id, code } => store_update.set(
+                    ColState,
+                    &(TrieKey::ContractCode { account_id }.to_vec()),
+                    &code,
+                ),
+                StateRecord::Data { account_id, data_key, value } => store_update.set(
+                    ColState,
+                    &(TrieKey::ContractData { account_id, key: data_key }.to_vec()),
+                    &value,
+                ),
+                _ => unimplemented!("patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord")
+            }
+        }
+        // store_update.set(ColStateParts, &key, &state_part);
+        store_update.commit().expect("Failed to patch state");
+        Ok(())
     }
 }
 

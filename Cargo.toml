@@ -126,3 +126,5 @@ wasmtime_default = ["node-runtime/wasmtime_default"]
 wasmer1_vm = ["node-runtime/wasmer1_vm"]
 wasmer0_vm = ["node-runtime/wasmer0_vm"]
 wasmtime_vm = ["node-runtime/wasmtime_vm"]
+
+ganache = ["neard/ganache", "near-jsonrpc/ganache"]

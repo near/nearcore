@@ -27,6 +27,7 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
     PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
+use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::{
     EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
     ShardStateSyncResponseV1,
@@ -1411,12 +1412,21 @@ pub enum NetworkAdversarialMessage {
     AdvSetSyncInfo(u64),
 }
 
+#[cfg(feature = "ganache")]
+#[derive(Debug)]
+pub enum NetworkGanacheMessage {
+    GanachePatchState(Vec<StateRecord>),
+}
+
 #[derive(Debug, strum::AsRefStr, AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),
+
+    #[cfg(feature = "ganache")]
+    Ganache(NetworkGanacheMessage),
 
     /// Received transaction.
     Transaction {

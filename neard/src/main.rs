@@ -242,6 +242,19 @@ fn main() {
                 near_config.client_config.archive = true;
             }
 
+            #[cfg(feature = "ganache")]
+            {
+                if near_config.client_config.chain_id == "mainnet"
+                    || near_config.client_config.chain_id == "testnet"
+                    || near_config.client_config.chain_id == "betanet"
+                {
+                    eprintln!(
+                        "Ganache node can only run dedicate localnet, cannot connect to a network"
+                    );
+                    std::process::exit(1);
+                }
+            }
+
             let sys = actix::System::new();
             sys.block_on(async move {
                 start_with_config(home_dir, near_config);
