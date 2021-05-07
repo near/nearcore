@@ -1046,12 +1046,13 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
     });
 }
 
-pub fn load_config(dir: &Path) -> NearConfig {
+pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-    let genesis = if let Some(ref genesis_records_file) = config.genesis_records_file {
-        Genesis::from_files(&dir.join(&config.genesis_file), &dir.join(genesis_records_file))
+    let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
+    let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
+        dir.join(genesis_records_file)
     } else {
-        Genesis::from_file(&dir.join(&config.genesis_file))
+        dir.join(&config.genesis_file)
     };
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
         let signer =
@@ -1062,7 +1063,26 @@ pub fn load_config(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = InMemorySigner::from_file(&dir.join(&config.node_key_file));
-    NearConfig::new(config, genesis, (&network_signer).into(), validator_signer)
+    NearConfig::new(
+        config,
+        Genesis::new_with_path(genesis_config, genesis_records_file),
+        (&network_signer).into(),
+        validator_signer,
+    )
+}
+
+pub fn load_config(dir: &Path) -> NearConfig {
+    let mut near_config = load_config_without_genesis_records(dir);
+    near_config.genesis =
+        if let Some(ref genesis_records_file) = near_config.config.genesis_records_file {
+            Genesis::from_files(
+                &dir.join(&near_config.config.genesis_file),
+                &dir.join(genesis_records_file),
+            )
+        } else {
+            Genesis::from_file(&dir.join(&near_config.config.genesis_file))
+        };
+    near_config
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
