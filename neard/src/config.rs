@@ -12,7 +12,7 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, GenesisRecords, LogSummaryStyle};
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -1065,7 +1065,7 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     let network_signer = InMemorySigner::from_file(&dir.join(&config.node_key_file));
     NearConfig::new(
         config,
-        Genesis::new_as_is(genesis_config, GenesisRecords(vec![]), genesis_records_file),
+        Genesis::new_with_path(genesis_config, genesis_records_file),
         (&network_signer).into(),
         validator_signer,
     )

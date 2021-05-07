@@ -381,12 +381,8 @@ impl Genesis {
         genesis
     }
 
-    pub fn new_as_is(
-        config: GenesisConfig,
-        records: GenesisRecords,
-        records_file: PathBuf,
-    ) -> Self {
-        Self { config, records, records_file, phantom: PhantomData }
+    pub fn new_with_path(config: GenesisConfig, records_file: PathBuf) -> Self {
+        Self { config, records: GenesisRecords(vec![]), records_file, phantom: PhantomData }
     }
 
     /// Reads Genesis from a single file.
