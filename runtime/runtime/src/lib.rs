@@ -51,6 +51,7 @@ use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::migration_data::MigrationData;
 #[cfg(feature = "protocol_feature_fix_storage_usage")]
 use near_primitives::types::MigrationId;
 use near_primitives::version::{
@@ -58,6 +59,7 @@ use near_primitives::version::{
 };
 use std::borrow::Borrow;
 use std::rc::Rc;
+use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
@@ -1080,40 +1082,34 @@ impl Runtime {
     pub fn apply_migrations(
         &self,
         state_update: &mut TrieUpdate,
-        apply_state: &ApplyState,
+        migration_data: &Arc<MigrationData>,
+        protocol_version: ProtocolVersion,
     ) -> Result<Gas, StorageError> {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
         let mut gas_used: Gas = 0;
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         let gas_used: Gas = 0;
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
-        if ProtocolFeature::FixStorageUsage.protocol_version()
-            == apply_state.current_protocol_version
-        {
-            match &apply_state.migration_data {
-                Some(migration_data) => {
-                    for (account_id, delta) in &migration_data.storage_usage_delta {
-                        match get_account(state_update, account_id)? {
-                            Some(mut account) => {
-                                // Storage usage is saved in state, hence it is nowhere close to max value
-                                // of u64, and maximal delta is 4196, se we can add here without checking
-                                // for overflow
-                                account.set_storage_usage(account.storage_usage() + delta);
-                                set_account(state_update, account_id.clone(), &account);
-                            }
-                            // Account could have been deleted in the meantime
-                            None => {}
-                        }
+        if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version {
+            for (account_id, delta) in &migration_data.storage_usage_delta {
+                match get_account(state_update, account_id)? {
+                    Some(mut account) => {
+                        // Storage usage is saved in state, hence it is nowhere close to max value
+                        // of u64, and maximal delta is 4196, se we can add here without checking
+                        // for overflow
+                        account.set_storage_usage(account.storage_usage() + delta);
+                        set_account(state_update, account_id.clone(), &account);
                     }
+                    // Account could have been deleted in the meantime
+                    None => {}
                 }
-                None => unreachable!(),
             }
             gas_used += Runtime::GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION;
             state_update
                 .commit(StateChangeCause::Migration { migration_id: MigrationId::StorageUsageFix });
         }
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
-        (state_update, apply_state);
+        (state_update, migration_data, protocol_version);
         Ok(gas_used)
     }
 
@@ -1150,9 +1146,13 @@ impl Runtime {
             )?;
         }
 
-        let gas_used_for_migrations = match apply_state.migration_data {
-            Some(_) => self
-                .apply_migrations(&mut state_update, apply_state)
+        let gas_used_for_migrations = match &apply_state.migration_data {
+            Some(migration_data) => self
+                .apply_migrations(
+                    &mut state_update,
+                    migration_data,
+                    apply_state.current_protocol_version,
+                )
                 .map_err(|e| RuntimeError::StorageError(e))?,
             None => 0 as Gas,
         };
