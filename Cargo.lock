@@ -4773,7 +4773,7 @@ dependencies = [
 name = "restored-receipts-verifier"
 version = "0.1.0"
 dependencies = [
- "clap 2.33.3",
+ "clap 3.0.0-beta.2",
  "near-chain",
  "near-primitives",
  "near-store",

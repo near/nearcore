@@ -2895,9 +2895,9 @@ fn test_congestion_receipt_execution() {
 fn test_restoring_receipts_mainnet() {
     let epoch_length = 5;
 
-    let run_test = |low_height_with_no_chunk: BlockHeight,
-                    high_height_with_no_chunk: BlockHeight,
-                    result: bool| {
+    let run = |low_height_with_no_chunk: BlockHeight,
+               high_height_with_no_chunk: BlockHeight,
+               result: bool| {
         // init_test_logger();
         let height_timeout = 10;
         let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
@@ -2951,7 +2951,6 @@ fn test_restoring_receipts_mainnet() {
                 .runtime_adapter
                 .get_epoch_protocol_version(last_block.header().epoch_id())
                 .unwrap();
-            println!("{} {}", height, protocol_version);
 
             for receipt_id in receipt_hashes_to_restore.clone().iter() {
                 if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
@@ -2986,12 +2985,15 @@ fn test_restoring_receipts_mainnet() {
                 "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
             );
         }
-        println!("{}", height);
     };
 
-    run_test(1, 0, true);
-    run_test(8, 12, true);
-    run_test(11, 11 + epoch_length, false);
+    // If there are no chunks missing, all receipts should be applied
+    run(1, 0, true);
+    // If the first chunk in the first epoch with needed protocol version is missing,
+    // all receipts should still be applied
+    run(8, 12, true);
+    // If all chunks are missing in the first epoch, no receipts should be applied
+    run(11, 11 + epoch_length, false);
 }
 
 #[cfg(test)]

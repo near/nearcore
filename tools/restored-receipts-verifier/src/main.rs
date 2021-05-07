@@ -12,8 +12,8 @@ use near_store::create_store;
 use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 
 fn main() -> Result<()> {
-    // Script to verify that receipts being restored after apply_chunks fix were actually lost.
-    // Only receipt hashes are checked, because of their uniqueness.
+    // Script to verify that receipts being restored after apply_chunks fix were actually created.
+    // Because receipt hashes are unique, we only check for their presence.
     // See https://github.com/near/nearcore/pull/4248/ for more details.
     // Requirement: mainnet archival node dump.
 
@@ -22,10 +22,9 @@ fn main() -> Result<()> {
     let default_home = get_default_home();
     let matches = App::new("restored-receipts-verifier")
         .arg(
-            Arg::with_name("home")
-                .long("home")
+            Arg::new("home")
                 .default_value(&default_home)
-                .help("Directory for config and data (default \"~/.near\")")
+                .about("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
         .get_matches();

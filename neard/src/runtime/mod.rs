@@ -485,8 +485,9 @@ impl NightshadeRuntime {
                 RestoreReceiptsAfterFix,
                 prev_epoch_protocol_version
             ) {
-            let prev_protocol_version =
-                self.get_protocol_version_of_last_block_with_chunk(prev_block_hash, shard_id).unwrap();
+            let prev_protocol_version = self
+                .get_protocol_version_of_last_block_with_chunk(prev_block_hash, shard_id)
+                .unwrap();
 
             let mut receipts_to_restore = if !checked_feature!(
                 "protocol_feature_restore_receipts_after_fix",
