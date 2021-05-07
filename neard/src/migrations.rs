@@ -305,18 +305,18 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
 #[cfg(test)]
 mod tests {
     #[cfg(any(
-    feature = "protocol_feature_fix_storage_usage",
-    feature = "protocol_feature_restore_receipts_after_fix"
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
     ))]
     use super::*;
     #[cfg(any(
-    feature = "protocol_feature_fix_storage_usage",
-    feature = "protocol_feature_restore_receipts_after_fix"
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
     ))]
     use near_primitives::hash::hash;
     #[cfg(any(
-    feature = "protocol_feature_fix_storage_usage",
-    feature = "protocol_feature_restore_receipts_after_fix"
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
     ))]
     use near_primitives::serialize::to_base;
 

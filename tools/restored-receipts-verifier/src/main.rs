@@ -11,9 +11,9 @@ use near_primitives::receipt::Receipt;
 #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
 use near_primitives::receipt::ReceiptResult;
 use near_store::create_store;
-use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use neard::migrations::load_migration_data;
+use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 
 fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
     #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
@@ -24,7 +24,9 @@ fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
     receipts.into_iter().map(|receipt| receipt.get_hash()).collect()
 }
 
-fn get_differences_with_hashes_from_repo(receipt_hashes_missing: Vec<CryptoHash>) -> (Vec<CryptoHash>, Vec<CryptoHash>) {
+fn get_differences_with_hashes_from_repo(
+    receipt_hashes_missing: Vec<CryptoHash>,
+) -> (Vec<CryptoHash>, Vec<CryptoHash>) {
     let missing_hashes = HashSet::<CryptoHash>::from_iter(receipt_hashes_missing.into_iter());
     let existing_hashes = HashSet::from_iter(get_receipt_hashes_in_repo().into_iter());
     let not_verified_hashes: Vec<CryptoHash> =
@@ -114,10 +116,12 @@ fn main() -> Result<()> {
         eprintln!("{} applied", height);
     }
 
-    let receipt_hashes_missing = receipts_missing.into_iter().map(|receipt| receipt.get_hash()).collect();
+    let receipt_hashes_missing =
+        receipts_missing.into_iter().map(|receipt| receipt.get_hash()).collect();
 
     eprintln!("Verifying receipt hashes...");
-    let (receipt_hashes_not_verified, receipt_hashes_still_missing) = get_differences_with_hashes_from_repo(receipt_hashes_missing);
+    let (receipt_hashes_not_verified, receipt_hashes_still_missing) =
+        get_differences_with_hashes_from_repo(receipt_hashes_missing);
     assert!(
         receipt_hashes_not_verified.is_empty(),
         "Some of receipt hashes in repo were not verified successfully: {:?}",
@@ -145,19 +149,22 @@ mod tests {
         let receipt_hashes_in_repo = get_receipt_hashes_in_repo();
 
         let receipt_hashes_missing = receipt_hashes_in_repo.clone();
-        let (receipt_hashes_not_verified, receipt_hashes_still_missing) = get_differences_with_hashes_from_repo(receipt_hashes_missing);
+        let (receipt_hashes_not_verified, receipt_hashes_still_missing) =
+            get_differences_with_hashes_from_repo(receipt_hashes_missing);
         assert!(receipt_hashes_not_verified.is_empty());
         assert!(receipt_hashes_still_missing.is_empty());
 
         let mut receipt_hashes_missing = receipt_hashes_in_repo.clone();
         let extra_hash = receipt_hashes_missing.pop().unwrap();
-        let (receipt_hashes_not_verified, receipt_hashes_still_missing) = get_differences_with_hashes_from_repo(receipt_hashes_missing);
+        let (receipt_hashes_not_verified, receipt_hashes_still_missing) =
+            get_differences_with_hashes_from_repo(receipt_hashes_missing);
         assert_eq!(receipt_hashes_not_verified, vec![extra_hash]);
         assert!(receipt_hashes_still_missing.is_empty());
 
         let mut receipt_hashes_missing = receipt_hashes_in_repo.clone();
         receipt_hashes_missing.push(CryptoHash::default());
-        let (receipt_hashes_not_verified, receipt_hashes_still_missing) = get_differences_with_hashes_from_repo(receipt_hashes_missing);
+        let (receipt_hashes_not_verified, receipt_hashes_still_missing) =
+            get_differences_with_hashes_from_repo(receipt_hashes_missing);
         assert!(receipt_hashes_not_verified.is_empty());
         assert_eq!(receipt_hashes_still_missing, vec![CryptoHash::default()]);
     }
