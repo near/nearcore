@@ -88,7 +88,7 @@ pub mod block_info {
             slashed: Vec<SlashedValidator>,
             total_supply: Balance,
             latest_protocol_version: ProtocolVersion,
-            #[cfg(feature = "protocol_feature_rectify_inflation")] timestamp_nanosec: u64,
+            timestamp_nanosec: u64,
         ) -> Self {
             Self::V2(BlockInfoV2 {
                 hash,
@@ -113,7 +113,6 @@ pub mod block_info {
                 total_supply,
                 epoch_first_block: Default::default(),
                 epoch_id: Default::default(),
-                #[cfg(feature = "protocol_feature_rectify_inflation")]
                 timestamp_nanosec,
             })
         }
@@ -238,7 +237,6 @@ pub mod block_info {
             }
         }
 
-        #[cfg(feature = "protocol_feature_rectify_inflation")]
         #[inline]
         pub fn timestamp_nanosec(&self) -> &u64 {
             match self {
@@ -266,7 +264,6 @@ pub mod block_info {
         pub slashed: HashMap<AccountId, SlashState>,
         /// Total supply at this block.
         pub total_supply: Balance,
-        #[cfg(feature = "protocol_feature_rectify_inflation")]
         pub timestamp_nanosec: u64,
     }
 }
@@ -358,7 +355,6 @@ pub mod block_info {
             &self.total_supply
         }
 
-        #[cfg(feature = "protocol_feature_rectify_inflation")]
         #[inline]
         pub fn timestamp_nanosec(&self) -> &u64 {
             &self.timestamp_nanosec
@@ -384,7 +380,6 @@ pub struct BlockInfoV1 {
     pub slashed: HashMap<AccountId, SlashState>,
     /// Total supply at this block.
     pub total_supply: Balance,
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
     pub timestamp_nanosec: u64,
 }
 
@@ -400,7 +395,7 @@ impl BlockInfoV1 {
         slashed: Vec<SlashedValidator>,
         total_supply: Balance,
         latest_protocol_version: ProtocolVersion,
-        #[cfg(feature = "protocol_feature_rectify_inflation")] timestamp_nanosec: u64,
+        timestamp_nanosec: u64,
     ) -> Self {
         Self {
             hash,
@@ -422,7 +417,6 @@ impl BlockInfoV1 {
             total_supply,
             epoch_first_block: Default::default(),
             epoch_id: Default::default(),
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
             timestamp_nanosec,
         }
     }

@@ -95,6 +95,8 @@ pub struct ClientConfig {
     pub epoch_sync_enabled: bool,
     /// Number of seconds between state requests for view client.
     pub view_client_throttle_period: Duration,
+    /// Upper bound of the byte size of contract state that is still viewable. None is no limit
+    pub trie_viewer_state_size_limit: Option<u64>,
 }
 
 impl ClientConfig {
@@ -151,6 +153,7 @@ impl ClientConfig {
             view_client_threads: 1,
             epoch_sync_enabled,
             view_client_throttle_period: Duration::from_secs(1),
+            trie_viewer_state_size_limit: None,
         }
     }
 }

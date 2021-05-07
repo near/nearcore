@@ -14,7 +14,6 @@ use near_store::test_utils::create_test_store;
 use neard::config::GenesisExt;
 use testlib::fees_utils::FeeHelper;
 
-#[cfg(feature = "protocol_feature_rectify_inflation")]
 use primitive_types::U256;
 
 fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
@@ -32,6 +31,7 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
         &genesis,
         vec![],
         vec![],
+        None,
     ))];
     let env = TestEnv::new_with_runtime(ChainGenesis::from(&genesis), 1, 1, runtimes);
     (env, fee_helper)
@@ -106,9 +106,6 @@ fn test_burn_mint() {
     let block3 = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
     // We burn half of the cost when tx executed and the other half in the next block for the receipt processing.
     let half_transfer_cost = fee_helper.transfer_cost() / 2;
-    #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
-    let epoch_total_reward = initial_total_supply / 10;
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
     let epoch_total_reward = {
         let block0 = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
         let block2 = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
@@ -131,20 +128,11 @@ fn test_burn_mint() {
     assert_eq!(env.query_balance("near".to_string()), near_balance + epoch_total_reward / 10);
     // Block 5: reward from previous block.
     let block5 = env.clients[0].chain.get_block_by_height(5).unwrap().clone();
-    #[cfg(not(feature = "protocol_feature_rectify_inflation"))]
-    assert_eq!(
-        block5.header().total_supply(),
-        // previous supply + 10%
-        block4.header().total_supply() * 110 / 100
-    );
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
-    {
-        let prev_total_supply = block4.header().total_supply();
-        let block2 = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
-        let epoch_total_reward = (U256::from(prev_total_supply)
-            * U256::from(block4.header().raw_timestamp() - block2.header().raw_timestamp())
-            / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
-        .as_u128();
-        assert_eq!(block5.header().total_supply(), prev_total_supply + epoch_total_reward);
-    }
+    let prev_total_supply = block4.header().total_supply();
+    let block2 = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
+    let epoch_total_reward = (U256::from(prev_total_supply)
+        * U256::from(block4.header().raw_timestamp() - block2.header().raw_timestamp())
+        / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
+    .as_u128();
+    assert_eq!(block5.header().total_supply(), prev_total_supply + epoch_total_reward);
 }

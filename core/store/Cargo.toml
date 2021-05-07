@@ -38,10 +38,9 @@ harness = false
 default = []
 no_cache = []
 adversarial = []
-protocol_feature_rectify_inflation = []
 protocol_feature_block_header_v3 = []
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_rectify_inflation", "protocol_feature_block_header_v3"]
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3"]
 
 [package.metadata.workspaces]
 independent = true

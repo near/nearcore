@@ -131,24 +131,19 @@ pub fn verify_and_charge_transaction(
         }
         .into());
     }
-    checked_feature!(
-        "protocol_feature_access_key_nonce_range",
-        AccessKeyNonceRange,
-        current_protocol_version,
-        {
-            if let Some(height) = block_height {
-                let upper_bound =
-                    height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-                if transaction.nonce >= upper_bound {
-                    return Err(InvalidTxError::NonceTooLarge {
-                        tx_nonce: transaction.nonce,
-                        upper_bound,
-                    }
-                    .into());
+    if checked_feature!("stable", AccessKeyNonceRange, current_protocol_version) {
+        if let Some(height) = block_height {
+            let upper_bound =
+                height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            if transaction.nonce >= upper_bound {
+                return Err(InvalidTxError::NonceTooLarge {
+                    tx_nonce: transaction.nonce,
+                    upper_bound,
                 }
+                .into());
             }
         }
-    );
+    };
 
     access_key.nonce = transaction.nonce;
 

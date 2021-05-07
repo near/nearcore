@@ -549,7 +549,6 @@ impl Peer {
                     RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(chunk)
                     }
-                    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                     RoutedMessageBody::PartialEncodedChunkForward(forward) => {
                         NetworkClientMessages::PartialEncodedChunkForward(forward)
                     }
