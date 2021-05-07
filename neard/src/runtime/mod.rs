@@ -466,10 +466,10 @@ impl NightshadeRuntime {
             },
         };
 
-        // This part of code re-introduces receipts lost because of a bug in apply_chunks
+        // This code block re-introduces receipts lost because of a bug in apply_chunks
         // (see https://github.com/near/nearcore/pull/4248/)
-        // We take the first block with new chunk in which protocol feature RestoreReceiptsAfterFix
-        // is enabled, and save the restored receipts there.
+        // We take the first block with existing chunk in the first epoch in which protocol feature
+        // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
         #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
         let incoming_receipts = receipts.to_vec();
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
