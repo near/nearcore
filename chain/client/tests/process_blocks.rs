@@ -2890,11 +2890,15 @@ fn test_congestion_receipt_execution() {
     }
 }
 
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 #[test]
 fn test_restoring_receipts_mainnet() {
-    let mut run_test = |test_with_block_with_no_chunk: bool| {
+    let epoch_length = 5;
+
+    let run_test = |low_height_with_no_chunk: BlockHeight,
+                    high_height_with_no_chunk: BlockHeight,
+                    result: bool| {
         // init_test_logger();
-        let epoch_length = 5;
         let height_timeout = 10;
         let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
@@ -2910,17 +2914,21 @@ fn test_restoring_receipts_mainnet() {
             create_nightshade_runtimes(&genesis, 1),
         );
 
-        let mut receipt_hashes_to_restore: HashSet<CryptoHash> = HashSet::from_iter(
-            env.clients[0]
-                .runtime_adapter
-                .get_migration_data()
-                .restored_receipts
-                .get(&0u64)
-                .expect("Receipts to restore must contain an entry for shard 0")
-                .clone()
-                .iter()
-                .map(|receipt| receipt.receipt_id),
-        );
+        let get_restored_receipt_hashes = |env: &mut TestEnv| -> HashSet<CryptoHash> {
+            HashSet::from_iter(
+                env.clients[0]
+                    .runtime_adapter
+                    .get_migration_data()
+                    .restored_receipts
+                    .get(&0u64)
+                    .expect("Receipts to restore must contain an entry for shard 0")
+                    .clone()
+                    .iter()
+                    .map(|receipt| receipt.receipt_id),
+            )
+        };
+
+        let mut receipt_hashes_to_restore = get_restored_receipt_hashes(&mut env);
         let mut height: BlockHeight = 1;
         let mut last_update_height: BlockHeight = 0;
 
@@ -2931,7 +2939,7 @@ fn test_restoring_receipts_mainnet() {
             let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
             block.mut_header().get_mut().inner_rest.latest_protocol_version =
                 ProtocolFeature::RestoreReceiptsAfterFix.protocol_version();
-            if test_with_block_with_no_chunk && (height >= 8 && height <= 11) {
+            if low_height_with_no_chunk <= height && height < high_height_with_no_chunk {
                 let prev_block =
                     env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
                 set_no_chunk_in_block(&mut block, &prev_block);
@@ -2965,16 +2973,25 @@ fn test_restoring_receipts_mainnet() {
             height += 1;
         }
 
-        assert!(
-            receipt_hashes_to_restore.is_empty(),
-            "Some of receipts were not executed, hashes: {:?}",
-            receipt_hashes_to_restore
-        );
+        if result {
+            assert!(
+                receipt_hashes_to_restore.is_empty(),
+                "Some of receipts were not executed, hashes: {:?}",
+                receipt_hashes_to_restore
+            );
+        } else {
+            assert_eq!(
+                receipt_hashes_to_restore,
+                get_restored_receipt_hashes(&mut env),
+                "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
+            );
+        }
         println!("{}", height);
     };
 
-    run_test(true);
-    run_test(false);
+    run_test(1, 0, true);
+    run_test(8, 12, true);
+    run_test(11, 11 + epoch_length, false);
 }
 
 #[cfg(test)]

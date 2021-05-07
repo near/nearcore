@@ -10,7 +10,6 @@ use tracing::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier};
-
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_chain::{Doomslug, DoomslugThresholdMode};
@@ -23,6 +22,8 @@ use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -200,6 +201,18 @@ impl NightshadeRuntime {
     fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_epoch_id(hash).map_err(Error::from)
+    }
+
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        if epoch_manager.is_next_block_epoch_start(parent_hash)? {
+            epoch_manager.get_epoch_id(parent_hash).map_err(Error::from)
+        } else {
+            epoch_manager.get_prev_epoch_id(parent_hash).map_err(Error::from)
+        }
     }
 
     fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
@@ -405,8 +418,10 @@ impl NightshadeRuntime {
         let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let prev_block_epoch_id = self.get_epoch_id(prev_block_hash)?;
+        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(prev_block_hash)?;
         let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         let prev_block_protocol_version = self.get_epoch_protocol_version(&prev_block_epoch_id)?;
+        let prev_epoch_protocol_version = self.get_epoch_protocol_version(&prev_epoch_id)?;
 
         let apply_state = ApplyState {
             block_index: block_height,
@@ -435,6 +450,59 @@ impl NightshadeRuntime {
             },
         };
 
+        // This part of code re-introduces receipts lost because of a bug in apply_chunks
+        // (see https://github.com/near/nearcore/pull/4248/)
+        // We take the first block with new chunk in which protocol feature RestoreReceiptsAfterFix
+        // is enabled, and save the restored receipts there.
+        #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
+        let incoming_receipts = receipts.to_vec();
+        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+        let incoming_receipts = if shard_id == 0
+            && checked_feature!(
+                "protocol_feature_restore_receipts_after_fix",
+                RestoreReceiptsAfterFix,
+                current_protocol_version
+            )
+            && !checked_feature!(
+                "protocol_feature_restore_receipts_after_fix",
+                RestoreReceiptsAfterFix,
+                prev_epoch_protocol_version
+            ) {
+            let prev_protocol_version = {
+                let mut epoch_manager =
+                    self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+                let mut prev_block_with_chunk_hash = prev_block_hash.clone();
+                loop {
+                    let prev_block_info =
+                        epoch_manager.get_block_info(&prev_block_with_chunk_hash).unwrap().clone();
+                    if prev_block_info.chunk_mask()[0] {
+                        break epoch_manager
+                            .get_epoch_info(prev_block_info.epoch_id())?
+                            .protocol_version();
+                    }
+                    prev_block_with_chunk_hash = prev_block_info.prev_hash().clone();
+                }
+            };
+
+            let mut receipts_to_restore = if !checked_feature!(
+                "protocol_feature_restore_receipts_after_fix",
+                RestoreReceiptsAfterFix,
+                prev_protocol_version
+            ) {
+                self.migration_data
+                    .restored_receipts
+                    .get(&shard_id)
+                    .expect("Receipts to restore must contain an entry for shard 0")
+                    .clone()
+            } else {
+                Vec::<Receipt>::new()
+            };
+            receipts_to_restore.extend_from_slice(receipts);
+            receipts_to_restore
+        } else {
+            receipts.to_vec()
+        };
+
         let apply_result = self
             .runtime
             .apply(
@@ -442,7 +510,7 @@ impl NightshadeRuntime {
                 state_root,
                 &validator_accounts_update,
                 &apply_state,
-                &receipts,
+                &incoming_receipts,
                 &transactions,
                 &self.epoch_manager,
             )
