@@ -4,6 +4,15 @@ use near_primitives::state_record::StateRecord;
 use num_rational::Rational;
 use std::collections::{HashMap, HashSet};
 
+/// Validate genesis config and records. Panics if genesis is ill-formed.
+pub fn validate_genesis(genesis: &Genesis) {
+    let mut genesis_validator = GenesisValidator::new(&genesis.config);
+    genesis.for_each_record(|record: &StateRecord| {
+        genesis_validator.process_record(record);
+    });
+    genesis_validator.validate();
+}
+
 struct GenesisValidator<'a> {
     genesis_config: &'a GenesisConfig,
     total_supply: u128,
@@ -119,15 +128,6 @@ impl<'a> GenesisValidator<'a> {
             "Gas price adjustment rate must be less than 1"
         );
     }
-}
-
-/// Validate genesis config and records. Panics if genesis is ill-formed.
-pub fn validate_genesis(genesis: &Genesis) {
-    let mut genesis_validator = GenesisValidator::new(&genesis.config);
-    genesis.for_each_record(|record: &StateRecord| {
-        genesis_validator.process_record(record);
-    });
-    genesis_validator.validate();
 }
 
 #[cfg(test)]

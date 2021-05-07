@@ -3,11 +3,11 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
-use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
+use std::{fmt, io};
 
 use chrono::{DateTime, Utc};
 use num_rational::Rational;
@@ -419,14 +419,13 @@ impl Genesis {
         hasher.finalize()
     }
 
-    fn stream_records_with_callback(
-        &self,
-        callback: impl FnMut(StateRecord),
-    ) -> std::io::Result<()> {
+    fn stream_records_with_callback(&self, callback: impl FnMut(StateRecord)) -> io::Result<()> {
         let reader = BufReader::new(File::open(&self.records_file)?);
-        stream_records_from_file(reader, callback).map_err(std::io::Error::from)
+        stream_records_from_file(reader, callback).map_err(io::Error::from)
     }
 
+    /// If records vector is empty processes records stream from records_file.
+    /// May panic if records_file is removed or is in wrong format.
     pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
         if self.records.as_ref().is_empty() {
             let callback_move = |record: StateRecord| {

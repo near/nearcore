@@ -1326,6 +1326,7 @@ mod tests {
     use super::*;
 
     use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_primitives::account::AccessKey;
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
@@ -1335,6 +1336,7 @@ mod tests {
     };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::set_access_key;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
     use std::sync::Arc;
@@ -1384,9 +1386,6 @@ mod tests {
         gas_limit: Gas,
     ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
     {
-        use near_primitives::account::AccessKey;
-        use near_store::set_access_key;
-
         let tries = create_tries();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
@@ -2122,8 +2121,6 @@ mod tests {
 
     #[test]
     fn test_delete_key_add_key() {
-        use near_primitives::account::AccessKey;
-
         let initial_locked = to_yocto(500_000);
         let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
