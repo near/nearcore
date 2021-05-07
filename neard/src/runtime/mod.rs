@@ -205,13 +205,29 @@ impl NightshadeRuntime {
 
     fn get_prev_epoch_id_from_prev_block(
         &self,
-        parent_hash: &CryptoHash,
+        prev_block_hash: &CryptoHash,
     ) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        if epoch_manager.is_next_block_epoch_start(parent_hash)? {
-            epoch_manager.get_epoch_id(parent_hash).map_err(Error::from)
+        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+            epoch_manager.get_epoch_id(prev_block_hash).map_err(Error::from)
         } else {
-            epoch_manager.get_prev_epoch_id(parent_hash).map_err(Error::from)
+            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
+        }
+    }
+
+    fn get_protocol_version_of_last_block_with_chunk(
+        &self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ProtocolVersion, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let mut candidate_hash = hash.clone();
+        loop {
+            let block_info = epoch_manager.get_block_info(&candidate_hash).unwrap().clone();
+            if block_info.chunk_mask()[shard_id as usize] {
+                break Ok(epoch_manager.get_epoch_info(block_info.epoch_id())?.protocol_version());
+            }
+            candidate_hash = block_info.prev_hash().clone();
         }
     }
 
@@ -457,7 +473,8 @@ impl NightshadeRuntime {
         #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
         let incoming_receipts = receipts.to_vec();
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-        let incoming_receipts = if shard_id == 0
+        let incoming_receipts = if is_new_chunk
+            && shard_id == 0
             && checked_feature!(
                 "protocol_feature_restore_receipts_after_fix",
                 RestoreReceiptsAfterFix,
@@ -468,21 +485,8 @@ impl NightshadeRuntime {
                 RestoreReceiptsAfterFix,
                 prev_epoch_protocol_version
             ) {
-            let prev_protocol_version = {
-                let mut epoch_manager =
-                    self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-                let mut prev_block_with_chunk_hash = prev_block_hash.clone();
-                loop {
-                    let prev_block_info =
-                        epoch_manager.get_block_info(&prev_block_with_chunk_hash).unwrap().clone();
-                    if prev_block_info.chunk_mask()[0] {
-                        break epoch_manager
-                            .get_epoch_info(prev_block_info.epoch_id())?
-                            .protocol_version();
-                    }
-                    prev_block_with_chunk_hash = prev_block_info.prev_hash().clone();
-                }
-            };
+            let prev_protocol_version =
+                self.get_protocol_version_of_last_block_with_chunk(prev_block_hash, shard_id).unwrap();
 
             let mut receipts_to_restore = if !checked_feature!(
                 "protocol_feature_restore_receipts_after_fix",
